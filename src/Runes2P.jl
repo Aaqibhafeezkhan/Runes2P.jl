@@ -16,6 +16,7 @@ include("grids/radial.jl")
 include("grids/kinetic.jl")
 include("operators/advection_diffusion.jl")
 include("operators/kinetic_terms.jl")
+include("operators/knockon/kinematics.jl")
 include("system/jacobian.jl")
 
 export PXiGrid, uniform_p_faces, biuniform_p_faces, uniform_xi_faces
@@ -31,5 +32,6 @@ export add_electric_field!, add_slowing_down!, add_pitch_scattering!, add_energy
 export add_synchrotron!, fokker_planck_operator
 export SparseJacobian, jacobian, jacobian!, operator_matrix, stencil_pattern, sparse_ad_backend
 export is_local, check_stencil_pattern
+export xi_star, moller_cross_section, moller_flux, max_knockon_momentum, moller_total_rate
 
 end # module Runes2P

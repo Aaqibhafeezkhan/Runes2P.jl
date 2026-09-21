@@ -10,4 +10,5 @@ using LinearAlgebra: Diagonal
     include("test_physics.jl")
     include("test_collisions_dream.jl")
     include("test_kinetic_operator_dream.jl")
+    include("test_knockon_kinematics.jl")
 end
