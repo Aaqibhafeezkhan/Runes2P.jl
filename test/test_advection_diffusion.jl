@@ -2,7 +2,7 @@ using Random
 
 function _conservation_residual(g, df)
     s = 0.0
-    for ir in 1:nr(g), j in 1:nxi(g), i in 1:np(g)
+    for ir in 1:n_r(g), j in 1:n_xi(g), i in 1:n_p(g)
         s += g.Vp[i, j, ir] * g.mom.dp[i] * g.mom.dxi[j] * g.rad.dr[ir] * df[i, j, ir]
     end
     return s
@@ -32,10 +32,10 @@ end
 
     @testset "isotropic f is steady under pitch-angle scattering" begin
         op = AdvectionDiffusion(g)
-        for k in 1:nxi(g)+1, i in 1:np(g)
+        for k in 1:n_xi(g)+1, i in 1:n_p(g)
             op.Dxixi[i, k, :] .= (1 - mom.xi_f[k]^2) / 2
         end
-        f = [exp(-mom.p[i]) for i in 1:np(g), _ in 1:nxi(g), _ in 1:nr(g)]
+        f = [exp(-mom.p[i]) for i in 1:n_p(g), _ in 1:n_xi(g), _ in 1:n_r(g)]
         df = zeros(size(g))
         apply!(df, op, f)
         @test maximum(abs, df) < 1e-14
@@ -73,7 +73,7 @@ end
         @test maximum(abs, df[:, :, 1:end-1]) < 1e-14
         loss = _conservation_residual(g, df)
         wall = sum(g.Vp_fr[i, j, end] * mom.dp[i] * mom.dxi[j] * 0.3 / (rad.r_f[end] - rad.r[end])
-                   for i in 1:np(g), j in 1:nxi(g))
+                   for i in 1:n_p(g), j in 1:n_xi(g))
         @test loss ≈ -wall
     end
 end

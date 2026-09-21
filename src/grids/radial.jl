@@ -22,7 +22,7 @@ function RadialGrid(r_f::AbstractVector{T}) where {T<:AbstractFloat}
     return RadialGrid{T}(r, r_f, diff(r_f), copy(r), copy(r_f))
 end
 
-nr(g::RadialGrid) = length(g.r)
+n_r(g::RadialGrid) = length(g.r)
 
 """
     uniform_r_faces(nr, a)

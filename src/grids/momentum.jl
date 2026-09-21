@@ -23,14 +23,18 @@ function PXiGrid(p_f::AbstractVector{T}, xi_f::AbstractVector{T}) where {T<:Abst
     (first(xi_f) >= -1 && last(xi_f) <= 1) || throw(ArgumentError("ξ faces must lie in [-1, 1]"))
     p_f = collect(p_f)
     xi_f = collect(xi_f)
+    minimum(diff(p_f)) > 1e-10 * (last(p_f) - first(p_f)) ||
+        throw(ArgumentError("p grid has a degenerate cell"))
+    minimum(diff(xi_f)) > 1e-10 * (last(xi_f) - first(xi_f)) ||
+        throw(ArgumentError("ξ grid has a degenerate cell"))
     p = (p_f[1:end-1] .+ p_f[2:end]) ./ 2
     xi = (xi_f[1:end-1] .+ xi_f[2:end]) ./ 2
     return PXiGrid{T}(p, p_f, diff(p_f), xi, xi_f, diff(xi_f))
 end
 
-np(g::PXiGrid) = length(g.p)
-nxi(g::PXiGrid) = length(g.xi)
-ncells(g::PXiGrid) = np(g) * nxi(g)
+n_p(g::PXiGrid) = length(g.p)
+n_xi(g::PXiGrid) = length(g.xi)
+ncells(g::PXiGrid) = n_p(g) * n_xi(g)
 
 """
     uniform_p_faces(np, pmin, pmax)
