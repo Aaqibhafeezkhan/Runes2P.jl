@@ -35,6 +35,27 @@ using QuadGK: quadgk
         @test errs[1] / errs[3] > 20  # second order; measured 31
     end
 
+    @testset "isotropic primaries give isotropic knock-ons" begin
+        # Rotational invariance: an isotropic primary population produces knock-ons whose
+        # pitch distribution is isotropic at every momentum. With the primary averaged over
+        # its cell (default) this holds to the quadrature accuracy for every tabulated and
+        # interpolated slice; DREAM's cell-centre primary misplaces ~10% in some cells.
+        g = cylindrical_grid(PXiGrid(biuniform_p_faces(30, 10, 0.0, 0.5, 5.0),
+                                     -cos.(range(0, π; length=17))), rad)
+        f = [exp(-p / 1.2) for p in g.mom.p, _ in g.mom.xi, _ in 1:1]
+        aniso(C) = maximum(maximum(abs, C[i, :, 1] ./ (sum(g.mom.dxi .* C[i, :, 1]) / 2) .- 1)
+                           for i in 1:n_p(g) if any(>(0), C[i, :, 1]))
+        res = map(((primary_mode=:centre,), (primary_mode=:split, primary_points=4),
+                   (primary_mode=:split, primary_points=10))) do kw
+            C = zeros(size(g))
+            apply!(C, KnockOnOperator(g, g, 0.1; kw...), f, n_tot)
+            aniso(C)
+        end
+        @test res[1] > 0.05   # measured 0.11
+        @test res[2] < 1e-3   # measured 3.2e-4
+        @test res[3] < 1e-5   # measured 1.1e-6
+    end
+
     @testset "mean knock-on pitch" begin
         # a primary at pitch ξ₁ produces knock-ons with mean pitch ξ* ξ₁ (gyrophase
         # average); the discrete first pitch moment of C converges to it

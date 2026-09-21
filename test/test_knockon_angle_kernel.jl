@@ -95,6 +95,52 @@ using QuadGK: quadgk
         @test err(kernel(16)) < err(kernel(1)) / 20
     end
 
+    @testset "primary averaged over its cell, split at the kinks (default)" begin
+        # Exact cell averages satisfy isotropy (Σ_l Δξ_l δ_jl = 1: isotropic primaries give
+        # isotropic knock-ons) and reciprocity (Δξ_j δ_jl Δξ_l symmetric). The split
+        # quadrature converges geometrically in the points per piece; the cell-centre
+        # primary (DREAM) and plain Gauss over the cell do not.
+        function errors(n, ξs, mode, pts)
+            g = PXiGrid([0.0, 1.0], uniform_xi_faces(n))
+            d = g.dxi
+            T = zeros(n, n)
+            nodes, weights = Runes2P.gauss(pts)
+            for l in 1:n
+                cell = (g.xi_f[l], g.xi_f[l+1])
+                if mode === :centre
+                    delta_column!(view(T, :, l), g.xi_f, ξs; cell=(g.xi[l], g.xi[l]))
+                elseif mode === :gauss
+                    delta_column!(view(T, :, l), g.xi_f, ξs; cell, nodes, weights)
+                else
+                    delta_column_split!(view(T, :, l), g.xi_f, ξs; cell, nodes, weights)
+                end
+            end
+            A = d .* T .* d'
+            return maximum(abs, T * d .- 1), maximum(abs, A - A') / maximum(abs, A)
+        end
+        for n in (12, 48), ξs in (0.3, 0.55, 0.9)
+            iso_c, asym_c = errors(n, ξs, :centre, 1)
+            @test iso_c > 0.05 && asym_c > 0.1
+            iso_g, _ = errors(n, ξs, :gauss, 16)
+            iso4, asym4 = errors(n, ξs, :split, 4)
+            iso12, asym12 = errors(n, ξs, :split, 12)
+            @test iso4 < 2e-4 && asym4 < 5e-4      # measured ≤ 1e-4, 3.3e-4
+            @test iso12 < 1e-8 && asym12 < 5e-8    # measured ≤ 6e-9, 2.7e-8
+            @test iso4 < iso_g / 10
+        end
+        # ξ* = 1: the knock-on moves along with the primary, so the averaged kernel is the
+        # identity (jumps at the faces are split points)
+        g = PXiGrid([0.0, 1.0], uniform_xi_faces(10))
+        T = zeros(10, 10)
+        nodes, weights = Runes2P.gauss(2)
+        for l in 1:10
+            delta_column_split!(view(T, :, l), g.xi_f, 1.0; cell=(g.xi_f[l], g.xi_f[l+1]), nodes, weights)
+        end
+        @test T .* g.dxi ≈ [j == l ? 1.0 : 0.0 for j in 1:10, l in 1:10] atol = 1e-12
+        @test_throws ArgumentError MollerAngleKernel(knock, prim, p_cut; primary_mode=:mean)
+        @test_throws ArgumentError delta_column_split!(zeros(10), g.xi_f, 0.5; cell=(0.1, 0.1), nodes, weights)
+    end
+
     @testset "ξ* range: kernel support versus DREAM's criterion" begin
         # On a grid below γ₁ ≈ 3, DREAM's range misses contributing pairs, which are then
         # clamped to the last tabulated slice. Runes2P's table covers the ξ* of every pair
@@ -118,7 +164,7 @@ using QuadGK: quadgk
         # distribution cross a cell face: typical entries converge like Δξ*², the worst
         # ones like Δξ*^(1/2..1). Errors are measured as fractions of the column mass Δξ δ.
         function interp_errs(n_tab)
-            Kt = MollerAngleKernel(knock, prim, p_cut; n_tab)
+            Kt = MollerAngleKernel(knock, prim, p_cut; n_tab, primary_mode=:centre)
             D = zeros(n_xi(knock), n_xi(prim))
             exact = similar(D)
             errs = Float64[]

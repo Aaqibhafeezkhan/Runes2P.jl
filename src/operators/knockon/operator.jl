@@ -98,14 +98,14 @@ mutable struct KnockOnOperator{T<:AbstractFloat}
 end
 
 """
-    KnockOnOperator(knockon, primary, p_cut; method=:blas, n_tab=80, dream=false,
-                    primary_points=1)
+    KnockOnOperator(knockon, primary, p_cut; method=:blas, n_tab=80, dream=false, primary_mode,
+                    primary_points=4)
 
 Build the energy and pitch kernels for knock-on grid `knockon` and primary grid
 `primary` (both `KineticGrid`) with cutoff momentum `p_cut` (a number, or one value per
 radius). `method` selects the evaluation (`:blas` or `:loop`, see the source file); the
 other keyword arguments are passed to [`MollerAngleKernel`](@ref).
-`dream = true, primary_points = 1, n_tab = 80` with one cutoff reproduces DREAM's
+`dream = true, n_tab = 80` (primary at the cell centre) with one cutoff reproduces DREAM's
 `MollerBoltzmannOperator` in cylindrical geometry.
 """
 function KnockOnOperator(knockon::KineticGrid{T}, primary::KineticGrid{T},

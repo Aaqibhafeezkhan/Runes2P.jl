@@ -37,7 +37,7 @@ export add_synchrotron!, fokker_planck_operator
 export SparseJacobian, jacobian, jacobian!, operator_matrix, stencil_pattern, sparse_ad_backend
 export is_local, check_stencil_pattern
 export xi_star, moller_cross_section, moller_flux, max_knockon_momentum, moller_total_rate
-export MollerEnergyKernel, MollerAngleKernel, pitch_cell_fraction, delta_column!, delta_matrix!
+export MollerEnergyKernel, MollerAngleKernel, pitch_cell_fraction, delta_column!, delta_column_split!, delta_matrix!
 export KnockOnOperator, KnockOnKernels, knockon_linear_operator, set_cutoff!, energy_kernel, angle_kernel
 export thermal_momentum, critical_field, critical_momentum, cutoff_window, choose_cutoff
 

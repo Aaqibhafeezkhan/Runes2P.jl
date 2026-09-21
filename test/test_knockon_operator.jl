@@ -55,11 +55,12 @@ end
                 end
             end
 
-            # Runes2P default: ξ* over the receiving part of the cell, full contributing range
+            # Runes2P ξ* (over the receiving part of the cell, full contributing range), with
+            # DREAM's cell-centre primary to isolate the ξ* change
             fn = f[:, :, :, 1]
             C_dream1 = C_dream[:, :, :, 1]
             C_def = zeros(size(g))
-            apply!(C_def, KnockOnOperator(g, g, p_cut), fn, n_tot[:, 1])
+            apply!(C_def, KnockOnOperator(g, g, p_cut; primary_mode=:centre), fn, n_tot[:, 1])
             # same production (columns normalized in both); the pitch placement differs,
             # strongly where DREAM clamps pairs (p_max < 3)
             @test density(g, C_def) ≈ density(g, C_dream1) rtol = 1e-12

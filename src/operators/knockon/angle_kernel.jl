@@ -64,6 +64,56 @@ function delta_column!(col::AbstractVector, xi_f::AbstractVector, ξs;
 end
 
 """
+    delta_column_split!(col, xi_f, ξs; cell, nodes, weights)
+
+Like [`delta_column!`](@ref) with the primary averaged over `cell = (ξ1_lo, ξ1_hi)`, but
+exact to high order: as a function of the primary pitch ξ₁, the fraction `D_j(ξ₁)`
+reaching knock-on cell `j` has square-root kinks where an edge `a ± b` of the
+gyro-averaged distribution crosses a face `t` of the knock-on grid, i.e. at
+`ξ₁ = cos(arccos t ± θ*)` with `cos θ* = ξ*` (and jumps at the faces when `ξ* = 1`). The
+cell is split at these points, and each piece is integrated with the Gauss `nodes` and
+`weights` (on `[-1, 1]`) in the variable `s` of `ξ₁ = mid + h sin(πs/2)`, which turns the
+square-root behaviour at the piece ends into a smooth one.
+"""
+function delta_column_split!(col::AbstractVector, xi_f::AbstractVector, ξs;
+                             cell, nodes, weights)
+    n2 = length(col)
+    lo, hi = cell
+    hi > lo || throw(ArgumentError("the primary cell must have positive width"))
+    θs = acos(clamp(ξs, -one(ξs), one(ξs)))
+    cuts = [lo, hi]
+    for t in xi_f
+        θt = acos(clamp(t, -one(t), one(t)))
+        for x in (cos(θt + θs), cos(θt - θs))
+            lo < x < hi && push!(cuts, x)
+        end
+    end
+    sort!(cuts)
+    fill!(col, 0)
+    for q in 1:length(cuts)-1
+        u, v = cuts[q], cuts[q+1]
+        v > u || continue
+        mid, h = (u + v) / 2, (v - u) / 2
+        for (x, w) in zip(nodes, weights)
+            ξ1 = mid + h * sin(π * x / 2)
+            wt = w * h * (π / 2) * cos(π * x / 2)
+            for j in 1:n2
+                col[j] += wt * pitch_cell_fraction(xi_f[j], xi_f[j+1], ξ1, ξs)
+            end
+        end
+    end
+    col ./= (hi - lo)
+    norm = sum(col)
+    for j in 1:n2
+        col[j] /= (xi_f[j+1] - xi_f[j])
+    end
+    if norm > 0
+        col ./= norm
+    end
+    return norm
+end
+
+"""
     MollerAngleKernel{T}
 
 Knock-on pitch kernel `δ[j, l](ξ*)` between primary pitch cells `l` and knock-on pitch
@@ -83,7 +133,8 @@ struct MollerAngleKernel{T<:AbstractFloat}
 end
 
 """
-    MollerAngleKernel(knockon, primary, p_cut; n_tab=80, dream=false, primary_points=1)
+    MollerAngleKernel(knockon, primary, p_cut; n_tab=80, dream=false,
+                      primary_mode=(dream ? :centre : :split), primary_points=4)
 
 - `ξ*` of pair `(i, k)` is evaluated at the midpoint of the part of knock-on cell `i`
   that receives knock-ons, `[max(p_{i-1/2}, p_cut), min(p_{i+1/2}, p_max(p1_k))]` (the
@@ -94,22 +145,30 @@ end
   total energy compared with a kinetic energy). For primaries below γ₁ ≈ 3 this misses
   contributing pairs, whose `ξ*` is then clamped to the table edge; with a knock-on grid
   coarser than the primary grid, a cell centre above `p1` gives `ξ* > 1`.
-- `primary_points`: Gauss points averaging the primary over its pitch cell; `1`
-  evaluates the primary at the cell centre (DREAM).
+- `primary_mode`: how the primary pitch enters. `:centre` evaluates it at the cell centre
+  (DREAM), which breaks reciprocity and isotropy at O(1) in the max norm.
+  `:split` averages it
+  over the cell, split at the kink points ([`delta_column_split!`](@ref)), with
+  `primary_points` Gauss points per piece: isotropic primaries then give isotropic
+  knock-ons to quadrature accuracy. `:gauss` averages with `primary_points` plain Gauss
+  points over the whole cell (slow convergence; kept for comparison).
 """
-function MollerAngleKernel(knockon::PXiGrid{T}, primary::PXiGrid{T}, p_cut::Real;
+function MollerAngleKernel(knockon::PXiGrid{T}, prim_grid::PXiGrid{T}, p_cut::Real;
                            n_tab::Integer=80, dream::Bool=false,
-                           primary_points::Integer=1) where {T}
+                           primary_mode::Symbol=(dream ? :centre : :split),
+                           primary_points::Integer=4) where {T}
     n_tab >= 2 || throw(ArgumentError("n_tab must be at least 2"))
+    primary_mode in (:centre, :split, :gauss) ||
+        throw(ArgumentError("unknown primary_mode $primary_mode"))
     primary_points >= 1 || throw(ArgumentError("primary_points must be at least 1"))
     p_cut > 0 || throw(ArgumentError("p_cut must be positive"))
-    nK, nP = n_p(knockon), n_p(primary)
+    nK, nP = n_p(knockon), n_p(prim_grid)
     γ(p) = sqrt(1 + p^2)
     # ξ* of each momentum pair, and whether it sets the table range
     xs_pair = zeros(T, nK, nP)
     lo, hi = T(Inf), T(-Inf)
     for i in 1:nK, k in 1:nP
-        p1 = primary.p[k]
+        p1 = prim_grid.p[k]
         pL = max(knockon.p_f[i], T(p_cut))
         pU = min(knockon.p_f[i+1], max_knockon_momentum(p1))
         if dream
@@ -130,14 +189,20 @@ function MollerAngleKernel(knockon::PXiGrid{T}, primary::PXiGrid{T}, p_cut::Real
     dxs = (hi - lo) / (n_tab - 1)
     xs_tab = [lo + m * dxs for m in 0:n_tab-1]
 
-    nodes, weights = primary_points == 1 ? ([zero(T)], [T(2)]) : gauss(T, primary_points)
-    n2K, n2P = n_xi(knockon), n_xi(primary)
+    nodes, weights = primary_mode === :centre ? ([zero(T)], [T(2)]) : gauss(T, primary_points)
+    n2K, n2P = n_xi(knockon), n_xi(prim_grid)
     table = zeros(T, n2K, n2P, n_tab)
     for m in 1:n_tab, l in 1:n2P
-        cell = primary_points == 1 ? (primary.xi[l], primary.xi[l]) :
-               (primary.xi_f[l], primary.xi_f[l+1])
-        norm = delta_column!(view(table, :, l, m), knockon.xi_f, xs_tab[m];
-                             cell, nodes, weights)
+        col = view(table, :, l, m)
+        norm = if primary_mode === :centre
+            delta_column!(col, knockon.xi_f, xs_tab[m]; cell=(prim_grid.xi[l], prim_grid.xi[l]))
+        elseif primary_mode === :gauss
+            delta_column!(col, knockon.xi_f, xs_tab[m];
+                          cell=(prim_grid.xi_f[l], prim_grid.xi_f[l+1]), nodes, weights)
+        else
+            delta_column_split!(col, knockon.xi_f, xs_tab[m];
+                                cell=(prim_grid.xi_f[l], prim_grid.xi_f[l+1]), nodes, weights)
+        end
         norm > 0 || empty || throw(ErrorException("empty knock-on pitch column at l = $l, " *
                                                   "ξ* = $(xs_tab[m])"))
     end
