@@ -46,11 +46,13 @@ end
             C_dream = read(grp["C_boltz"])  # (np, nξ, nr, nt); C_boltz[n] from f_hot[n]
             n_tot = read(grp["n_tot"])      # (nr, nt + 1), constant here
 
-            op = KnockOnOperator(g, g, p_cut; dream=true, primary_points=1, n_tab=80)
-            for n in axes(C_dream, 4)
-                C = zeros(size(g))
-                apply!(C, op, f[:, :, :, n], n_tot[:, n])
-                @test max_rel_diff(C_dream[:, :, :, n], C) < 1e-13
+            for method in (:loop, :blas)
+                op = KnockOnOperator(g, g, p_cut; method, dream=true, primary_points=1, n_tab=80)
+                for n in axes(C_dream, 4)
+                    C = zeros(size(g))
+                    apply!(C, op, f[:, :, :, n], n_tot[:, n])
+                    @test max_rel_diff(C_dream[:, :, :, n], C) < 1e-13
+                end
             end
 
             # Runes2P default: ξ* over the receiving part of the cell, full contributing range
@@ -77,13 +79,26 @@ end
     fP = [exp(-p / 0.7) * (1.2 + ξ) * (1 + r) for p in prim.p, ξ in prim.xi, r in rad.r]
     n_tot = [2e19, 5e19]
 
-    @testset "loop form vs per-pair interpolated matrices" begin
-        for kw in ((dream=true,), (), (primary_points=3, n_tab=20))
-            op = KnockOnOperator(gK, gP, 0.1; kw...)
-            C = zeros(size(gK))
-            apply!(C, op, fP, n_tot)
-            @test C ≈ knockon_reference(op, fP, n_tot) rtol = 1e-13
+    @testset "loop and BLAS forms vs per-pair interpolated matrices" begin
+        for kw in ((dream=true,), (), (primary_points=3, n_tab=20), (n_tab=2,))
+            ref = knockon_reference(KnockOnOperator(gK, gP, 0.1; kw...), fP, n_tot)
+            for method in (:loop, :blas)
+                C = zeros(size(gK))
+                apply!(C, KnockOnOperator(gK, gP, 0.1; method, kw...), fP, n_tot)
+                # summation order differs; measured differences are below 1e-14
+                @test max_rel_diff(ref, C) < 1e-13
+            end
         end
+        # a knock-on grid different from the primary grid in both directions
+        gK2 = cylindrical_grid(PXiGrid(uniform_p_faces(7, 0.0, 4.0), uniform_xi_faces(3)), rad)
+        for (a, b) in ((gK2, gP), (gP, gK2))
+            fb = ones(size(b))
+            ref = knockon_reference(KnockOnOperator(a, b, 0.1), fb, n_tot)
+            C = zeros(size(a))
+            apply!(C, KnockOnOperator(a, b, 0.1; method=:blas), fb, n_tot)
+            @test max_rel_diff(ref, C) < 1e-13
+        end
+        @test_throws ArgumentError KnockOnOperator(gK, gP, 0.1; method=:dense)
     end
 
     @testset "production, linearity, allocations" begin
@@ -104,9 +119,12 @@ end
         C3 = zeros(size(gK))
         apply!(C3, op, fP, 3 .* n_tot)
         @test C3 ≈ 3 .* C rtol = 1e-14
-        apply!(C, op, fP, n_tot)
-        apply!(C, op, fP, n_tot)
-        @test (@allocated apply!(C, op, fP, n_tot)) == 0
+        for method in (:loop, :blas)
+            opm = KnockOnOperator(gK, gP, 0.1; method)
+            apply!(C, opm, fP, n_tot)
+            apply!(C, opm, fP, n_tot)
+            @test (@allocated apply!(C, opm, fP, n_tot)) == 0
+        end
         # large cutoffs (knock-on support shrinking to a few cells near ξ* → 1) build
         # without empty columns; this is the regime a time-dependent p_c sweeps
         for pc in (0.5, 1.0, 1.5), pts in (1, 4)
@@ -114,6 +132,14 @@ end
             Cc = zeros(size(gK))
             apply!(Cc, opc, fP, n_tot)
             @test all(isfinite, Cc)
+        end
+        # cutoff above the knock-on grid: no pair produces knock-ons on the grid
+        for method in (:loop, :blas)
+            op0 = KnockOnOperator(gK, gP, 10.0; method)
+            @test op0.angle.empty && size(op0.Y, 2) == 0
+            C0 = zeros(size(gK))
+            apply!(C0, op0, fP, n_tot)
+            @test all(iszero, C0)
         end
         @test_throws DimensionMismatch apply!(zeros(size(gP)), op, fP, n_tot)
         @test_throws ArgumentError KnockOnOperator(gK, cylindrical_grid(prim, RadialGrid(uniform_r_faces(3, 0.5))), 0.1)
