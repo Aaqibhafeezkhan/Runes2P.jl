@@ -12,6 +12,7 @@
 #   Interpolation is linear, so both give the same result up to summation order.
 
 using LinearAlgebra: mul!
+using LinearOperators: LinearOperator
 
 """
     KnockOnOperator{T}
@@ -198,4 +199,38 @@ function apply_radius_blas!(df, op::KnockOnOperator, scale, ir)
         end
     end
     return df
+end
+
+"""
+    knockon_linear_operator(op::KnockOnOperator, n_tot; α=1)
+
+Matrix-free linear operator `α ∂C/∂f` of size `(ncells(knockon), ncells(primary))`, acting
+on `vec(f)` of the primary grid and returning `vec` of the knock-on grid: the implicit
+(Jacobian) form of the knock-on term, for use in Krylov solvers and in sums with other
+`LinearOperator`s or matrices. `C` is linear in `f`, so the Jacobian-vector product is
+[`apply!`](@ref) itself. `n_tot` is referenced, not copied: updating it in place (e.g.
+between Newton iterations) changes the operator.
+
+The derivative with respect to `n_tot` is `C(f)/n_tot` at each radius (DREAM's only
+Jacobian block for this term, which it treats explicitly in `f`). Treating `f`
+implicitly is a Runes2P departure; the explicit form stays available through `apply!`.
+
+The product uses the operator's scratch arrays and is not safe to call concurrently.
+No transpose product is provided.
+"""
+function knockon_linear_operator(op::KnockOnOperator{T}, n_tot::AbstractVector; α=one(T)) where {T}
+    szK, szP = size(op.knockon), size(op.primary)
+    length(n_tot) == n_r(op.knockon) ||
+        throw(DimensionMismatch("n_tot must have one entry per radius"))
+    function prod!(res, v, a, b)
+        if iszero(b)
+            fill!(res, zero(eltype(res)))
+        elseif !isone(b)
+            res .*= b
+        end
+        apply!(reshape(res, szK), op, reshape(v, szP), n_tot; α=a * α)
+        return res
+    end
+    return LinearOperator{T,Vector{T}}(prod(szK), prod(szP), false, false, prod!,
+                                       nothing, nothing)
 end

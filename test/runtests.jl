@@ -15,4 +15,5 @@ using LinearAlgebra: Diagonal
     include("test_knockon_angle_kernel.jl")
     include("test_knockon_operator.jl")
     include("test_knockon_physics.jl")
+    include("test_knockon_implicit.jl")
 end

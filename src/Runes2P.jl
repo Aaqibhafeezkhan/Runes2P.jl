@@ -37,6 +37,6 @@ export SparseJacobian, jacobian, jacobian!, operator_matrix, stencil_pattern, sp
 export is_local, check_stencil_pattern
 export xi_star, moller_cross_section, moller_flux, max_knockon_momentum, moller_total_rate
 export MollerEnergyKernel, MollerAngleKernel, pitch_cell_fraction, delta_column!, delta_matrix!
-export KnockOnOperator
+export KnockOnOperator, knockon_linear_operator
 
 end # module Runes2P

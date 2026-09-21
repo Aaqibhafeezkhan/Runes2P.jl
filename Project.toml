@@ -8,6 +8,7 @@ ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
 DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+LinearOperators = "5c8ed15e-5a4c-59e4-a42b-c7e8811fb125"
 QuadGK = "1fd47b50-473d-5c70-9696-f719f8f3bcdc"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 SparseConnectivityTracer = "9f842d2f-2579-4b1d-911e-f412cf18a3f5"
@@ -18,7 +19,9 @@ SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 ADTypes = "1.24.0"
 DifferentiationInterface = "0.7.21"
 ForwardDiff = "1.4.6"
+Krylov = "0.10.10"
 LinearAlgebra = "1"
+LinearOperators = "2.14.3"
 QuadGK = "2.11.3"
 SparseArrays = "1"
 SparseConnectivityTracer = "1.2.3"
@@ -28,8 +31,9 @@ julia = "1.11"
 
 [extras]
 HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
+Krylov = "ba0b0d4f-ebba-5204-a429-3ac8c609bfb7"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["HDF5", "Random", "Test"]
+test = ["HDF5", "Krylov", "Random", "Test"]
