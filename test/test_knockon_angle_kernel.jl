@@ -219,4 +219,15 @@ using QuadGK: quadgk
         @test all(isfinite, Ke.table)
         @test_throws ArgumentError MollerAngleKernel(knock, prim, 0.2; n_tab=1)
     end
+
+    @testset "knock-on pitch grid must span [-1, 1]" begin
+        # 44% of the knock-ons of a primary at ξ₁ = -0.1 (ξ* = 0.3) fall below ξ = -0.2;
+        # the column normalization would put them back onto the grid
+        partial = PXiGrid(uniform_p_faces(30, 0.0, 6.0), collect(range(-0.2, 1.0; length=13)))
+        col = zeros(12)
+        @test delta_column!(col, partial.xi_f, 0.3; cell=(-0.1, -0.1)) < 0.6
+        @test_throws ArgumentError MollerAngleKernel(partial, prim, p_cut)
+        # a primary grid covering part of [-1, 1] is fine
+        @test MollerAngleKernel(knock, PXiGrid(uniform_p_faces(20, 0.0, 6.0), [0.6, 0.8, 1.0]), p_cut) isa MollerAngleKernel
+    end
 end

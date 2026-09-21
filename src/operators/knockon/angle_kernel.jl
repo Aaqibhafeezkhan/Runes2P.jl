@@ -145,6 +145,7 @@ end
   total energy compared with a kinetic energy). For primaries below γ₁ ≈ 3 this misses
   contributing pairs, whose `ξ*` is then clamped to the table edge; with a knock-on grid
   coarser than the primary grid, a cell centre above `p1` gives `ξ* > 1`.
+- The knock-on pitch grid must span `[-1, 1]`; the primary pitch grid may cover part of it.
 - `primary_mode`: how the primary pitch enters. `:centre` evaluates it at the cell centre
   (DREAM), which breaks reciprocity and isotropy at O(1) in the max norm.
   `:split` averages it
@@ -162,6 +163,10 @@ function MollerAngleKernel(knockon::PXiGrid{T}, prim_grid::PXiGrid{T}, p_cut::Re
         throw(ArgumentError("unknown primary_mode $primary_mode"))
     primary_points >= 1 || throw(ArgumentError("primary_points must be at least 1"))
     p_cut > 0 || throw(ArgumentError("p_cut must be positive"))
+    # the gyro-averaged knock-on pitch covers [-1, 1]; on a partial grid the column
+    # normalization would move the knock-ons outside it onto the grid
+    (first(knockon.xi_f) == -1 && last(knockon.xi_f) == 1) ||
+        throw(ArgumentError("the knock-on pitch grid must span [-1, 1]"))
     nK, nP = n_p(knockon), n_p(prim_grid)
     γ(p) = sqrt(1 + p^2)
     # ξ* of each momentum pair, and whether it sets the table range
