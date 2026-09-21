@@ -11,9 +11,9 @@ function knockon_reference(op::KnockOnOperator, f, n_tot)
     C = zeros(size(gK))
     D = zeros(n_xi(gK), n_xi(gP))
     for ir in 1:n_r(gK), i in 1:n_p(gK), k in 1:n_p(gP)
-        s = op.energy.S[i, k]
+        s = energy_kernel(op, ir).S[i, k]
         s == 0 && continue
-        delta_matrix!(D, op.angle, i, k)
+        delta_matrix!(D, angle_kernel(op, ir), i, k)
         for j in 1:n_xi(gK), l in 1:n_xi(gP)
             W = gP.mom.dp[k] * gP.mom.dxi[l] * gP.Vp[k, l, ir] * f[k, l, ir]
             C[i, j, ir] += n_tot[ir] * s * W * D[j, l] / gK.Vp[i, j, ir]
@@ -108,7 +108,7 @@ end
         # production onto the grid: n_tot Σ_kl (𝒱' Δp Δξ f / V') total[k]
         for ir in 1:2
             prod = n_tot[ir] * sum(gP.Vp[k, l, ir] * prim.dp[k] * prim.dxi[l] * fP[k, l, ir] *
-                                   op.energy.total[k] for k in 1:n_p(prim), l in 1:n_xi(prim)) /
+                                   energy_kernel(op).total[k] for k in 1:n_p(prim), l in 1:n_xi(prim)) /
                    rad.VpVol[ir]
             @test density(gK, C)[ir] ≈ prod rtol = 1e-13
         end
@@ -136,7 +136,7 @@ end
         # cutoff above the knock-on grid: no pair produces knock-ons on the grid
         for method in (:loop, :blas)
             op0 = KnockOnOperator(gK, gP, 10.0; method)
-            @test op0.angle.empty && size(op0.Y, 2) == 0
+            @test angle_kernel(op0).empty
             C0 = zeros(size(gK))
             apply!(C0, op0, fP, n_tot)
             @test all(iszero, C0)

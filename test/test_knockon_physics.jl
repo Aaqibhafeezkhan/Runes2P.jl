@@ -28,7 +28,7 @@ using QuadGK: quadgk
             C = zeros(size(knock))
             apply!(C, op, f, n_tot)
             above = n_tot[1] * sum(prim.Vp[k, l, 1] * prim.mom.dp[k] * prim.mom.dxi[l] * f[k, l, 1] *
-                                   op.energy.above_grid[k] for k in 1:n, l in 1:6) / Vp_vol
+                                   energy_kernel(op).above_grid[k] for k in 1:n, l in 1:6) / Vp_vol
             abs((density(knock, C)[1] + above) / ref - 1)
         end
         @test errs[end] < 1e-4

@@ -15,63 +15,29 @@ using LinearAlgebra: mul!
 using LinearOperators: LinearOperator
 
 """
-    KnockOnOperator{T}
+    KnockOnKernels{T}
 
-Knock-on source on the grid `knockon` produced by primaries on the grid `primary`
-(the same grid for in-grid knock-on) colliding with stationary targets of density
-`n_tot`:
-
-    C[i, j, r] = n_tot[r] / 𝒱'_K[i, j, r] Σ_k S[i, k] Σ_l W[k, l, r] δ[j, l](ξ*(p_i, p1_k)),
-    W[k, l, r] = Δp_k Δξ_l 𝒱'_P[k, l, r] f[k, l, r].
-
-`C` has the units of `∂f/∂t`. Its density moment is the total production rate:
-`(1/V') Σ_ij 𝒱'_ij Δp_i Δξ_j C_ij = n_tot Σ_kl (𝒱'_kl Δp_k Δξ_l f_kl / V') total[k]`, with
-`total` from the energy kernel. Only the ratio `𝒱'_P / 𝒱'_K` at equal radius enters, so
-any constant normalization of `𝒱'` cancels (DREAM's cylindrical `Vprime` is `4π²` times
-Runes2P's).
-
-Both grids must have the same radial grid. The operator is linear in `f` and in `n_tot`;
-DREAM evaluates it explicitly, from `f` at the previous time level.
+Energy and pitch kernels for one cutoff momentum, with the column layout of the `:blas`
+evaluation: the primary momenta whose pairs use slice m are `slice_k[m]`, and their
+products occupy columns `slice_off[m] + 1 : slice_off[m] + length(slice_k[m])` of the
+operator's `Y`.
 """
-struct KnockOnOperator{T<:AbstractFloat}
-    knockon::KineticGrid{T}
-    primary::KineticGrid{T}
+struct KnockOnKernels{T<:AbstractFloat}
     energy::MollerEnergyKernel{T}
     angle::MollerAngleKernel{T}
-    method::Symbol
-    W::Matrix{T}  # scratch (nξ primary, np primary)
-    C::Vector{T}  # scratch (nξ knock-on)
-    # :blas layout: primary momenta using slice m are slice_k[m]; their products are
-    # columns slice_off[m] + 1 : slice_off[m] + length(slice_k[m]) of Y
     slice_k::Vector{Vector{Int}}
     slice_off::Vector{Int}
     col0::Matrix{Int}  # Y column of (slice m0, k) for pair (i, k); 0 if S[i, k] = 0
     col1::Matrix{Int}  # Y column of (slice m0 + 1, k); 0 if its weight is zero
-    Wbuf::Matrix{T}    # gathered primary weights (nξ primary, np primary)
-    Y::Matrix{T}       # (nξ knock-on, number of (slice, k) combinations)
+    ncol::Int
 end
 
-"""
-    KnockOnOperator(knockon, primary, p_cut; method=:blas, n_tab=80, dream=false,
-                    primary_points=1)
-
-Build the energy and pitch kernels for knock-on grid `knockon` and primary grid
-`primary` (both `KineticGrid`) with cutoff momentum `p_cut`. `method` selects the
-evaluation (`:blas` or `:loop`, see the source file); the other keyword arguments are
-passed to [`MollerAngleKernel`](@ref). `dream = true, primary_points = 1, n_tab = 80`
-reproduces DREAM's `MollerBoltzmannOperator` in cylindrical geometry.
-"""
-function KnockOnOperator(knockon::KineticGrid{T}, primary::KineticGrid{T}, p_cut::Real;
-                         method::Symbol=:blas, kwargs...) where {T}
-    knockon.rad.r_f == primary.rad.r_f ||
-        throw(ArgumentError("knock-on and primary grids must share the radial grid"))
-    method in (:blas, :loop) || throw(ArgumentError("unknown method $method"))
-    E = MollerEnergyKernel(knockon.mom, primary.mom, p_cut)
-    A = MollerAngleKernel(knockon.mom, primary.mom, p_cut; kwargs...)
+function KnockOnKernels(knockon::PXiGrid{T}, primary::PXiGrid{T}, p_cut::Real;
+                        kwargs...) where {T}
+    E = MollerEnergyKernel(knockon, primary, p_cut)
+    A = MollerAngleKernel(knockon, primary, p_cut; kwargs...)
     npK, npP = n_p(knockon), n_p(primary)
-    nξK, nξP = n_xi(knockon), n_xi(primary)
     M = length(A.xs)
-
     # (slice, k) combinations that any pair with S ≠ 0 needs
     uses = falses(M, npP)
     for k in 1:npP, i in 1:npK
@@ -92,12 +58,121 @@ function KnockOnOperator(knockon::KineticGrid{T}, primary::KineticGrid{T}, p_cut
         col0[i, k] = col[A.m0[i, k], k]
         A.w1[i, k] != 0 && (col1[i, k] = col[A.m0[i, k]+1, k])
     end
-    ncol = method == :blas ? sum(length, slice_k) : 0
-    return KnockOnOperator{T}(knockon, primary, E, A, method,
-                              zeros(T, nξP, npP), zeros(T, nξK),
-                              slice_k, slice_off, col0, col1,
-                              zeros(T, nξP, method == :blas ? npP : 0), zeros(T, nξK, ncol))
+    return KnockOnKernels{T}(E, A, slice_k, slice_off, col0, col1, sum(length, slice_k))
 end
+
+"""
+    KnockOnOperator{T}
+
+Knock-on source on the grid `knockon` produced by primaries on the grid `primary`
+(the same grid for in-grid knock-on) colliding with stationary targets of density
+`n_tot`:
+
+    C[i, j, r] = n_tot[r] / 𝒱'_K[i, j, r] Σ_k S[i, k] Σ_l W[k, l, r] δ[j, l](ξ*(p_i, p1_k)),
+    W[k, l, r] = Δp_k Δξ_l 𝒱'_P[k, l, r] f[k, l, r].
+
+`C` has the units of `∂f/∂t`. Its density moment is the total production rate:
+`(1/V') Σ_ij 𝒱'_ij Δp_i Δξ_j C_ij = n_tot Σ_kl (𝒱'_kl Δp_k Δξ_l f_kl / V') total[k]`, with
+`total` from the energy kernel. Only the ratio `𝒱'_P / 𝒱'_K` at equal radius enters, so
+any constant normalization of `𝒱'` cancels (DREAM's cylindrical `Vprime` is `4π²` times
+Runes2P's).
+
+The cutoff momentum `p_cut[r]` may differ between radii and change in time
+([`set_cutoff!`](@ref)); each radius uses the kernels of its cutoff, and radii with
+equal cutoffs share them. Both grids must have the same radial grid. The operator is
+linear in `f` and in `n_tot`; DREAM evaluates it explicitly, from `f` at the previous
+time level, with one cutoff for all radii and times.
+"""
+mutable struct KnockOnOperator{T<:AbstractFloat}
+    const knockon::KineticGrid{T}
+    const primary::KineticGrid{T}
+    const method::Symbol
+    const angle_options::NamedTuple
+    const p_cut::Vector{T}
+    const kernels::Vector{KnockOnKernels{T}}      # per radius
+    const cache::Dict{T,KnockOnKernels{T}}        # by cutoff value, current cutoffs only
+    const W::Matrix{T}     # scratch (nξ primary, np primary)
+    const C::Vector{T}     # scratch (nξ knock-on)
+    const Wbuf::Matrix{T}  # gathered primary weights (nξ primary, np primary)
+    Y::Matrix{T}           # (nξ knock-on, largest number of (slice, k) combinations)
+end
+
+"""
+    KnockOnOperator(knockon, primary, p_cut; method=:blas, n_tab=80, dream=false,
+                    primary_points=1)
+
+Build the energy and pitch kernels for knock-on grid `knockon` and primary grid
+`primary` (both `KineticGrid`) with cutoff momentum `p_cut` (a number, or one value per
+radius). `method` selects the evaluation (`:blas` or `:loop`, see the source file); the
+other keyword arguments are passed to [`MollerAngleKernel`](@ref).
+`dream = true, primary_points = 1, n_tab = 80` with one cutoff reproduces DREAM's
+`MollerBoltzmannOperator` in cylindrical geometry.
+"""
+function KnockOnOperator(knockon::KineticGrid{T}, primary::KineticGrid{T},
+                         p_cut::Union{Real,AbstractVector}; method::Symbol=:blas,
+                         kwargs...) where {T}
+    knockon.rad.r_f == primary.rad.r_f ||
+        throw(ArgumentError("knock-on and primary grids must share the radial grid"))
+    method in (:blas, :loop) || throw(ArgumentError("unknown method $method"))
+    nr = n_r(knockon)
+    op = KnockOnOperator{T}(knockon, primary, method, NamedTuple(kwargs), zeros(T, nr),
+                            Vector{KnockOnKernels{T}}(undef, nr),
+                            Dict{T,KnockOnKernels{T}}(),
+                            zeros(T, n_xi(primary), n_p(primary)), zeros(T, n_xi(knockon)),
+                            zeros(T, n_xi(primary), method == :blas ? n_p(primary) : 0),
+                            zeros(T, n_xi(knockon), 0))
+    set_cutoff!(op, p_cut)
+    return op
+end
+
+"""
+    set_cutoff!(op::KnockOnOperator, p_cut)
+
+Set the cutoff momentum (a number for all radii, or one value per radius) and rebuild
+the kernels of the radii whose cutoff changed. Kernels are cached by cutoff value, so
+radii with equal cutoffs share one set, and a value already in use costs nothing.
+Returns the number of kernel sets built. A rebuild costs a few operator applications;
+snapping the cutoff to momentum cell faces ([`choose_cutoff`](@ref)) keeps rebuilds rare
+when the cutoff follows the plasma.
+
+A `knockon_linear_operator` of `op` sees the new kernels.
+"""
+function set_cutoff!(op::KnockOnOperator{T}, p_cut::Union{Real,AbstractVector}) where {T}
+    nr = n_r(op.knockon)
+    p_cut isa AbstractVector && length(p_cut) != nr &&
+        throw(DimensionMismatch("p_cut must be a number or have one entry per radius"))
+    built = 0
+    for ir in 1:nr
+        pc = T(p_cut isa AbstractVector ? p_cut[ir] : p_cut)
+        pc > 0 || throw(ArgumentError("p_cut must be positive"))
+        kern = get(op.cache, pc, nothing)
+        if kern === nothing
+            kern = KnockOnKernels(op.knockon.mom, op.primary.mom, pc; op.angle_options...)
+            op.cache[pc] = kern
+            built += 1
+        end
+        op.p_cut[ir] = pc
+        op.kernels[ir] = kern
+    end
+    # keep only the kernels in use
+    for key in collect(keys(op.cache))
+        key in op.p_cut || delete!(op.cache, key)
+    end
+    if op.method === :blas
+        ncol = maximum(k -> k.ncol, op.kernels)
+        ncol > size(op.Y, 2) && (op.Y = zeros(T, n_xi(op.knockon), ncol))
+    end
+    return built
+end
+
+"""
+    energy_kernel(op::KnockOnOperator, ir=1)
+    angle_kernel(op::KnockOnOperator, ir=1)
+
+Energy and pitch kernels used at radius index `ir`.
+"""
+energy_kernel(op::KnockOnOperator, ir::Integer=1) = op.kernels[ir].energy
+angle_kernel(op::KnockOnOperator, ir::Integer=1) = op.kernels[ir].angle
 
 """
     apply!(df, op::KnockOnOperator, f, n_tot; α=1)
@@ -115,9 +190,9 @@ function apply!(df::AbstractArray{<:Any,3}, op::KnockOnOperator, f::AbstractArra
     for ir in 1:n_r(gK)
         primary_weights!(op.W, gP, f, ir)
         if op.method === :blas
-            apply_radius_blas!(df, op, n_tot[ir] * α, ir)
+            apply_radius_blas!(df, op, op.kernels[ir], n_tot[ir] * α, ir)
         else
-            apply_radius_loop!(df, op, n_tot[ir] * α, ir)
+            apply_radius_loop!(df, op, op.kernels[ir], n_tot[ir] * α, ir)
         end
     end
     return df
@@ -130,9 +205,9 @@ function primary_weights!(W, gP::KineticGrid, f, ir)
     return W
 end
 
-function apply_radius_loop!(df, op::KnockOnOperator, scale, ir)
+function apply_radius_loop!(df, op::KnockOnOperator, kern::KnockOnKernels, scale, ir)
     gK, gP = op.knockon, op.primary
-    S, K, W, C = op.energy.S, op.angle, op.W, op.C
+    S, K, W, C = kern.energy.S, kern.angle, op.W, op.C
     nξK, nξP = n_xi(gK), n_xi(gP)
     table = K.table
     @inbounds for i in 1:n_p(gK)
@@ -158,29 +233,29 @@ function apply_radius_loop!(df, op::KnockOnOperator, scale, ir)
     return df
 end
 
-function apply_radius_blas!(df, op::KnockOnOperator, scale, ir)
+function apply_radius_blas!(df, op::KnockOnOperator, kern::KnockOnKernels, scale, ir)
     gK = op.knockon
-    S, K, W, C, Y, Wbuf = op.energy.S, op.angle, op.W, op.C, op.Y, op.Wbuf
+    S, K, W, C, Y, Wbuf = kern.energy.S, kern.angle, op.W, op.C, op.Y, op.Wbuf
     nξK = n_xi(gK)
     # Y_m = D_m W[:, K_m] for every slice
-    for m in eachindex(op.slice_k)
-        ks = op.slice_k[m]
+    for m in eachindex(kern.slice_k)
+        ks = kern.slice_k[m]
         n = length(ks)
         n == 0 && continue
         @inbounds for (c, k) in enumerate(ks), l in axes(W, 1)
             Wbuf[l, c] = W[l, k]
         end
-        off = op.slice_off[m]
+        off = kern.slice_off[m]
         mul!(view(Y, :, off+1:off+n), view(K.table, :, :, m), view(Wbuf, :, 1:n))
     end
     # gather with the energy kernel and the interpolation weights
     @inbounds for i in 1:n_p(gK)
         fill!(C, 0)
         for k in axes(S, 2)
-            c0 = op.col0[i, k]
+            c0 = kern.col0[i, k]
             c0 == 0 && continue
             s = S[i, k]
-            c1 = op.col1[i, k]
+            c1 = kern.col1[i, k]
             w1 = K.w1[i, k]
             a0 = s * (1 - w1)
             if c1 == 0

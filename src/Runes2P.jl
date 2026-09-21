@@ -20,6 +20,7 @@ include("operators/knockon/kinematics.jl")
 include("operators/knockon/energy_kernel.jl")
 include("operators/knockon/angle_kernel.jl")
 include("operators/knockon/operator.jl")
+include("operators/knockon/cutoff.jl")
 include("system/jacobian.jl")
 
 export PXiGrid, uniform_p_faces, biuniform_p_faces, uniform_xi_faces
@@ -37,6 +38,7 @@ export SparseJacobian, jacobian, jacobian!, operator_matrix, stencil_pattern, sp
 export is_local, check_stencil_pattern
 export xi_star, moller_cross_section, moller_flux, max_knockon_momentum, moller_total_rate
 export MollerEnergyKernel, MollerAngleKernel, pitch_cell_fraction, delta_column!, delta_matrix!
-export KnockOnOperator, knockon_linear_operator
+export KnockOnOperator, KnockOnKernels, knockon_linear_operator, set_cutoff!, energy_kernel, angle_kernel
+export thermal_momentum, critical_field, critical_momentum, cutoff_window, choose_cutoff
 
 end # module Runes2P

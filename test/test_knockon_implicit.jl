@@ -12,9 +12,9 @@ function knockon_dense(op::KnockOnOperator, n_tot)
     A = zeros(ncells(gK), ncells(gP))
     D = zeros(n_xi(gK), n_xi(gP))
     for ir in 1:n_r(gK), i in 1:n_p(gK), k in 1:n_p(gP)
-        s = op.energy.S[i, k]
+        s = energy_kernel(op, ir).S[i, k]
         s == 0 && continue
-        delta_matrix!(D, op.angle, i, k)
+        delta_matrix!(D, angle_kernel(op, ir), i, k)
         for j in 1:n_xi(gK), l in 1:n_xi(gP)
             A[LK[i, j, ir], LP[k, l, ir]] += n_tot[ir] * s * gP.mom.dp[k] * gP.mom.dxi[l] *
                                               gP.Vp[k, l, ir] * D[j, l] / gK.Vp[i, j, ir]

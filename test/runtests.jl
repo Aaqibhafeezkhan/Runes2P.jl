@@ -16,4 +16,5 @@ using LinearAlgebra: Diagonal
     include("test_knockon_operator.jl")
     include("test_knockon_physics.jl")
     include("test_knockon_implicit.jl")
+    include("test_knockon_cutoff.jl")
 end
