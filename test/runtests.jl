@@ -12,4 +12,5 @@ using LinearAlgebra: Diagonal
     include("test_kinetic_operator_dream.jl")
     include("test_knockon_kinematics.jl")
     include("test_knockon_energy_kernel.jl")
+    include("test_knockon_angle_kernel.jl")
 end
