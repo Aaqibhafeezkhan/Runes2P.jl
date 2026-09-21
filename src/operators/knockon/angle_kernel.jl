@@ -67,8 +67,8 @@ end
     MollerAngleKernel{T}
 
 Knock-on pitch kernel `δ[j, l](ξ*)` between primary pitch cells `l` and knock-on pitch
-cells `j`, tabulated on a uniform grid of `ξ*` values and interpolated linearly to
-`ξ*(p_i, p1_k)` at the momentum cell centres. Every tabulated column satisfies
+cells `j`, tabulated on a uniform grid of `ξ*` values and interpolated linearly to the
+`ξ*` of each momentum pair `(i, k)`. Every tabulated column satisfies
 `Σ_j Δξ_j δ[j, l] = 1`, and so does every interpolated one.
 
 In cylindrical geometry the kernel does not depend on radius; one table serves all
@@ -83,37 +83,44 @@ struct MollerAngleKernel{T<:AbstractFloat}
 end
 
 """
-    MollerAngleKernel(knockon, primary, p_cut; n_tab=80, range=:support, primary_points=1)
+    MollerAngleKernel(knockon, primary, p_cut; n_tab=80, dream=false, primary_points=1)
 
-- `range = :support`: tabulate `ξ*` over the momentum pairs `(i, k)` that produce
-  knock-ons, i.e. where the energy kernel `S[i, k]` is nonzero.
-  `range = :dream` reproduces DREAM's `EvaluateXiStarRangeOnGrids`, which selects pairs
-  with `γ(p_{i-1/2}) < γ(p1_k) - 1` (a total energy compared with a kinetic energy).
-  For primary grids below γ₁ ≈ 3 this misses contributing pairs, whose `ξ*` is then
-  clamped to the table edge.
+- `ξ*` of pair `(i, k)` is evaluated at the midpoint of the part of knock-on cell `i`
+  that receives knock-ons, `[max(p_{i-1/2}, p_cut), min(p_{i+1/2}, p_max(p1_k))]` (the
+  interval the energy kernel integrates over), which keeps `ξ* < 1`; the table covers
+  the `ξ*` of all such pairs.
+- `dream = true` reproduces DREAM (`MollerDeltaAngleKernel.cpp`): `ξ*` at the knock-on
+  cell centre, and a table range from the pairs with `γ(p_{i-1/2}) < γ(p1_k) - 1` (a
+  total energy compared with a kinetic energy). For primaries below γ₁ ≈ 3 this misses
+  contributing pairs, whose `ξ*` is then clamped to the table edge; with a knock-on grid
+  coarser than the primary grid, a cell centre above `p1` gives `ξ* > 1`.
 - `primary_points`: Gauss points averaging the primary over its pitch cell; `1`
   evaluates the primary at the cell centre (DREAM).
 """
 function MollerAngleKernel(knockon::PXiGrid{T}, primary::PXiGrid{T}, p_cut::Real;
-                           n_tab::Integer=80, range::Symbol=:support,
+                           n_tab::Integer=80, dream::Bool=false,
                            primary_points::Integer=1) where {T}
     n_tab >= 2 || throw(ArgumentError("n_tab must be at least 2"))
     primary_points >= 1 || throw(ArgumentError("primary_points must be at least 1"))
-    range in (:support, :dream) || throw(ArgumentError("unknown ξ* range $range"))
     p_cut > 0 || throw(ArgumentError("p_cut must be positive"))
     nK, nP = n_p(knockon), n_p(primary)
     γ(p) = sqrt(1 + p^2)
+    # ξ* of each momentum pair, and whether it sets the table range
+    xs_pair = zeros(T, nK, nP)
     lo, hi = T(Inf), T(-Inf)
     for i in 1:nK, k in 1:nP
         p1 = primary.p[k]
-        contributes = if range === :support
-            min(knockon.p_f[i+1], max_knockon_momentum(p1)) > max(knockon.p_f[i], p_cut)
+        pL = max(knockon.p_f[i], T(p_cut))
+        pU = min(knockon.p_f[i+1], max_knockon_momentum(p1))
+        if dream
+            xs = xi_star(knockon.p[i], p1)
+            in_range = knockon.p_f[i+1] > p_cut && γ(knockon.p_f[i]) < γ(p1) - 1
         else
-            knockon.p_f[i+1] > p_cut && γ(knockon.p_f[i]) < γ(p1) - 1
+            in_range = pU > pL
+            xs = in_range ? xi_star((pL + pU) / 2, p1) : xi_star(knockon.p[i], p1)
         end
-        contributes || continue
-        xs = xi_star(knockon.p[i], p1)
-        isfinite(xs) || continue
+        xs_pair[i, k] = xs
+        (in_range && isfinite(xs)) || continue
         lo, hi = min(lo, xs), max(hi, xs)
     end
     empty = !(lo <= hi)
@@ -138,7 +145,7 @@ function MollerAngleKernel(knockon::PXiGrid{T}, primary::PXiGrid{T}, p_cut::Real
     m0 = ones(Int, nK, nP)
     w1 = zeros(T, nK, nP)
     for i in 1:nK, k in 1:nP
-        xs = xi_star(knockon.p[i], primary.p[k])
+        xs = xs_pair[i, k]
         if !(xs > lo) || dxs == 0
             m0[i, k], w1[i, k] = 1, zero(T)
         elseif xs >= hi

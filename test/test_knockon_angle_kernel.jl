@@ -55,7 +55,8 @@ using QuadGK: quadgk
 
     @testset "first pitch moment ⟨ξ⟩ = ξ₁ξ*" begin
         # The gyro-averaged knock-on pitch has mean ξ₁ξ*. The density has inverse-square-root
-        # edges, so the cell-centre moment converges like Δξ^(3/2) (observed error·n^1.5 ≈ 0.25).
+        # edges, so the cell-centre moment converges like Δξ^(3/2) (observed error·n^1.5 of
+        # 0.25 to 0.52, depending on where the sampled ξ* fall).
         ns = (50, 200, 800)
         errs = map(ns) do n2
             fine = PXiGrid(uniform_p_faces(30, 0.0, 6.0), uniform_xi_faces(n2))
@@ -63,8 +64,8 @@ using QuadGK: quadgk
             maximum(abs(sum(fine.dxi .* fine.xi .* Kf.table[:, l, m]) - prim.xi[l] * Kf.xs[m])
                     for m in (1, 40, 80), l in (2, 8, 15))
         end
-        @test all(errs .* ns .^ 1.5 .< 0.4)
-        @test errs[end] < 2e-5
+        @test all(errs .* ns .^ 1.5 .< 0.6)
+        @test errs[end] < 3e-5
     end
 
     @testset "reciprocity with the primary averaged over its cell" begin
@@ -96,18 +97,20 @@ using QuadGK: quadgk
 
     @testset "ξ* range: kernel support versus DREAM's criterion" begin
         # On a grid below γ₁ ≈ 3, DREAM's range misses contributing pairs, which are then
-        # clamped to the last tabulated slice; the support range covers them.
+        # clamped to the last tabulated slice. Runes2P's table covers the ξ* of every pair
+        # that produces knock-ons.
         g2 = PXiGrid(uniform_p_faces(30, 0.0, 2.0), uniform_xi_faces(8))
         pc = 0.1
-        contributing = [(i, k) for i in 1:30, k in 1:30
-                        if min(g2.p_f[i+1], max_knockon_momentum(g2.p[k])) > max(g2.p_f[i], pc)]
-        xs = [xi_star(g2.p[i], g2.p[k]) for (i, k) in contributing]
+        interval(i, k) = (max(g2.p_f[i], pc), min(g2.p_f[i+1], max_knockon_momentum(g2.p[k])))
+        contributing = [(i, k) for i in 1:30, k in 1:30 if >(reverse(interval(i, k))...)]
         Ks = MollerAngleKernel(g2, g2, pc)
-        Kd = MollerAngleKernel(g2, g2, pc; range=:dream)
-        clamped(K) = count(x -> x < first(K.xs) || x > last(K.xs), xs)
-        @test clamped(Ks) == 0
-        @test clamped(Kd) > length(xs) ÷ 4
-        @test last(Kd.xs) < 0.52 && last(Ks.xs) > 0.78
+        Kd = MollerAngleKernel(g2, g2, pc; dream=true)
+        xs_runes2p = [xi_star(sum(interval(i, k)) / 2, g2.p[k]) for (i, k) in contributing]
+        xs_dream = [xi_star(g2.p[i], g2.p[k]) for (i, k) in contributing]
+        outside(K, xs) = count(x -> x < first(K.xs) || x > last(K.xs), xs)
+        @test outside(Ks, xs_runes2p) == 0
+        @test outside(Kd, xs_dream) > length(contributing) ÷ 4
+        @test last(Kd.xs) < 0.52
     end
 
     @testset "interpolation in ξ* converges with the table size" begin
@@ -122,7 +125,9 @@ using QuadGK: quadgk
             for i in 1:n_p(knock), k in 1:n_p(prim)
                 min(knock.p_f[i+1], max_knockon_momentum(prim.p[k])) > max(knock.p_f[i], p_cut) || continue
                 delta_matrix!(D, Kt, i, k)
-                xs = xi_star(knock.p[i], prim.p[k])
+                pL = max(knock.p_f[i], p_cut)
+                pU = min(knock.p_f[i+1], max_knockon_momentum(prim.p[k]))
+                xs = xi_star((pL + pU) / 2, prim.p[k])
                 for l in 1:n_xi(prim)
                     delta_column!(view(exact, :, l), knock.xi_f, xs; cell=(prim.xi[l], prim.xi[l]))
                 end
@@ -136,6 +141,30 @@ using QuadGK: quadgk
         @test med320 < med80 / 10       # observed 19
         @test max320 < max80 / 2        # observed 2.4
         @test max80 < 0.05 && med80 < 0.01
+    end
+
+    @testset "gyro-average keeps all knock-ons on the pitch grid (unnormalized norm = 1)" begin
+        # a ± b = cos(θ₁ ∓ θ*) lies in [-1, 1], so the column integral before normalization
+        # is 1 in cylindrical geometry; the normalization cannot hide an error in a or b
+        col = zeros(n_xi(knock))
+        nodes, weights = Runes2P.gauss(6)
+        ok = true
+        for ξs in range(0.0, 1.0; length=41), l in 1:n_xi(prim)
+            ok &= abs(delta_column!(col, knock.xi_f, ξs; cell=(prim.xi[l], prim.xi[l])) - 1) < 1e-13
+            ok &= abs(delta_column!(col, knock.xi_f, ξs; cell=(prim.xi_f[l], prim.xi_f[l+1]),
+                                    nodes, weights) - 1) < 1e-13
+        end
+        @test ok
+    end
+
+    @testset "knock-on grid coarser than the primary grid" begin
+        # knock-on cell [0, 1] receives knock-ons from primaries with p1 < 0.5, whose
+        # momentum is below the cell centre; ξ* at the cell centre would exceed 1
+        kn = PXiGrid(uniform_p_faces(3, 0.0, 3.0), uniform_xi_faces(6))
+        pr = PXiGrid(uniform_p_faces(30, 0.0, 3.0), uniform_xi_faces(6))
+        @test xi_star(kn.p[1], pr.p[3]) > 1
+        Kc = MollerAngleKernel(kn, pr, 0.1)
+        @test all(isfinite, Kc.table) && last(Kc.xs) < 1
     end
 
     @testset "cutoff above the knock-on grid" begin
