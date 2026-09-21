@@ -1,0 +1,20 @@
+# Simulation output
+*.h5
+*.jld2
+!test/data/*.h5
+
+# Julia local settings
+LocalPreferences.toml
+*.jl.cov
+*.jl.mem
+
+# Editors
+.vscode/
+.zed/
+
+# Python bytecode
+__pycache__/
+
+# Documenter build output
+docs/build/
+docs/src/api/

@@ -1,0 +1,30 @@
+name = "Runes2P"
+uuid = "7ac8527a-7440-4908-b219-e6c5e734431e"
+version = "0.1.0"
+authors = ["Ferenc Lengyel <37864119+leferi99@users.noreply.github.com>"]
+
+[deps]
+ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
+DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
+SparseConnectivityTracer = "9f842d2f-2579-4b1d-911e-f412cf18a3f5"
+SparseMatrixColorings = "0a514795-09f3-496d-8182-132a7b665d35"
+
+[compat]
+ADTypes = "1.24.0"
+DifferentiationInterface = "0.7.21"
+ForwardDiff = "1.4.6"
+LinearAlgebra = "1"
+SparseArrays = "1"
+SparseConnectivityTracer = "1.2.3"
+SparseMatrixColorings = "0.4.28"
+julia = "1.11"
+
+[extras]
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Random", "Test"]
