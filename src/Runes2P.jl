@@ -28,6 +28,7 @@ include("system/terms.jl")
 include("system/equation_system.jl")
 include("solvers/linear_solver.jl")
 include("solvers/newton.jl")
+include("solvers/krylov.jl")
 include("solvers/time_stepping.jl")
 
 export MomentumGrid, uniform_p_faces, biuniform_p_faces, uniform_xi_faces
@@ -61,7 +62,7 @@ export EquationTerm, dependencies, coupling, treatment, sparsity!, rhs!, jacobia
 export FokkerPlanckTerm, KnockOnTerm, LinearTerm, DensityMomentTerm, MaxwellianSourceTerm, LayoutKineticArray, kinetic_array
 export Equation, TimeDerivative, Algebraic, EquationSystem, Tolerance, tolerance
 export residual!, mass_matrix, jacobian_sparsity, jacobian_prototype, jacobian_operator, residual_scales, ode_function
-export LinearSolver, SparseLU, NewtonSolver, NewtonWorkspace, NewtonResult, newton_solve!
+export LinearSolver, SparseLU, GMRES, RadiusBlockLU, RadiusBlockILU, NewtonSolver, NewtonWorkspace, NewtonResult, newton_solve!
 export SolverStatistics, TimeSolution, TimeStepFailure, integrate, write_output
 
 end # module Runes2P

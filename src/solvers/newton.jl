@@ -5,8 +5,8 @@
 
 """
     NewtonSolver(; linear_solver=SparseLU(), max_iterations=30, max_reduction=0.9,
-                 residual_tolerance=1e-8, line_search=false, sufficient_decrease=1e-4,
-                 max_backtracks=20)
+                 residual_tolerance=1e-8, floor_linear_tolerance=1e-8, line_search=false,
+                 sufficient_decrease=1e-4, max_backtracks=20)
 
 Settings of the Newton iteration of a backward-Euler step.
 
@@ -21,7 +21,10 @@ Settings of the Newton iteration of a backward-Euler step.
   residual stops decreasing (it grew, or fell by less than 10%, in the last iteration).
   Such a step is flagged (`residual_floor` in [`NewtonResult`](@ref)), since the same
   waiver would also accept a linearly converging iteration whose small update understates
-  its error (an inexact Jacobian or linear solve, DREAM #262).
+  its error (an inexact Jacobian or linear solve, DREAM #262). An inexact linear solve
+  with relative residual `η` contracts the error by about `η` per iteration, so the waiver
+  applies only when the last linear solve was accurate to `floor_linear_tolerance`
+  (always true for direct solvers; for [`GMRES`](@ref) its `relative_tolerance`).
 - Lower limits ([`LowerLimit`](@ref), declared on the unknowns) shorten the whole step so
   that no limited entry loses more than the fraction `max_reduction` of its distance to
   its limit in one iteration. Only steps towards the limit are shortened, never growth
@@ -39,6 +42,7 @@ Base.@kwdef struct NewtonSolver{L<:LinearSolver}
     max_iterations::Int = 30
     max_reduction::Float64 = 0.9
     residual_tolerance::Float64 = 1e-8
+    floor_linear_tolerance::Float64 = 1e-8
     line_search::Bool = false
     sufficient_decrease::Float64 = 1e-4
     max_backtracks::Int = 20
@@ -49,13 +53,15 @@ end
 
 Outcome of [`newton_solve!`](@ref): `status` (`:converged`, or the reason of failure:
 `:max_iterations`, `:singular_matrix`, `:non_finite_residual`, `:non_finite_update`,
-`:domain_error`, `:line_search_failed`, `:below_lower_limit`: an entry at its lower
-limit would be pushed below it, or the converged state lies below it), the number of
+`:domain_error`, `:line_search_failed`, `:linear_solve_failed`: an iterative linear
+solve did not reach its tolerance, `:below_lower_limit`: an entry at its lower limit
+would be pushed below it, or the converged state lies below it), the number of
 `iterations`, the scaled residual norm before the first iteration and at the end (which
 may exceed `residual_tolerance` on a stiff step, see [`NewtonSolver`](@ref)), the
 scaled norm `max |δ|/scale` of the last update, the estimated `convergence_order` (`NaN`
 when fewer than three updates are above round-off), the smallest step length used, the
-Krylov iterations summed over the iterations (0 for direct solvers) and `residual_floor`,
+Krylov iterations and preconditioner factorizations summed over the iterations (0 for
+direct solvers) and `residual_floor`,
 true when the step converged with the residual above `residual_tolerance` because the
 residual had stopped decreasing.
 """
@@ -68,6 +74,7 @@ struct NewtonResult
     convergence_order::Float64
     smallest_step_length::Float64
     krylov_iterations::Int
+    preconditioner_updates::Int
     residual_floor::Bool
 end
 
@@ -108,11 +115,12 @@ function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver=NewtonS
         names = [typeof(bound.term).name.name for bound in system.matrix_free_terms]
         throw(ArgumentError("$(typeof(solver.linear_solver)) needs every implicit term in the stored " *
                             "Jacobian, but the system has implicit matrix-free terms ($(join(names, ", "))); " *
-                            "treat them explicitly or use a Krylov solver"))
+                            "treat them explicitly or use the Newton-Krylov solver GMRES"))
     end
     layout = system.layout
     n = length(layout)
     scales = T.(unknown_scales(layout))
+    row_weights = zeros(T, n)
     absolute, relative = zeros(T, n), zeros(T, n)
     limited, limit_tolerance, limit_reference = Int[], T[], Int[]
     for (id, u) in enumerate(layout.unknowns)
@@ -140,9 +148,9 @@ function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver=NewtonS
     all(>(0), diagonal_positions) || error("the Jacobian pattern lacks diagonal entries")
     fill!(matrix.nzval, zero(T))
     matrix.nzval[diagonal_positions] .= one(T)
-    cache = linear_solver_cache(solver.linear_solver, matrix)
+    cache = linear_solver_cache(solver.linear_solver, matrix, system, row_weights, scales)
     return NewtonWorkspace(system, solver, zeros(T, n), zeros(T, n), zeros(T, n), zeros(T, n),
-                           zeros(T, n), zeros(T, n), zeros(T, n), scales, absolute, relative, jacobian,
+                           zeros(T, n), zeros(T, n), row_weights, scales, absolute, relative, jacobian,
                            matrix, diagonal_positions, limited, limit_tolerance, limit_reference, cache,
                            Float64[], Float64[], Float64[])
 end
@@ -257,7 +265,7 @@ Solve the backward-Euler step from `u_old` to time `t` with step `dt`, starting 
 guess in `u` and overwriting it. Returns a [`NewtonResult`](@ref); on failure `u` holds
 the last iterate. Never throws for a failed iteration: a singular matrix, a non-finite
 residual or update, a `DomainError` from a term (evaluation outside the physical
-domain), a failed line search, an entry below its lower limit at convergence and the
+domain), a linear solve that did not converge, a failed line search, an entry below its lower limit at convergence and the
 iteration limit are reported through the status, for the time stepper to handle
 (DREAM #25, #81).
 """
@@ -270,11 +278,12 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
         ws.row_weights[i] = (system.mass[i] == 0 ? one(dt) : dt) / ws.scales[i]
     end
     krylov = 0
+    updates = 0
     smallest_step = 1.0
     result(status, iterations, initial; residual_floor=false) =
         NewtonResult(status, iterations, initial, isempty(ws.residual_norms) ? initial : last(ws.residual_norms),
                      isempty(ws.update_norms) ? NaN : last(ws.update_norms),
-                     _convergence_order(ws.update_norms), smallest_step, krylov, residual_floor)
+                     _convergence_order(ws.update_norms), smallest_step, krylov, updates, residual_floor)
 
     status = _checked_residual!(ws.residual, u, u_old, system, t, dt)
     status === :ok || return result(status, 0, NaN)
@@ -289,9 +298,10 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
         all(isfinite, ws.jacobian.nzval) || return result(:non_finite_residual, iteration - 1, initial)
         _newton_matrix!(ws, dt)
         @. ws.scaled_rhs = -ws.row_weights * ws.residual
-        solve!(ws.scaled_update, ws.cache, ws.matrix, ws.scaled_rhs) ||
-            return result(:singular_matrix, iteration - 1, initial)
+        linear_status = solve!(ws.scaled_update, ws.cache, ws.matrix, ws.scaled_rhs, u, t, dt, iteration)
         krylov += krylov_iterations(ws.cache)
+        updates += preconditioner_updates(ws.cache)
+        linear_status === :ok || return result(linear_status, iteration - 1, initial)
         @. ws.update = ws.scales * ws.scaled_update
         all(isfinite, ws.update) || return result(:non_finite_update, iteration - 1, initial)
 
@@ -314,8 +324,11 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
         # fall below about eps dt‖L‖/scale, which exceeds `residual_tolerance` at large dt.
         # Once the update is within tolerance and the residual has stopped decreasing, the
         # iteration has converged as far as the arithmetic allows.
+        # An inexact linear solve converges linearly, with a small update that understates
+        # the error unless the solve was accurate (DREAM #262), so the waiver needs that.
         residual_stalled = length(ws.residual_norms) > 1 &&
-                           last(ws.residual_norms) >= 0.9 * ws.residual_norms[end-1]
+                           last(ws.residual_norms) >= 0.9 * ws.residual_norms[end-1] &&
+                           linear_tolerance(ws.cache) <= solver.floor_linear_tolerance
         residual_small = last(ws.residual_norms) <= solver.residual_tolerance
         if update_converged && (residual_small || residual_stalled)
             status = _below_lower_limit(ws, u) ? :below_lower_limit : :converged

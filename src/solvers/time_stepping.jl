@@ -11,7 +11,8 @@ time array (DREAM #296):
 - `time`, `time_step`: end time and length of the attempted step;
 - `accepted`, `status`: whether the step was accepted, and the [`NewtonResult`](@ref)
   status;
-- `newton_iterations`, `krylov_iterations`;
+- `newton_iterations`, `krylov_iterations`, `preconditioner_updates` (factorizations of
+  the Krylov preconditioner);
 - `initial_residual_norm`, `residual_norm`, `update_norm`: scaled norms before the first
   and after the last Newton iteration (see [`NewtonSolver`](@ref));
 - `convergence_order`: estimated order of the Newton iteration (about 2 with a correct
@@ -33,6 +34,7 @@ struct SolverStatistics
     status::Vector{Symbol}
     newton_iterations::Vector{Int}
     krylov_iterations::Vector{Int}
+    preconditioner_updates::Vector{Int}
     initial_residual_norm::Vector{Float64}
     residual_norm::Vector{Float64}
     update_norm::Vector{Float64}
@@ -45,7 +47,7 @@ struct SolverStatistics
     iteration_update_norm::Vector{Float64}
     iteration_step_length::Vector{Float64}
 end
-SolverStatistics() = SolverStatistics(Float64[], Float64[], Bool[], Symbol[], Int[], Int[], Float64[],
+SolverStatistics() = SolverStatistics(Float64[], Float64[], Bool[], Symbol[], Int[], Int[], Int[], Float64[],
                                       Float64[], Float64[], Float64[], Float64[], Bool[], Float64[], Int[],
                                       Float64[], Float64[], Float64[])
 
@@ -56,6 +58,7 @@ function _record!(stats::SolverStatistics, t, dt, result::NewtonResult, ws::Newt
     push!(stats.status, result.status)
     push!(stats.newton_iterations, result.iterations)
     push!(stats.krylov_iterations, result.krylov_iterations)
+    push!(stats.preconditioner_updates, result.preconditioner_updates)
     push!(stats.initial_residual_norm, result.initial_residual_norm)
     push!(stats.residual_norm, result.residual_norm)
     push!(stats.update_norm, result.update_norm)

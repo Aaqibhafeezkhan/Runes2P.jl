@@ -1,6 +1,9 @@
 # Multi-step backward Euler compared with a DREAM run (reference/dream/cases/time_stepping.py):
 # Fokker-Planck operator with prescribed, constant plasma plus DREAM's explicit knock-on
-# term, advanced over DREAM's time points by Newton with the sparse direct solver.
+# term, advanced over DREAM's time points by Newton with the sparse direct solver and with
+# GMRES preconditioned by the per-radius LU. With the knock-on term explicit, the
+# preconditioner is the whole Newton matrix, so GMRES must take one iteration per Newton
+# iteration and reproduce the direct solve.
 using HDF5
 
 const DREAM_TIME_STEPPING_DATA = joinpath(@__DIR__, "data", "dream_time_stepping.h5")
@@ -53,26 +56,35 @@ const DREAM_TIME_STEPPING_DATA = joinpath(@__DIR__, "data", "dream_time_stepping
                 for ir in 1:nr
                     kinetic_view(u0, layout, 1, ir) .= f_dream[:, :, ir, 1]
                 end
-                solution = integrate(system, u0, times)
+                for (solver_name, solver) in ("direct" => NewtonSolver(),
+                                              "GMRES" => NewtonSolver(linear_solver=GMRES()))
+                    @testset "$solver_name" begin
+                        solution = integrate(system, u0, times; solver)
 
-                stats = solution.statistics
-                @test all(stats.accepted)
-                @test stats.time == times[2:end]
-                # a linear problem: the solve, then the check
-                @test all(==(2), stats.newton_iterations)
-                errors = map(eachindex(times)) do m
-                    worst = 0.0
-                    for ir in 1:nr
-                        a = f_dream[:, :, ir, m]
-                        b = kinetic_view(solution.states[:, m], layout, 1, ir)
-                        cut = 1e-12 * maximum(abs, a)
-                        worst = max(worst, maximum(abs(a[k] - b[k]) / abs(a[k]) for k in eachindex(a)
-                                                   if abs(a[k]) > cut))
+                        stats = solution.statistics
+                        @test all(stats.accepted)
+                        @test stats.time == times[2:end]
+                        # a linear problem: the solve, then the check
+                        @test all(==(2), stats.newton_iterations)
+                        if solver_name == "GMRES"
+                            @test stats.krylov_iterations == stats.newton_iterations
+                            @test stats.preconditioner_updates == stats.newton_iterations
+                        end
+                        errors = map(eachindex(times)) do m
+                            worst = 0.0
+                            for ir in 1:nr
+                                a = f_dream[:, :, ir, m]
+                                b = kinetic_view(solution.states[:, m], layout, 1, ir)
+                                cut = 1e-12 * maximum(abs, a)
+                                worst = max(worst, maximum(abs(a[k] - b[k]) / abs(a[k]) for k in eachindex(a)
+                                                           if abs(a[k]) > cut))
+                            end
+                            worst
+                        end
+                        @test errors[1] == 0
+                        @test maximum(errors) < rtol
                     end
-                    worst
                 end
-                @test errors[1] == 0
-                @test maximum(errors) < rtol
             end
         end
     end

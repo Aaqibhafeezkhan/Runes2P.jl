@@ -7,6 +7,8 @@ authors = ["Ferenc Lengyel <37864119+leferi99@users.noreply.github.com>"]
 ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
 DifferentiationInterface = "a0c0ee7d-e4b9-4e03-894e-1c5f64a51d63"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+IncompleteLU = "40713840-3770-5561-ab4c-a76e7d0d7895"
+Krylov = "ba0b0d4f-ebba-5204-a429-3ac8c609bfb7"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 LinearOperators = "5c8ed15e-5a4c-59e4-a42b-c7e8811fb125"
 QuadGK = "1fd47b50-473d-5c70-9696-f719f8f3bcdc"
@@ -28,6 +30,7 @@ ADTypes = "1.24.0"
 DifferentiationInterface = "0.7.21"
 ForwardDiff = "1.4.6"
 HDF5 = "0.17.4"
+IncompleteLU = "0.2.1"
 Krylov = "0.10.10"
 LinearAlgebra = "1"
 LinearOperators = "2.14.3"
@@ -41,10 +44,9 @@ julia = "1.11"
 
 [extras]
 HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
-Krylov = "ba0b0d4f-ebba-5204-a429-3ac8c609bfb7"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 SciMLBase = "0bca4576-84f4-4d90-8ffe-ffa030f20462"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["HDF5", "Krylov", "Random", "SciMLBase", "Test"]
+test = ["HDF5", "Random", "SciMLBase", "Test"]

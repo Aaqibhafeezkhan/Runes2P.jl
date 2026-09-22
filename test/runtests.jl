@@ -2,6 +2,8 @@ using Runes2P
 using Test
 using LinearAlgebra: Diagonal
 
+include("example_cases.jl")
+
 @testset "Runes2P" begin
     include("test_grids.jl")
     include("test_per_radius_grids.jl")
@@ -11,6 +13,7 @@ using LinearAlgebra: Diagonal
     include("test_equation_system.jl")
     include("test_sciml_extension.jl")
     include("test_time_stepping.jl")
+    include("test_newton_krylov.jl")
     include("test_discretization.jl")
     include("test_physics.jl")
     include("test_runaway_rates.jl")

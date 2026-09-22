@@ -79,6 +79,7 @@ struct EquationSystem{T,S<:Tuple,M<:Tuple,X<:Tuple,F,P,B}
     prototype::SparseMatrixCSC{T,Int}
     time::Base.RefValue{T}
     buffer::Vector{T}
+    product::Vector{T}
     time_scale::T
     newton_tolerances::Dict{Symbol,Tolerance}
     time_step_tolerances::Dict{Symbol,Tolerance}
@@ -173,7 +174,7 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
         error("the Jacobian prototype lost structural entries ($(nnz(prototype)) of $(nnz(pattern)))")
     return EquationSystem(layout, collect(Equation, equations), sparse_tuple, matrix_free_tuple,
                           explicit_tuple, mass, pattern, sparse_rhs!, preparation, backend, prototype,
-                          time, buffer, T(time_scale), Dict{Symbol,Tolerance}(newton_tolerances),
+                          time, buffer, zeros(T, n), T(time_scale), Dict{Symbol,Tolerance}(newton_tolerances),
                           Dict{Symbol,Tolerance}(time_step_tolerances))
 end
 
@@ -250,13 +251,15 @@ end
 
 `∂rhs/∂u` at `(u, t)` as a linear operator: the stored matrix `J` (from
 [`jacobian!`](@ref) at the same point) plus the products of the implicit matrix-free
-terms. `u` is referenced, not copied.
+terms. `u` is referenced, not copied. The products go through a buffer owned by the
+system, shared by all operators of the same system, so they must not be applied
+concurrently. The Newton-Krylov solver [`GMRES`](@ref) builds its own operator.
 """
 function jacobian_operator(J::SparseMatrixCSC{T}, system::EquationSystem, u::AbstractVector, t) where {T}
     stored = LinearOperator(J)
     isempty(system.matrix_free_terms) && return stored
     n = length(system.layout)
-    product = zeros(T, n)
+    product = system.product
     function matrix_free!(result, v, a, b)
         fill!(product, zero(T))
         _add_products!(product, system.matrix_free_terms, u, v, system.layout, t)

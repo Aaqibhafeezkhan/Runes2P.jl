@@ -2,7 +2,7 @@
 
 julia_version = "1.13.0"
 manifest_format = "2.1"
-project_hash = "547d24f7101c515e089f5e27280c6ed565e79b58"
+project_hash = "af5cd8a6d7f7d6d5e599ac7c0c5a311c55357c23"
 
 [[deps.ADTypes]]
 deps = ["PrecompileTools"]
@@ -193,6 +193,13 @@ version = "1.4.6"
     [deps.ForwardDiff.weakdeps]
     StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
+[[deps.IncompleteLU]]
+deps = ["LinearAlgebra", "SparseArrays"]
+git-tree-sha1 = "6c676e79f98abb6d33fa28122cad099f1e464afe"
+registries = "General"
+uuid = "40713840-3770-5561-ab4c-a76e7d0d7895"
+version = "0.2.1"
+
 [[deps.InteractiveUtils]]
 deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
@@ -221,6 +228,13 @@ version = "1.8.0"
 deps = ["StyledStrings"]
 uuid = "ac6e5ff7-fb65-4e79-a425-ec3bc9c03011"
 version = "1.12.0"
+
+[[deps.Krylov]]
+deps = ["LinearAlgebra", "Printf", "SparseArrays"]
+git-tree-sha1 = "909890a0d1486c392128cf4bd6e038ee0c6a7af4"
+registries = "General"
+uuid = "ba0b0d4f-ebba-5204-a429-3ac8c609bfb7"
+version = "0.10.10"
 
 [[deps.LaTeXStrings]]
 git-tree-sha1 = "f88f3ccef05a6a72a0cf0ed417c8fd68530f4ab2"
@@ -386,7 +400,7 @@ uuid = "189a3867-3050-52da-a836-e630ba90ab69"
 version = "1.2.2"
 
 [[deps.Runes2P]]
-deps = ["ADTypes", "DifferentiationInterface", "ForwardDiff", "LinearAlgebra", "LinearOperators", "QuadGK", "SparseArrays", "SparseConnectivityTracer", "SparseMatrixColorings", "SpecialFunctions"]
+deps = ["ADTypes", "DifferentiationInterface", "ForwardDiff", "IncompleteLU", "Krylov", "LinearAlgebra", "LinearOperators", "QuadGK", "SparseArrays", "SparseConnectivityTracer", "SparseMatrixColorings", "SpecialFunctions"]
 path = "."
 uuid = "7ac8527a-7440-4908-b219-e6c5e734431e"
 version = "0.1.0"

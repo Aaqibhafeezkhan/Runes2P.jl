@@ -1,6 +1,6 @@
-# Linear solvers for the Newton iterations. A solver type holds the
-# settings; `linear_solver_cache` creates the state reused between solves (the symbolic
-# factorization of a fixed sparsity pattern).
+# Linear solvers for the Newton iterations. A solver type holds
+# the settings; `linear_solver_cache` creates the state reused between solves (the
+# symbolic factorization of a fixed sparsity pattern, Krylov workspaces, preconditioners).
 
 using LinearAlgebra: lu, lu!, issuccess, ldiv!
 using SparseArrays: nzrange
@@ -8,12 +8,26 @@ using SparseArrays: nzrange
 """
     LinearSolver
 
-Supertype of the linear solvers used by [`NewtonSolver`](@ref). A solver implements
-`linear_solver_cache(solver, A)` and `solve!(x, cache, A, b)`, which returns `true` on
-success and `false` when the matrix is singular or the factorization failed, plus
-`requires_stored_jacobian(solver)` (whether all implicit terms must be in the stored
-matrix) and `krylov_iterations(cache)` (Krylov iterations of the last solve, 0 for direct
-solvers).
+Supertype of the linear solvers used by [`NewtonSolver`](@ref). Each Newton iteration
+solves `A x = b` with the scaled Newton matrix `A = W (M/dt - J) S` (row weights `W`,
+unknown scales `S`, see [`NewtonSolver`](@ref)), where `J` is the stored Jacobian of the
+implicit `:sparse` terms plus, for solvers that support them, the implicit matrix-free
+terms. A solver implements
+
+- `linear_solver_cache(solver, matrix, system, row_weights, scales)`: the state reused
+  between solves; `matrix` is the scaled stored matrix (its pattern is fixed, its values
+  change), `row_weights` and `scales` are the vectors `W` and `S`, which the Newton
+  iteration updates in place;
+- `solve!(x, cache, matrix, b, u, t, dt, iteration)`: solve with the matrix at the state
+  `u`, time `t` and step `dt`, in Newton iteration `iteration` of the step; returns
+  `:ok`, `:singular_matrix` or `:linear_solve_failed` (an iterative solve that did not
+  reach its tolerance);
+- `requires_stored_jacobian(solver)`: whether every implicit term must be in the stored
+  matrix;
+- `krylov_iterations(cache)`, `preconditioner_updates(cache)`: Krylov iterations and
+  preconditioner factorizations of the last solve (0 for direct solvers);
+- `linear_tolerance(cache)`: bound on the relative residual `‖b - A x‖/‖b‖` of the last
+  solve (0 for direct solvers), used by the residual-floor rule of the Newton iteration.
 """
 abstract type LinearSolver end
 
@@ -24,7 +38,7 @@ Monolithic sparse direct solve by LU factorization (UMFPACK, through `SparseArra
 DREAM-like baseline. The symbolic analysis of the sparsity pattern is done once and
 reused for every later matrix with the same pattern. Needs every implicit term in the
 stored Jacobian, so a system with implicit matrix-free terms (the implicit knock-on term)
-is refused; those need a Newton-Krylov solver.
+is refused; those need the Newton-Krylov solver [`GMRES`](@ref).
 """
 struct SparseLU <: LinearSolver end
 
@@ -34,13 +48,17 @@ end
 
 requires_stored_jacobian(::SparseLU) = true
 krylov_iterations(::SparseLUCache) = 0
+preconditioner_updates(::SparseLUCache) = 0
+linear_tolerance(::SparseLUCache) = 0.0
 
-linear_solver_cache(::SparseLU, A::SparseMatrixCSC) = SparseLUCache(lu(A; check=false))
+linear_solver_cache(::SparseLU, matrix::SparseMatrixCSC, system, row_weights, scales) =
+    SparseLUCache(lu(matrix; check=false))
 
-function solve!(x::AbstractVector, cache::SparseLUCache, A::SparseMatrixCSC, b::AbstractVector)
+function solve!(x::AbstractVector, cache::SparseLUCache, matrix::SparseMatrixCSC, b::AbstractVector,
+                u, t, dt, iteration)
     # reuses the symbolic analysis of the pattern
-    lu!(cache.factorization, A; check=false)
-    issuccess(cache.factorization) || return false
+    lu!(cache.factorization, matrix; check=false)
+    issuccess(cache.factorization) || return :singular_matrix
     ldiv!(x, cache.factorization, b)
-    return true
+    return :ok
 end
