@@ -4,6 +4,7 @@ using LinearAlgebra: Diagonal
 
 @testset "Runes2P" begin
     include("test_grids.jl")
+    include("test_per_radius_grids.jl")
     include("test_advection_diffusion.jl")
     include("test_jacobian.jl")
     include("test_discretization.jl")

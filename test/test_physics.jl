@@ -107,7 +107,7 @@ end
                     LinearAlgebra.I
             f1 = reshape((shift - MC) \ (operator_matrix(opE) * vec(fM)), size(g))
             j = Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT *
-                sum(g.phase_space_jacobian[i, k, 1] / g.radial_grid.spatial_jacobian[1] *
+                sum(phase_space_jacobian(g, 1)[i, k] / g.radial_grid.spatial_jacobian[1] *
                     mom.p_widths[i] * mom.xi_widths[k] *
                     mom.p_centers[i] / sqrt(1 + mom.p_centers[i]^2) * mom.xi_centers[k] * f1[i, k, 1]
                     for i in 1:np_, k in 1:nxi)

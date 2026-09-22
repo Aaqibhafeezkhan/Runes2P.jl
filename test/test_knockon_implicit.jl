@@ -16,9 +16,9 @@ function knockon_dense(op::KnockOnOperator, n_tot)
         s == 0 && continue
         pitch_kernel_matrix!(D, pitch_kernel(op, ir), i, k)
         for j in 1:pitch_cell_count(gK), l in 1:pitch_cell_count(gP)
-            W = gP.momentum_grid.p_widths[k] * gP.momentum_grid.xi_widths[l] *
-                gP.phase_space_jacobian[k, l, ir]
-            A[LK[i, j, ir], LP[k, l, ir]] += n_tot[ir] * s * W * D[j, l] / gK.phase_space_jacobian[i, j, ir]
+            W = momentum_grid(gP).p_widths[k] * momentum_grid(gP).xi_widths[l] *
+                phase_space_jacobian(gP, ir)[k, l]
+            A[LK[i, j, ir], LP[k, l, ir]] += n_tot[ir] * s * W * D[j, l] / phase_space_jacobian(gK, ir)[i, j]
         end
     end
     return A
@@ -73,7 +73,7 @@ end
         K = knockon_linear_operator(op, n_tot)
         A = knockon_dense(op, n_tot)
         f0 = [exp(-p / 0.8) * (1.1 + ξ)
-              for p in g.momentum_grid.p_centers, ξ in g.momentum_grid.xi_centers, _ in 1:2]
+              for p in momentum_grid(g).p_centers, ξ in momentum_grid(g).xi_centers, _ in 1:2]
         # scale the knock-on term to O(1) against the unit identity
         Δt = 0.5 / maximum(abs, A)
         n = cell_count(g)

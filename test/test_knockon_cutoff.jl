@@ -43,9 +43,9 @@
     rad = RadialGrid(uniform_r_faces(3, 0.5))
     g = cylindrical_grid(MomentumGrid(biuniform_p_faces(40, 20, 0.0, 0.5, 4.0), uniform_xi_faces(8)), rad)
     f = [exp(-p / 0.9) * (1.3 + ξ) * (2 + r)
-         for p in g.momentum_grid.p_centers, ξ in g.momentum_grid.xi_centers, r in rad.r_centers]
+         for p in momentum_grid(g).p_centers, ξ in momentum_grid(g).xi_centers, r in rad.r_centers]
     n_tot = [1e19, 2e19, 3e19]
-    pa, pb = g.momentum_grid.p_faces[5], g.momentum_grid.p_faces[9]  # 0.1, 0.2
+    pa, pb = momentum_grid(g).p_faces[5], momentum_grid(g).p_faces[9]  # 0.1, 0.2
 
     @testset "per-radius kernels and caching" begin
         op = KnockOnOperator(g, g, [pa, pb, pa])
@@ -62,8 +62,8 @@
         @test set_cutoff!(op, [pa, pb, pa]) == 0
         @test set_cutoff!(op, [pb, pb, pb]) == 0
         @test length(op.cache) == 1
-        @test set_cutoff!(op, [pa, pb, g.momentum_grid.p_faces[13]]) == 2
-        @test op.p_cutoff == [pa, pb, g.momentum_grid.p_faces[13]]
+        @test set_cutoff!(op, [pa, pb, momentum_grid(g).p_faces[13]]) == 2
+        @test op.p_cutoff == [pa, pb, momentum_grid(g).p_faces[13]]
         # the matrix-free form follows the new kernels
         L = knockon_linear_operator(op, n_tot)
         set_cutoff!(op, pb)
@@ -79,12 +79,12 @@
         # moves, and columns stay normalized. So the knock-ons produced above any
         # reference momentum p_ref ≥ p_c are the same for all p_c ≤ p_ref.
         iref = 13  # p_ref = p_f[13] = 0.3
-        above(C) = sum(g.phase_space_jacobian[i, j, ir] * g.momentum_grid.p_widths[i] *
-                       g.momentum_grid.xi_widths[j] * C[i, j, ir]
+        above(C) = sum(phase_space_jacobian(g, ir)[i, j] * momentum_grid(g).p_widths[i] *
+                       momentum_grid(g).xi_widths[j] * C[i, j, ir]
                        for i in iref:momentum_cell_count(g), j in 1:pitch_cell_count(g), ir in 1:3)
         vals = map((3, 5, 9, 13)) do ic
             C = zeros(size(g))
-            apply!(C, KnockOnOperator(g, g, g.momentum_grid.p_faces[ic]), f, n_tot)
+            apply!(C, KnockOnOperator(g, g, momentum_grid(g).p_faces[ic]), f, n_tot)
             (above(C), density(g, C))
         end
         @test all(v -> isapprox(v[1], vals[1][1]; rtol=1e-13), vals)
@@ -106,8 +106,8 @@
         builds, outside = 0, 0
         for t in ts
             w = cutoff_window(thermal_momentum(T(t)), critical_momentum(EoverEc(t), 1.0))
-            c = choose_cutoff(gd.momentum_grid.p_faces, w.lower, w.upper; current_cutoff=pc)
-            fits = any(p -> w.lower <= p < w.upper, gd.momentum_grid.p_faces)
+            c = choose_cutoff(momentum_grid(gd).p_faces, w.lower, w.upper; current_cutoff=pc)
+            fits = any(p -> w.lower <= p < w.upper, momentum_grid(gd).p_faces)
             @test c.inside_window == fits
             c.inside_window || (outside += 1)
             builds += set_cutoff!(op, c.p_cutoff)

@@ -15,9 +15,9 @@ function knockon_reference(op::KnockOnOperator, f, n_tot)
         s == 0 && continue
         pitch_kernel_matrix!(D, pitch_kernel(op, ir), i, k)
         for j in 1:pitch_cell_count(gK), l in 1:pitch_cell_count(gP)
-            W = gP.momentum_grid.p_widths[k] * gP.momentum_grid.xi_widths[l] *
-                gP.phase_space_jacobian[k, l, ir] * f[k, l, ir]
-            C[i, j, ir] += n_tot[ir] * s * W * D[j, l] / gK.phase_space_jacobian[i, j, ir]
+            W = momentum_grid(gP).p_widths[k] * momentum_grid(gP).xi_widths[l] *
+                phase_space_jacobian(gP, ir)[k, l] * f[k, l, ir]
+            C[i, j, ir] += n_tot[ir] * s * W * D[j, l] / phase_space_jacobian(gK, ir)[i, j]
         end
     end
     return C
@@ -41,7 +41,8 @@ end
             g = cylindrical_grid(mom, RadialGrid(read(grp["grid/r_f"])))
             # DREAM's cylindrical Jacobian is 4π² times Runes2P's; only 𝒱'_P/𝒱'_K enters C,
             # so the factor cancels and C is compared without rescaling
-            @test all(r -> isapprox(r, 4π^2; rtol=1e-14), read(grp["grid/Vprime"]) ./ g.phase_space_jacobian)
+            jacobian = stack(phase_space_jacobian(g, ir) for ir in 1:radial_cell_count(g))
+            @test all(r -> isapprox(r, 4π^2; rtol=1e-14), read(grp["grid/Vprime"]) ./ jacobian)
             p_cut = read(grp["p_cut"])
             f = read(grp["f_hot"])          # (np, nξ, nr, nt + 1)
             C_dream = read(grp["C_boltz"])  # (np, nξ, nr, nt); C_boltz[n] from f_hot[n]
@@ -111,7 +112,7 @@ end
         apply!(C, op, fP, n_tot)
         # production onto the grid: n_tot Σ_kl (𝒱' Δp Δξ f / V') total[k]
         for ir in 1:2
-            prod = n_tot[ir] * sum(gP.phase_space_jacobian[k, l, ir] * prim.p_widths[k] * prim.xi_widths[l] *
+            prod = n_tot[ir] * sum(phase_space_jacobian(gP, ir)[k, l] * prim.p_widths[k] * prim.xi_widths[l] *
                                    fP[k, l, ir] * energy_kernel(op).total_rates[k]
                                    for k in 1:momentum_cell_count(prim), l in 1:pitch_cell_count(prim)) /
                    rad.spatial_jacobian[ir]

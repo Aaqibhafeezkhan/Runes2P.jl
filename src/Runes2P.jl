@@ -25,7 +25,9 @@ include("system/jacobian.jl")
 
 export MomentumGrid, uniform_p_faces, biuniform_p_faces, uniform_xi_faces
 export RadialGrid, uniform_r_faces
-export KineticGrid, cylindrical_grid, density, total_particles
+export KineticGrid, cylindrical_grid, density, total_particles, has_shared_momentum_grid, momentum_grid
+export phase_space_jacobian, phase_space_jacobian_p_faces, phase_space_jacobian_xi_faces
+export phase_space_jacobian_r_faces, phase_space_jacobian_over_p2_at_zero
 export momentum_cell_count, pitch_cell_count, radial_cell_count, cell_count
 export AdvectionDiffusion, apply!
 export Constants, IonSpecies, PlasmaState, free_electron_density, bound_electron_density
@@ -41,6 +43,7 @@ export xi_star, moller_cross_section, moller_flux, max_knockon_momentum, moller_
 export MollerEnergyKernel, MollerPitchKernel, pitch_cell_fraction
 export pitch_kernel_column!, pitch_kernel_column_split!, pitch_kernel_matrix!
 export KnockOnOperator, KnockOnKernels, knockon_linear_operator, set_cutoff!, energy_kernel, pitch_kernel
+export apply_at_radius!
 export thermal_momentum, critical_field, critical_momentum, cutoff_window, choose_cutoff
 
 end # module Runes2P

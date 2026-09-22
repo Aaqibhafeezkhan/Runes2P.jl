@@ -45,6 +45,13 @@ struct AdvectionDiffusion{T<:AbstractFloat}
     p_lower_boundary::Symbol
     p_upper_boundary::Symbol
     r_boundary::Symbol
+    # shared-grid data read in the flux loops (the operator requires a shared momentum grid)
+    momentum::MomentumGrid{T}
+    jacobian_centers::Array{T,3}
+    jacobian_p_faces::Array{T,3}
+    jacobian_xi_faces::Array{T,3}
+    jacobian_r_faces::Array{T,3}
+    jacobian_over_p2_at_zero::Matrix{T}
 end
 
 """
@@ -62,7 +69,10 @@ function AdvectionDiffusion(grid::KineticGrid{T}; scheme::Symbol=:upwind,
         throw(ArgumentError("unknown lower p boundary condition $p_lower_boundary"))
     p_upper_boundary in (:outflow, :f_zero) ||
         throw(ArgumentError("unknown upper p boundary condition $p_upper_boundary"))
-    if p_lower_boundary === :prescribed && grid.momentum_grid.p_faces[1] == 0
+    has_shared_momentum_grid(grid) ||
+        throw(ArgumentError("AdvectionDiffusion needs one momentum grid for all radii (radial " *
+                            "fluxes between different grids need a remap between them)"))
+    if p_lower_boundary === :prescribed && momentum_grid(grid).p_faces[1] == 0
         throw(ArgumentError("a prescribed p flux needs p_min > 0"))
     end
     r_boundary in (:zero_flux, :absorbing) ||
@@ -71,10 +81,17 @@ function AdvectionDiffusion(grid::KineticGrid{T}; scheme::Symbol=:upwind,
     on_p_faces() = zeros(T, np + 1, nxi, nr)
     on_xi_faces() = zeros(T, np, nxi + 1, nr)
     on_r_faces() = zeros(T, np, nxi, nr + 1)
+    radii = 1:nr
     return AdvectionDiffusion{T}(grid, on_p_faces(), on_p_faces(), on_p_faces(),
                                  on_xi_faces(), on_xi_faces(), on_xi_faces(),
                                  on_r_faces(), on_r_faces(), zeros(T, nxi, nr), zeros(T, nxi, nr),
-                                 scheme, p_lower_boundary, p_upper_boundary, r_boundary)
+                                 scheme, p_lower_boundary, p_upper_boundary, r_boundary,
+                                 momentum_grid(grid),
+                                 stack(phase_space_jacobian(grid, ir) for ir in radii),
+                                 stack(phase_space_jacobian_p_faces(grid, ir) for ir in radii),
+                                 stack(phase_space_jacobian_xi_faces(grid, ir) for ir in radii),
+                                 copy(phase_space_jacobian_r_faces(grid)),
+                                 stack(phase_space_jacobian_over_p2_at_zero(grid, ir) for ir in radii))
 end
 
 @inline function _face_value(scheme, advection, f_left, f_right, weight_left)
@@ -103,14 +120,13 @@ end
 
 # Flux Γᵖ through p face `k` (between cells k-1 and k), multiplied by 𝒱'.
 Base.@propagate_inbounds function _p_flux(op::AdvectionDiffusion, f, k, j, ir)
-    g = op.grid
-    m = g.momentum_grid
+    m = op.momentum
     np = momentum_cell_count(m)
-    V = g.phase_space_jacobian_p_faces[k, j, ir]
+    V = op.jacobian_p_faces[k, j, ir]
     T = eltype(f)
     if k == 1
         if m.p_faces[1] == 0
-            return g.phase_space_jacobian_over_p2_at_zero[j, ir] *
+            return op.jacobian_over_p2_at_zero[j, ir] *
                    op.advection_p_times_p2_at_zero[j, ir] * f[1, j, ir]
         end
         return op.p_lower_boundary === :prescribed ? V * op.p_flux_at_lower_boundary[j, ir] : zero(T)
@@ -139,11 +155,10 @@ end
 
 # Flux Γᵠ through ξ face `k` (between cells k-1 and k), multiplied by 𝒱'.
 Base.@propagate_inbounds function _xi_flux(op::AdvectionDiffusion, f, i, k, ir)
-    g = op.grid
-    m = g.momentum_grid
+    m = op.momentum
     T = eltype(f)
     (k == 1 || k == pitch_cell_count(m) + 1) && return zero(T)
-    V = g.phase_space_jacobian_xi_faces[i, k, ir]
+    V = op.jacobian_xi_faces[i, k, ir]
     V == 0 && return zero(T)
     f_left = f[i, k-1, ir]
     f_right = f[i, k, ir]
@@ -160,11 +175,10 @@ end
 
 # Flux Γʳ through r face `k` (between cells k-1 and k), multiplied by 𝒱'.
 Base.@propagate_inbounds function _r_flux(op::AdvectionDiffusion, f, i, j, k)
-    g = op.grid
-    rg = g.radial_grid
+    rg = op.grid.radial_grid
     nr = radial_cell_count(rg)
     T = eltype(f)
-    V = g.phase_space_jacobian_r_faces[i, j, k]
+    V = op.jacobian_r_faces[i, j, k]
     (k == 1 || V == 0) && return zero(T)
     A = op.advection_r[i, j, k]
     D = op.diffusion_r_r[i, j, k]
@@ -206,12 +220,11 @@ Operator contribution to all momentum cells at radius index `ir`. Writes only to
 `df[:, :, ir]`, so different radii can be processed concurrently.
 """
 @inline function apply_radius!(df, op::AdvectionDiffusion, f, ir, scale)
-    g = op.grid
-    m = g.momentum_grid
-    rg = g.radial_grid
-    np, nxi, _ = size(g)
+    m = op.momentum
+    rg = op.grid.radial_grid
+    np, nxi = momentum_cell_count(m), pitch_cell_count(m)
     @inbounds for j in 1:nxi, i in 1:np
-        V = g.phase_space_jacobian[i, j, ir]
+        V = op.jacobian_centers[i, j, ir]
         V == 0 && continue
         divergence = (_p_flux(op, f, i + 1, j, ir) - _p_flux(op, f, i, j, ir)) / m.p_widths[i] +
                      (_xi_flux(op, f, i, j + 1, ir) - _xi_flux(op, f, i, j, ir)) / m.xi_widths[j] +

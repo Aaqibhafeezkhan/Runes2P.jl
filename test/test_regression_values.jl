@@ -24,10 +24,13 @@ function regression_cases()
         p = mom.p_faces
         push!(cases, "slowing_down_$name" => [slowing_down_frequency(model, ir, x) for x in p, ir in 1:2])
         push!(cases, "deflection_$name" => [deflection_frequency(model, ir, x) for x in p, ir in 1:2])
-        push!(cases, "parallel_diffusion_$name" => [parallel_diffusion_frequency(model, ir, x) for x in p, ir in 1:2])
-        push!(cases, "p3_slowing_down_at_zero_$name" => [p3_slowing_down_frequency_at_zero(model, ir) for ir in 1:2])
+        push!(cases, "parallel_diffusion_$name" =>
+                     [parallel_diffusion_frequency(model, ir, x) for x in p, ir in 1:2])
+        push!(cases, "p3_slowing_down_at_zero_$name" =>
+                     [p3_slowing_down_frequency_at_zero(model, ir) for ir in 1:2])
         op = fokker_planck_operator(g, plasma, s; synchrotron=true)
-        f = [1 + 0.5 * sin(1.3i + 0.7j + 2.1ir) for i in 1:momentum_cell_count(g), j in 1:pitch_cell_count(g), ir in 1:2]
+        f = [1 + 0.5 * sin(1.3i + 0.7j + 2.1ir)
+             for i in 1:momentum_cell_count(g), j in 1:pitch_cell_count(g), ir in 1:2]
         df = zeros(size(g))
         apply!(df, op, f)
         push!(cases, "fokker_planck_$name" => df)

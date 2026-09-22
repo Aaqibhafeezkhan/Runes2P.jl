@@ -60,14 +60,14 @@ using QuadGK: quadgk
         rate = β(p1) * quadgk(p -> β(p) * moller_cross_section(p, p1), pL, pU; rtol=1e-12)[1]
         ξs = xi_star((pL + pU) / 2, p1)
         for l in 1:nξ
-            W = mom.p_widths[k] * mom.xi_widths[l] * g.phase_space_jacobian[k, l, 1] * f[k, l, 1]
+            W = mom.p_widths[k] * mom.xi_widths[l] * phase_space_jacobian(g, 1)[k, l] * f[k, l, 1]
             for j in 1:nξ
                 Cref[i, j, 1] += rate * W * fraction(j, l, ξs) /
-                                 (g.phase_space_jacobian[i, j, 1] * mom.p_widths[i] * mom.xi_widths[j])
+                                 (phase_space_jacobian(g, 1)[i, j] * mom.p_widths[i] * mom.xi_widths[j])
             end
         end
     end
-    wts = [g.phase_space_jacobian[i, j, 1] * mom.p_widths[i] * mom.xi_widths[j]
+    wts = [phase_space_jacobian(g, 1)[i, j] * mom.p_widths[i] * mom.xi_widths[j]
            for i in 1:np, j in 1:nξ, _ in 1:1]
     L1(C) = sum(wts .* abs.(C .- Cref)) / sum(wts .* abs.(Cref))
 
@@ -118,7 +118,7 @@ using QuadGK: quadgk
                 p1 = m.p_centers[k]
                 pL, pU = max(m.p_faces[i], p_cut), min(m.p_faces[i+1], max_knockon_momentum(p1))
                 pU > pL || continue
-                W = [m.p_widths[k] * m.xi_widths[l] * gg.phase_space_jacobian[k, l, 1] *
+                W = [m.p_widths[k] * m.xi_widths[l] * phase_space_jacobian(gg, 1)[k, l] *
                      f(m.p_centers[k], m.xi_centers[l]) for l in 1:nξ]
                 rate = β(p1) * (moller_flux(pU, p1) - moller_flux(pL, p1))
                 Cmid[i, :] .+= rate .* (columns!(D, xi_star((pL + pU) / 2, p1)) * W)

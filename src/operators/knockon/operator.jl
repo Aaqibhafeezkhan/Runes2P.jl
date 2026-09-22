@@ -91,7 +91,7 @@ mutable struct KnockOnOperator{T<:AbstractFloat}
     const pitch_options::NamedTuple
     const p_cutoff::Vector{T}
     const kernels::Vector{KnockOnKernels{T}}      # per radius
-    const cache::Dict{T,KnockOnKernels{T}}        # by cutoff value, current cutoffs only
+    const cache::Dict{Tuple{UInt,UInt,T},KnockOnKernels{T}}  # by (grids, cutoff), current ones only
     const primary_weights::Matrix{T}   # scratch W (primary ξ cells, primary p cells)
     const knockon_row::Vector{T}       # scratch C[i, :] (knock-on ξ cells)
     const gathered_weights::Matrix{T}  # primary weights gathered per slice (primary ξ cells, primary p cells)
@@ -116,27 +116,35 @@ function KnockOnOperator(knockon::KineticGrid{T}, primary::KineticGrid{T},
         throw(ArgumentError("knock-on and primary grids must share the radial grid"))
     method in (:blas, :loop) || throw(ArgumentError("unknown method $method"))
     nr = radial_cell_count(knockon)
+    radii = 1:nr
+    max_nxi_knockon = maximum(ir -> pitch_cell_count(knockon, ir), radii)
+    max_nxi_primary = maximum(ir -> pitch_cell_count(primary, ir), radii)
+    max_np_primary = maximum(ir -> momentum_cell_count(primary, ir), radii)
     op = KnockOnOperator{T}(knockon, primary, method, NamedTuple(pitch_options), zeros(T, nr),
                             Vector{KnockOnKernels{T}}(undef, nr),
-                            Dict{T,KnockOnKernels{T}}(),
-                            zeros(T, pitch_cell_count(primary), momentum_cell_count(primary)),
-                            zeros(T, pitch_cell_count(knockon)),
-                            zeros(T, pitch_cell_count(primary),
-                                  method == :blas ? momentum_cell_count(primary) : 0),
-                            zeros(T, pitch_cell_count(knockon), 0))
+                            Dict{Tuple{UInt,UInt,T},KnockOnKernels{T}}(),
+                            zeros(T, max_nxi_primary, max_np_primary),
+                            zeros(T, max_nxi_knockon),
+                            zeros(T, max_nxi_primary, method == :blas ? max_np_primary : 0),
+                            zeros(T, max_nxi_knockon, 0))
     set_cutoff!(op, p_cutoff)
     return op
 end
+
+# Kernels depend on the two momentum grids of a radius and on its cutoff.
+_kernel_key(op::KnockOnOperator{T}, ir, cutoff) where {T} =
+    (objectid(momentum_grid(op.knockon, ir)), objectid(momentum_grid(op.primary, ir)), T(cutoff))
 
 """
     set_cutoff!(op::KnockOnOperator, p_cutoff)
 
 Set the cutoff momentum (a number for all radii, or one value per radius) and rebuild
-the kernels of the radii whose cutoff changed. Kernels are cached by cutoff value, so
-radii with equal cutoffs share one set, and a value already in use costs nothing.
-Returns the number of kernel sets built. A rebuild costs a few operator applications;
-snapping the cutoff to momentum cell faces ([`choose_cutoff`](@ref)) keeps rebuilds rare
-when the cutoff follows the plasma.
+the kernels of the radii whose cutoff changed. Kernels are cached by the momentum grids
+of the radius and the cutoff value, so radii with the same grids and cutoff share one
+set, and a combination already in use costs nothing. Returns the number of kernel sets
+built. A rebuild costs a few operator applications; snapping the
+cutoff to momentum cell faces ([`choose_cutoff`](@ref)) keeps rebuilds rare when the
+cutoff follows the plasma.
 
 A `knockon_linear_operator` of `op` sees the new kernels.
 """
@@ -148,24 +156,26 @@ function set_cutoff!(op::KnockOnOperator{T}, p_cutoff::Union{Real,AbstractVector
     for ir in 1:nr
         cutoff = T(p_cutoff isa AbstractVector ? p_cutoff[ir] : p_cutoff)
         cutoff > 0 || throw(ArgumentError("p_cutoff must be positive"))
-        kernels = get(op.cache, cutoff, nothing)
+        key = _kernel_key(op, ir, cutoff)
+        kernels = get(op.cache, key, nothing)
         if kernels === nothing
-            kernels = KnockOnKernels(op.knockon.momentum_grid, op.primary.momentum_grid, cutoff;
-                                     op.pitch_options...)
-            op.cache[cutoff] = kernels
+            kernels = KnockOnKernels(momentum_grid(op.knockon, ir), momentum_grid(op.primary, ir),
+                                     cutoff; op.pitch_options...)
+            op.cache[key] = kernels
             built += 1
         end
         op.p_cutoff[ir] = cutoff
         op.kernels[ir] = kernels
     end
     # keep only the kernels in use
+    in_use = Set(_kernel_key(op, ir, op.p_cutoff[ir]) for ir in 1:nr)
     for key in collect(keys(op.cache))
-        key in op.p_cutoff || delete!(op.cache, key)
+        key in in_use || delete!(op.cache, key)
     end
     if op.method === :blas
         column_count = maximum(k -> k.column_count, op.kernels)
         column_count > size(op.slice_products, 2) &&
-            (op.slice_products = zeros(T, pitch_cell_count(op.knockon), column_count))
+            (op.slice_products = zeros(T, size(op.slice_products, 1), column_count))
     end
     return built
 end
@@ -184,7 +194,9 @@ pitch_kernel(op::KnockOnOperator, ir::Integer=1) = op.kernels[ir].pitch
 
 Add `scale` times the knock-on source produced by the primary distribution `f[k, l, r]`
 to `df[i, j, r]` on the knock-on grid; `total_electron_density[r]` is the target density.
-Allocation free; not safe to call concurrently on the same operator (shared scratch).
+`f` and `df` are 3D arrays, so both grids must have a shared momentum grid; for per-radius
+grids use [`apply_at_radius!`](@ref). Allocation free; not safe to call concurrently on
+the same operator (shared scratch).
 """
 function apply!(df::AbstractArray{<:Any,3}, op::KnockOnOperator, f::AbstractArray{<:Any,3},
                 total_electron_density::AbstractVector; scale=true)
@@ -194,32 +206,53 @@ function apply!(df::AbstractArray{<:Any,3}, op::KnockOnOperator, f::AbstractArra
     length(total_electron_density) == radial_cell_count(knockon) ||
         throw(DimensionMismatch("total_electron_density must have one entry per radius"))
     for ir in 1:radial_cell_count(knockon)
-        primary_weights!(op.primary_weights, primary, f, ir)
-        if op.method === :blas
-            apply_radius_blas!(df, op, op.kernels[ir], total_electron_density[ir] * scale, ir)
-        else
-            apply_radius_loop!(df, op, op.kernels[ir], total_electron_density[ir] * scale, ir)
-        end
+        apply_at_radius!(view(df, :, :, ir), op, view(f, :, :, ir), total_electron_density[ir], ir;
+                         scale)
     end
     return df
 end
 
-function primary_weights!(weights, primary::KineticGrid, f, ir)
-    m = primary.momentum_grid
-    @inbounds for k in 1:momentum_cell_count(primary), l in 1:pitch_cell_count(primary)
-        weights[l, k] = m.p_widths[k] * m.xi_widths[l] * primary.phase_space_jacobian[k, l, ir] * f[k, l, ir]
+"""
+    apply_at_radius!(df, op::KnockOnOperator, f, total_electron_density, ir; scale=1)
+
+Knock-on source at radius index `ir` alone: `f` is the primary distribution at that radius
+(`(p cells, ξ cells)` of the primary momentum grid there), `df` the rate of change of the
+knock-on distribution there, `total_electron_density` the target density there. Works with
+a different momentum grid at each radius.
+"""
+function apply_at_radius!(df::AbstractMatrix, op::KnockOnOperator, f::AbstractMatrix,
+                          total_electron_density::Real, ir::Integer; scale=true)
+    size(df) == (momentum_cell_count(op.knockon, ir), pitch_cell_count(op.knockon, ir)) ||
+        throw(DimensionMismatch("df must have the knock-on momentum grid size at radius $ir"))
+    size(f) == (momentum_cell_count(op.primary, ir), pitch_cell_count(op.primary, ir)) ||
+        throw(DimensionMismatch("f must have the primary momentum grid size at radius $ir"))
+    primary_weights!(op.primary_weights, op.primary, f, ir)
+    factor = total_electron_density * scale
+    if op.method === :blas
+        apply_radius_blas!(df, op, op.kernels[ir], factor, ir)
+    else
+        apply_radius_loop!(df, op, op.kernels[ir], factor, ir)
+    end
+    return df
+end
+
+function primary_weights!(weights, primary::KineticGrid, f::AbstractMatrix, ir)
+    m = momentum_grid(primary, ir)
+    jacobian = phase_space_jacobian(primary, ir)
+    @inbounds for k in 1:momentum_cell_count(m), l in 1:pitch_cell_count(m)
+        weights[l, k] = m.p_widths[k] * m.xi_widths[l] * jacobian[k, l] * f[k, l]
     end
     return weights
 end
 
-function apply_radius_loop!(df, op::KnockOnOperator, kernels::KnockOnKernels, factor, ir)
-    knockon = op.knockon
+function apply_radius_loop!(df::AbstractMatrix, op::KnockOnOperator, kernels::KnockOnKernels, factor, ir)
     rates, pitch, W, row = kernels.energy.rates, kernels.pitch, op.primary_weights, op.knockon_row
-    nxi_knockon, nxi_primary = pitch_cell_count(knockon), pitch_cell_count(op.primary)
+    jacobian = phase_space_jacobian(op.knockon, ir)
+    nxi_knockon, nxi_primary = pitch_cell_count(op.knockon, ir), pitch_cell_count(op.primary, ir)
     table = pitch.table
-    @inbounds for i in 1:momentum_cell_count(knockon)
+    @inbounds for i in 1:momentum_cell_count(op.knockon, ir)
         fill!(row, 0)
-        for k in 1:momentum_cell_count(op.primary)
+        for k in 1:momentum_cell_count(op.primary, ir)
             s = rates[i, k]
             s == 0 && continue
             m = pitch.lower_slice[i, k]
@@ -234,30 +267,31 @@ function apply_radius_loop!(df, op::KnockOnOperator, kernels::KnockOnKernels, fa
             end
         end
         for j in 1:nxi_knockon
-            df[i, j, ir] += factor * row[j] / knockon.phase_space_jacobian[i, j, ir]
+            df[i, j] += factor * row[j] / jacobian[i, j]
         end
     end
     return df
 end
 
-function apply_radius_blas!(df, op::KnockOnOperator, kernels::KnockOnKernels, factor, ir)
-    knockon = op.knockon
+function apply_radius_blas!(df::AbstractMatrix, op::KnockOnOperator, kernels::KnockOnKernels, factor, ir)
     rates, pitch, W, row = kernels.energy.rates, kernels.pitch, op.primary_weights, op.knockon_row
     Y, gathered = op.slice_products, op.gathered_weights
-    nxi_knockon = pitch_cell_count(knockon)
+    jacobian = phase_space_jacobian(op.knockon, ir)
+    nxi_knockon, nxi_primary = pitch_cell_count(op.knockon, ir), pitch_cell_count(op.primary, ir)
     # Y_m = D_m W[:, K_m] for every slice
     for m in eachindex(kernels.slice_primaries)
         primaries = kernels.slice_primaries[m]
         n = length(primaries)
         n == 0 && continue
-        @inbounds for (c, k) in enumerate(primaries), l in axes(W, 1)
+        @inbounds for (c, k) in enumerate(primaries), l in 1:nxi_primary
             gathered[l, c] = W[l, k]
         end
         offset = kernels.slice_offsets[m]
-        mul!(view(Y, :, offset+1:offset+n), view(pitch.table, :, :, m), view(gathered, :, 1:n))
+        mul!(view(Y, 1:nxi_knockon, offset+1:offset+n), view(pitch.table, :, :, m),
+             view(gathered, 1:nxi_primary, 1:n))
     end
     # gather with the energy kernel and the interpolation weights
-    @inbounds for i in 1:momentum_cell_count(knockon)
+    @inbounds for i in 1:momentum_cell_count(op.knockon, ir)
         fill!(row, 0)
         for k in axes(rates, 2)
             c0 = kernels.lower_columns[i, k]
@@ -278,7 +312,7 @@ function apply_radius_blas!(df, op::KnockOnOperator, kernels::KnockOnKernels, fa
             end
         end
         for j in 1:nxi_knockon
-            df[i, j, ir] += factor * row[j] / knockon.phase_space_jacobian[i, j, ir]
+            df[i, j] += factor * row[j] / jacobian[i, j]
         end
     end
     return df

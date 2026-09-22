@@ -10,7 +10,7 @@ const DREAM_KINETIC_DATA = joinpath(@__DIR__, "data", "dream_kinetic_operator.h5
         mom = MomentumGrid(read(h5["grid/p1_f"]), read(h5["grid/p2_f"]))
         g = cylindrical_grid(mom, RadialGrid(read(h5["grid/r_f"])))
         # DREAM's cylindrical Jacobian differs from Runes2P's by the constant 4π²
-        ratio = read(h5["grid/Vprime"]) ./ g.phase_space_jacobian
+        ratio = read(h5["grid/Vprime"]) ./ stack(phase_space_jacobian(g, ir) for ir in 1:radial_cell_count(g))
         @test all(r -> isapprox(r, 4π^2; rtol=1e-14), ratio)
 
         names = read(h5["ions/name"])

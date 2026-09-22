@@ -3,8 +3,8 @@ using Random
 function _conservation_residual(g, df)
     s = 0.0
     for ir in 1:radial_cell_count(g), j in 1:pitch_cell_count(g), i in 1:momentum_cell_count(g)
-        s += g.phase_space_jacobian[i, j, ir] * g.momentum_grid.p_widths[i] *
-             g.momentum_grid.xi_widths[j] * g.radial_grid.r_widths[ir] * df[i, j, ir]
+        s += phase_space_jacobian(g, ir)[i, j] * momentum_grid(g).p_widths[i] *
+             momentum_grid(g).xi_widths[j] * g.radial_grid.r_widths[ir] * df[i, j, ir]
     end
     return s
 end
@@ -27,7 +27,8 @@ end
         f = rand(rng, size(g)...)
         df = zeros(size(g))
         apply!(df, op, f)
-        scale = sum(abs, g.phase_space_jacobian .* df) * maximum(mom.p_widths) * maximum(rad.r_widths)
+        jacobian = stack(phase_space_jacobian(g, ir) for ir in 1:radial_cell_count(g))
+        scale = sum(abs, jacobian .* df) * maximum(mom.p_widths) * maximum(rad.r_widths)
         @test abs(_conservation_residual(g, df)) < 1e-13 * scale
     end
 
@@ -52,11 +53,11 @@ end
             op = AdvectionDiffusion(gm; scheme=:central)
             op.diffusion_p_p .= 1
             for k in 1:n+1
-                op.advection_p[k, :, :] .= -gm.momentum_grid.p_faces[k] / θ  # Γ = 0 for f ∝ exp(-p²/2θ)
+                op.advection_p[k, :, :] .= -momentum_grid(gm).p_faces[k] / θ  # Γ = 0 for f ∝ exp(-p²/2θ)
             end
             op.advection_p[end, :, :] .= 0
             op.diffusion_p_p[end, :, :] .= 0
-            f = [exp(-gm.momentum_grid.p_centers[i]^2 / (2θ)) for i in 1:n, _ in 1:2, _ in 1:1]
+            f = [exp(-momentum_grid(gm).p_centers[i]^2 / (2θ)) for i in 1:n, _ in 1:2, _ in 1:1]
             df = zeros(size(gm))
             apply!(df, op, f)
             push!(errs, maximum(abs, df[1:n÷2, :, :]))
@@ -74,7 +75,7 @@ end
         # only the outermost cell changes; loss equals the diffusive wall flux
         @test maximum(abs, df[:, :, 1:end-1]) < 1e-14
         loss = _conservation_residual(g, df)
-        wall = sum(g.phase_space_jacobian_r_faces[i, j, end] * mom.p_widths[i] * mom.xi_widths[j] * 0.3 /
+        wall = sum(phase_space_jacobian_r_faces(g)[i, j, end] * mom.p_widths[i] * mom.xi_widths[j] * 0.3 /
                    (rad.r_faces[end] - rad.r_centers[end])
                    for i in 1:momentum_cell_count(g), j in 1:pitch_cell_count(g))
         @test loss ≈ -wall

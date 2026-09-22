@@ -10,7 +10,7 @@ Acceleration by the parallel electric field: `Aᵖ = (eE/mc) ξ`,
 """
 function add_electric_field!(op::AdvectionDiffusion, plasma::PlasmaState)
     g = op.grid
-    m = g.momentum_grid
+    m = momentum_grid(g)
     np, nxi, nr = size(g)
     for ir in 1:nr
         a = Constants.ELEMENTARY_CHARGE * plasma.electric_field[ir] /
@@ -33,7 +33,7 @@ Collisional friction `Aᵖ = -p ν_s(p)` on the p faces, and the particle flux t
 """
 function add_slowing_down!(op::AdvectionDiffusion, collisions::CollisionModel)
     g = op.grid
-    m = g.momentum_grid
+    m = momentum_grid(g)
     np, nxi, nr = size(g)
     for ir in 1:nr
         for k in 1:np+1
@@ -57,7 +57,7 @@ Pitch-angle scattering `Dᵠᵠ = ν_D(p)(1 - ξ²)/2` on the ξ faces.
 """
 function add_pitch_scattering!(op::AdvectionDiffusion, collisions::CollisionModel)
     g = op.grid
-    m = g.momentum_grid
+    m = momentum_grid(g)
     np, nxi, nr = size(g)
     nxi == 1 && return op
     for ir in 1:nr, i in 1:np
@@ -77,7 +77,7 @@ Energy diffusion `Dᵖᵖ = ν_∥(p)` on the p faces (zero unless `mode = :full
 function add_energy_diffusion!(op::AdvectionDiffusion, collisions::CollisionModel)
     collisions.settings.mode === :full || return op
     g = op.grid
-    m = g.momentum_grid
+    m = momentum_grid(g)
     np, nxi, nr = size(g)
     for ir in 1:nr, k in 1:np+1
         D = parallel_diffusion_frequency(collisions, ir, m.p_faces[k])
@@ -96,7 +96,7 @@ Synchrotron radiation reaction in a homogeneous field `B`:
 """
 function add_synchrotron!(op::AdvectionDiffusion, plasma::PlasmaState)
     g = op.grid
-    m = g.momentum_grid
+    m = momentum_grid(g)
     np, nxi, nr = size(g)
     C = Constants.ELEMENTARY_CHARGE^4 /
         (6pi * Constants.VACUUM_PERMITTIVITY * Constants.ELECTRON_MASS^3 * Constants.SPEED_OF_LIGHT^3)

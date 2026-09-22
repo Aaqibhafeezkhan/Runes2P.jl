@@ -66,10 +66,10 @@ end
     op.p_flux_at_lower_boundary .= 0.7
     df = zeros(size(g))
     apply!(df, op, zeros(size(g)))
-    gain = sum(g.phase_space_jacobian[i, j, ir] * mom.p_widths[i] * mom.xi_widths[j] *
+    gain = sum(phase_space_jacobian(g, ir)[i, j] * mom.p_widths[i] * mom.xi_widths[j] *
                g.radial_grid.r_widths[ir] * df[i, j, ir]
                for i in 1:momentum_cell_count(g), j in 1:pitch_cell_count(g), ir in 1:radial_cell_count(g))
-    influx = sum(g.phase_space_jacobian_p_faces[1, j, ir] * mom.xi_widths[j] *
+    influx = sum(phase_space_jacobian_p_faces(g, ir)[1, j] * mom.xi_widths[j] *
                  g.radial_grid.r_widths[ir] * 0.7
                  for j in 1:pitch_cell_count(g), ir in 1:radial_cell_count(g))
     @test gain ≈ influx

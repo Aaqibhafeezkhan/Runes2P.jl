@@ -4,8 +4,8 @@
 using LinearAlgebra: eigvals
 using SparseArrays: findnz
 
-_cell_weights(g) = [g.phase_space_jacobian[i, j, ir] * g.momentum_grid.p_widths[i] *
-                    g.momentum_grid.xi_widths[j] * g.radial_grid.r_widths[ir]
+_cell_weights(g) = [phase_space_jacobian(g, ir)[i, j] * momentum_grid(g).p_widths[i] *
+                    momentum_grid(g).xi_widths[j] * g.radial_grid.r_widths[ir]
                     for i in 1:momentum_cell_count(g), j in 1:pitch_cell_count(g),
                         ir in 1:radial_cell_count(g)]
 
@@ -118,7 +118,7 @@ _cell_weights(g) = [g.phase_space_jacobian[i, j, ir] * g.momentum_grid.p_widths[
                                  RadialGrid(uniform_r_faces(1, 1.0)))
             op = AdvectionDiffusion(g)
             for k in 1:n2+1
-                op.diffusion_xi_xi[1, k, 1] = (1 - g.momentum_grid.xi_faces[k]^2) / 2
+                op.diffusion_xi_xi[1, k, 1] = (1 - momentum_grid(g).xi_faces[k]^2) / 2
             end
             M = Matrix(operator_matrix(op))
             WM = vec(_cell_weights(g)) .* M
