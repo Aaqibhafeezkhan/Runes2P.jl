@@ -66,12 +66,15 @@ const REGRESSION_VALUES = Dict(
     "parallel_diffusion_ultra_relativistic" => (0.0, 0.0, 0.0),
     "p3_slowing_down_at_zero_ultra_relativistic" => (96.84279033865613, 96.84279033865613, 50.488240274625426),
     "fokker_planck_ultra_relativistic" => (-1.2197565925176533e8, 1.2875744167274424e8, 9.603149091879858e6),
-    "knockon_default_loop" => (5.850711083655937e6, 5.850711083655937e6, 320657.16123533703),
-    "knockon_default_blas" => (5.850711083655937e6, 5.850711083655937e6, 320657.16123533703),
-    "knockon_dream_compatible_loop" => (5.8507110836559385e6, 5.8507110836559385e6, 347515.63968719303),
+    # integrating ξ* over the receiving interval changed the default and gauss
+    # cases by 0.15% in the largest entry and left the sums (the production) unchanged; the
+    # DREAM-compatible values moved in the last digits only, from the new summation order.
+    "knockon_default_loop" => (5.850711083655938e6, 5.850711083655938e6, 320172.895175692),
+    "knockon_default_blas" => (5.850711083655938e6, 5.850711083655938e6, 320172.8951756923),
+    "knockon_dream_compatible_loop" => (5.850711083655939e6, 5.850711083655939e6, 347515.63968719315),
     "knockon_dream_compatible_blas" => (5.8507110836559385e6, 5.8507110836559385e6, 347515.6396871932),
-    "knockon_gauss_loop" => (5.850711083655939e6, 5.850711083655939e6, 320421.750370082),
-    "knockon_gauss_blas" => (5.8507110836559385e6, 5.8507110836559385e6, 320421.750370082),
+    "knockon_gauss_loop" => (5.850711083655938e6, 5.850711083655938e6, 320373.1543437839),
+    "knockon_gauss_blas" => (5.850711083655938e6, 5.850711083655938e6, 320373.1543437841),
     "xi_star" => (6.823636828072939, 6.823636828072939, 0.7425278006798457),
     "choose_cutoff" => (0.2, 0.2, 0.2),
 )

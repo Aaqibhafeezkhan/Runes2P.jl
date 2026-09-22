@@ -1,9 +1,8 @@
 # Knock-on operator in its default configuration (primary averaged over its pitch cell,
-# ξ* at the midpoint of the receiving interval) against a reference built from adaptive
-# quadrature only: the energy part from the Møller cross section, the pitch part from
-# the gyrophase fraction integrated over the primary cell. The DREAM comparison covers
-# the DREAM-compatible configuration only; the loop, BLAS and dense forms share the
-# kernels.
+# ξ* integrated over the receiving interval) against a reference built from
+# quadrature only: the energy part from the Møller cross section, the pitch part from the
+# gyrophase fraction integrated over the primary cell. The DREAM comparison covers the
+# DREAM-compatible configuration only; the loop, BLAS and dense forms share the kernels.
 using QuadGK: quadgk
 
 @testset "knock-on operator against quadrature" begin
@@ -51,95 +50,81 @@ using QuadGK: quadgk
         @test errs[2] < 1e-6
     end
 
-    # reference operator: C_ij = Σ_k Σ_l W_kl β₁ ∫ βΣ dp · fraction(j, l, ξ*_mid) / (𝒱'_ij Δp_i Δξ_j)
+    # reference operator: the Møller flux integrated over the receiving interval of each
+    # pair against the pitch kernel at ξ*(p), instead of one ξ* per pair,
+    # C_ij = Σ_k Σ_l W_kl β₁ ∫ β(p) Σ(p, p1) δ_jl(ξ*(p, p1)) dp / (𝒱'_ij Δp_i).
+    # The columns use the split primary quadrature with 12 points, accurate to 1e-6
+    # against `fraction` by the test set above.
     f = [exp(-p / 0.9) * exp(2ξ) for p in mom.p_centers, ξ in mom.xi_centers, _ in 1:1]
-    Cref = zeros(size(g))
-    for (i, k) in pairs
-        pL, pU = interval(i, k)
-        p1 = mom.p_centers[k]
-        rate = β(p1) * quadgk(p -> β(p) * moller_cross_section(p, p1), pL, pU; rtol=1e-12)[1]
-        ξs = xi_star((pL + pU) / 2, p1)
+    nodes12, weights12 = Runes2P.gauss(12)
+    column, D = zeros(nξ), zeros(nξ, nξ)
+    function columns!(D, ξs)
         for l in 1:nξ
-            W = mom.p_widths[k] * mom.xi_widths[l] * phase_space_jacobian(g, 1)[k, l] * f[k, l, 1]
-            for j in 1:nξ
-                Cref[i, j, 1] += rate * W * fraction(j, l, ξs) /
-                                 (phase_space_jacobian(g, 1)[i, j] * mom.p_widths[i] * mom.xi_widths[j])
+            pitch_kernel_column_split!(column, mom.xi_faces, ξs;
+                                       primary_cell=(mom.xi_faces[l], mom.xi_faces[l+1]),
+                                       nodes=nodes12, weights=weights12)
+            D[:, l] .= column
+        end
+        return D
+    end
+    xg, wg = Runes2P.gauss(8)
+    function reference(subintervals)
+        C = zeros(size(g))
+        for (i, k) in pairs
+            pL, pU = interval(i, k)
+            p1 = mom.p_centers[k]
+            W = [mom.p_widths[k] * mom.xi_widths[l] * phase_space_jacobian(g, 1)[k, l] * f[k, l, 1]
+                 for l in 1:nξ]
+            h = (pU - pL) / subintervals
+            for q in 0:subintervals-1, (x, w) in zip(xg, wg)
+                p = pL + h * (q + (x + 1) / 2)
+                weight = w * h / 2 * β(p1) * β(p) * moller_cross_section(p, p1)
+                contribution = weight .* (columns!(D, xi_star(p, p1)) * W)
+                for j in 1:nξ
+                    # columns! returns δ (per unit ξ), so only 𝒱' Δp_i divides here
+                    C[i, j, 1] += contribution[j] / (phase_space_jacobian(g, 1)[i, j] * mom.p_widths[i])
+                end
             end
         end
+        return C
     end
+    Cref = reference(8)
     wts = [phase_space_jacobian(g, 1)[i, j] * mom.p_widths[i] * mom.xi_widths[j]
            for i in 1:np, j in 1:nξ, _ in 1:1]
     L1(C) = sum(wts .* abs.(C .- Cref)) / sum(wts .* abs.(Cref))
 
-    @testset "operator: table interpolation converging" begin
-        # with 12 points per piece the remaining difference is the linear interpolation
-        # in ξ* between table slices
-        errs = map((20, 80, 320)) do table_size
-            C = zeros(size(g))
-            apply!(C, KnockOnOperator(g, g, p_cut; table_size, primary_pitch_points=12), f, [1.0])
-            L1(C)
-        end
-        @test errs[1] > 3 * errs[2] > 9 * errs[3]  # measured 9.2e-5, 5.0e-6, 2.8e-7
+    @testset "operator against the integrated reference" begin
+        # the reference is converged in the momentum quadrature
+        @test L1(reference(16)) < 1e-7  # measured 6.0e-9
+        # default configuration: 4 primary points per piece, 80 slices, ξ* integrated over
+        # the receiving interval (measured 3.2e-5, the primary quadrature and the table of
+        # this coarse pitch grid)
         C = zeros(size(g))
         apply!(C, KnockOnOperator(g, g, p_cut), f, [1.0])
-        # default configuration (4 points per piece, 80 slices): the primary quadrature
-        # dominates on this coarse grid (measured 5.2e-5)
         @test L1(C) < 2e-4
-        # production is exact for every table size
-        C = zeros(size(g))
-        apply!(C, KnockOnOperator(g, g, p_cut; table_size=20), f, [1.0])
-        @test density(g, C) ≈ density(g, Cref) rtol = 1e-10
+        # one ξ* per pair, at the midpoint of the receiving interval (an earlier Runes2P):
+        # 600 times worse on the same grid (measured 1.9e-2, and 3.9e-2 with DREAM's
+        # cell-centre ξ*)
+        Cmid = zeros(size(g))
+        apply!(Cmid, KnockOnOperator(g, g, p_cut; xi_star_mode=:midpoint), f, [1.0])
+        @test L1(Cmid) > 100 * L1(C)
+        # production is exact in both modes and for every table size
+        for kw in ((;), (xi_star_mode=:midpoint,), (table_size=20,))
+            Cp = zeros(size(g))
+            apply!(Cp, KnockOnOperator(g, g, p_cut; kw...), f, [1.0])
+            @test density(g, Cp) ≈ density(g, Cref) rtol = 1e-10
+        end
     end
 
-    @testset "one ξ* per momentum pair" begin
-        # The pitch kernel of pair (i, k) is evaluated at a single ξ*, at the midpoint of
-        # the receiving interval, while ξ*(p) varies across it. Reference: the kernel
-        # integrated over the interval with the Møller weight βΣ (composite Gauss in p,
-        # 12-point columns). Isotropic primaries are unaffected (every column gives the
-        # same isotropic result); anisotropic ones are not, and the error falls with the
-        # momentum cell width.
-        nodes, weights = Runes2P.gauss(12)
-        xg, wg = Runes2P.gauss(8)
-        function collapse_error(np, f)
-            m = MomentumGrid(uniform_p_faces(np, 0.0, 4.0), mom.xi_faces)
-            gg = cylindrical_grid(m, rad)
-            col = zeros(nξ)
-            D = zeros(nξ, nξ)
-            function columns!(D, ξs)
-                for l in 1:nξ
-                    pitch_kernel_column_split!(col, m.xi_faces, ξs;
-                                               primary_cell=(m.xi_faces[l], m.xi_faces[l+1]), nodes, weights)
-                    D[:, l] .= col
-                end
-                return D
-            end
-            Cmid, Cint = zeros(np, nξ), zeros(np, nξ)
-            for i in 1:np, k in 1:np
-                p1 = m.p_centers[k]
-                pL, pU = max(m.p_faces[i], p_cut), min(m.p_faces[i+1], max_knockon_momentum(p1))
-                pU > pL || continue
-                W = [m.p_widths[k] * m.xi_widths[l] * phase_space_jacobian(gg, 1)[k, l] *
-                     f(m.p_centers[k], m.xi_centers[l]) for l in 1:nξ]
-                rate = β(p1) * (moller_flux(pU, p1) - moller_flux(pL, p1))
-                Cmid[i, :] .+= rate .* (columns!(D, xi_star((pL + pU) / 2, p1)) * W)
-                # composite Gauss over 16 sub-intervals of the receiving interval
-                h = (pU - pL) / 16
-                for q in 0:15, (x, w) in zip(xg, wg)
-                    p = pL + h * (q + (x + 1) / 2)
-                    wt = w * h / 2 * β(p1) * β(p) * moller_cross_section(p, p1)
-                    Cint[i, :] .+= wt .* (columns!(D, xi_star(p, p1)) * W)
-                end
-            end
-            return sum(abs.(Cmid .- Cint)) / sum(abs.(Cint))  # C·𝒱'ΔpΔξ, so no division
+    @testset "table and primary quadrature converging" begin
+        # with the ξ* integration the remaining errors are the pitch table and the primary
+        # pitch quadrature; refining both converges to the reference
+        # measured 8.8e-5, 3.2e-5, 5.9e-6, 3.6e-7
+        errs = map(((20, 4), (80, 4), (80, 12), (320, 12))) do (table_size, primary_pitch_points)
+            C = zeros(size(g))
+            apply!(C, KnockOnOperator(g, g, p_cut; table_size, primary_pitch_points), f, [1.0])
+            L1(C)
         end
-        # (16 and 64 sub-intervals give the same reference to four digits)
-        @test collapse_error(14, (p, ξ) -> exp(-p)) < 1e-6
-        e28 = collapse_error(28, (p, ξ) -> exp(-p) * exp(3ξ))
-        e56 = collapse_error(56, (p, ξ) -> exp(-p) * exp(3ξ))
-        # measured 2.3e-2 and 6.1e-3 (1.5e-3 at 112 cells): second order once Δp is
-        # small, and far above the table error of the previous test set (5e-6 at 80
-        # slices), so the single ξ* dominates the pitch error of the operator
-        @test e28 > 3 * e56
-        @test e56 > 1e-3
+        @test errs[1] > errs[2] > errs[3] > errs[4]
     end
 end

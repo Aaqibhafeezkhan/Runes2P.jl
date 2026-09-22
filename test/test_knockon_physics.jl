@@ -61,7 +61,10 @@ using QuadGK: quadgk
 
     @testset "mean knock-on pitch" begin
         # a primary at pitch ξ₁ produces knock-ons with mean pitch ξ* ξ₁ (gyrophase
-        # average); the discrete first pitch moment of C converges to it
+        # average); the discrete first pitch moment of C converges to it. ξ* varies over
+        # the part of a knock-on cell that receives knock-ons, and the operator integrates
+        # the kernel over it, so the target is the average of ξ*(p) over that
+        # interval weighted by the Møller flux β(p) Σ(p, p1).
         prim = cylindrical_grid(MomentumGrid([4.9, 5.1], [0.6, 0.62]), rad)  # one cell, ξ₁ = 0.61
         f = ones(1, 1, 1)
         errs = map((16, 64, 256)) do nξ
@@ -76,7 +79,9 @@ using QuadGK: quadgk
                 sum(w) == 0 && continue
                 pL = max(momentum_grid(knock).p_faces[i], 0.1)
                 pU = min(momentum_grid(knock).p_faces[i+1], max_knockon_momentum(5.0))
-                ξs = xi_star((pL + pU) / 2, 5.0)
+                flux(p) = p / sqrt(1 + p^2) * moller_cross_section(p, 5.0)
+                ξs = quadgk(p -> flux(p) * xi_star(p, 5.0), pL, pU; rtol=1e-12)[1] /
+                     quadgk(flux, pL, pU; rtol=1e-12)[1]
                 err = max(err, abs(sum(w .* momentum_grid(knock).xi_centers) / sum(w) - ξs * 0.61))
             end
             err
@@ -90,15 +95,29 @@ using QuadGK: quadgk
         #   C_ij = n_tot n_RE V'/𝒱'_ij 2πr₀²c/(Δp_i Δξ_j) [1/(γ(ρ₁)-1) - 1/(γ(ρ₂)-1)]
         # in the pitch cell j of the knock-on angle, with ρ₁ = max(p_{i-1/2}, p_c),
         # ρ₂ = p_{i+1/2}. The momentum part of the finite-p1 operator approaches it like
-        # 1/p1². The pitch part is a point mass per column; linear interpolation between
-        # two tabulated slices splits it over two cells, so the placement is checked
-        # with a fine table.
+        # 1/p1². For a beam every knock-on of momentum p has pitch exactly ξ*(p), so the
+        # pitch distribution of a momentum cell is the Møller flux of the part of the cell
+        # whose ξ*(p) falls in each pitch cell, obtained from the analytic flux at the
+        # momenta of the pitch faces ([`momentum_at_xi_star`](@ref)). The operator places
+        # this mass on the ξ* values of the table, so the error falls with the table size.
         knock = cylindrical_grid(MomentumGrid(biuniform_p_faces(30, 10, 0.0, 0.5, 3.0),
                                          uniform_xi_faces(20)), rad)
         p_cut = 0.12
         γ(p) = sqrt(1 + p^2)
         n_RE = 1e16
         h = 1e-9
+        # flux-weighted share of the knock-ons of momentum cell i landing in pitch cell j
+        function pitch_shares(i, p1, p_cut)
+            mom = momentum_grid(knock)
+            ρ1, ρ2 = max(mom.p_faces[i], p_cut), mom.p_faces[i+1]
+            total = moller_flux(ρ2, p1) - moller_flux(ρ1, p1)
+            return map(1:pitch_cell_count(knock)) do j
+                a = max(ρ1, momentum_at_xi_star(mom.xi_faces[j], p1))
+                b = min(ρ2, momentum_at_xi_star(mom.xi_faces[j+1], p1))
+                b > a ? (moller_flux(b, p1) - moller_flux(a, p1)) / total : 0.0
+            end
+        end
+
         errs = map((1e2, 1e3, 1e4)) do p1
             prim = cylindrical_grid(MomentumGrid([p1 - 1, p1 + 1], [-1.0, 1 - 2h, 1.0]), rad)
             f = zeros(1, 2, 1)
@@ -116,13 +135,33 @@ using QuadGK: quadgk
                      (1 / (γ(ρ1) - 1) - 1 / (γ(ρ2) - 1))
                 row = [momentum_grid(knock).xi_widths[j] * C[i, j, 1] for j in 1:pitch_cell_count(knock)]
                 e_mom = max(e_mom, abs(sum(row) / rp - 1))
-                jstar = searchsortedlast(momentum_grid(knock).xi_faces, xi_star((ρ1 + ρ2) / 2, p1))
-                e_pitch = max(e_pitch, 1 - row[jstar] / sum(row))
+                e_pitch = max(e_pitch, maximum(abs.(row ./ sum(row) .- pitch_shares(i, p1, p_cut))))
             end
             (e_mom, e_pitch)
         end
         @test errs[end][1] < 1e-7
         @test errs[1][1] / errs[3][1] > 5e3  # O(1/p1²): measured 2e4
-        @test all(e -> e[2] < 1e-12, errs)
+        # placement of the pitch mass, limited by the table resolution (measured 3.5e-3 at
+        # 4000 slices); refining the table removes it (3.5e-2, 9.3e-3, 2.2e-4 at 500, 2000
+        # and 8000 slices for p1 = 1e3)
+        @test all(e -> e[2] < 5e-3, errs)
+        refined = map((500, 8000)) do table_size
+            p1 = 1e3
+            prim = cylindrical_grid(MomentumGrid([p1 - 1, p1 + 1], [-1.0, 1 - 2h, 1.0]), rad)
+            f = zeros(1, 2, 1)
+            cell_volume = phase_space_jacobian(prim, 1)[1, 2] * momentum_grid(prim).p_widths[1] *
+                          momentum_grid(prim).xi_widths[2]
+            f[1, 2, 1] = n_RE * Vp_vol / cell_volume
+            C = zeros(size(knock))
+            apply!(C, KnockOnOperator(knock, prim, p_cut; table_size), f, n_tot)
+            err = 0.0
+            for i in 1:momentum_cell_count(knock)
+                row = [momentum_grid(knock).xi_widths[j] * C[i, j, 1] for j in 1:pitch_cell_count(knock)]
+                sum(row) == 0 && continue
+                err = max(err, maximum(abs.(row ./ sum(row) .- pitch_shares(i, p1, p_cut))))
+            end
+            err
+        end
+        @test refined[1] > 10 * refined[2]
     end
 end

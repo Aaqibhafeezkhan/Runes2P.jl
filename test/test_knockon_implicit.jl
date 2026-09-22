@@ -14,7 +14,7 @@ function knockon_dense(op::KnockOnOperator, n_tot)
     for ir in 1:radial_cell_count(gK), i in 1:momentum_cell_count(gK), k in 1:momentum_cell_count(gP)
         s = energy_kernel(op, ir).rates[i, k]
         s == 0 && continue
-        pitch_kernel_matrix!(D, pitch_kernel(op, ir), i, k)
+        pitch_kernel_matrix!(D, knockon_kernels(op, ir), i, k)
         for j in 1:pitch_cell_count(gK), l in 1:pitch_cell_count(gP)
             W = momentum_grid(gP).p_widths[k] * momentum_grid(gP).xi_widths[l] *
                 phase_space_jacobian(gP, ir)[k, l]

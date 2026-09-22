@@ -17,49 +17,165 @@ using LinearOperators: LinearOperator
 """
     KnockOnKernels{T}
 
-Energy and pitch kernels for one cutoff momentum, with the column layout of the `:blas`
-evaluation: the primary momenta whose pairs use slice m are `slice_primaries[m]`, and their
-products occupy columns `slice_offsets[m] + 1 : slice_offsets[m] + length(slice_primaries[m])`
-of the operator's `slice_products`.
+Energy and pitch kernels for one cutoff momentum, together with the production each
+momentum pair `(i, k)` sends to each slice of the ξ* table. The entries of pair `(i, k)`
+are `pair_start[i, k]:pair_stop[i, k]` (empty when the pair produces no knock-ons); entry
+`t` puts the weight `entry_weight[t]` on table slice `entry_slice[t]`, and the weights of
+a pair sum to `energy.rates[i, k]`, so the production is exactly the energy kernel's.
+
+With `xi_star_mode = :interval` the weights come from the Møller flux
+integrated over the receiving interval against the hat functions `φ_m` of the table,
+
+    entry_weight[t] = β₁/Δp_i ∫ β(p) Σ(p, p1_k) φ_{m_t}(ξ*(p, p1_k)) dp,
+
+which is the pitch kernel integrated over ξ*(p) instead of evaluated at one ξ*. With
+`:midpoint` or `:centre` a pair has the two entries of the linear interpolation at its
+single ξ* (one when the interpolation weight is 0 or 1).
+
+For the `:blas` evaluation, the primary momenta whose pairs use slice m are
+`slice_primaries[m]`, their products occupy columns
+`slice_offsets[m] + 1 : slice_offsets[m] + length(slice_primaries[m])` of the operator's
+`slice_products`, and `entry_column[t]` is the column of entry `t`.
 """
 struct KnockOnKernels{T<:AbstractFloat}
     energy::MollerEnergyKernel{T}
     pitch::MollerPitchKernel{T}
+    pair_start::Matrix{Int}     # (knock-on p cells, primary p cells); the range is empty if no knock-ons
+    pair_stop::Matrix{Int}
+    entry_slice::Vector{Int}
+    entry_weight::Vector{T}
+    entry_column::Vector{Int}
     slice_primaries::Vector{Vector{Int}}
     slice_offsets::Vector{Int}
-    lower_columns::Matrix{Int}  # slice_products column of (lower slice, k) for pair (i, k); 0 if no knock-ons
-    upper_columns::Matrix{Int}  # column of (lower slice + 1, k); 0 if its weight is zero
     column_count::Int
 end
 
+# Weights of one pair over the table slices: the Møller flux of the receiving interval
+# [p_lower, p_upper] distributed over the hat functions of the table. The interval is split
+# at the momenta where ξ*(p) crosses a table value, each piece integrated by composite
+# Gauss with `points` nodes; the number of sub-intervals doubles until the total matches
+# the analytic flux `rate` (the hat functions sum to one, so the total is a quadrature of
+# the same integral). Returns the slice range and the sum of the weights.
+function _pair_slice_weights!(acc::AbstractVector{T}, xi_star_values, p_lower, p_upper, p1, rate,
+                              nodes, weights) where {T}
+    spacing = length(xi_star_values) > 1 ? xi_star_values[2] - xi_star_values[1] : zero(T)
+    slice_count = length(xi_star_values)
+    lowest = first(xi_star_values)
+    position(x) = spacing > 0 ? clamp((x - lowest) / spacing, 0, slice_count - 1) : zero(T)
+    xi_lower, xi_upper = xi_star(p_lower, p1), xi_star(p_upper, p1)
+    # a quadrature point at position s contributes to the slices floor(s) + 1 and + 2
+    m_lower = floor(Int, position(xi_lower)) + 1
+    m_upper = clamp(floor(Int, position(xi_upper)) + 2, m_lower, slice_count)
+    # momenta where ξ*(p) meets a table value, as piece boundaries
+    cuts = T[p_lower]
+    for m in m_lower+1:m_upper-1
+        p = momentum_at_xi_star(xi_star_values[m], p1)
+        p_lower < p < p_upper && push!(cuts, p)
+    end
+    push!(cuts, p_upper)
+    beta1 = p1 / sqrt(1 + p1^2)
+    total = zero(T)
+    previous_error = T(Inf)
+    for sub in (1, 2, 4, 8, 16, 32, 64, 128)
+        fill!(view(acc, m_lower:m_upper), zero(T))
+        total = zero(T)
+        for q in 1:length(cuts)-1
+            width = (cuts[q+1] - cuts[q]) / sub
+            width > 0 || continue
+            for s in 0:sub-1, (x, w) in zip(nodes, weights)
+                p = cuts[q] + width * (s + (x + 1) / 2)
+                value = w * width / 2 * beta1 * (p / sqrt(1 + p^2)) * moller_cross_section(p, p1)
+                position_here = position(xi_star(p, p1))
+                m = min(floor(Int, position_here), slice_count - 2) + 1
+                upper = position_here - (m - 1)
+                acc[m] += value * (1 - upper)
+                acc[m+1] += value * upper
+                total += value
+            end
+        end
+        # the reference rate is a difference of the analytic flux, which loses digits in
+        # narrow cells, so refining stops once it no longer improves
+        error = abs(total - rate) / abs(rate)
+        (error <= 1e-12 || error >= previous_error) && break
+        previous_error = error
+    end
+    return m_lower, m_upper, total, abs(total - rate) / abs(rate)
+end
+
 function KnockOnKernels(knockon::MomentumGrid{T}, primary::MomentumGrid{T}, p_cutoff::Real;
-                        pitch_options...) where {T}
+                        xi_star_points::Integer=4, pitch_options...) where {T}
+    xi_star_points >= 1 || throw(ArgumentError("xi_star_points must be at least 1"))
     energy = MollerEnergyKernel(knockon, primary, p_cutoff)
     pitch = MollerPitchKernel(knockon, primary, p_cutoff; pitch_options...)
     np_knockon, np_primary = momentum_cell_count(knockon), momentum_cell_count(primary)
     slice_count = length(pitch.xi_star_values)
-    # (slice, k) combinations that any pair with knock-ons needs
+    integrated = pitch.xi_star_mode === :interval
+    nodes, weights = gauss(T, xi_star_points)
+    accumulator = zeros(T, slice_count + 1)
+
+    # pairs without knock-ons keep the empty range 1:0
+    pair_start, pair_stop = ones(Int, np_knockon, np_primary), zeros(Int, np_knockon, np_primary)
+    entry_slice, entry_weight = Int[], T[]
     used = falses(slice_count, np_primary)
     for k in 1:np_primary, i in 1:np_knockon
-        energy.rates[i, k] == 0 && continue
-        used[pitch.lower_slice[i, k], k] = true
-        pitch.upper_weight[i, k] != 0 && (used[pitch.lower_slice[i, k]+1, k] = true)
+        rate = energy.rates[i, k]
+        rate == 0 && continue
+        first_entry = length(entry_slice) + 1
+        if integrated
+            p1 = primary.p_centers[k]
+            p_lower = max(knockon.p_faces[i], T(p_cutoff))
+            p_upper = min(knockon.p_faces[i+1], max_knockon_momentum(p1))
+            # the rate of the energy kernel is Δp_i times the flux of the interval
+            flux = rate * knockon.p_widths[i]
+            m_lower, m_upper, total, mismatch = _pair_slice_weights!(accumulator, pitch.xi_star_values,
+                                                                     p_lower, p_upper, p1, flux, nodes,
+                                                                     weights)
+            total > 0 || throw(ErrorException("no knock-on production in the ξ* range of pair ($i, $k)"))
+            # the hat functions sum to one over the ξ* range of the pair, so the weights sum
+            # to a quadrature of the same integral as the analytic flux; a real mismatch
+            # (ξ* range outside the table, missed breakpoint, too few points) is far larger
+            # than the round-off of the flux difference
+            mismatch <= 1e-8 ||
+                throw(ErrorException("the ξ* quadrature of pair ($i, $k) misses the Møller flux by " *
+                                     "$mismatch; raise xi_star_points"))
+            # rescale to the analytic flux, so that the production stays exactly the
+            # energy kernel's for any quadrature
+            scale = rate / total
+            for m in m_lower:m_upper
+                accumulator[m] == 0 && continue
+                push!(entry_slice, m)
+                push!(entry_weight, accumulator[m] * scale)
+            end
+        else
+            m = pitch.lower_slice[i, k]
+            upper = pitch.upper_weight[i, k]
+            if upper != 1
+                push!(entry_slice, m)
+                push!(entry_weight, rate * (1 - upper))
+            end
+            if upper != 0
+                push!(entry_slice, m + 1)
+                push!(entry_weight, rate * upper)
+            end
+        end
+        pair_start[i, k], pair_stop[i, k] = first_entry, length(entry_slice)
+        for t in first_entry:length(entry_slice)
+            used[entry_slice[t], k] = true
+        end
     end
+
     slice_primaries = [findall(view(used, m, :)) for m in 1:slice_count]
     slice_offsets = cumsum([0; length.(slice_primaries)[1:end-1]])
     column = zeros(Int, slice_count, np_primary)
     for m in 1:slice_count, (c, k) in enumerate(slice_primaries[m])
         column[m, k] = slice_offsets[m] + c
     end
-    lower_columns = zeros(Int, np_knockon, np_primary)
-    upper_columns = zeros(Int, np_knockon, np_primary)
-    for k in 1:np_primary, i in 1:np_knockon
-        energy.rates[i, k] == 0 && continue
-        lower_columns[i, k] = column[pitch.lower_slice[i, k], k]
-        pitch.upper_weight[i, k] != 0 && (upper_columns[i, k] = column[pitch.lower_slice[i, k]+1, k])
+    entry_column = zeros(Int, length(entry_slice))
+    for k in 1:np_primary, i in 1:np_knockon, t in pair_start[i, k]:pair_stop[i, k]
+        entry_column[t] = column[entry_slice[t], k]
     end
-    return KnockOnKernels{T}(energy, pitch, slice_primaries, slice_offsets, lower_columns,
-                             upper_columns, sum(length, slice_primaries))
+    return KnockOnKernels{T}(energy, pitch, pair_start, pair_stop, entry_slice, entry_weight,
+                             entry_column, slice_primaries, slice_offsets, sum(length, slice_primaries))
 end
 
 """
@@ -246,23 +362,22 @@ function primary_weights!(weights, primary::KineticGrid, f::AbstractMatrix, ir)
 end
 
 function apply_radius_loop!(df::AbstractMatrix, op::KnockOnOperator, kernels::KnockOnKernels, factor, ir)
-    rates, pitch, W, row = kernels.energy.rates, kernels.pitch, op.primary_weights, op.knockon_row
+    W, row = op.primary_weights, op.knockon_row
     jacobian = phase_space_jacobian(op.knockon, ir)
     nxi_knockon, nxi_primary = pitch_cell_count(op.knockon, ir), pitch_cell_count(op.primary, ir)
-    table = pitch.table
+    table = kernels.pitch.table
     @inbounds for i in 1:momentum_cell_count(op.knockon, ir)
         fill!(row, 0)
         for k in 1:momentum_cell_count(op.primary, ir)
-            s = rates[i, k]
-            s == 0 && continue
-            m = pitch.lower_slice[i, k]
-            w1 = pitch.upper_weight[i, k]
-            w0 = 1 - w1
-            for l in 1:nxi_primary
-                a = s * W[l, k]
-                a == 0 && continue
-                for j in 1:nxi_knockon
-                    row[j] += a * (w0 * table[j, l, m] + w1 * table[j, l, m+1])
+            for t in kernels.pair_start[i, k]:kernels.pair_stop[i, k]
+                m = kernels.entry_slice[t]
+                s = kernels.entry_weight[t]
+                for l in 1:nxi_primary
+                    a = s * W[l, k]
+                    a == 0 && continue
+                    for j in 1:nxi_knockon
+                        row[j] += a * table[j, l, m]
+                    end
                 end
             end
         end
@@ -274,7 +389,7 @@ function apply_radius_loop!(df::AbstractMatrix, op::KnockOnOperator, kernels::Kn
 end
 
 function apply_radius_blas!(df::AbstractMatrix, op::KnockOnOperator, kernels::KnockOnKernels, factor, ir)
-    rates, pitch, W, row = kernels.energy.rates, kernels.pitch, op.primary_weights, op.knockon_row
+    pitch, W, row = kernels.pitch, op.primary_weights, op.knockon_row
     Y, gathered = op.slice_products, op.gathered_weights
     jacobian = phase_space_jacobian(op.knockon, ir)
     nxi_knockon, nxi_primary = pitch_cell_count(op.knockon, ir), pitch_cell_count(op.primary, ir)
@@ -290,24 +405,15 @@ function apply_radius_blas!(df::AbstractMatrix, op::KnockOnOperator, kernels::Kn
         mul!(view(Y, 1:nxi_knockon, offset+1:offset+n), view(pitch.table, :, :, m),
              view(gathered, 1:nxi_primary, 1:n))
     end
-    # gather with the energy kernel and the interpolation weights
+    # gather the slice products with the weights of each pair
     @inbounds for i in 1:momentum_cell_count(op.knockon, ir)
         fill!(row, 0)
-        for k in axes(rates, 2)
-            c0 = kernels.lower_columns[i, k]
-            c0 == 0 && continue
-            s = rates[i, k]
-            c1 = kernels.upper_columns[i, k]
-            w1 = pitch.upper_weight[i, k]
-            a0 = s * (1 - w1)
-            if c1 == 0
+        for k in 1:momentum_cell_count(op.primary, ir)
+            for t in kernels.pair_start[i, k]:kernels.pair_stop[i, k]
+                c = kernels.entry_column[t]
+                a = kernels.entry_weight[t]
                 for j in 1:nxi_knockon
-                    row[j] += a0 * Y[j, c0]
-                end
-            else
-                a1 = s * w1
-                for j in 1:nxi_knockon
-                    row[j] += a0 * Y[j, c0] + a1 * Y[j, c1]
+                    row[j] += a * Y[j, c]
                 end
             end
         end
@@ -353,3 +459,29 @@ function knockon_linear_operator(op::KnockOnOperator{T}, total_electron_density:
     return LinearOperator{T,Vector{T}}(prod(knockon_size), prod(primary_size), false, false,
                                        product!, nothing, nothing)
 end
+
+"""
+    pitch_kernel_matrix!(D, kernels::KnockOnKernels, i, k)
+
+Effective pitch kernel of the momentum pair `(i, k)`, see the
+[`MollerPitchKernel`](@ref) method.
+"""
+function pitch_kernel_matrix!(D::AbstractMatrix, kernels::KnockOnKernels, i, k)
+    fill!(D, zero(eltype(D)))
+    rate = kernels.energy.rates[i, k]
+    rate == 0 && return D
+    table = kernels.pitch.table
+    for t in kernels.pair_start[i, k]:kernels.pair_stop[i, k]
+        share = kernels.entry_weight[t] / rate
+        @views D .+= share .* table[:, :, kernels.entry_slice[t]]
+    end
+    return D
+end
+
+"""
+    knockon_kernels(op::KnockOnOperator, ir=1)
+
+[`KnockOnKernels`](@ref) used at radius index `ir`: the energy and pitch kernels together
+with the table slices and weights of every momentum pair.
+"""
+knockon_kernels(op::KnockOnOperator, ir::Integer=1) = op.kernels[ir]

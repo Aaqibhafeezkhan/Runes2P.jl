@@ -242,3 +242,30 @@ using QuadGK: quadgk
         @test MollerPitchKernel(knock, partial_primary, p_cut) isa MollerPitchKernel
     end
 end
+
+@testset "slice weights of each momentum pair" begin
+    # The weights of a pair must sum to its production rate: the hat functions of the table
+    # are a partition of unity over the pair's ξ* range, so the sum is a quadrature of the
+    # same integral as the analytic Møller flux. This holds pair by pair, which the density
+    # moment of the operator (summed over pairs) cannot show. The coarse cells just above
+    # the cutoff have the widest ξ* range and the steepest Møller weight.
+    rad = RadialGrid(uniform_r_faces(1, 0.5))
+    grids = (MomentumGrid(uniform_p_faces(8, 0.0, 4.0), uniform_xi_faces(6)),
+             MomentumGrid(biuniform_p_faces(20, 5, 0.0, 0.4, 12.0), -cos.(range(0, π; length=9))),
+             MomentumGrid(uniform_p_faces(30, 0.0, 2.2), uniform_xi_faces(12)))
+    for mom in grids, p_cut in (0.05, 0.3), table_size in (8, 80, 320)
+        g = cylindrical_grid(mom, rad)
+        kernels = knockon_kernels(KnockOnOperator(g, g, p_cut; table_size))
+        rates = kernels.energy.rates
+        worst = 0.0
+        for k in axes(rates, 2), i in axes(rates, 1)
+            rates[i, k] == 0 && continue
+            total = sum(kernels.entry_weight[t] for t in kernels.pair_start[i, k]:kernels.pair_stop[i, k])
+            worst = max(worst, abs(total / rates[i, k] - 1))
+            # every entry is a share of a positive production
+            @test all(kernels.entry_weight[t] > 0
+                      for t in kernels.pair_start[i, k]:kernels.pair_stop[i, k])
+        end
+        @test worst < 1e-14
+    end
+end

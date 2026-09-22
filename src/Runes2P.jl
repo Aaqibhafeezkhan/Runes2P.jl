@@ -49,6 +49,7 @@ export xi_star, moller_cross_section, moller_flux, max_knockon_momentum, moller_
 export MollerEnergyKernel, MollerPitchKernel, pitch_cell_fraction
 export pitch_kernel_column!, pitch_kernel_column_split!, pitch_kernel_matrix!
 export KnockOnOperator, KnockOnKernels, knockon_linear_operator, set_cutoff!, energy_kernel, pitch_kernel
+export knockon_kernels, momentum_at_xi_star
 export apply_at_radius!
 export thermal_momentum, critical_field, critical_momentum, cutoff_window, choose_cutoff
 export ScalarUnknown, RadialUnknown, KineticUnknown, LowerLimit, UnknownLayout

@@ -128,8 +128,12 @@ cells `j`, tabulated on a uniform grid of `ξ*` values and interpolated linearly
 
 - `xi_star_values`: tabulated ξ*, one per table slice.
 - `table[j, l, m]`: δ of slice `m`.
-- `lower_slice[i, k]`, `upper_weight[i, k]`: pair `(i, k)` uses slices `lower_slice` and
-  `lower_slice + 1` with weights `1 - upper_weight` and `upper_weight`.
+- `lower_slice[i, k]`, `upper_weight[i, k]`: the single-ξ* interpolation of pair `(i, k)`,
+  which uses slices `lower_slice` and `lower_slice + 1` with weights `1 - upper_weight`
+  and `upper_weight`. With `xi_star_mode = :interval` the operator instead spreads the
+  pair over every slice its ξ* range covers ([`KnockOnKernels`](@ref)); these two fields
+  then describe the midpoint interpolation, which serves as a reference.
+- `xi_star_mode`: how ξ* of a pair enters (`:interval`, `:midpoint` or `:centre`).
 - `no_contributing_pairs`: no `(i, k)` pair produces knock-ons (cutoff above the grid).
 
 In cylindrical geometry the kernel does not depend on radius; one table serves all
@@ -140,18 +144,27 @@ struct MollerPitchKernel{T<:AbstractFloat}
     table::Array{T,3}           # (knock-on ξ cells, primary ξ cells, table_size)
     lower_slice::Matrix{Int}    # (knock-on p cells, primary p cells)
     upper_weight::Matrix{T}     # (knock-on p cells, primary p cells)
+    xi_star_mode::Symbol
     no_contributing_pairs::Bool
 end
 
 """
     MollerPitchKernel(knockon, primary, p_cutoff; table_size=80, dream_compatible=false,
+                      xi_star_mode=(dream_compatible ? :centre : :interval),
                       primary_pitch=(dream_compatible ? :centre : :split),
                       primary_pitch_points=4)
 
-- `ξ*` of pair `(i, k)` is evaluated at the midpoint of the part of knock-on cell `i`
-  that receives knock-ons, `[max(p_{i-1/2}, p_cutoff), min(p_{i+1/2}, p_max(p1_k))]`
-  (the interval the energy kernel integrates over), which keeps `ξ* < 1`; the table
-  covers the `ξ*` of all such pairs.
+- The part of knock-on cell `i` that receives knock-ons from primary cell `k` is
+  `[max(p_{i-1/2}, p_cutoff), min(p_{i+1/2}, p_max(p1_k))]`, the interval the energy
+  kernel integrates over. `ξ*` varies over it, fastest at low `p`.
+- `xi_star_mode` selects how that is treated. `:interval` (the default) spreads each pair
+  over the table slices its `ξ*` range covers, with the weights of
+  [`KnockOnKernels`](@ref); the table then covers the `ξ*` of the interval ends of all
+  contributing pairs, so that no pair is clamped and the production stays exact.
+  `:midpoint` evaluates `ξ*` once, at the midpoint of the interval (the earlier scheme),
+  and `:centre` once at the knock-on cell centre (DREAM). Both keep `ξ* < 1` except for
+  `:centre` on a knock-on grid coarser than the primary grid; the table of the two
+  single-`ξ*` modes covers the `ξ*` of all contributing pairs.
 - `dream_compatible = true` reproduces DREAM (`MollerDeltaAngleKernel.cpp`): `ξ*` at the
   knock-on cell centre, and a table range from the pairs with `γ(p_{i-1/2}) < γ(p1_k) - 1`
   (a total energy compared with a kinetic energy). For primaries below γ₁ ≈ 3 this misses
@@ -168,11 +181,16 @@ end
 """
 function MollerPitchKernel(knockon::MomentumGrid{T}, primary::MomentumGrid{T}, p_cutoff::Real;
                            table_size::Integer=80, dream_compatible::Bool=false,
+                           xi_star_mode::Symbol=(dream_compatible ? :centre : :interval),
                            primary_pitch::Symbol=(dream_compatible ? :centre : :split),
                            primary_pitch_points::Integer=4) where {T}
     table_size >= 2 || throw(ArgumentError("table_size must be at least 2"))
     primary_pitch in (:centre, :split, :gauss) ||
         throw(ArgumentError("unknown primary_pitch $primary_pitch"))
+    xi_star_mode in (:interval, :midpoint, :centre) ||
+        throw(ArgumentError("unknown xi_star_mode $xi_star_mode"))
+    !(dream_compatible && xi_star_mode !== :centre) ||
+        throw(ArgumentError("dream_compatible = true requires xi_star_mode = :centre"))
     primary_pitch_points >= 1 || throw(ArgumentError("primary_pitch_points must be at least 1"))
     p_cutoff > 0 || throw(ArgumentError("p_cutoff must be positive"))
     # the gyro-averaged knock-on pitch covers [-1, 1]; on a partial grid the column
@@ -188,16 +206,25 @@ function MollerPitchKernel(knockon::MomentumGrid{T}, primary::MomentumGrid{T}, p
         p1 = primary.p_centers[k]
         p_lower = max(knockon.p_faces[i], T(p_cutoff))
         p_upper = min(knockon.p_faces[i+1], max_knockon_momentum(p1))
-        if dream_compatible
+        if xi_star_mode === :centre
             xi_s = xi_star(knockon.p_centers[i], p1)
-            in_range = knockon.p_faces[i+1] > p_cutoff && gamma(knockon.p_faces[i]) < gamma(p1) - 1
+            in_range = dream_compatible ?
+                       knockon.p_faces[i+1] > p_cutoff && gamma(knockon.p_faces[i]) < gamma(p1) - 1 :
+                       p_upper > p_lower
         else
             in_range = p_upper > p_lower
             xi_s = in_range ? xi_star((p_lower + p_upper) / 2, p1) : xi_star(knockon.p_centers[i], p1)
         end
         pair_xi_star[i, k] = xi_s
         (in_range && isfinite(xi_s)) || continue
-        lowest, highest = min(lowest, xi_s), max(highest, xi_s)
+        if xi_star_mode === :interval
+            # the whole ξ* range of the pair must be inside the table: the hat functions
+            # are a partition of unity there, which keeps the production exact
+            lowest = min(lowest, xi_star(p_lower, p1))
+            highest = max(highest, xi_star(p_upper, p1))
+        else
+            lowest, highest = min(lowest, xi_s), max(highest, xi_s)
+        end
     end
     no_contributing_pairs = !(lowest <= highest)
     if no_contributing_pairs
@@ -240,14 +267,21 @@ function MollerPitchKernel(knockon::MomentumGrid{T}, primary::MomentumGrid{T}, p
             lower_slice[i, k], upper_weight[i, k] = m + 1, s - m
         end
     end
-    return MollerPitchKernel{T}(xi_star_values, table, lower_slice, upper_weight, no_contributing_pairs)
+    return MollerPitchKernel{T}(xi_star_values, table, lower_slice, upper_weight, xi_star_mode,
+                                no_contributing_pairs)
 end
 
 """
-    pitch_kernel_matrix!(D, kernel, i, k)
+    pitch_kernel_matrix!(D, kernel::MollerPitchKernel, i, k)
+    pitch_kernel_matrix!(D, kernels::KnockOnKernels, i, k)
 
-Interpolated pitch kernel `D[j, l] = δ[j, l](ξ*(p_i, p1_k))` for knock-on momentum cell
-`i` and primary momentum cell `k`.
+Pitch kernel of the momentum pair `(i, k)`: from a [`MollerPitchKernel`](@ref) the kernel
+interpolated at the pair's single ξ*, `D[j, l] = δ[j, l](ξ*(p_i, p1_k))`; from
+[`KnockOnKernels`](@ref) the effective kernel the operator applies, the table slices of
+the pair weighted by its entries and normalized by the pair's production, which for
+`xi_star_mode = :interval` is the kernel integrated over ξ*(p) across the receiving
+interval and otherwise the same interpolation. `rates[i, k]` times this matrix is what
+[`apply!`](@ref) contributes for the pair.
 """
 function pitch_kernel_matrix!(D::AbstractMatrix, kernel::MollerPitchKernel, i, k)
     m = kernel.lower_slice[i, k]
