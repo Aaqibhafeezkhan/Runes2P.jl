@@ -31,7 +31,7 @@ include("solvers/newton.jl")
 include("solvers/krylov.jl")
 include("solvers/time_stepping.jl")
 
-export MomentumGrid, uniform_p_faces, biuniform_p_faces, uniform_xi_faces
+export MomentumGrid, uniform_p_faces, biuniform_p_faces, tanh_p_faces, uniform_xi_faces
 export RadialGrid, uniform_r_faces
 export KineticGrid, cylindrical_grid, density, total_particles, has_shared_momentum_grid, momentum_grid
 export phase_space_jacobian, phase_space_jacobian_p_faces, phase_space_jacobian_xi_faces
