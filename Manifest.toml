@@ -2,7 +2,7 @@
 
 julia_version = "1.13.0"
 manifest_format = "2.1"
-project_hash = "12d79b10dc0e0dcc1c94b574315a1ce0e9beb282"
+project_hash = "547d24f7101c515e089f5e27280c6ed565e79b58"
 
 [[deps.ADTypes]]
 deps = ["PrecompileTools"]
@@ -390,6 +390,14 @@ deps = ["ADTypes", "DifferentiationInterface", "ForwardDiff", "LinearAlgebra", "
 path = "."
 uuid = "7ac8527a-7440-4908-b219-e6c5e734431e"
 version = "0.1.0"
+
+    [deps.Runes2P.extensions]
+    Runes2PHDF5Ext = "HDF5"
+    Runes2PSciMLBaseExt = "SciMLBase"
+
+    [deps.Runes2P.weakdeps]
+    HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
+    SciMLBase = "0bca4576-84f4-4d90-8ffe-ffa030f20462"
 
 [[deps.SHA]]
 uuid = "ea8e919c-243c-51af-8825-aaa63cd721ce"

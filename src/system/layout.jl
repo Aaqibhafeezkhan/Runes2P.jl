@@ -5,19 +5,44 @@
 # ranges below and never computes offsets itself, so the order can change.
 
 """
-    ScalarUnknown(name; scale=1)
+    LowerLimit(; tolerance=0, reference=nothing)
+
+Lower limit of an unknown, enforced on Newton steps (DREAM #25, #91):
+every entry stays at or above `-tolerance` times the reference value, which is the radial
+unknown `reference` (one component) at the same radius, or the unknown's own scale when
+`reference` is `nothing`. Declared on the unknown with `nonnegative = true` (tolerance 0)
+or `nonnegative = LowerLimit(...)`, e.g. `RadialUnknown(:ion_densities; components=3,
+nonnegative=LowerLimit(tolerance=1e-12, reference=:total_electron_density))`. Scalar
+unknowns take no reference.
+"""
+struct LowerLimit
+    tolerance::Float64
+    reference::Union{Nothing,Symbol}
+end
+function LowerLimit(; tolerance::Real=0.0, reference::Union{Nothing,Symbol}=nothing)
+    tolerance >= 0 || throw(ArgumentError("the tolerance of a lower limit must be nonnegative"))
+    return LowerLimit(Float64(tolerance), reference)
+end
+
+_lower_limit(nonnegative::Bool) = nonnegative ? LowerLimit() : nothing
+_lower_limit(limit::LowerLimit) = limit
+
+"""
+    ScalarUnknown(name; scale=1, nonnegative=false)
 
 Unknown with one value for the whole system (e.g. `:plasma_current`). `scale` is its
-reference magnitude.
+reference magnitude; `nonnegative` declares a [`LowerLimit`](@ref).
 """
 struct ScalarUnknown
     name::Symbol
     scale::Float64
+    lower_limit::Union{Nothing,LowerLimit}
 end
-ScalarUnknown(name::Symbol; scale::Real=1.0) = ScalarUnknown(name, Float64(scale))
+ScalarUnknown(name::Symbol; scale::Real=1.0, nonnegative::Union{Bool,LowerLimit}=false) =
+    ScalarUnknown(name, Float64(scale), _lower_limit(nonnegative))
 
 """
-    RadialUnknown(name; components=1, scale=1)
+    RadialUnknown(name; components=1, scale=1, nonnegative=false)
 
 Unknown with `components` values at each radius (e.g. `:electric_field`, or
 `:ion_densities` with one component per charge state).
@@ -26,25 +51,31 @@ struct RadialUnknown
     name::Symbol
     components::Int
     scale::Float64
+    lower_limit::Union{Nothing,LowerLimit}
 end
-function RadialUnknown(name::Symbol; components::Integer=1, scale::Real=1.0)
+function RadialUnknown(name::Symbol; components::Integer=1, scale::Real=1.0,
+                       nonnegative::Union{Bool,LowerLimit}=false)
     components >= 1 || throw(ArgumentError("a radial unknown needs at least one component"))
-    return RadialUnknown(name, Int(components), Float64(scale))
+    return RadialUnknown(name, Int(components), Float64(scale), _lower_limit(nonnegative))
 end
 
 """
-    KineticUnknown(name, grid; scale=1)
+    KineticUnknown(name, grid; scale=1, nonnegative=false)
 
 Distribution function on the kinetic grid `grid`, one value per momentum cell at each
 radius (e.g. `:hot_tail_distribution`). The momentum grid may differ between radii.
+A distribution is normally declared without a lower limit: negative values produced by
+the discretization belong to the scheme, not to the Newton steps.
 """
 struct KineticUnknown{T}
     name::Symbol
     grid::KineticGrid{T}
     scale::Float64
+    lower_limit::Union{Nothing,LowerLimit}
 end
-KineticUnknown(name::Symbol, grid::KineticGrid; scale::Real=1.0) =
-    KineticUnknown(name, grid, Float64(scale))
+KineticUnknown(name::Symbol, grid::KineticGrid; scale::Real=1.0,
+               nonnegative::Union{Bool,LowerLimit}=false) =
+    KineticUnknown(name, grid, Float64(scale), _lower_limit(nonnegative))
 
 const Unknown = Union{ScalarUnknown,RadialUnknown,KineticUnknown}
 
@@ -87,6 +118,16 @@ function UnknownLayout(radial_grid::RadialGrid{T}, unknowns::AbstractVector;
             u.grid.radial_grid.r_faces == radial_grid.r_faces ||
                 throw(ArgumentError("kinetic unknown $(u.name) lives on another radial grid"))
         end
+    end
+    for u in list
+        limit = u.lower_limit
+        (limit === nothing || limit.reference === nothing) && continue
+        u isa ScalarUnknown &&
+            throw(ArgumentError("the lower limit of scalar unknown $(u.name) cannot take a reference"))
+        id = get(ids, limit.reference, 0)
+        id != 0 && list[id] isa RadialUnknown && list[id].components == 1 ||
+            throw(ArgumentError("the lower-limit reference of $(u.name) must be a radial unknown " *
+                                "with one component"))
     end
     nr = radial_cell_count(radial_grid)
     count = length(list)
@@ -288,6 +329,11 @@ function describe(layout::UnknownLayout)
             entry["xi_faces"] = [momentum_grid(u.grid, ir).xi_faces for ir in 1:nr]
         end
         entry["sizes"] = u isa ScalarUnknown ? [1] : layout.sizes[id, :]
+        if u.lower_limit !== nothing
+            entry["lower_limit_tolerance"] = u.lower_limit.tolerance
+            u.lower_limit.reference === nothing ||
+                (entry["lower_limit_reference"] = String(u.lower_limit.reference))
+        end
         entry
     end
     return Dict{String,Any}("layout_version" => 1, "order" => "radius_blocks_scalars_$(layout.scalars)",

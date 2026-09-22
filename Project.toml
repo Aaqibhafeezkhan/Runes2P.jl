@@ -16,15 +16,18 @@ SparseMatrixColorings = "0a514795-09f3-496d-8182-132a7b665d35"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 
 [weakdeps]
+HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
 SciMLBase = "0bca4576-84f4-4d90-8ffe-ffa030f20462"
 
 [extensions]
+Runes2PHDF5Ext = "HDF5"
 Runes2PSciMLBaseExt = "SciMLBase"
 
 [compat]
 ADTypes = "1.24.0"
 DifferentiationInterface = "0.7.21"
 ForwardDiff = "1.4.6"
+HDF5 = "0.17.4"
 Krylov = "0.10.10"
 LinearAlgebra = "1"
 LinearOperators = "2.14.3"

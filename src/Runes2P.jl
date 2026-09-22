@@ -25,6 +25,9 @@ include("system/jacobian.jl")
 include("system/layout.jl")
 include("system/terms.jl")
 include("system/equation_system.jl")
+include("solvers/linear_solver.jl")
+include("solvers/newton.jl")
+include("solvers/time_stepping.jl")
 
 export MomentumGrid, uniform_p_faces, biuniform_p_faces, uniform_xi_faces
 export RadialGrid, uniform_r_faces
@@ -48,12 +51,14 @@ export pitch_kernel_column!, pitch_kernel_column_split!, pitch_kernel_matrix!
 export KnockOnOperator, KnockOnKernels, knockon_linear_operator, set_cutoff!, energy_kernel, pitch_kernel
 export apply_at_radius!
 export thermal_momentum, critical_field, critical_momentum, cutoff_window, choose_cutoff
-export ScalarUnknown, RadialUnknown, KineticUnknown, UnknownLayout
+export ScalarUnknown, RadialUnknown, KineticUnknown, LowerLimit, UnknownLayout
 export unknown_id, unknown_names, unknown, unknown_range, radius_block_range, scalar_block_range
 export radial_view, kinetic_view, scalar_view, unknown_view, unknown_scales, describe, copy_unknowns!
 export EquationTerm, dependencies, coupling, treatment, sparsity!, rhs!, jacobian_vector_product!
 export FokkerPlanckTerm, KnockOnTerm, LinearTerm, DensityMomentTerm, LayoutKineticArray, kinetic_array
 export Equation, TimeDerivative, Algebraic, EquationSystem, Tolerance, tolerance
 export residual!, mass_matrix, jacobian_sparsity, jacobian_prototype, jacobian_operator, residual_scales, ode_function
+export LinearSolver, SparseLU, NewtonSolver, NewtonWorkspace, NewtonResult, newton_solve!
+export SolverStatistics, TimeSolution, TimeStepFailure, integrate, write_output
 
 end # module Runes2P
