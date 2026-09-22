@@ -283,3 +283,67 @@ end
         @test_throws ArgumentError AdvectionDiffusion(ragged)
     end
 end
+
+@testset "system on a single radius" begin
+    # the radius offsets of a kinetic unknown are indexed as a range, which needs a nonzero
+    # step even when there is only one radius
+    rad = RadialGrid(uniform_r_faces(1, 0.5))
+    mom = MomentumGrid(uniform_p_faces(6, 0.0, 2.0), uniform_xi_faces(4))
+    g = cylindrical_grid(mom, rad)
+    plasma = PlasmaState(cold_electron_temperature=[200.0], ions=[IonSpecies("D", 1, 1, [1e20])],
+                         electric_field=[4.0], magnetic_field=[5.0])
+    op = fokker_planck_operator(g, plasma)
+    layout = UnknownLayout(rad, [KineticUnknown(:hot_tail_distribution, g; scale=1e18)])
+    system = EquationSystem(layout, [Equation(:hot_tail_distribution, TimeDerivative(),
+                                              FokkerPlanckTerm(:hot_tail_distribution, op))])
+    u = vec([exp(-p) * (1 + 0.3ξ) for p in mom.p_centers, ξ in mom.xi_centers])
+    du = zeros(length(layout))
+    rhs!(du, u, system, 0.0)
+    expected = zeros(size(g))
+    apply!(expected, op, reshape(copy(u), size(g)))
+    @test du ≈ vec(expected) rtol = 1e-14
+end
+
+@testset "Maxwellian source term" begin
+    # adds exactly rate × (target - bulk density) particles per second, distributed as a
+    # Maxwellian, and nothing else
+    rad = RadialGrid(uniform_r_faces(2, 0.5))
+    mom = MomentumGrid(biuniform_p_faces(30, 20, 0.0, 0.3, 2.0), uniform_xi_faces(6))
+    g = cylindrical_grid(mom, rad)
+    layout = UnknownLayout(rad, [KineticUnknown(:hot_tail_distribution, g; scale=1e20)])
+    temperature, target, rate, bound = 500.0, 1e20, 250.0, 0.1
+    term = MaxwellianSourceTerm(:hot_tail_distribution, g, temperature; target_density=target,
+                                rate, bulk_momentum=bound)
+    system = EquationSystem(layout, [Equation(:hot_tail_distribution, TimeDerivative(), term)])
+    @test Runes2P.treatment(term) === :explicit
+    # an empty distribution: the source adds rate × target particles per second
+    du = zeros(length(layout))
+    rhs!(du, zeros(length(layout)), system, 0.0)
+    @test density(g, reshape(du, size(g))) ≈ fill(rate * target, 2) rtol = 1e-12
+    # the shape is the Maxwellian, and the source vanishes when the bulk is at its target
+    theta = temperature / Constants.ELECTRON_REST_ENERGY
+    shape = [exp(-p^2 / (2theta)) for p in mom.p_centers, _ in 1:pitch_cell_count(mom)]
+    added = kinetic_view(du, layout, 1, 1)
+    @test added ./ added[1, 1] ≈ shape ./ shape[1, 1] rtol = 1e-12
+    u = zeros(length(layout))
+    f = kinetic_view(u, layout, 1, 1)
+    f .= shape
+    bulk = sum(phase_space_jacobian(g, 1)[i, j] * mom.p_widths[i] * mom.xi_widths[j] * f[i, j]
+               for i in 1:momentum_cell_count(mom), j in 1:pitch_cell_count(mom)
+               if mom.p_centers[i] <= bound) / rad.spatial_jacobian[1]
+    at_target = MaxwellianSourceTerm(:hot_tail_distribution, g, temperature; target_density=bulk,
+                                     rate, bulk_momentum=bound)
+    system_at_target = EquationSystem(layout, [Equation(:hot_tail_distribution, TimeDerivative(), at_target)])
+    fill!(du, 0)
+    rhs!(du, u, system_at_target, 0.0)
+    @test maximum(abs, kinetic_view(du, layout, 1, 1)) < 1e-6 * maximum(shape) * rate
+    # only the cells below the bound are counted: particles above it do not cancel the source
+    f[end, :] .= 1e3 * maximum(shape)
+    fill!(du, 0)
+    rhs!(du, u, system_at_target, 0.0)
+    @test maximum(abs, kinetic_view(du, layout, 1, 1)) < 1e-6 * maximum(shape) * rate
+    @test_throws ArgumentError MaxwellianSourceTerm(:hot_tail_distribution, g, -1.0;
+                                                    target_density=target, rate)
+    @test_throws ArgumentError MaxwellianSourceTerm(:hot_tail_distribution, g, temperature;
+                                                    target_density=target, rate, bulk_momentum=1e-9)
+end

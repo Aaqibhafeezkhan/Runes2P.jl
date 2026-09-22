@@ -15,7 +15,10 @@ Settings of the Newton iteration of a backward-Euler step.
   unknown's Newton [`Tolerance`](@ref) (an infinite absolute tolerance excludes it), and
   the residual, measured as the change it causes in one step relative to the unknown's
   scale (`dt |F|/scale` on differential rows, `|F|/scale` on algebraic rows), is at most
-  `residual_tolerance` everywhere.
+  `residual_tolerance` everywhere. A stiff step is an exception: when the transient and the
+  right-hand side cancel to many digits, round-off holds the residual above
+  `residual_tolerance` whatever the iterate, so a converged update is accepted once the
+  residual stops decreasing (it grew, or fell by less than 10%, in the last iteration).
 - Lower limits ([`LowerLimit`](@ref), declared on the unknowns) shorten the whole step so
   that no limited entry loses more than the fraction `max_reduction` of its distance to
   its limit in one iteration. Only steps towards the limit are shortened, never growth
@@ -45,7 +48,8 @@ Outcome of [`newton_solve!`](@ref): `status` (`:converged`, or the reason of fai
 `:max_iterations`, `:singular_matrix`, `:non_finite_residual`, `:non_finite_update`,
 `:domain_error`, `:line_search_failed`, `:below_lower_limit`: an entry at its lower
 limit would be pushed below it, or the converged state lies below it), the number of
-`iterations`, the scaled residual norm before the first iteration and at the end, the
+`iterations`, the scaled residual norm before the first iteration and at the end (which
+may exceed `residual_tolerance` on a stiff step, see [`NewtonSolver`](@ref)), the
 scaled norm `max |δ|/scale` of the last update, the estimated `convergence_order` (`NaN`
 when fewer than three updates are above round-off), the smallest step length used and the
 Krylov iterations summed over the iterations (0 for direct solvers).
@@ -299,7 +303,14 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
         update_converged = all(eachindex(u)) do i
             abs(ws.update[i]) <= ws.absolute[i] + ws.relative[i] * abs(u[i])
         end
-        if update_converged && last(ws.residual_norms) <= solver.residual_tolerance
+        # The residual of a stiff step has a round-off floor: F = M(u - u_old)/dt - rhs
+        # cancels two terms of size dt‖L‖ times the unknown, so the scaled residual cannot
+        # fall below about eps dt‖L‖/scale, which exceeds `residual_tolerance` at large dt.
+        # Once the update is within tolerance and the residual has stopped decreasing, the
+        # iteration has converged as far as the arithmetic allows.
+        residual_stalled = length(ws.residual_norms) > 1 &&
+                           last(ws.residual_norms) >= 0.9 * ws.residual_norms[end-1]
+        if update_converged && (last(ws.residual_norms) <= solver.residual_tolerance || residual_stalled)
             status = _below_lower_limit(ws, u) ? :below_lower_limit : :converged
             return result(status, iteration, initial)
         end

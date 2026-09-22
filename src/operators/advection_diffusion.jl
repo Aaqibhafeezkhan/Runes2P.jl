@@ -233,3 +233,26 @@ Operator contribution to all momentum cells at radius index `ir`. Writes only to
     end
     return df
 end
+
+"""
+    momentum_flux(op::AdvectionDiffusion, f, face, ir=1)
+
+Particle flux per unit volume [m⁻³ s⁻¹] through the momentum face `face` (between cells
+`face - 1` and `face`) at radius index `ir`, `(1/V') Σ_j Δξ_j 𝒱'ᵖ Γᵖ`, positive towards
+larger momentum. This is the rate at which particles cross the surface `p = p_faces[face]`,
+counted in the same normalization as [`density`](@ref), so a runaway rate measured through
+a surface above the critical momentum is directly comparable with
+[`connor_hastie_rate`](@ref). Face 1 is the flux through `p = p_min` (the `p = 0` limit or
+the prescribed boundary flux) and face `momentum_cell_count + 1` the flux out of the grid.
+"""
+function momentum_flux(op::AdvectionDiffusion, f::AbstractArray{<:Any,3}, face::Integer,
+                       ir::Integer=1)
+    m = momentum_grid(op.grid, ir)
+    1 <= face <= momentum_cell_count(m) + 1 ||
+        throw(BoundsError("momentum face $face outside the grid"))
+    total = zero(eltype(f))
+    @inbounds for j in 1:pitch_cell_count(m)
+        total += m.xi_widths[j] * _p_flux(op, f, face, j, ir)
+    end
+    return total / op.grid.radial_grid.spatial_jacobian[ir]
+end

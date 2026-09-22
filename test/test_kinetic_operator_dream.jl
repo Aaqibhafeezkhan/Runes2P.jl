@@ -55,7 +55,8 @@ end
 @testset "DREAM reference data provenance" begin
     checkout = joinpath(@__DIR__, "..", "reference", "dream", "DREAM")
     for file in (DREAM_COLLISION_DATA, DREAM_KINETIC_DATA,
-                 joinpath(@__DIR__, "data", "dream_time_stepping.h5"))
+                 joinpath(@__DIR__, "data", "dream_time_stepping.h5"),
+                 joinpath(@__DIR__, "data", "dream_runaway_rates.h5"), DREAM_DREICER_KINETIC_DATA)
         h5open(file) do h5
             attr = attributes(h5)
             @test haskey(attr, "dream_commit")

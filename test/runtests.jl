@@ -13,6 +13,8 @@ using LinearAlgebra: Diagonal
     include("test_time_stepping.jl")
     include("test_discretization.jl")
     include("test_physics.jl")
+    include("test_runaway_rates.jl")
+    include("test_runaway_physics.jl")
     include("test_collisions_dream.jl")
     include("test_kinetic_operator_dream.jl")
     include("test_time_stepping_dream.jl")

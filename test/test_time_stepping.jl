@@ -292,3 +292,52 @@ square_root_step(u0, k, dt) = ((-k * dt + sqrt((k * dt)^2 + 4u0)) / 2)^2
         rm(file)
     end
 end
+
+# fast exchange between the two components of a radial unknown: rate (u2 - u1) and its
+# negative, a stiff pair whose residual has a round-off floor above `residual_tolerance`
+struct ExchangeTerm <: EquationTerm
+    unknown::Symbol
+    rate::Float64
+end
+Runes2P.dependencies(term::ExchangeTerm) = [term.unknown]
+function Runes2P.rhs!(out, term::ExchangeTerm, u, layout, row, t)
+    id = unknown_id(layout, term.unknown)
+    for ir in 1:radial_cell_count(layout)
+        values = radial_view(u, layout, id, ir)
+        rows = unknown_range(layout, row, ir)
+        difference = term.rate * (values[2] - values[1])
+        out[rows[1]] += difference
+        out[rows[2]] -= difference
+    end
+    return out
+end
+function Runes2P.sparsity!(entries, term::ExchangeTerm, layout, row)
+    id = unknown_id(layout, term.unknown)
+    for ir in 1:radial_cell_count(layout), r in unknown_range(layout, row, ir),
+        c in unknown_range(layout, id, ir)
+        push!(entries, (r, c))
+    end
+    return entries
+end
+
+@testset "a stiff step converges at the residual floor" begin
+    # With rate·dt = 1e10 the transient and the right-hand side cancel to ten digits, so
+    # round-off keeps the scaled residual near 1e-6, above the default tolerance. Newton
+    # reaches the exact solution in one step; without the stall criterion it would iterate
+    # to the limit and the step would fail (found by the Dreicer runs).
+    rad = RadialGrid(uniform_r_faces(1, 0.5))
+    layout = UnknownLayout(rad, [RadialUnknown(:x; components=2, scale=1.0)])
+    rate = 1e10
+    system = EquationSystem(layout, [Equation(:x, TimeDerivative(), ExchangeTerm(:x, rate))])
+    u_old = [1.0, 0.0]
+    u = copy(u_old)
+    ws = NewtonWorkspace(system)
+    result = newton_solve!(u, u_old, ws, 1.0, 1.0)
+    @test result.status === :converged
+    @test result.residual_norm > NewtonSolver().residual_tolerance
+    @test result.iterations <= 4
+    # backward Euler on the exchange pair: the difference decays by 1/(1 + 2 rate dt)
+    difference = (u_old[1] - u_old[2]) / (1 + 2 * rate)
+    @test u[1] - u[2] ≈ difference rtol = 1e-6
+    @test u[1] + u[2] ≈ sum(u_old) rtol = 1e-12
+end
