@@ -23,6 +23,8 @@ include("operators/knockon/operator.jl")
 include("operators/knockon/cutoff.jl")
 include("system/jacobian.jl")
 include("system/layout.jl")
+include("system/terms.jl")
+include("system/equation_system.jl")
 
 export MomentumGrid, uniform_p_faces, biuniform_p_faces, uniform_xi_faces
 export RadialGrid, uniform_r_faces
@@ -49,5 +51,9 @@ export thermal_momentum, critical_field, critical_momentum, cutoff_window, choos
 export ScalarUnknown, RadialUnknown, KineticUnknown, UnknownLayout
 export unknown_id, unknown_names, unknown, unknown_range, radius_block_range, scalar_block_range
 export radial_view, kinetic_view, scalar_view, unknown_view, unknown_scales, describe, copy_unknowns!
+export EquationTerm, dependencies, coupling, treatment, sparsity!, rhs!, jacobian_vector_product!
+export FokkerPlanckTerm, KnockOnTerm, LinearTerm, DensityMomentTerm, LayoutKineticArray, kinetic_array
+export Equation, TimeDerivative, Algebraic, EquationSystem, Tolerance, tolerance
+export residual!, mass_matrix, jacobian_sparsity, jacobian_prototype, jacobian_operator, residual_scales, ode_function
 
 end # module Runes2P

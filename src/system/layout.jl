@@ -64,8 +64,10 @@ struct UnknownLayout{T<:AbstractFloat}
     ids::Dict{Symbol,Int}
     kinds::Vector{Symbol}         # :scalar, :radial or :kinetic, per unknown
     offsets::Matrix{Int}          # (unknown, radius): index before the first entry; 0 for scalars
+    radius_offsets::Vector{Vector{Int}}  # per unknown, the offsets over the radii (a row of `offsets`)
     sizes::Matrix{Int}            # (unknown, radius): number of entries
     shapes::Matrix{Tuple{Int,Int}}  # (unknown, radius): (p cells, ξ cells) of kinetic unknowns
+    kinetic_grids::Vector{Union{Nothing,KineticGrid{T}}}  # per unknown: its grid, or nothing
     scalar_offsets::Vector{Int}   # per unknown: index of the value for scalars, 0 otherwise
     radius_blocks::Vector{UnitRange{Int}}
     scalar_block::UnitRange{Int}
@@ -121,8 +123,10 @@ function UnknownLayout(radial_grid::RadialGrid{T}, unknowns::AbstractVector;
     end
     scalar_block = scalar_start+1:scalar_start+scalar_count
     total = position + (scalars === :first ? 0 : scalar_count)
-    return UnknownLayout{T}(radial_grid, list, ids, kinds, offsets, sizes, shapes, scalar_offsets,
-                            radius_blocks, scalar_block, total, scalars)
+    radius_offsets = [offsets[id, :] for id in 1:count]
+    kinetic_grids = Union{Nothing,KineticGrid{T}}[u isa KineticUnknown ? u.grid : nothing for u in list]
+    return UnknownLayout{T}(radial_grid, list, ids, kinds, offsets, radius_offsets, sizes, shapes,
+                            kinetic_grids, scalar_offsets, radius_blocks, scalar_block, total, scalars)
 end
 
 Base.length(layout::UnknownLayout) = layout.length
@@ -154,6 +158,17 @@ Declaration of an unknown ([`ScalarUnknown`](@ref), [`RadialUnknown`](@ref) or
 """
 unknown(layout::UnknownLayout, id::Integer) = layout.unknowns[id]
 unknown(layout::UnknownLayout, name::Symbol) = layout.unknowns[unknown_id(layout, name)]
+
+"""
+    kinetic_grid(layout, id)
+
+Kinetic grid of the kinetic unknown `id`.
+"""
+function kinetic_grid(layout::UnknownLayout, id::Integer)
+    grid = layout.kinetic_grids[id]
+    grid === nothing && throw(ArgumentError("$(layout.unknowns[id].name) is not a kinetic unknown"))
+    return grid
+end
 
 """
     unknown_range(layout, id, ir)

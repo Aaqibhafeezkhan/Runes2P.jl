@@ -8,6 +8,8 @@ using LinearAlgebra: Diagonal
     include("test_advection_diffusion.jl")
     include("test_jacobian.jl")
     include("test_layout.jl")
+    include("test_equation_system.jl")
+    include("test_sciml_extension.jl")
     include("test_discretization.jl")
     include("test_physics.jl")
     include("test_collisions_dream.jl")

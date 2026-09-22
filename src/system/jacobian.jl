@@ -125,13 +125,13 @@ end
 Sparse matrix `M` with `vec(apply(op, f)) = M * vec(f) + c` for an operator `op` that is
 linear in `f` up to a constant source `c`.
 """
-function operator_matrix(op; backend=sparse_ad_backend(pattern=stencil_pattern(op.grid)),
-                         check_local::Bool=true)
+function operator_matrix(op; backend=nothing, check_local::Bool=true)
     if check_local && !is_local(op)
         throw(ArgumentError("$(typeof(op)) is not a local operator; assembling it with the " *
                             "stencil pattern would silently corrupt the matrix. Apply it " *
                             "matrix-free instead."))
     end
+    backend = something(backend, sparse_ad_backend(pattern=stencil_pattern(op.grid)))
     residual! = (df, f) -> (fill!(df, zero(eltype(df))); apply!(df, op, f))
     sj = SparseJacobian(residual!, op.grid; backend)
     return jacobian(sj, zeros(eltype(op.advection_p), size(op.grid)))
