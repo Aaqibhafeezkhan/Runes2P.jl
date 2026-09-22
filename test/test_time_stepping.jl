@@ -335,7 +335,15 @@ end
     result = newton_solve!(u, u_old, ws, 1.0, 1.0)
     @test result.status === :converged
     @test result.residual_norm > NewtonSolver().residual_tolerance
+    # the waiver is flagged, so that a run can tell it from convergence to the tolerance
+    @test result.residual_floor
     @test result.iterations <= 4
+    soft = EquationSystem(layout, [Equation(:x, TimeDerivative(), ExchangeTerm(:x, 1.0))])
+    solution = integrate(soft, [1.0, 0.0], [0.0, 0.1, 0.2])
+    @test solution.statistics.accepted == [true, true]
+    @test solution.statistics.accepted_at_residual_floor == [false, false]
+    stiff = integrate(system, [1.0, 0.0], [0.0, 1.0])
+    @test stiff.statistics.accepted_at_residual_floor == [true]
     # backward Euler on the exchange pair: the difference decays by 1/(1 + 2 rate dt)
     difference = (u_old[1] - u_old[2]) / (1 + 2 * rate)
     @test u[1] - u[2] ≈ difference rtol = 1e-6

@@ -56,7 +56,9 @@ end
     checkout = joinpath(@__DIR__, "..", "reference", "dream", "DREAM")
     for file in (DREAM_COLLISION_DATA, DREAM_KINETIC_DATA,
                  joinpath(@__DIR__, "data", "dream_time_stepping.h5"),
-                 joinpath(@__DIR__, "data", "dream_runaway_rates.h5"), DREAM_DREICER_KINETIC_DATA)
+                 joinpath(@__DIR__, "data", "dream_runaway_rates.h5"), DREAM_DREICER_KINETIC_DATA,
+                 joinpath(@__DIR__, "data", "dream_example_runaway.h5"),
+                 joinpath(@__DIR__, "data", "dream_example_avalanche.h5"))
         h5open(file) do h5
             attr = attributes(h5)
             @test haskey(attr, "dream_commit")
@@ -64,6 +66,12 @@ end
             if isdir(joinpath(checkout, ".git"))
                 head = readchomp(`git -C $checkout rev-parse HEAD`)
                 @test read(attr["dream_commit"]) == head
+                # data from a DREAM example: the example file is unchanged since its commit
+                if haskey(attr, "example")
+                    example = read(attr["example"])
+                    last_change = readchomp(`git -C $checkout log -1 --format=%H -- $example`)
+                    @test read(attr["example_commit"]) == last_change
+                end
             end
         end
     end

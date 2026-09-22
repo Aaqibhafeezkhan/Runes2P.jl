@@ -268,4 +268,30 @@ end
         end
         @test worst < 1e-14
     end
+
+    @testset "cutoff just below a momentum face" begin
+        # The cell below the face keeps a sliver [p_cut, face] that receives knock-ons. Its
+        # analytic flux is a difference of two nearly equal values of S and has lost its
+        # digits; the weights converge against themselves instead, and the sliver adds
+        # nothing measurable to the operator.
+        mom = MomentumGrid(biuniform_p_faces(20, 5, 0.0, 0.4, 12.0), -cos.(range(0, π; length=9)))
+        g = cylindrical_grid(mom, rad)
+        face = mom.p_faces[3]
+        f = [exp(-p) * (1 + 0.5xi) for p in mom.p_centers, xi in mom.xi_centers, _ in 1:1]
+        at_face = zeros(size(g))
+        apply!(at_face, KnockOnOperator(g, g, face), f, [1.0])
+        for p_cut in (prevfloat(face), face - 4eps(face), face * (1 - 1e-12), face * (1 - 1e-8))
+            op = KnockOnOperator(g, g, p_cut)
+            kernels = knockon_kernels(op)
+            rates = kernels.energy.rates
+            for k in axes(rates, 2), i in axes(rates, 1)
+                rates[i, k] == 0 && continue
+                total = sum(kernels.entry_weight[t] for t in kernels.pair_start[i, k]:kernels.pair_stop[i, k])
+                @test total ≈ rates[i, k] rtol = 1e-14
+            end
+            C = zeros(size(g))
+            apply!(C, op, f, [1.0])
+            @test maximum(abs, C - at_face) < 1e-7 * maximum(abs, at_face)
+        end
+    end
 end

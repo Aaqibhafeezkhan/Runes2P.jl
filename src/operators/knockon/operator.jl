@@ -53,16 +53,26 @@ end
 # Weights of one pair over the table slices: the Møller flux of the receiving interval
 # [p_lower, p_upper] distributed over the hat functions of the table. The interval is split
 # at the momenta where ξ*(p) crosses a table value, each piece integrated by composite
-# Gauss with `points` nodes; the number of sub-intervals doubles until the total matches
-# the analytic flux `rate` (the hat functions sum to one, so the total is a quadrature of
-# the same integral). Returns the slice range and the sum of the weights.
-function _pair_slice_weights!(acc::AbstractVector{T}, xi_star_values, p_lower, p_upper, p1, rate,
-                              nodes, weights) where {T}
+# Gauss with `points` nodes, and the number of sub-intervals doubles until the weights
+# have converged. The hat functions sum to one, so the total is a quadrature of the
+# analytic flux `rate`, and agreement with it to 1e-12 ends the refinement early. That
+# reference is a difference of two values of `S`, which loses its digits when the interval
+# is narrow (a cutoff a few ulp below a face leaves a sliver of a cell), so the weights are
+# otherwise converged against their previous refinement. Returns the slice range and the
+# sum of the weights; throws if the weights do not converge or the ξ* range of the pair
+# leaves the table.
+function _pair_slice_weights!(acc::AbstractVector{T}, previous::AbstractVector{T}, xi_star_values,
+                              p_lower, p_upper, p1, rate, nodes, weights) where {T}
     spacing = length(xi_star_values) > 1 ? xi_star_values[2] - xi_star_values[1] : zero(T)
     slice_count = length(xi_star_values)
     lowest = first(xi_star_values)
     position(x) = spacing > 0 ? clamp((x - lowest) / spacing, 0, slice_count - 1) : zero(T)
     xi_lower, xi_upper = xi_star(p_lower, p1), xi_star(p_upper, p1)
+    # outside the table the clamped hat functions would pile the pair onto an edge slice
+    margin = 1e-10 * max(spacing, eps(T))
+    (lowest - margin <= xi_lower && xi_upper <= last(xi_star_values) + margin) ||
+        throw(ErrorException("the ξ* range [$xi_lower, $xi_upper] of a knock-on pair leaves the table " *
+                             "[$lowest, $(last(xi_star_values))]"))
     # a quadrature point at position s contributes to the slices floor(s) + 1 and + 2
     m_lower = floor(Int, position(xi_lower)) + 1
     m_upper = clamp(floor(Int, position(xi_upper)) + 2, m_lower, slice_count)
@@ -75,8 +85,8 @@ function _pair_slice_weights!(acc::AbstractVector{T}, xi_star_values, p_lower, p
     push!(cuts, p_upper)
     beta1 = p1 / sqrt(1 + p1^2)
     total = zero(T)
-    previous_error = T(Inf)
     for sub in (1, 2, 4, 8, 16, 32, 64, 128)
+        sub > 1 && copyto!(view(previous, m_lower:m_upper), view(acc, m_lower:m_upper))
         fill!(view(acc, m_lower:m_upper), zero(T))
         total = zero(T)
         for q in 1:length(cuts)-1
@@ -93,13 +103,13 @@ function _pair_slice_weights!(acc::AbstractVector{T}, xi_star_values, p_lower, p
                 total += value
             end
         end
-        # the reference rate is a difference of the analytic flux, which loses digits in
-        # narrow cells, so refining stops once it no longer improves
-        error = abs(total - rate) / abs(rate)
-        (error <= 1e-12 || error >= previous_error) && break
-        previous_error = error
+        abs(total - rate) <= 1e-12 * abs(rate) && return m_lower, m_upper, total
+        if sub > 1
+            change = maximum(m -> abs(acc[m] - previous[m]), m_lower:m_upper)
+            change <= 1e-12 * total && return m_lower, m_upper, total
+        end
     end
-    return m_lower, m_upper, total, abs(total - rate) / abs(rate)
+    throw(ErrorException("the ξ* weights of a knock-on pair do not converge; raise xi_star_points"))
 end
 
 function KnockOnKernels(knockon::MomentumGrid{T}, primary::MomentumGrid{T}, p_cutoff::Real;
@@ -111,7 +121,7 @@ function KnockOnKernels(knockon::MomentumGrid{T}, primary::MomentumGrid{T}, p_cu
     slice_count = length(pitch.xi_star_values)
     integrated = pitch.xi_star_mode === :interval
     nodes, weights = gauss(T, xi_star_points)
-    accumulator = zeros(T, slice_count + 1)
+    accumulator, previous = zeros(T, slice_count + 1), zeros(T, slice_count + 1)
 
     # pairs without knock-ons keep the empty range 1:0
     pair_start, pair_stop = ones(Int, np_knockon, np_primary), zeros(Int, np_knockon, np_primary)
@@ -127,19 +137,12 @@ function KnockOnKernels(knockon::MomentumGrid{T}, primary::MomentumGrid{T}, p_cu
             p_upper = min(knockon.p_faces[i+1], max_knockon_momentum(p1))
             # the rate of the energy kernel is Δp_i times the flux of the interval
             flux = rate * knockon.p_widths[i]
-            m_lower, m_upper, total, mismatch = _pair_slice_weights!(accumulator, pitch.xi_star_values,
-                                                                     p_lower, p_upper, p1, flux, nodes,
-                                                                     weights)
+            m_lower, m_upper, total = _pair_slice_weights!(accumulator, previous, pitch.xi_star_values,
+                                                           p_lower, p_upper, p1, flux, nodes, weights)
             total > 0 || throw(ErrorException("no knock-on production in the ξ* range of pair ($i, $k)"))
-            # the hat functions sum to one over the ξ* range of the pair, so the weights sum
-            # to a quadrature of the same integral as the analytic flux; a real mismatch
-            # (ξ* range outside the table, missed breakpoint, too few points) is far larger
-            # than the round-off of the flux difference
-            mismatch <= 1e-8 ||
-                throw(ErrorException("the ξ* quadrature of pair ($i, $k) misses the Møller flux by " *
-                                     "$mismatch; raise xi_star_points"))
             # rescale to the analytic flux, so that the production stays exactly the
-            # energy kernel's for any quadrature
+            # energy kernel's for any quadrature (and carries the same round-off in a sliver
+            # of a cell)
             scale = rate / total
             for m in m_lower:m_upper
                 accumulator[m] == 0 && continue

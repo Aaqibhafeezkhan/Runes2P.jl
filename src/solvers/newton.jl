@@ -19,6 +19,9 @@ Settings of the Newton iteration of a backward-Euler step.
   right-hand side cancel to many digits, round-off holds the residual above
   `residual_tolerance` whatever the iterate, so a converged update is accepted once the
   residual stops decreasing (it grew, or fell by less than 10%, in the last iteration).
+  Such a step is flagged (`residual_floor` in [`NewtonResult`](@ref)), since the same
+  waiver would also accept a linearly converging iteration whose small update understates
+  its error (an inexact Jacobian or linear solve, DREAM #262).
 - Lower limits ([`LowerLimit`](@ref), declared on the unknowns) shorten the whole step so
   that no limited entry loses more than the fraction `max_reduction` of its distance to
   its limit in one iteration. Only steps towards the limit are shortened, never growth
@@ -51,8 +54,10 @@ limit would be pushed below it, or the converged state lies below it), the numbe
 `iterations`, the scaled residual norm before the first iteration and at the end (which
 may exceed `residual_tolerance` on a stiff step, see [`NewtonSolver`](@ref)), the
 scaled norm `max |δ|/scale` of the last update, the estimated `convergence_order` (`NaN`
-when fewer than three updates are above round-off), the smallest step length used and the
-Krylov iterations summed over the iterations (0 for direct solvers).
+when fewer than three updates are above round-off), the smallest step length used, the
+Krylov iterations summed over the iterations (0 for direct solvers) and `residual_floor`,
+true when the step converged with the residual above `residual_tolerance` because the
+residual had stopped decreasing.
 """
 struct NewtonResult
     status::Symbol
@@ -63,6 +68,7 @@ struct NewtonResult
     convergence_order::Float64
     smallest_step_length::Float64
     krylov_iterations::Int
+    residual_floor::Bool
 end
 
 """
@@ -190,15 +196,15 @@ end
 # distance to the limit; steps away from the limit are never shortened. Zero when an
 # entry at or below its limit would be pushed further down (DREAM skips such entries,
 # which lets an iterate that reached its limit by round-off take the full step).
-function _limited_step_length(ws::NewtonWorkspace, u, δ)
+function _limited_step_length(ws::NewtonWorkspace, u, update)
     step = 1.0
     reduction = ws.solver.max_reduction
     @inbounds for k in eachindex(ws.limited)
         i = ws.limited[k]
-        δ[i] < 0 || continue
+        update[i] < 0 || continue
         room = u[i] - _limit_value(ws, u, k)
         room > 0 || return 0.0
-        step = min(step, reduction * room / -δ[i])
+        step = min(step, reduction * room / -update[i])
     end
     return step
 end
@@ -265,10 +271,10 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
     end
     krylov = 0
     smallest_step = 1.0
-    result(status, iterations, initial) =
+    result(status, iterations, initial; residual_floor=false) =
         NewtonResult(status, iterations, initial, isempty(ws.residual_norms) ? initial : last(ws.residual_norms),
                      isempty(ws.update_norms) ? NaN : last(ws.update_norms),
-                     _convergence_order(ws.update_norms), smallest_step, krylov)
+                     _convergence_order(ws.update_norms), smallest_step, krylov, residual_floor)
 
     status = _checked_residual!(ws.residual, u, u_old, system, t, dt)
     status === :ok || return result(status, 0, NaN)
@@ -310,9 +316,10 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
         # iteration has converged as far as the arithmetic allows.
         residual_stalled = length(ws.residual_norms) > 1 &&
                            last(ws.residual_norms) >= 0.9 * ws.residual_norms[end-1]
-        if update_converged && (last(ws.residual_norms) <= solver.residual_tolerance || residual_stalled)
+        residual_small = last(ws.residual_norms) <= solver.residual_tolerance
+        if update_converged && (residual_small || residual_stalled)
             status = _below_lower_limit(ws, u) ? :below_lower_limit : :converged
-            return result(status, iteration, initial)
+            return result(status, iteration, initial; residual_floor=!residual_small)
         end
     end
     return result(:max_iterations, solver.max_iterations, initial)
