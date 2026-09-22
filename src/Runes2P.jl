@@ -22,6 +22,7 @@ include("operators/knockon/pitch_kernel.jl")
 include("operators/knockon/operator.jl")
 include("operators/knockon/cutoff.jl")
 include("system/jacobian.jl")
+include("system/layout.jl")
 
 export MomentumGrid, uniform_p_faces, biuniform_p_faces, uniform_xi_faces
 export RadialGrid, uniform_r_faces
@@ -45,5 +46,8 @@ export pitch_kernel_column!, pitch_kernel_column_split!, pitch_kernel_matrix!
 export KnockOnOperator, KnockOnKernels, knockon_linear_operator, set_cutoff!, energy_kernel, pitch_kernel
 export apply_at_radius!
 export thermal_momentum, critical_field, critical_momentum, cutoff_window, choose_cutoff
+export ScalarUnknown, RadialUnknown, KineticUnknown, UnknownLayout
+export unknown_id, unknown_names, unknown, unknown_range, radius_block_range, scalar_block_range
+export radial_view, kinetic_view, scalar_view, unknown_view, unknown_scales, describe, copy_unknowns!
 
 end # module Runes2P
