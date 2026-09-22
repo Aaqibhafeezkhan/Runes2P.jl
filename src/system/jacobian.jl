@@ -27,71 +27,71 @@ Sparsity pattern of the local transport operators: the 3×3 `(p, ξ)` neighbourh
 (including the p-ξ cross terms) and the two radial neighbours of each cell.
 """
 function stencil_pattern(grid::KineticGrid)
-    n1, n2, n3 = size(grid)
-    L = LinearIndices((n1, n2, n3))
-    I = Int[]
-    J = Int[]
-    sizehint!(I, 11 * n1 * n2 * n3)
-    sizehint!(J, 11 * n1 * n2 * n3)
-    for ir in 1:n3, j in 1:n2, i in 1:n1
-        row = L[i, j, ir]
+    np, nxi, nr = size(grid)
+    index = LinearIndices((np, nxi, nr))
+    rows = Int[]
+    columns = Int[]
+    sizehint!(rows, 11 * np * nxi * nr)
+    sizehint!(columns, 11 * np * nxi * nr)
+    for ir in 1:nr, j in 1:nxi, i in 1:np
+        row = index[i, j, ir]
         for dj in -1:1, di in -1:1
-            (1 <= i + di <= n1 && 1 <= j + dj <= n2) || continue
-            push!(I, row); push!(J, L[i+di, j+dj, ir])
+            (1 <= i + di <= np && 1 <= j + dj <= nxi) || continue
+            push!(rows, row); push!(columns, index[i+di, j+dj, ir])
         end
         for dr in (-1, 1)
-            1 <= ir + dr <= n3 || continue
-            push!(I, row); push!(J, L[i, j, ir+dr])
+            1 <= ir + dr <= nr || continue
+            push!(rows, row); push!(columns, index[i, j, ir+dr])
         end
     end
-    return sparse(I, J, trues(length(I)), n1 * n2 * n3, n1 * n2 * n3)
+    return sparse(rows, columns, trues(length(rows)), np * nxi * nr, np * nxi * nr)
 end
 
 """
-    SparseJacobian(F!, grid; backend=sparse_ad_backend(pattern=stencil_pattern(grid)))
+    SparseJacobian(residual!, grid; backend=sparse_ad_backend(pattern=stencil_pattern(grid)))
 
-Prepared sparse Jacobian of an in-place residual `F!(dF, f)` acting on arrays shaped
-like `grid`. Sparsity pattern and coloring are computed once; `jacobian!(J, sj, f)`
-then re-evaluates the values.
+Prepared sparse Jacobian of an in-place residual `residual!(dF, f)` acting on arrays
+shaped like `grid`. Sparsity pattern and coloring are computed once;
+`jacobian!(J, sparse_jacobian, f)` then re-evaluates the values.
 
-`F!` must contain only stencil-local terms. Terms with global momentum coupling, such
-as the knock-on operator, make the Jacobian dense per radius and are applied
+`residual!` must contain only stencil-local terms. Terms with global momentum coupling,
+such as the knock-on operator, make the Jacobian dense per radius and are applied
 matrix-free in the Krylov solver instead.
 """
 struct SparseJacobian{P,B,F}
-    F!::F
-    prep::P
+    residual!::F
+    preparation::P
     backend::B
-    dims::NTuple{3,Int}
+    dimensions::NTuple{3,Int}
 end
 
-function SparseJacobian(F!, grid::KineticGrid{T};
+function SparseJacobian(residual!, grid::KineticGrid{T};
                         backend=sparse_ad_backend(pattern=stencil_pattern(grid))) where {T}
-    dims = size(grid)
-    f0 = zeros(T, dims)
-    y = zeros(T, dims)
-    prep = DI.prepare_jacobian(F!, y, backend, f0)
-    return SparseJacobian(F!, prep, backend, dims)
+    dimensions = size(grid)
+    f0 = zeros(T, dimensions)
+    y = zeros(T, dimensions)
+    preparation = DI.prepare_jacobian(residual!, y, backend, f0)
+    return SparseJacobian(residual!, preparation, backend, dimensions)
 end
 
 """
-    jacobian(sj, f)
+    jacobian(sparse_jacobian, f)
 
-Sparse Jacobian of `sj.F!` at `f` (new matrix).
+Sparse Jacobian of `sparse_jacobian.residual!` at `f` (new matrix).
 """
 function jacobian(sj::SparseJacobian, f::AbstractArray{T,3}) where {T}
     y = similar(f)
-    return DI.jacobian(sj.F!, y, sj.prep, sj.backend, f)
+    return DI.jacobian(sj.residual!, y, sj.preparation, sj.backend, f)
 end
 
 """
-    jacobian!(J, sj, f)
+    jacobian!(J, sparse_jacobian, f)
 
-Overwrite the values of `J` (with the pattern from `jacobian(sj, f)`) at `f`.
+Overwrite the values of `J` (with the pattern from `jacobian(sparse_jacobian, f)`) at `f`.
 """
 function jacobian!(J::SparseMatrixCSC, sj::SparseJacobian, f::AbstractArray{T,3}) where {T}
     y = similar(f)
-    DI.jacobian!(sj.F!, y, J, sj.prep, sj.backend, f)
+    DI.jacobian!(sj.residual!, y, J, sj.preparation, sj.backend, f)
     return J
 end
 
@@ -115,8 +115,8 @@ operators.
 """
 function check_stencil_pattern(op)
     M = operator_matrix(op; backend=sparse_ad_backend(), check_local=false)
-    P = stencil_pattern(op.grid)
-    return all(P[findall(!iszero, M)])
+    pattern = stencil_pattern(op.grid)
+    return all(pattern[findall(!iszero, M)])
 end
 
 """
@@ -132,7 +132,7 @@ function operator_matrix(op; backend=sparse_ad_backend(pattern=stencil_pattern(o
                             "stencil pattern would silently corrupt the matrix. Apply it " *
                             "matrix-free instead."))
     end
-    F! = (df, f) -> (fill!(df, zero(eltype(df))); apply!(df, op, f))
-    sj = SparseJacobian(F!, op.grid; backend)
-    return jacobian(sj, zeros(eltype(op.Ap), size(op.grid)))
+    residual! = (df, f) -> (fill!(df, zero(eltype(df))); apply!(df, op, f))
+    sj = SparseJacobian(residual!, op.grid; backend)
+    return jacobian(sj, zeros(eltype(op.advection_p), size(op.grid)))
 end

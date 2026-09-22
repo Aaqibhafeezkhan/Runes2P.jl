@@ -4,9 +4,9 @@
 using QuadGK: quadgk
 
 @testset "knock-on physics" begin
-    scale = 2π * Constants.r0^2 * Constants.c
+    scale = 2π * Constants.CLASSICAL_ELECTRON_RADIUS^2 * Constants.SPEED_OF_LIGHT
     rad = RadialGrid(uniform_r_faces(1, 0.5))
-    Vp_vol = rad.VpVol[1]
+    Vp_vol = rad.spatial_jacobian[1]
     n_tot = [3e19]
 
     @testset "total production against n_tot ∫ v σ_tot f" begin
@@ -19,16 +19,18 @@ using QuadGK: quadgk
         kink = sqrt((2 * sqrt(1 + p_cut^2) - 1)^2 - 1)  # R(p1) = 0 below
         ref = n_tot[1] * 2 * quadgk(p1 -> 2π * p1^2 * g(p1) * moller_total_rate(p1, p_cut),
                                     kink, 12.0; rtol=1e-13)[1]
-        knock = cylindrical_grid(PXiGrid(biuniform_p_faces(40, 20, 0.0, 1.0, 2.0),
+        knock = cylindrical_grid(MomentumGrid(biuniform_p_faces(40, 20, 0.0, 1.0, 2.0),
                                          uniform_xi_faces(8)), rad)
         errs = map((60, 120, 240)) do n
-            prim = cylindrical_grid(PXiGrid(uniform_p_faces(n, 0.0, 12.0), uniform_xi_faces(6)), rad)
-            f = [g(p) * (1 + ξ / 2) for p in prim.mom.p, ξ in prim.mom.xi, _ in 1:1]
+            prim = cylindrical_grid(MomentumGrid(uniform_p_faces(n, 0.0, 12.0), uniform_xi_faces(6)), rad)
+            f = [g(p) * (1 + ξ / 2)
+                 for p in prim.momentum_grid.p_centers, ξ in prim.momentum_grid.xi_centers, _ in 1:1]
             op = KnockOnOperator(knock, prim, p_cut)
             C = zeros(size(knock))
             apply!(C, op, f, n_tot)
-            above = n_tot[1] * sum(prim.Vp[k, l, 1] * prim.mom.dp[k] * prim.mom.dxi[l] * f[k, l, 1] *
-                                   energy_kernel(op).above_grid[k] for k in 1:n, l in 1:6) / Vp_vol
+            above = n_tot[1] * sum(prim.phase_space_jacobian[k, l, 1] * prim.momentum_grid.p_widths[k] *
+                                   prim.momentum_grid.xi_widths[l] * f[k, l, 1] *
+                                   energy_kernel(op).rates_above_grid[k] for k in 1:n, l in 1:6) / Vp_vol
             abs((density(knock, C)[1] + above) / ref - 1)
         end
         @test errs[end] < 1e-4
@@ -40,13 +42,13 @@ using QuadGK: quadgk
         # pitch distribution is isotropic at every momentum. With the primary averaged over
         # its cell (default) this holds to the quadrature accuracy for every tabulated and
         # interpolated slice; DREAM's cell-centre primary misplaces ~10% in some cells.
-        g = cylindrical_grid(PXiGrid(biuniform_p_faces(30, 10, 0.0, 0.5, 5.0),
+        g = cylindrical_grid(MomentumGrid(biuniform_p_faces(30, 10, 0.0, 0.5, 5.0),
                                      -cos.(range(0, π; length=17))), rad)
-        f = [exp(-p / 1.2) for p in g.mom.p, _ in g.mom.xi, _ in 1:1]
-        aniso(C) = maximum(maximum(abs, C[i, :, 1] ./ (sum(g.mom.dxi .* C[i, :, 1]) / 2) .- 1)
-                           for i in 1:n_p(g) if any(>(0), C[i, :, 1]))
-        res = map(((primary_mode=:centre,), (primary_mode=:split, primary_points=4),
-                   (primary_mode=:split, primary_points=10))) do kw
+        f = [exp(-p / 1.2) for p in g.momentum_grid.p_centers, _ in g.momentum_grid.xi_centers, _ in 1:1]
+        aniso(C) = maximum(maximum(abs, C[i, :, 1] ./ (sum(g.momentum_grid.xi_widths .* C[i, :, 1]) / 2) .- 1)
+                           for i in 1:momentum_cell_count(g) if any(>(0), C[i, :, 1]))
+        res = map(((primary_pitch=:centre,), (primary_pitch=:split, primary_pitch_points=4),
+                   (primary_pitch=:split, primary_pitch_points=10))) do kw
             C = zeros(size(g))
             apply!(C, KnockOnOperator(g, g, 0.1; kw...), f, n_tot)
             aniso(C)
@@ -59,21 +61,22 @@ using QuadGK: quadgk
     @testset "mean knock-on pitch" begin
         # a primary at pitch ξ₁ produces knock-ons with mean pitch ξ* ξ₁ (gyrophase
         # average); the discrete first pitch moment of C converges to it
-        prim = cylindrical_grid(PXiGrid([4.9, 5.1], [0.6, 0.62]), rad)  # one cell, ξ₁ = 0.61
+        prim = cylindrical_grid(MomentumGrid([4.9, 5.1], [0.6, 0.62]), rad)  # one cell, ξ₁ = 0.61
         f = ones(1, 1, 1)
         errs = map((16, 64, 256)) do nξ
-            knock = cylindrical_grid(PXiGrid(uniform_p_faces(10, 0.0, 2.0), uniform_xi_faces(nξ)), rad)
-            op = KnockOnOperator(knock, prim, 0.1; primary_points=1)
+            knock = cylindrical_grid(MomentumGrid(uniform_p_faces(10, 0.0, 2.0), uniform_xi_faces(nξ)), rad)
+            op = KnockOnOperator(knock, prim, 0.1; primary_pitch_points=1)
             C = zeros(size(knock))
             apply!(C, op, f, n_tot)
             err = 0.0
-            for i in 1:n_p(knock)
-                w = [knock.Vp[i, j, 1] * knock.mom.dxi[j] * C[i, j, 1] for j in 1:nξ]
+            for i in 1:momentum_cell_count(knock)
+                w = [knock.phase_space_jacobian[i, j, 1] * knock.momentum_grid.xi_widths[j] * C[i, j, 1]
+                     for j in 1:nξ]
                 sum(w) == 0 && continue
-                pL = max(knock.mom.p_f[i], 0.1)
-                pU = min(knock.mom.p_f[i+1], max_knockon_momentum(5.0))
+                pL = max(knock.momentum_grid.p_faces[i], 0.1)
+                pU = min(knock.momentum_grid.p_faces[i+1], max_knockon_momentum(5.0))
                 ξs = xi_star((pL + pU) / 2, 5.0)
-                err = max(err, abs(sum(w .* knock.mom.xi) / sum(w) - ξs * 0.61))
+                err = max(err, abs(sum(w .* knock.momentum_grid.xi_centers) / sum(w) - ξs * 0.61))
             end
             err
         end
@@ -89,27 +92,30 @@ using QuadGK: quadgk
         # 1/p1². The pitch part is a point mass per column; linear interpolation between
         # two tabulated slices splits it over two cells, so the placement is checked
         # with a fine table.
-        knock = cylindrical_grid(PXiGrid(biuniform_p_faces(30, 10, 0.0, 0.5, 3.0),
+        knock = cylindrical_grid(MomentumGrid(biuniform_p_faces(30, 10, 0.0, 0.5, 3.0),
                                          uniform_xi_faces(20)), rad)
         p_cut = 0.12
         γ(p) = sqrt(1 + p^2)
         n_RE = 1e16
         h = 1e-9
         errs = map((1e2, 1e3, 1e4)) do p1
-            prim = cylindrical_grid(PXiGrid([p1 - 1, p1 + 1], [-1.0, 1 - 2h, 1.0]), rad)
+            prim = cylindrical_grid(MomentumGrid([p1 - 1, p1 + 1], [-1.0, 1 - 2h, 1.0]), rad)
             f = zeros(1, 2, 1)
-            f[1, 2, 1] = n_RE * Vp_vol / (prim.Vp[1, 2, 1] * prim.mom.dp[1] * prim.mom.dxi[2])
+            cell_volume = prim.phase_space_jacobian[1, 2, 1] * prim.momentum_grid.p_widths[1] *
+                          prim.momentum_grid.xi_widths[2]
+            f[1, 2, 1] = n_RE * Vp_vol / cell_volume
             C = zeros(size(knock))
-            apply!(C, KnockOnOperator(knock, prim, p_cut; n_tab=4000), f, n_tot)
+            apply!(C, KnockOnOperator(knock, prim, p_cut; table_size=4000), f, n_tot)
             e_mom, e_pitch = 0.0, 0.0
-            for i in 1:n_p(knock)
-                ρ1, ρ2 = max(knock.mom.p_f[i], p_cut), knock.mom.p_f[i+1]
+            for i in 1:momentum_cell_count(knock)
+                ρ1, ρ2 = max(knock.momentum_grid.p_faces[i], p_cut), knock.momentum_grid.p_faces[i+1]
                 ρ2 > ρ1 || continue
-                rp = n_tot[1] * n_RE * scale / (2π * knock.mom.p[i]^2 * knock.mom.dp[i]) *
+                rp = n_tot[1] * n_RE * scale /
+                     (2π * knock.momentum_grid.p_centers[i]^2 * knock.momentum_grid.p_widths[i]) *
                      (1 / (γ(ρ1) - 1) - 1 / (γ(ρ2) - 1))
-                row = [knock.mom.dxi[j] * C[i, j, 1] for j in 1:n_xi(knock)]
+                row = [knock.momentum_grid.xi_widths[j] * C[i, j, 1] for j in 1:pitch_cell_count(knock)]
                 e_mom = max(e_mom, abs(sum(row) / rp - 1))
-                jstar = searchsortedlast(knock.mom.xi_f, xi_star((ρ1 + ρ2) / 2, p1))
+                jstar = searchsortedlast(knock.momentum_grid.xi_faces, xi_star((ρ1 + ρ2) / 2, p1))
                 e_pitch = max(e_pitch, 1 - row[jstar] / sum(row))
             end
             (e_mom, e_pitch)

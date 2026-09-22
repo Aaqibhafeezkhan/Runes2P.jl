@@ -7,10 +7,10 @@ const DREAM_KINETIC_DATA = joinpath(@__DIR__, "data", "dream_kinetic_operator.h5
 
 @testset "kinetic operator step vs DREAM" begin
     h5open(DREAM_KINETIC_DATA) do h5
-        mom = PXiGrid(read(h5["grid/p1_f"]), read(h5["grid/p2_f"]))
+        mom = MomentumGrid(read(h5["grid/p1_f"]), read(h5["grid/p2_f"]))
         g = cylindrical_grid(mom, RadialGrid(read(h5["grid/r_f"])))
         # DREAM's cylindrical Jacobian differs from Runes2P's by the constant 4π²
-        ratio = read(h5["grid/Vprime"]) ./ g.Vp
+        ratio = read(h5["grid/Vprime"]) ./ g.phase_space_jacobian
         @test all(r -> isapprox(r, 4π^2; rtol=1e-14), ratio)
 
         names = read(h5["ions/name"])
@@ -22,7 +22,7 @@ const DREAM_KINETIC_DATA = joinpath(@__DIR__, "data", "dream_kinetic_operator.h5
         variants = (
             "full_partial_thermal" => (CollisionSettings(ion_size_table=:dream), 1e-9),
             "superthermal_complete_energy" => (CollisionSettings(mode=:superthermal,
-                screening=:completely, lnlambda=:energy_dependent), 1e-12),
+                screening=:complete, coulomb_logarithm=:energy_dependent), 1e-12),
         )
         for (variant, (settings, rtol)) in variants
             @testset "$variant" begin
@@ -31,13 +31,14 @@ const DREAM_KINETIC_DATA = joinpath(@__DIR__, "data", "dream_kinetic_operator.h5
                 f0 = f[:, :, :, 1]
                 f1 = f[:, :, :, end]
                 # linearly implicit: coefficients from the previous time level
-                plasma = PlasmaState(T_cold=read(grp["T_cold"])[:, 1],
-                                     n_cold=read(grp["n_cold"])[:, 1], ions=ions,
-                                     E=read(h5["E"]), B=fill(read(h5["B"]), n_r(g)))
+                plasma = PlasmaState(cold_electron_temperature=read(grp["T_cold"])[:, 1],
+                                     cold_electron_density=read(grp["n_cold"])[:, 1], ions=ions,
+                                     electric_field=read(h5["E"]),
+                                     magnetic_field=fill(read(h5["B"]), radial_cell_count(g)))
                 op = fokker_planck_operator(g, plasma, settings; synchrotron=true)
                 M = operator_matrix(op)
                 f1_runes2p = reshape((I - dt * M) \ vec(f0), size(g))
-                for ir in 1:n_r(g)
+                for ir in 1:radial_cell_count(g)
                     a = f1[:, :, ir]
                     b = f1_runes2p[:, :, ir]
                     cut = 1e-12 * maximum(abs, a)

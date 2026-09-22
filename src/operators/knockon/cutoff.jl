@@ -17,63 +17,70 @@
 
 Thermal momentum `√(2T/mₑc²)` in units of `mₑc` for a temperature `T` in eV.
 """
-thermal_momentum(T) = sqrt(2 * T / Constants.mc2inEV)
+thermal_momentum(T) = sqrt(2 * T / Constants.ELECTRON_REST_ENERGY)
 
 """
-    critical_field(n, lnΛ)
+    critical_field(density, coulomb_log)
 
 Connor-Hastie critical field `E_c = n e³ lnΛ / (4π ε₀² mₑ c²)` [V/m] for an electron density
-`n` [m⁻³] (free electrons without screening, total electrons with complete screening).
+`n` [m⁻³] (free electrons without screening, total electrons with complete screening) and
+a Coulomb logarithm `lnΛ`.
 """
-critical_field(n, lnΛ) = n * lnΛ * Constants.ec^3 /
-                         (4π * Constants.eps0^2 * Constants.me * Constants.c^2)
+critical_field(density, coulomb_log) =
+    density * coulomb_log * Constants.ELEMENTARY_CHARGE^3 /
+    (4pi * Constants.VACUUM_PERMITTIVITY^2 * Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT^2)
 
 """
-    critical_momentum(E, E_c)
+    critical_momentum(electric_field, critical_electric_field)
 
 Critical momentum `1/√(E/E_c - 1)` in units of `mₑc` (relativistic test particle, no pitch
 scattering or radiation), `Inf` for `E ≤ E_c`. DREAM's effective critical momentum
 (`fluid.pCrit`) includes screening and pitch-angle scattering and is larger; a caller with
 a better estimate passes it to [`cutoff_window`](@ref) directly.
 """
-critical_momentum(E, E_c) = E > E_c ? 1 / sqrt(E / E_c - 1) : oftype(float(E / E_c), Inf)
+critical_momentum(electric_field, critical_electric_field) =
+    electric_field > critical_electric_field ? 1 / sqrt(electric_field / critical_electric_field - 1) :
+    oftype(float(electric_field / critical_electric_field), Inf)
 
 """
-    cutoff_window(p_Te, p_crit; k=4)
+    cutoff_window(thermal_p, critical_p; thermal_factor=4)
 
-Admissible range `(lo, hi) = (k p_Te, p_crit)` of the knock-on cutoff momentum: above the
-thermal momentum by a safety factor `k`, below the critical momentum. The window is empty
-when `lo ≥ hi`.
+Admissible range `(lower, upper) = (thermal_factor · thermal_p, critical_p)` of the
+knock-on cutoff momentum: above the thermal momentum by a safety factor, below the
+critical momentum. The window is empty when `lower ≥ upper`.
 """
-cutoff_window(p_Te, p_crit; k=4) = (lo=k * p_Te, hi=p_crit)
+cutoff_window(thermal_p, critical_p; thermal_factor=4) =
+    (lower=thermal_factor * thermal_p, upper=critical_p)
 
 """
-    choose_cutoff(p_f, lo, hi; current=nothing)
+    choose_cutoff(p_faces, lower, upper; current_cutoff=nothing)
 
-Cutoff momentum on a momentum-grid face `p_f` inside the window `[lo, hi)`, returned as
-`(p_cut, inside)`. A `current` cutoff still inside the window is kept, so the kernels are
-rebuilt only when the window moves past it. Otherwise the face closest (in log p) to
-`√(lo·hi)` is taken (the smallest face `≥ lo` when `hi = Inf`), which leaves room for the
-bounds to move in either direction. If no positive face lies inside the window (window
-closed or narrower than a cell), the largest positive face below `hi` is returned (keeping
-knock-ons above the critical momentum, at the cost of the lower bound), or the smallest
-positive face if none is below `hi`, with `inside = false`.
+Cutoff momentum on a momentum-grid face (`p_faces`) inside the window `[lower, upper)`,
+returned as `(p_cutoff, inside_window)`. A `current_cutoff` still inside the window is
+kept, so the kernels are rebuilt only when the window moves past it. Otherwise the face
+closest (in log p) to `√(lower·upper)` is taken (the smallest face `≥ lower` when
+`upper = Inf`), which leaves room for the bounds to move in either direction. If no
+positive face lies inside the window (window closed or narrower than a cell), the largest
+positive face below `upper` is returned (keeping knock-ons above the critical momentum,
+at the cost of the lower bound), or the smallest positive face if none is below `upper`,
+with `inside_window = false`.
 
 Snapping to faces also keeps the cutoff off the interior of a cell, so the energy kernel
 has no partial cell at the cutoff.
 """
-function choose_cutoff(p_f::AbstractVector{T}, lo::Real, hi::Real; current=nothing) where {T}
-    if current !== nothing && lo <= current < hi && current > 0
-        return (p_cut=T(current), inside=true)
+function choose_cutoff(p_faces::AbstractVector{T}, lower::Real, upper::Real;
+                       current_cutoff=nothing) where {T}
+    if current_cutoff !== nothing && lower <= current_cutoff < upper && current_cutoff > 0
+        return (p_cutoff=T(current_cutoff), inside_window=true)
     end
-    faces = filter(>(0), p_f)
+    faces = filter(>(0), p_faces)
     isempty(faces) && throw(ArgumentError("the momentum grid has no positive face"))
-    cand = filter(p -> lo <= p < hi, faces)
-    if isempty(cand)
-        below = filter(<(hi), faces)
-        return (p_cut=isempty(below) ? first(faces) : last(below), inside=false)
+    candidates = filter(p -> lower <= p < upper, faces)
+    if isempty(candidates)
+        below = filter(<(upper), faces)
+        return (p_cutoff=isempty(below) ? first(faces) : last(below), inside_window=false)
     end
-    isinf(hi) && return (p_cut=first(cand), inside=true)
-    target = log(sqrt(max(lo, first(faces)) * hi))
-    return (p_cut=cand[argmin(abs.(log.(cand) .- target))], inside=true)
+    isinf(upper) && return (p_cutoff=first(candidates), inside_window=true)
+    target = log(sqrt(max(lower, first(faces)) * upper))
+    return (p_cutoff=candidates[argmin(abs.(log.(candidates) .- target))], inside_window=true)
 end

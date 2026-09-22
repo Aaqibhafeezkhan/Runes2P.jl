@@ -1,64 +1,68 @@
 """
     IonSpecies{T}
 
-Ion species with nuclear charge `Z` and charge-state densities `n[Z0 + 1, ir]` [m⁻³]
-for charge states `Z0 = 0, …, Z` at each radius.
+Ion species with nuclear charge `nuclear_charge` (Z) and charge-state densities
+`charge_state_densities[Z0 + 1, ir]` [m⁻³] for charge states `Z0 = 0, …, Z` at each radius.
 """
 struct IonSpecies{T<:Real}
     name::String
-    Z::Int
-    n::Matrix{T}
-    function IonSpecies(name::AbstractString, Z::Integer, n::AbstractMatrix{T}) where {T<:Real}
-        size(n, 1) == Z + 1 || throw(ArgumentError("need Z + 1 charge-state rows for $name"))
-        return new{T}(String(name), Int(Z), Matrix(n))
+    nuclear_charge::Int
+    charge_state_densities::Matrix{T}
+    function IonSpecies(name::AbstractString, Z::Integer, densities::AbstractMatrix{T}) where {T<:Real}
+        size(densities, 1) == Z + 1 || throw(ArgumentError("need Z + 1 charge-state rows for $name"))
+        return new{T}(String(name), Int(Z), Matrix(densities))
     end
 end
 
 """
-    IonSpecies(name, Z, Z0, n)
+    IonSpecies(name, Z, Z0, density)
 
-Species in a single charge state `Z0` with density profile `n` (vector over radius).
+Species in a single charge state `Z0` with density profile `density` (vector over radius).
 """
-function IonSpecies(name::AbstractString, Z::Integer, Z0::Integer, n::AbstractVector{T}) where {T<:Real}
+function IonSpecies(name::AbstractString, Z::Integer, Z0::Integer, density::AbstractVector{T}) where {T<:Real}
     0 <= Z0 <= Z || throw(ArgumentError("charge state must lie in 0:Z"))
-    dens = zeros(T, Z + 1, length(n))
-    dens[Z0+1, :] .= n
-    return IonSpecies(name, Z, dens)
+    densities = zeros(T, Z + 1, length(density))
+    densities[Z0+1, :] .= density
+    return IonSpecies(name, Z, densities)
 end
 
 """
     PlasmaState{T}
 
 Background ("cold") plasma seen by the kinetic electrons at each radius: cold-electron
-temperature `T_cold` [eV] and density `n_cold` [m⁻³], ion species, the electric field
-`E` [V/m] (DREAM's `E_field`, ⟨E·B⟩/√⟨B²⟩) and the minimum magnetic field on each flux
-surface `B` [T].
+temperature [eV] and density [m⁻³], ion species, the electric field [V/m] (DREAM's
+`E_field`, ⟨E·B⟩/√⟨B²⟩) and the minimum magnetic field on each flux surface [T].
 """
 struct PlasmaState{T<:Real}
-    T_cold::Vector{T}
-    n_cold::Vector{T}
+    cold_electron_temperature::Vector{T}
+    cold_electron_density::Vector{T}
     ions::Vector{IonSpecies{T}}
-    E::Vector{T}
-    B::Vector{T}
+    electric_field::Vector{T}
+    magnetic_field::Vector{T}
 end
 
 """
-    PlasmaState(; T_cold, ions, E, B, n_cold=free_electron_density(ions))
+    PlasmaState(; cold_electron_temperature, ions, electric_field, magnetic_field,
+                cold_electron_density=free_electron_density(ions))
 
-Keyword constructor; `n_cold` defaults to the free-electron density from
+Keyword constructor; the cold-electron density defaults to the free-electron density from
 quasi-neutrality.
 """
-function PlasmaState(; T_cold, ions, E, B, n_cold=nothing)
+function PlasmaState(; cold_electron_temperature, ions, electric_field, magnetic_field,
+                     cold_electron_density=nothing)
     ions = collect(ions)
-    nc = n_cold === nothing ? [free_electron_density(ions, ir) for ir in eachindex(T_cold)] :
-         n_cold
-    T = promote_type(eltype(T_cold), eltype(nc), eltype(E), eltype(B),
-                     (eltype(s.n) for s in ions)...)
-    return PlasmaState{T}(collect(T, T_cold), collect(T, nc), IonSpecies{T}[
-        IonSpecies(s.name, s.Z, T.(s.n)) for s in ions], collect(T, E), collect(T, B))
+    density = cold_electron_density === nothing ?
+              [free_electron_density(ions, ir) for ir in eachindex(cold_electron_temperature)] :
+              cold_electron_density
+    T = promote_type(eltype(cold_electron_temperature), eltype(density), eltype(electric_field),
+                     eltype(magnetic_field), (eltype(s.charge_state_densities) for s in ions)...)
+    return PlasmaState{T}(collect(T, cold_electron_temperature), collect(T, density),
+                          IonSpecies{T}[IonSpecies(s.name, s.nuclear_charge, T.(s.charge_state_densities))
+                                        for s in ions],
+                          collect(T, electric_field), collect(T, magnetic_field))
 end
 
-n_radii(ps::PlasmaState) = length(ps.T_cold)
+radial_cell_count(plasma::PlasmaState) = length(plasma.cold_electron_temperature)
 
 """
     free_electron_density(ions, ir)
@@ -66,13 +70,16 @@ n_radii(ps::PlasmaState) = length(ps.T_cold)
 `Σ Z0 n_{Z0}` over all ion charge states (DREAM `GetFreeElectronDensityFromQuasiNeutrality`).
 """
 free_electron_density(ions, ir) =
-    sum((Z0 * s.n[Z0+1, ir] for s in ions for Z0 in 0:s.Z); init=zero(eltype(first(ions).n)))
-free_electron_density(ps::PlasmaState, ir) = free_electron_density(ps.ions, ir)
+    sum((Z0 * s.charge_state_densities[Z0+1, ir] for s in ions for Z0 in 0:s.nuclear_charge);
+        init=zero(eltype(first(ions).charge_state_densities)))
+free_electron_density(plasma::PlasmaState, ir) = free_electron_density(plasma.ions, ir)
 
 """
-    bound_electron_density(ps, ir)
+    bound_electron_density(plasma, ir)
 
 `Σ (Z - Z0) n_{Z0}` over all ion charge states.
 """
-bound_electron_density(ps::PlasmaState, ir) =
-    sum(((s.Z - Z0) * s.n[Z0+1, ir] for s in ps.ions for Z0 in 0:s.Z); init=zero(eltype(ps.T_cold)))
+bound_electron_density(plasma::PlasmaState, ir) =
+    sum(((s.nuclear_charge - Z0) * s.charge_state_densities[Z0+1, ir]
+         for s in plasma.ions for Z0 in 0:s.nuclear_charge);
+        init=zero(eltype(plasma.cold_electron_temperature)))

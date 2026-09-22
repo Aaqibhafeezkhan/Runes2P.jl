@@ -9,15 +9,16 @@ using Random: Xoshiro
 function knockon_dense(op::KnockOnOperator, n_tot)
     gK, gP = op.knockon, op.primary
     LK, LP = LinearIndices(size(gK)), LinearIndices(size(gP))
-    A = zeros(ncells(gK), ncells(gP))
-    D = zeros(n_xi(gK), n_xi(gP))
-    for ir in 1:n_r(gK), i in 1:n_p(gK), k in 1:n_p(gP)
-        s = energy_kernel(op, ir).S[i, k]
+    A = zeros(cell_count(gK), cell_count(gP))
+    D = zeros(pitch_cell_count(gK), pitch_cell_count(gP))
+    for ir in 1:radial_cell_count(gK), i in 1:momentum_cell_count(gK), k in 1:momentum_cell_count(gP)
+        s = energy_kernel(op, ir).rates[i, k]
         s == 0 && continue
-        delta_matrix!(D, angle_kernel(op, ir), i, k)
-        for j in 1:n_xi(gK), l in 1:n_xi(gP)
-            A[LK[i, j, ir], LP[k, l, ir]] += n_tot[ir] * s * gP.mom.dp[k] * gP.mom.dxi[l] *
-                                              gP.Vp[k, l, ir] * D[j, l] / gK.Vp[i, j, ir]
+        pitch_kernel_matrix!(D, pitch_kernel(op, ir), i, k)
+        for j in 1:pitch_cell_count(gK), l in 1:pitch_cell_count(gP)
+            W = gP.momentum_grid.p_widths[k] * gP.momentum_grid.xi_widths[l] *
+                gP.phase_space_jacobian[k, l, ir]
+            A[LK[i, j, ir], LP[k, l, ir]] += n_tot[ir] * s * W * D[j, l] / gK.phase_space_jacobian[i, j, ir]
         end
     end
     return A
@@ -25,7 +26,7 @@ end
 
 @testset "implicit knock-on operator" begin
     rad = RadialGrid(uniform_r_faces(2, 0.5))
-    g = cylindrical_grid(PXiGrid(biuniform_p_faces(18, 6, 0.0, 0.6, 3.0), uniform_xi_faces(7)), rad)
+    g = cylindrical_grid(MomentumGrid(biuniform_p_faces(18, 6, 0.0, 0.6, 3.0), uniform_xi_faces(7)), rad)
     n_tot = [2e19, 4e19]
     rng = Xoshiro(1)
 
@@ -33,13 +34,13 @@ end
         op = KnockOnOperator(g, g, 0.1; method)
         L = knockon_linear_operator(op, n_tot)
         A = knockon_dense(op, n_tot)
-        @test size(L) == (ncells(g), ncells(g))
+        @test size(L) == (cell_count(g), cell_count(g))
         @test Matrix(L) ≈ A rtol = 1e-13
         # signed input (a perturbation, not a distribution)
-        v = randn(rng, ncells(g))
+        v = randn(rng, cell_count(g))
         @test L * v ≈ A * v rtol = 1e-13
         # 5-argument mul!: β = 0 ignores NaN in the output, β ≠ 0 accumulates
-        res = fill(NaN, ncells(g))
+        res = fill(NaN, cell_count(g))
         mul!(res, L, v, 2.0, 0.0)
         @test res ≈ 2 .* (A * v) rtol = 1e-13
         res2 = copy(res)
@@ -47,16 +48,16 @@ end
         @test maximum(abs, res2) < 1e-13 * maximum(abs, res)
         # n_tot is referenced: updating it in place rescales the operator
         nt = copy(n_tot)
-        Lr = knockon_linear_operator(op, nt; α=-1)
+        Lr = knockon_linear_operator(op, nt; scale=-1)
         nt .*= 3
         @test Lr * v ≈ -3 .* (A * v) rtol = 1e-13
     end
 
     @testset "rectangular: knock-ons on another grid" begin
-        gP = cylindrical_grid(PXiGrid(uniform_p_faces(9, 1.0, 10.0), uniform_xi_faces(5)), rad)
+        gP = cylindrical_grid(MomentumGrid(uniform_p_faces(9, 1.0, 10.0), uniform_xi_faces(5)), rad)
         op = KnockOnOperator(g, gP, 0.1)
         L = knockon_linear_operator(op, n_tot)
-        @test size(L) == (ncells(g), ncells(gP))
+        @test size(L) == (cell_count(g), cell_count(gP))
         @test Matrix(L) ≈ knockon_dense(op, n_tot) rtol = 1e-13
     end
 
@@ -64,17 +65,18 @@ end
         # (I - Δt (M + K)) f1 = f0 with M a sparse advection-diffusion operator and K the
         # matrix-free knock-on term, against a dense direct solve
         ad = AdvectionDiffusion(g; scheme=:central)
-        ad.Dpp .= 0.3
-        ad.Dxixi .= 0.2
-        ad.Ap .= -0.5
+        ad.diffusion_p_p .= 0.3
+        ad.diffusion_xi_xi .= 0.2
+        ad.advection_p .= -0.5
         M = operator_matrix(ad)
         op = KnockOnOperator(g, g, 0.1)
         K = knockon_linear_operator(op, n_tot)
         A = knockon_dense(op, n_tot)
-        f0 = [exp(-p / 0.8) * (1.1 + ξ) for p in g.mom.p, ξ in g.mom.xi, _ in 1:2]
+        f0 = [exp(-p / 0.8) * (1.1 + ξ)
+              for p in g.momentum_grid.p_centers, ξ in g.momentum_grid.xi_centers, _ in 1:2]
         # scale the knock-on term to O(1) against the unit identity
         Δt = 0.5 / maximum(abs, A)
-        n = ncells(g)
+        n = cell_count(g)
         B = LinearOperator(Matrix{Float64}(I, n, n)) - Δt * (LinearOperator(M) + K)
         @test B * vec(f0) ≈ vec(f0) - Δt * (M * vec(f0) + A * vec(f0)) rtol = 1e-13
         f1, stats = gmres(B, vec(f0); rtol=1e-12, atol=0.0)

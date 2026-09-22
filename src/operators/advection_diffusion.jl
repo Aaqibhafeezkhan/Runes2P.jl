@@ -8,202 +8,215 @@ Flux-form advection-diffusion operator on a `KineticGrid`,
     Γᵠ = Aᵠ f - Dᵠᵠ ∂_ξ f - Dᵠᵖ ∂_p f,
     Γʳ = Aʳ f - Dʳʳ ∂_r f,
 
-with coefficients given on the faces of each direction. Particle conservation is exact
-up to the fluxes through the outer boundaries.
+with coefficients given on the faces of each direction (`advection_p` is Aᵖ,
+`diffusion_p_xi` is Dᵖᵠ, and so on). Particle conservation is exact up to the fluxes
+through the outer boundaries.
 
 Boundary conditions:
 - `p = 0`: flux `(𝒱'/p²)|₀ · (p²Aᵖ)|₀ · f₁`, with the limit `p²Aᵖ` given in
-  `op.Ap_p2_zero[j, ir]` (nonzero for collisional friction, which removes particles
-  through `p = 0` as in DREAM).
+  `op.advection_p_times_p2_at_zero[j, ir]` (nonzero for collisional friction, which
+  removes particles through `p = 0` as in DREAM).
 - `r = 0`: no flux, because 𝒱' vanishes there.
-- `p = p_min > 0`: `:zero_flux`, or `:prescribed` with the flux `Γᵖ` through the face
-  given in `op.pflux_in[j, ir]` (positive into the domain, independent of `f`). This is the
-  coupling point for a runaway grid fed from a hot-tail grid below it.
+- `p = p_min > 0` (`p_lower_boundary`): `:zero_flux`, or `:prescribed` with the flux `Γᵖ`
+  through the face given in `op.p_flux_at_lower_boundary[j, ir]` (positive into the
+  domain, independent of `f`). This is the coupling point for a runaway grid fed from a
+  hot-tail grid below it.
 - `ξ = ±1`: no flux.
-- `p = p_max`: `:outflow`, advective outflow only (`Aᵖ > 0`); or `:f_zero`, outflow into
-  a ghost cell with `f = 0` one cell spacing beyond the last centre, adding diffusive
-  loss `Dᵖᵖ f_N / (p_N - p_{N-1})` (DREAM `BC_F_0`).
-- `r = a`: `:zero_flux`, or `:absorbing` (`f = 0` on the wall face).
+- `p = p_max` (`p_upper_boundary`): `:outflow`, advective outflow only (`Aᵖ > 0`); or
+  `:f_zero`, outflow into a ghost cell with `f = 0` one cell spacing beyond the last
+  centre, adding diffusive loss `Dᵖᵖ f_N / (p_N - p_{N-1})` (DREAM `BC_F_0`).
+- `r = a` (`r_boundary`): `:zero_flux`, or `:absorbing` (`f = 0` on the wall face).
 
 Advective face values use first-order `:upwind` or second-order `:central` interpolation.
 """
 struct AdvectionDiffusion{T<:AbstractFloat}
     grid::KineticGrid{T}
-    Ap::Array{T,3}; Dpp::Array{T,3}; Dpxi::Array{T,3}      # on p faces (np+1, nxi, nr)
-    Axi::Array{T,3}; Dxixi::Array{T,3}; Dxip::Array{T,3}   # on ξ faces (np, nxi+1, nr)
-    Ar::Array{T,3}; Drr::Array{T,3}                        # on r faces (np, nxi, nr+1)
-    pflux_in::Matrix{T}                                    # Γᵖ at p_min (nxi, nr)
-    Ap_p2_zero::Matrix{T}                                  # lim p²Aᵖ at p = 0 (nxi, nr)
+    advection_p::Array{T,3}       # on p faces (p cells + 1, ξ cells, radii)
+    diffusion_p_p::Array{T,3}
+    diffusion_p_xi::Array{T,3}
+    advection_xi::Array{T,3}      # on ξ faces (p cells, ξ cells + 1, radii)
+    diffusion_xi_xi::Array{T,3}
+    diffusion_xi_p::Array{T,3}
+    advection_r::Array{T,3}       # on r faces (p cells, ξ cells, radii + 1)
+    diffusion_r_r::Array{T,3}
+    p_flux_at_lower_boundary::Matrix{T}      # Γᵖ at p_min (ξ cells, radii)
+    advection_p_times_p2_at_zero::Matrix{T}  # lim p²Aᵖ at p = 0 (ξ cells, radii)
     scheme::Symbol
-    pbc::Symbol
-    pmax_bc::Symbol
-    rbc::Symbol
+    p_lower_boundary::Symbol
+    p_upper_boundary::Symbol
+    r_boundary::Symbol
 end
 
 """
-    AdvectionDiffusion(grid; scheme=:upwind, pbc=:zero_flux, pmax_bc=:outflow, rbc=:zero_flux)
+    AdvectionDiffusion(grid; scheme=:upwind, p_lower_boundary=:zero_flux,
+                       p_upper_boundary=:outflow, r_boundary=:zero_flux)
 
-Operator with all coefficients zero; set them in place, e.g. `op.Dpp .= 1`.
+Operator with all coefficients zero; set them in place, e.g. `op.diffusion_p_p .= 1`.
 """
 function AdvectionDiffusion(grid::KineticGrid{T}; scheme::Symbol=:upwind,
-                            pbc::Symbol=:zero_flux, pmax_bc::Symbol=:outflow,
-                            rbc::Symbol=:zero_flux) where {T}
+                            p_lower_boundary::Symbol=:zero_flux,
+                            p_upper_boundary::Symbol=:outflow,
+                            r_boundary::Symbol=:zero_flux) where {T}
     scheme in (:upwind, :central) || throw(ArgumentError("unknown scheme $scheme"))
-    pbc in (:zero_flux, :prescribed) || throw(ArgumentError("unknown lower p BC $pbc"))
-    pmax_bc in (:outflow, :f_zero) || throw(ArgumentError("unknown upper p BC $pmax_bc"))
-    if pbc === :prescribed && grid.mom.p_f[1] == 0
+    p_lower_boundary in (:zero_flux, :prescribed) ||
+        throw(ArgumentError("unknown lower p boundary condition $p_lower_boundary"))
+    p_upper_boundary in (:outflow, :f_zero) ||
+        throw(ArgumentError("unknown upper p boundary condition $p_upper_boundary"))
+    if p_lower_boundary === :prescribed && grid.momentum_grid.p_faces[1] == 0
         throw(ArgumentError("a prescribed p flux needs p_min > 0"))
     end
-    rbc in (:zero_flux, :absorbing) || throw(ArgumentError("unknown radial BC $rbc"))
-    n1, n2, n3 = size(grid)
-    fp() = zeros(T, n1 + 1, n2, n3)
-    fx() = zeros(T, n1, n2 + 1, n3)
-    fr() = zeros(T, n1, n2, n3 + 1)
-    return AdvectionDiffusion{T}(grid, fp(), fp(), fp(), fx(), fx(), fx(), fr(), fr(),
-                                 zeros(T, n2, n3), zeros(T, n2, n3), scheme, pbc, pmax_bc, rbc)
+    r_boundary in (:zero_flux, :absorbing) ||
+        throw(ArgumentError("unknown radial boundary condition $r_boundary"))
+    np, nxi, nr = size(grid)
+    on_p_faces() = zeros(T, np + 1, nxi, nr)
+    on_xi_faces() = zeros(T, np, nxi + 1, nr)
+    on_r_faces() = zeros(T, np, nxi, nr + 1)
+    return AdvectionDiffusion{T}(grid, on_p_faces(), on_p_faces(), on_p_faces(),
+                                 on_xi_faces(), on_xi_faces(), on_xi_faces(),
+                                 on_r_faces(), on_r_faces(), zeros(T, nxi, nr), zeros(T, nxi, nr),
+                                 scheme, p_lower_boundary, p_upper_boundary, r_boundary)
 end
 
-@inline function _face_value(scheme, a, fl, fr, wl)
+@inline function _face_value(scheme, advection, f_left, f_right, weight_left)
     if scheme === :upwind
-        return a >= 0 ? fl : fr
+        return advection >= 0 ? f_left : f_right
     else
-        return wl * fl + (1 - wl) * fr
+        return weight_left * f_left + (1 - weight_left) * f_right
     end
 end
 
 # Centred derivative of f in ξ at cell (i, j), one-sided at the ξ edges.
-Base.@propagate_inbounds function _dxi_cell(f, g::PXiGrid, i, j, ir)
-    n2 = n_xi(g)
-    jl = max(j - 1, 1)
-    ju = min(j + 1, n2)
-    jl == ju && return zero(eltype(f))
-    return (f[i, ju, ir] - f[i, jl, ir]) / (g.xi[ju] - g.xi[jl])
+Base.@propagate_inbounds function _xi_derivative(f, grid::MomentumGrid, i, j, ir)
+    j_lower = max(j - 1, 1)
+    j_upper = min(j + 1, pitch_cell_count(grid))
+    j_lower == j_upper && return zero(eltype(f))
+    return (f[i, j_upper, ir] - f[i, j_lower, ir]) / (grid.xi_centers[j_upper] - grid.xi_centers[j_lower])
 end
 
 # Centred derivative of f in p at cell (i, j), one-sided at the p edges.
-Base.@propagate_inbounds function _dp_cell(f, g::PXiGrid, i, j, ir)
-    n1 = n_p(g)
-    il = max(i - 1, 1)
-    iu = min(i + 1, n1)
-    il == iu && return zero(eltype(f))
-    return (f[iu, j, ir] - f[il, j, ir]) / (g.p[iu] - g.p[il])
+Base.@propagate_inbounds function _p_derivative(f, grid::MomentumGrid, i, j, ir)
+    i_lower = max(i - 1, 1)
+    i_upper = min(i + 1, momentum_cell_count(grid))
+    i_lower == i_upper && return zero(eltype(f))
+    return (f[i_upper, j, ir] - f[i_lower, j, ir]) / (grid.p_centers[i_upper] - grid.p_centers[i_lower])
 end
 
 # Flux Γᵖ through p face `k` (between cells k-1 and k), multiplied by 𝒱'.
-Base.@propagate_inbounds function _pflux(op::AdvectionDiffusion, f, k, j, ir)
+Base.@propagate_inbounds function _p_flux(op::AdvectionDiffusion, f, k, j, ir)
     g = op.grid
-    m = g.mom
-    n1 = n_p(m)
-    V = g.Vp_fp[k, j, ir]
+    m = g.momentum_grid
+    np = momentum_cell_count(m)
+    V = g.phase_space_jacobian_p_faces[k, j, ir]
     T = eltype(f)
     if k == 1
-        if m.p_f[1] == 0
-            return g.VpOverP2AtZero[j, ir] * op.Ap_p2_zero[j, ir] * f[1, j, ir]
+        if m.p_faces[1] == 0
+            return g.phase_space_jacobian_over_p2_at_zero[j, ir] *
+                   op.advection_p_times_p2_at_zero[j, ir] * f[1, j, ir]
         end
-        return op.pbc === :prescribed ? V * op.pflux_in[j, ir] : zero(T)
+        return op.p_lower_boundary === :prescribed ? V * op.p_flux_at_lower_boundary[j, ir] : zero(T)
     end
     V == 0 && return zero(T)
-    A = op.Ap[k, j, ir]
-    if k == n1 + 1
-        fN = f[n1, j, ir]
-        F = A > 0 ? A * fN : zero(T)
-        if op.pmax_bc === :f_zero && n1 > 1
-            F += op.Dpp[k, j, ir] * fN / (m.p[n1] - m.p[n1-1])
+    A = op.advection_p[k, j, ir]
+    if k == np + 1
+        f_last = f[np, j, ir]
+        F = A > 0 ? A * f_last : zero(T)
+        if op.p_upper_boundary === :f_zero && np > 1
+            F += op.diffusion_p_p[k, j, ir] * f_last / (m.p_centers[np] - m.p_centers[np-1])
         end
         return V * F
     end
-    fl = f[k-1, j, ir]
-    fr = f[k, j, ir]
-    wl = (m.p[k] - m.p_f[k]) / (m.p[k] - m.p[k-1])
-    F = A * _face_value(op.scheme, A, fl, fr, wl)
-    F -= op.Dpp[k, j, ir] * (fr - fl) / (m.p[k] - m.p[k-1])
-    D = op.Dpxi[k, j, ir]
+    f_left = f[k-1, j, ir]
+    f_right = f[k, j, ir]
+    weight_left = (m.p_centers[k] - m.p_faces[k]) / (m.p_centers[k] - m.p_centers[k-1])
+    F = A * _face_value(op.scheme, A, f_left, f_right, weight_left)
+    F -= op.diffusion_p_p[k, j, ir] * (f_right - f_left) / (m.p_centers[k] - m.p_centers[k-1])
+    D = op.diffusion_p_xi[k, j, ir]
     if D != 0
-        F -= D * (_dxi_cell(f, m, k - 1, j, ir) + _dxi_cell(f, m, k, j, ir)) / 2
+        F -= D * (_xi_derivative(f, m, k - 1, j, ir) + _xi_derivative(f, m, k, j, ir)) / 2
     end
     return V * F
 end
 
 # Flux Γᵠ through ξ face `k` (between cells k-1 and k), multiplied by 𝒱'.
-Base.@propagate_inbounds function _xiflux(op::AdvectionDiffusion, f, i, k, ir)
+Base.@propagate_inbounds function _xi_flux(op::AdvectionDiffusion, f, i, k, ir)
     g = op.grid
-    m = g.mom
+    m = g.momentum_grid
     T = eltype(f)
-    (k == 1 || k == n_xi(m) + 1) && return zero(T)
-    V = g.Vp_fxi[i, k, ir]
+    (k == 1 || k == pitch_cell_count(m) + 1) && return zero(T)
+    V = g.phase_space_jacobian_xi_faces[i, k, ir]
     V == 0 && return zero(T)
-    fl = f[i, k-1, ir]
-    fr = f[i, k, ir]
-    A = op.Axi[i, k, ir]
-    wl = (m.xi[k] - m.xi_f[k]) / (m.xi[k] - m.xi[k-1])
-    F = A * _face_value(op.scheme, A, fl, fr, wl)
-    F -= op.Dxixi[i, k, ir] * (fr - fl) / (m.xi[k] - m.xi[k-1])
-    D = op.Dxip[i, k, ir]
+    f_left = f[i, k-1, ir]
+    f_right = f[i, k, ir]
+    A = op.advection_xi[i, k, ir]
+    weight_left = (m.xi_centers[k] - m.xi_faces[k]) / (m.xi_centers[k] - m.xi_centers[k-1])
+    F = A * _face_value(op.scheme, A, f_left, f_right, weight_left)
+    F -= op.diffusion_xi_xi[i, k, ir] * (f_right - f_left) / (m.xi_centers[k] - m.xi_centers[k-1])
+    D = op.diffusion_xi_p[i, k, ir]
     if D != 0
-        F -= D * (_dp_cell(f, m, i, k - 1, ir) + _dp_cell(f, m, i, k, ir)) / 2
+        F -= D * (_p_derivative(f, m, i, k - 1, ir) + _p_derivative(f, m, i, k, ir)) / 2
     end
     return V * F
 end
 
 # Flux Γʳ through r face `k` (between cells k-1 and k), multiplied by 𝒱'.
-Base.@propagate_inbounds function _rflux(op::AdvectionDiffusion, f, i, j, k)
+Base.@propagate_inbounds function _r_flux(op::AdvectionDiffusion, f, i, j, k)
     g = op.grid
-    rg = g.rad
-    n3 = n_r(rg)
+    rg = g.radial_grid
+    nr = radial_cell_count(rg)
     T = eltype(f)
-    V = g.Vp_fr[i, j, k]
+    V = g.phase_space_jacobian_r_faces[i, j, k]
     (k == 1 || V == 0) && return zero(T)
-    A = op.Ar[i, j, k]
-    D = op.Drr[i, j, k]
-    if k == n3 + 1
-        op.rbc === :zero_flux && return zero(T)
+    A = op.advection_r[i, j, k]
+    D = op.diffusion_r_r[i, j, k]
+    if k == nr + 1
+        op.r_boundary === :zero_flux && return zero(T)
         # absorbing wall, f = 0 on the face
-        fl = f[i, j, n3]
-        F = (A > 0 ? A * fl : zero(T)) + D * fl / (rg.r_f[k] - rg.r[n3])
+        f_left = f[i, j, nr]
+        F = (A > 0 ? A * f_left : zero(T)) + D * f_left / (rg.r_faces[k] - rg.r_centers[nr])
         return V * F
     end
-    fl = f[i, j, k-1]
-    fr = f[i, j, k]
-    wl = (rg.r[k] - rg.r_f[k]) / (rg.r[k] - rg.r[k-1])
-    F = A * _face_value(op.scheme, A, fl, fr, wl) - D * (fr - fl) / (rg.r[k] - rg.r[k-1])
+    f_left = f[i, j, k-1]
+    f_right = f[i, j, k]
+    weight_left = (rg.r_centers[k] - rg.r_faces[k]) / (rg.r_centers[k] - rg.r_centers[k-1])
+    F = A * _face_value(op.scheme, A, f_left, f_right, weight_left) -
+        D * (f_right - f_left) / (rg.r_centers[k] - rg.r_centers[k-1])
     return V * F
 end
 
 """
-    apply!(df, op, f; α=1)
+    apply!(df, op, f; scale=1)
 
-Add `α` times the operator applied to `f` to `df` (in place, allocation free). The operator
-is linear in `f` except for a prescribed lower-p flux, which adds a constant source.
+Add `scale` times the operator applied to `f` to `df` (in place, allocation free). The
+operator is linear in `f` except for a prescribed lower-p flux, which adds a constant
+source.
 """
 function apply!(df::AbstractArray{<:Any,3}, op::AdvectionDiffusion, f::AbstractArray{<:Any,3};
-                α=true)
-    g = op.grid
-    n1, n2, n3 = size(g)
-    size(f) == size(df) == (n1, n2, n3) || throw(DimensionMismatch("f and df must match grid"))
-    @inbounds for ir in 1:n3
-        apply_radius!(df, op, f, ir, α)
+                scale=true)
+    size(f) == size(df) == size(op.grid) || throw(DimensionMismatch("f and df must match grid"))
+    @inbounds for ir in 1:radial_cell_count(op.grid)
+        apply_radius!(df, op, f, ir, scale)
     end
     return df
 end
 
 """
-    apply_radius!(df, op, f, ir, α)
+    apply_radius!(df, op, f, ir, scale)
 
 Operator contribution to all momentum cells at radius index `ir`. Writes only to
 `df[:, :, ir]`, so different radii can be processed concurrently.
 """
-@inline function apply_radius!(df, op::AdvectionDiffusion, f, ir, α)
+@inline function apply_radius!(df, op::AdvectionDiffusion, f, ir, scale)
     g = op.grid
-    m = g.mom
-    rg = g.rad
-    n1, n2, _ = size(g)
-    @inbounds for j in 1:n2, i in 1:n1
-        V = g.Vp[i, j, ir]
+    m = g.momentum_grid
+    rg = g.radial_grid
+    np, nxi, _ = size(g)
+    @inbounds for j in 1:nxi, i in 1:np
+        V = g.phase_space_jacobian[i, j, ir]
         V == 0 && continue
-        div = (_pflux(op, f, i + 1, j, ir) - _pflux(op, f, i, j, ir)) / m.dp[i] +
-              (_xiflux(op, f, i, j + 1, ir) - _xiflux(op, f, i, j, ir)) / m.dxi[j] +
-              (_rflux(op, f, i, j, ir + 1) - _rflux(op, f, i, j, ir)) / rg.dr[ir]
-        df[i, j, ir] -= α * div / V
+        divergence = (_p_flux(op, f, i + 1, j, ir) - _p_flux(op, f, i, j, ir)) / m.p_widths[i] +
+                     (_xi_flux(op, f, i, j + 1, ir) - _xi_flux(op, f, i, j, ir)) / m.xi_widths[j] +
+                     (_r_flux(op, f, i, j, ir + 1) - _r_flux(op, f, i, j, ir)) / rg.r_widths[ir]
+        df[i, j, ir] -= scale * divergence / V
     end
     return df
 end

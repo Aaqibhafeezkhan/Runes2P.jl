@@ -8,14 +8,15 @@ using QuadGK: quadgk
 
 @testset "knock-on operator against quadrature" begin
     rad = RadialGrid(uniform_r_faces(1, 0.5))
-    mom = PXiGrid(uniform_p_faces(14, 0.0, 4.0), -cos.(range(0, π; length=7)))
+    mom = MomentumGrid(uniform_p_faces(14, 0.0, 4.0), -cos.(range(0, π; length=7)))
     g = cylindrical_grid(mom, rad)
     p_cut = 0.15
-    np, nξ = n_p(g), n_xi(g)
+    np, nξ = momentum_cell_count(g), pitch_cell_count(g)
     β(p) = p / sqrt(1 + p^2)
 
     # receiving interval of pair (i, k)
-    interval(i, k) = (max(mom.p_f[i], p_cut), min(mom.p_f[i+1], max_knockon_momentum(mom.p[k])))
+    interval(i, k) = (max(mom.p_faces[i], p_cut),
+                      min(mom.p_faces[i+1], max_knockon_momentum(mom.p_centers[k])))
     pairs = [(i, k) for i in 1:np, k in 1:np if >(reverse(interval(i, k))...)]
 
     # Δξ_j δ_jl: gyrophase fraction reaching cell j, averaged over primary cell l. The
@@ -24,11 +25,11 @@ using QuadGK: quadgk
     # Without these breakpoints quadgk misses narrow kink regions (1e-5 errors while
     # reporting 1e-14).
     function fraction(j, l, ξs)
-        lo, hi = mom.xi_f[l], mom.xi_f[l+1]
-        cuts = [ξs * t + s * sqrt((1 - t^2) * (1 - ξs^2)) for t in mom.xi_f for s in (-1, 1)]
+        lo, hi = mom.xi_faces[l], mom.xi_faces[l+1]
+        cuts = [ξs * t + s * sqrt((1 - t^2) * (1 - ξs^2)) for t in mom.xi_faces for s in (-1, 1)]
         pts = sort!([lo; filter(x -> lo < x < hi, cuts); hi])
-        return quadgk(ξ1 -> pitch_cell_fraction(mom.xi_f[j], mom.xi_f[j+1], ξ1, ξs), pts...;
-                      rtol=1e-12, atol=1e-14)[1] / mom.dxi[l]
+        return quadgk(ξ1 -> pitch_cell_fraction(mom.xi_faces[j], mom.xi_faces[j+1], ξ1, ξs), pts...;
+                      rtol=1e-12, atol=1e-14)[1] / mom.xi_widths[l]
     end
 
     @testset "pitch columns of the default kernel" begin
@@ -40,8 +41,9 @@ using QuadGK: quadgk
             nodes, weights = Runes2P.gauss(pts)
             err = 0.0
             for ξs in (0.2, 0.45, 0.7, 0.93), l in 1:nξ
-                delta_column_split!(col, mom.xi_f, ξs; cell=(mom.xi_f[l], mom.xi_f[l+1]), nodes, weights)
-                err = max(err, maximum(abs(mom.dxi[j] * col[j] - fraction(j, l, ξs)) for j in 1:nξ))
+                pitch_kernel_column_split!(col, mom.xi_faces, ξs;
+                                           primary_cell=(mom.xi_faces[l], mom.xi_faces[l+1]), nodes, weights)
+                err = max(err, maximum(abs(mom.xi_widths[j] * col[j] - fraction(j, l, ξs)) for j in 1:nξ))
             end
             err
         end
@@ -50,30 +52,31 @@ using QuadGK: quadgk
     end
 
     # reference operator: C_ij = Σ_k Σ_l W_kl β₁ ∫ βΣ dp · fraction(j, l, ξ*_mid) / (𝒱'_ij Δp_i Δξ_j)
-    f = [exp(-p / 0.9) * exp(2ξ) for p in mom.p, ξ in mom.xi, _ in 1:1]
+    f = [exp(-p / 0.9) * exp(2ξ) for p in mom.p_centers, ξ in mom.xi_centers, _ in 1:1]
     Cref = zeros(size(g))
     for (i, k) in pairs
         pL, pU = interval(i, k)
-        p1 = mom.p[k]
+        p1 = mom.p_centers[k]
         rate = β(p1) * quadgk(p -> β(p) * moller_cross_section(p, p1), pL, pU; rtol=1e-12)[1]
         ξs = xi_star((pL + pU) / 2, p1)
         for l in 1:nξ
-            W = mom.dp[k] * mom.dxi[l] * g.Vp[k, l, 1] * f[k, l, 1]
+            W = mom.p_widths[k] * mom.xi_widths[l] * g.phase_space_jacobian[k, l, 1] * f[k, l, 1]
             for j in 1:nξ
                 Cref[i, j, 1] += rate * W * fraction(j, l, ξs) /
-                                 (g.Vp[i, j, 1] * mom.dp[i] * mom.dxi[j])
+                                 (g.phase_space_jacobian[i, j, 1] * mom.p_widths[i] * mom.xi_widths[j])
             end
         end
     end
-    wts = [g.Vp[i, j, 1] * mom.dp[i] * mom.dxi[j] for i in 1:np, j in 1:nξ, _ in 1:1]
+    wts = [g.phase_space_jacobian[i, j, 1] * mom.p_widths[i] * mom.xi_widths[j]
+           for i in 1:np, j in 1:nξ, _ in 1:1]
     L1(C) = sum(wts .* abs.(C .- Cref)) / sum(wts .* abs.(Cref))
 
     @testset "operator: table interpolation converging" begin
         # with 12 points per piece the remaining difference is the linear interpolation
         # in ξ* between table slices
-        errs = map((20, 80, 320)) do n_tab
+        errs = map((20, 80, 320)) do table_size
             C = zeros(size(g))
-            apply!(C, KnockOnOperator(g, g, p_cut; n_tab, primary_points=12), f, [1.0])
+            apply!(C, KnockOnOperator(g, g, p_cut; table_size, primary_pitch_points=12), f, [1.0])
             L1(C)
         end
         @test errs[1] > 3 * errs[2] > 9 * errs[3]  # measured 9.2e-5, 5.0e-6, 2.8e-7
@@ -84,7 +87,7 @@ using QuadGK: quadgk
         @test L1(C) < 2e-4
         # production is exact for every table size
         C = zeros(size(g))
-        apply!(C, KnockOnOperator(g, g, p_cut; n_tab=20), f, [1.0])
+        apply!(C, KnockOnOperator(g, g, p_cut; table_size=20), f, [1.0])
         @test density(g, C) ≈ density(g, Cref) rtol = 1e-10
     end
 
@@ -98,23 +101,25 @@ using QuadGK: quadgk
         nodes, weights = Runes2P.gauss(12)
         xg, wg = Runes2P.gauss(8)
         function collapse_error(np, f)
-            m = PXiGrid(uniform_p_faces(np, 0.0, 4.0), mom.xi_f)
+            m = MomentumGrid(uniform_p_faces(np, 0.0, 4.0), mom.xi_faces)
             gg = cylindrical_grid(m, rad)
             col = zeros(nξ)
             D = zeros(nξ, nξ)
             function columns!(D, ξs)
                 for l in 1:nξ
-                    delta_column_split!(col, m.xi_f, ξs; cell=(m.xi_f[l], m.xi_f[l+1]), nodes, weights)
+                    pitch_kernel_column_split!(col, m.xi_faces, ξs;
+                                               primary_cell=(m.xi_faces[l], m.xi_faces[l+1]), nodes, weights)
                     D[:, l] .= col
                 end
                 return D
             end
             Cmid, Cint = zeros(np, nξ), zeros(np, nξ)
             for i in 1:np, k in 1:np
-                p1 = m.p[k]
-                pL, pU = max(m.p_f[i], p_cut), min(m.p_f[i+1], max_knockon_momentum(p1))
+                p1 = m.p_centers[k]
+                pL, pU = max(m.p_faces[i], p_cut), min(m.p_faces[i+1], max_knockon_momentum(p1))
                 pU > pL || continue
-                W = [m.dp[k] * m.dxi[l] * gg.Vp[k, l, 1] * f(m.p[k], m.xi[l]) for l in 1:nξ]
+                W = [m.p_widths[k] * m.xi_widths[l] * gg.phase_space_jacobian[k, l, 1] *
+                     f(m.p_centers[k], m.xi_centers[l]) for l in 1:nξ]
                 rate = β(p1) * (moller_flux(pU, p1) - moller_flux(pL, p1))
                 Cmid[i, :] .+= rate .* (columns!(D, xi_star((pL + pU) / 2, p1)) * W)
                 # composite Gauss over 16 sub-intervals of the receiving interval

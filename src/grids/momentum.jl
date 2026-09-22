@@ -1,66 +1,68 @@
 """
-    PXiGrid{T}
+    MomentumGrid{T}
 
 Momentum grid in spherical coordinates `(p, ξ)`, with `p` the momentum normalized to
-`m_e c` and `ξ = cos θ` the pitch. Cells are defined by their faces; cell centres are
-face midpoints. The same momentum grid is used at all radii.
+`mₑc` and `ξ = cos θ` the pitch. Cells are defined by their faces; cell centres are
+face midpoints.
 """
-struct PXiGrid{T<:AbstractFloat}
-    p::Vector{T}     # cell centres, length np
-    p_f::Vector{T}   # cell faces, length np + 1
-    dp::Vector{T}    # cell widths, length np
-    xi::Vector{T}    # cell centres, length nxi
-    xi_f::Vector{T}  # cell faces, length nxi + 1
-    dxi::Vector{T}   # cell widths, length nxi
+struct MomentumGrid{T<:AbstractFloat}
+    p_centers::Vector{T}   # length momentum_cell_count
+    p_faces::Vector{T}     # length momentum_cell_count + 1
+    p_widths::Vector{T}    # length momentum_cell_count
+    xi_centers::Vector{T}  # length pitch_cell_count
+    xi_faces::Vector{T}    # length pitch_cell_count + 1
+    xi_widths::Vector{T}   # length pitch_cell_count
 end
 
-function PXiGrid(p_f::AbstractVector{T}, xi_f::AbstractVector{T}) where {T<:AbstractFloat}
-    length(p_f) >= 2 || throw(ArgumentError("p grid needs at least one cell"))
-    length(xi_f) >= 2 || throw(ArgumentError("ξ grid needs at least one cell"))
-    issorted(p_f; lt=<=) || throw(ArgumentError("p faces must be strictly increasing"))
-    issorted(xi_f; lt=<=) || throw(ArgumentError("ξ faces must be strictly increasing"))
-    first(p_f) >= 0 || throw(ArgumentError("p faces must be non-negative"))
-    (first(xi_f) >= -1 && last(xi_f) <= 1) || throw(ArgumentError("ξ faces must lie in [-1, 1]"))
-    p_f = collect(p_f)
-    xi_f = collect(xi_f)
-    minimum(diff(p_f)) > 1e-10 * (last(p_f) - first(p_f)) ||
+function MomentumGrid(p_faces::AbstractVector{T}, xi_faces::AbstractVector{T}) where {T<:AbstractFloat}
+    length(p_faces) >= 2 || throw(ArgumentError("p grid needs at least one cell"))
+    length(xi_faces) >= 2 || throw(ArgumentError("ξ grid needs at least one cell"))
+    issorted(p_faces; lt=<=) || throw(ArgumentError("p faces must be strictly increasing"))
+    issorted(xi_faces; lt=<=) || throw(ArgumentError("ξ faces must be strictly increasing"))
+    first(p_faces) >= 0 || throw(ArgumentError("p faces must be non-negative"))
+    (first(xi_faces) >= -1 && last(xi_faces) <= 1) || throw(ArgumentError("ξ faces must lie in [-1, 1]"))
+    p_faces = collect(p_faces)
+    xi_faces = collect(xi_faces)
+    minimum(diff(p_faces)) > 1e-10 * (last(p_faces) - first(p_faces)) ||
         throw(ArgumentError("p grid has a degenerate cell"))
-    minimum(diff(xi_f)) > 1e-10 * (last(xi_f) - first(xi_f)) ||
+    minimum(diff(xi_faces)) > 1e-10 * (last(xi_faces) - first(xi_faces)) ||
         throw(ArgumentError("ξ grid has a degenerate cell"))
-    p = (p_f[1:end-1] .+ p_f[2:end]) ./ 2
-    xi = (xi_f[1:end-1] .+ xi_f[2:end]) ./ 2
-    return PXiGrid{T}(p, p_f, diff(p_f), xi, xi_f, diff(xi_f))
+    p_centers = (p_faces[1:end-1] .+ p_faces[2:end]) ./ 2
+    xi_centers = (xi_faces[1:end-1] .+ xi_faces[2:end]) ./ 2
+    return MomentumGrid{T}(p_centers, p_faces, diff(p_faces), xi_centers, xi_faces, diff(xi_faces))
 end
 
-n_p(g::PXiGrid) = length(g.p)
-n_xi(g::PXiGrid) = length(g.xi)
-ncells(g::PXiGrid) = n_p(g) * n_xi(g)
+momentum_cell_count(grid::MomentumGrid) = length(grid.p_centers)
+pitch_cell_count(grid::MomentumGrid) = length(grid.xi_centers)
+cell_count(grid::MomentumGrid) = momentum_cell_count(grid) * pitch_cell_count(grid)
 
 """
-    uniform_p_faces(np, pmin, pmax)
+    uniform_p_faces(cell_count, p_min, p_max)
 
-Faces of a uniform momentum grid with `np` cells.
+Faces of a uniform momentum grid with `cell_count` cells.
 """
-uniform_p_faces(np::Integer, pmin::Real, pmax::Real) =
-    collect(range(float(pmin), float(pmax); length=np + 1))
+uniform_p_faces(cell_count::Integer, p_min::Real, p_max::Real) =
+    collect(range(float(p_min), float(p_max); length=cell_count + 1))
 
 """
-    biuniform_p_faces(np, np_sep, pmin, psep, pmax)
+    biuniform_p_faces(cell_count, lower_cell_count, p_min, p_separation, p_max)
 
-Faces of a two-region uniform momentum grid: `np_sep` cells on `[pmin, psep]` and
-`np - np_sep` cells on `[psep, pmax]` (DREAM `PBiUniformGridGenerator`).
+Faces of a two-region uniform momentum grid: `lower_cell_count` cells on
+`[p_min, p_separation]` and `cell_count - lower_cell_count` cells on `[p_separation, p_max]`
+(DREAM `PBiUniformGridGenerator`).
 """
-function biuniform_p_faces(np::Integer, np_sep::Integer, pmin::Real, psep::Real, pmax::Real)
-    (1 <= np_sep < np) || throw(ArgumentError("each region needs at least one cell"))
-    (pmin < psep < pmax) || throw(ArgumentError("require pmin < psep < pmax"))
-    lo = range(float(pmin), float(psep); length=np_sep + 1)
-    hi = range(float(psep), float(pmax); length=np - np_sep + 1)
-    return vcat(collect(lo), collect(hi)[2:end])
+function biuniform_p_faces(cell_count::Integer, lower_cell_count::Integer, p_min::Real,
+                           p_separation::Real, p_max::Real)
+    (1 <= lower_cell_count < cell_count) || throw(ArgumentError("each region needs at least one cell"))
+    (p_min < p_separation < p_max) || throw(ArgumentError("require p_min < p_separation < p_max"))
+    lower = range(float(p_min), float(p_separation); length=lower_cell_count + 1)
+    upper = range(float(p_separation), float(p_max); length=cell_count - lower_cell_count + 1)
+    return vcat(collect(lower), collect(upper)[2:end])
 end
 
 """
-    uniform_xi_faces(nxi)
+    uniform_xi_faces(cell_count)
 
-Faces of a uniform pitch grid on `[-1, 1]` with `nxi` cells.
+Faces of a uniform pitch grid on `[-1, 1]` with `cell_count` cells.
 """
-uniform_xi_faces(nxi::Integer) = collect(range(-1.0, 1.0; length=nxi + 1))
+uniform_xi_faces(cell_count::Integer) = collect(range(-1.0, 1.0; length=cell_count + 1))

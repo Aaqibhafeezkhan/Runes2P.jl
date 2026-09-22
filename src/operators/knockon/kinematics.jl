@@ -8,22 +8,24 @@
 # γ - 1 is evaluated as p²/(γ + 1), which avoids cancellation at small p and differs
 # from DREAM only by round-off.
 
-@inline _gm1(p) = p^2 / (sqrt(1 + p^2) + 1)
+@inline _gamma_minus_one(p) = p^2 / (sqrt(1 + p^2) + 1)
+
+const _MOLLER_PREFACTOR = 2pi * Constants.CLASSICAL_ELECTRON_RADIUS^2 * Constants.SPEED_OF_LIGHT
 
 """
     xi_star(p, p1)
 
-Cosine of the angle between the incident electron (momentum `p1`, colliding with a
+Cosine ξ* of the angle between the incident electron (momentum `p1`, colliding with a
 stationary electron) and the knock-on electron (momentum `p`),
-`ξ* = √[(γ₁ + 1)(γ - 1) / ((γ₁ - 1)(γ + 1))]`.
+`ξ* = √[(γ₁ + 1)(γ - 1) / ((γ₁ - 1)(γ + 1))]` (notation of Embréus et al. 2018).
 
 Ported from DREAM `KnockOnUtilities.hpp` (`Kinematics::EvaluateXiStar`).
 """
 function xi_star(p, p1)
-    gm1 = _gm1(p)
-    isinf(p1) && return sqrt(gm1 / (gm1 + 2))
-    g1m1 = _gm1(p1)
-    return sqrt((g1m1 + 2) * gm1 / (g1m1 * (gm1 + 2)))
+    knockon_energy = _gamma_minus_one(p)
+    isinf(p1) && return sqrt(knockon_energy / (knockon_energy + 2))
+    incident_energy = _gamma_minus_one(p1)
+    return sqrt((incident_energy + 2) * knockon_energy / (incident_energy * (knockon_energy + 2)))
 end
 
 """
@@ -37,14 +39,14 @@ Ported from DREAM `KnockOnUtilities.hpp`
 (`Kinematics::EvaluateMollerDifferentialCrossSection`).
 """
 function moller_cross_section(p, p1)
-    pre = 2π * Constants.r0^2 * Constants.c
-    gm1 = _gm1(p)
-    isinf(p1) && return pre / gm1^2
-    g = gm1 + 1
-    g1 = _gm1(p1) + 1
-    d = g1 - g
-    term = (g1 - 1)^2 - gm1 * d / g1^2 * (2g1^2 + 2g1 - 1 - gm1 * d)
-    return pre * term * g1^2 / (p1^2 * gm1^2 * d^2)
+    knockon_energy = _gamma_minus_one(p)
+    isinf(p1) && return _MOLLER_PREFACTOR / knockon_energy^2
+    gamma = knockon_energy + 1
+    gamma1 = _gamma_minus_one(p1) + 1
+    difference = gamma1 - gamma
+    term = (gamma1 - 1)^2 - knockon_energy * difference / gamma1^2 *
+                            (2gamma1^2 + 2gamma1 - 1 - knockon_energy * difference)
+    return _MOLLER_PREFACTOR * term * gamma1^2 / (p1^2 * knockon_energy^2 * difference^2)
 end
 
 """
@@ -57,14 +59,15 @@ momentum cell reduces to differences of `S`.
 Ported from DREAM `KnockOnUtilities.hpp` (`Kinematics::EvaluateMollerFlux`).
 """
 function moller_flux(p, p1)
-    pre = 2π * Constants.r0^2 * Constants.c
-    gm1 = _gm1(p)
-    isinf(p1) && return -pre / gm1
-    g = gm1 + 1
-    g1m1 = _gm1(p1)
-    g1 = g1m1 + 1
-    d = g1 - g
-    return pre / p1^2 * (g1^2 * (1 / d - 1 / gm1) + g - (2g1 - 1) / g1m1 * log(gm1 / d))
+    knockon_energy = _gamma_minus_one(p)
+    isinf(p1) && return -_MOLLER_PREFACTOR / knockon_energy
+    gamma = knockon_energy + 1
+    incident_energy = _gamma_minus_one(p1)
+    gamma1 = incident_energy + 1
+    difference = gamma1 - gamma
+    return _MOLLER_PREFACTOR / p1^2 *
+           (gamma1^2 * (1 / difference - 1 / knockon_energy) + gamma -
+            (2gamma1 - 1) / incident_energy * log(knockon_energy / difference))
 end
 
 """
@@ -78,26 +81,26 @@ Ported from DREAM `KnockOnUtilities.hpp` (`Kinematics::MaximumKnockOnMomentum`).
 """
 function max_knockon_momentum(p1)
     isinf(p1) && return oftype(float(p1), Inf)
-    gmax = (_gm1(p1) + 2) / 2
-    return sqrt(max(zero(gmax), gmax^2 - 1))
+    gamma_max = (_gamma_minus_one(p1) + 2) / 2
+    return sqrt(max(zero(gamma_max), gamma_max^2 - 1))
 end
 
 """
-    moller_total_rate(p1, p_cut)
+    moller_total_rate(p1, p_cutoff)
 
 Rate coefficient [m³/s] for an incident electron of momentum `p1` to produce a
-knock-on electron with momentum above `p_cut`,
-`(p1/γ1) ∫ Σ dγ = (p1/γ1) [S(p_max) - S(p_cut)]` with `p_max = max_knockon_momentum(p1)`;
-zero when `p_cut ≥ p_max`. Multiplied by the target density it gives the production
+knock-on electron with momentum above `p_cutoff`,
+`(p1/γ1) ∫ Σ dγ = (p1/γ1) [S(p_max) - S(p_cutoff)]` with `p_max = max_knockon_momentum(p1)`;
+zero when `p_cutoff ≥ p_max`. Multiplied by the target density it gives the production
 rate per incident electron. Corresponds to DREAM's
 `EvaluateMollerFluxIntegratedOverKnockonGrid` on an unbounded knock-on grid.
 """
-function moller_total_rate(p1, p_cut)
-    p_cut > 0 || throw(ArgumentError("p_cut must be positive"))
-    T = float(promote_type(typeof(p1), typeof(p_cut)))
-    pmax = max_knockon_momentum(p1)
-    p_cut < pmax || return zero(T)
-    Smax = isinf(p1) ? zero(T) : moller_flux(pmax, p1)
-    v1 = isinf(p1) ? one(T) : p1 / sqrt(1 + p1^2)
-    return v1 * (Smax - moller_flux(p_cut, p1))
+function moller_total_rate(p1, p_cutoff)
+    p_cutoff > 0 || throw(ArgumentError("p_cutoff must be positive"))
+    T = float(promote_type(typeof(p1), typeof(p_cutoff)))
+    p_max = max_knockon_momentum(p1)
+    p_cutoff < p_max || return zero(T)
+    flux_at_max = isinf(p1) ? zero(T) : moller_flux(p_max, p1)
+    beta1 = isinf(p1) ? one(T) : p1 / sqrt(1 + p1^2)
+    return beta1 * (flux_at_max - moller_flux(p_cutoff, p1))
 end

@@ -23,7 +23,7 @@ using QuadGK: quadgk
     @testset "literal DREAM formulas agree to round-off" begin
         # DREAM evaluates γ - 1 directly; Runes2P uses p²/(γ + 1). Over the momenta used
         # by knock-on operators (p ≳ 0.05) the results agree to round-off.
-        pre = 2π * Constants.r0^2 * Constants.c
+        pre = 2π * Constants.CLASSICAL_ELECTRON_RADIUS^2 * Constants.SPEED_OF_LIGHT
         function dream_sigma(p, p1)
             g, g1 = γ(p), γ(p1)
             t2 = -(g - 1) * (g1 - g) / g1^2 * (2g1^2 + 2g1 - 1 - (g - 1) * (g1 - g))
@@ -48,11 +48,11 @@ using QuadGK: quadgk
         # ε = γ - 1, T = γ₁ - 1; symmetric under ε ↔ T - ε (exchange of the electrons).
         function dσdε(p, p1)
             ε, T = γ(p) - 1, γ(p1) - 1
-            return 2π * Constants.r0^2 / β(p1)^2 *
+            return 2π * Constants.CLASSICAL_ELECTRON_RADIUS^2 / β(p1)^2 *
                    (1 / ε^2 + 1 / (T - ε)^2 + 1 / (T + 1)^2 - (2T + 1) / ((T + 1)^2 * ε * (T - ε)))
         end
         for (p, p1) in ((0.05, 0.5), (0.3, 2.0), (1.0, 10.0), (2.0, 100.0), (0.1, 1e4))
-            @test moller_cross_section(p, p1) ≈ Constants.c * dσdε(p, p1) rtol = 1e-12
+            @test moller_cross_section(p, p1) ≈ Constants.SPEED_OF_LIGHT * dσdε(p, p1) rtol = 1e-12
         end
         # the other outgoing electron carries energy T - ε (moderate p1, where γ₁ + 1 - γ
         # is computed without cancellation)
@@ -60,7 +60,8 @@ using QuadGK: quadgk
             p_other = sqrt((γ(p1) - γ(p) + 1)^2 - 1)
             @test moller_cross_section(p_other, p1) ≈ moller_cross_section(p, p1) rtol = 1e-12
         end
-        @test moller_cross_section(0.4, Inf) ≈ 2π * Constants.r0^2 * Constants.c / (γ(0.4) - 1)^2
+        @test moller_cross_section(0.4, Inf) ≈
+              2π * Constants.CLASSICAL_ELECTRON_RADIUS^2 * Constants.SPEED_OF_LIGHT / (γ(0.4) - 1)^2
     end
 
     @testset "ξ* from energy and momentum conservation" begin
@@ -94,7 +95,7 @@ using QuadGK: quadgk
         end
         # ultra-relativistic limit: 2π r₀² c / (γ_c - 1), approached from finite p1
         p_cut = 0.3
-        rp = 2π * Constants.r0^2 * Constants.c / (γ(p_cut) - 1)
+        rp = 2π * Constants.CLASSICAL_ELECTRON_RADIUS^2 * Constants.SPEED_OF_LIGHT / (γ(p_cut) - 1)
         @test moller_total_rate(Inf, p_cut) ≈ rp rtol = 1e-14
         @test moller_total_rate(1e6, p_cut) ≈ rp rtol = 1e-5
         # no knock-ons above the kinematic limit

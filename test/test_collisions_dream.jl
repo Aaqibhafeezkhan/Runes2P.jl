@@ -5,8 +5,8 @@ using HDF5
 const DREAM_COLLISION_DATA = joinpath(@__DIR__, "data", "dream_collisions.h5")
 
 const DREAM_MODES = Dict(1 => :superthermal, 2 => :full, 3 => :ultra_relativistic)
-const DREAM_SCREENING = Dict(1 => :completely, 2 => :non, 3 => :partially)
-const DREAM_LNLAMBDA = Dict(1 => :constant, 2 => :energy_dependent, 3 => :thermal)
+const DREAM_SCREENING = Dict(1 => :complete, 2 => :none, 3 => :partial)
+const DREAM_COULOMB_LOGARITHM = Dict(1 => :relativistic, 2 => :energy_dependent, 3 => :thermal)
 const DREAM_SCREENED_DIFFUSION = Dict(1 => :zero, 2 => :maxwellian)
 
 function _dream_plasma(h5, grp, nr_)
@@ -15,8 +15,9 @@ function _dream_plasma(h5, grp, nr_)
     Z0s = read(h5["ions/Z0"])
     n = read(h5["ions/n"])  # (nr, nspecies)
     ions = [IonSpecies(names[k], Zs[k], Z0s[k], n[:, k]) for k in eachindex(Zs)]
-    return PlasmaState(T_cold=read(grp["T_cold"]), n_cold=read(grp["n_cold"]), ions=ions,
-                       E=read(h5["E"]), B=fill(read(h5["B"]), nr_))
+    return PlasmaState(cold_electron_temperature=read(grp["T_cold"]),
+                       cold_electron_density=read(grp["n_cold"]), ions=ions,
+                       electric_field=read(h5["E"]), magnetic_field=fill(read(h5["B"]), nr_))
 end
 
 function _maxrel(a, b)
@@ -32,11 +33,11 @@ end
     h5open(DREAM_COLLISION_DATA) do h5
         p_f = read(h5["grid/p1_f"])
         xi_f = read(h5["grid/p2_f"])
-        mom = PXiGrid(p_f, xi_f)
-        @test mom.p ≈ read(h5["grid/p1"]) rtol = 1e-14
-        @test mom.xi ≈ read(h5["grid/p2"]) rtol = 1e-14
+        mom = MomentumGrid(p_f, xi_f)
+        @test mom.p_centers ≈ read(h5["grid/p1"]) rtol = 1e-14
+        @test mom.xi_centers ≈ read(h5["grid/p2"]) rtol = 1e-14
         nr_ = length(read(h5["grid/r"]))
-        n1, n2 = n_p(mom), n_xi(mom)
+        n1, n2 = momentum_cell_count(mom), pitch_cell_count(mom)
 
         for variant in ("full_partial_thermal", "superthermal_partial_energy",
                         "full_non_energy_zero", "ultrarel_complete_constant")
@@ -46,7 +47,7 @@ end
                 settings = CollisionSettings(
                     mode=DREAM_MODES[read(attr["collfreq_mode"])],
                     screening=DREAM_SCREENING[read(attr["collfreq_type"])],
-                    lnlambda=DREAM_LNLAMBDA[read(attr["lnlambda"])],
+                    coulomb_logarithm=DREAM_COULOMB_LOGARITHM[read(attr["lnlambda"])],
                     screened_diffusion=DREAM_SCREENED_DIFFUSION[read(attr["screened_diffusion"])],
                     ion_size_table=:dream)
                 plasma = _dream_plasma(h5, grp, nr_)
@@ -58,24 +59,27 @@ end
                 rtol = 1e-9
 
                 f1(fun) = [fun(ir, p_f[k]) for k in 1:n1+1, _ in 1:n2, ir in 1:nr_]
-                f2(fun) = [fun(ir, mom.p[i]) for i in 1:n1, _ in 1:n2+1, ir in 1:nr_]
-                lnee(ir, p) = lnlambda(:ee, settings.lnlambda, p, plasma.T_cold[ir],
-                                       free_electron_density(plasma, ir))
-                lnei(ir, p) = lnlambda(:ei, settings.lnlambda, p, plasma.T_cold[ir],
-                                       free_electron_density(plasma, ir))
+                f2(fun) = [fun(ir, mom.p_centers[i]) for i in 1:n1, _ in 1:n2+1, ir in 1:nr_]
+                lnee(ir, p) = coulomb_logarithm(:electron_electron, settings.coulomb_logarithm, p,
+                                                plasma.cold_electron_temperature[ir],
+                                                free_electron_density(plasma, ir))
+                lnei(ir, p) = coulomb_logarithm(:electron_ion, settings.coulomb_logarithm, p,
+                                                plasma.cold_electron_temperature[ir],
+                                                free_electron_density(plasma, ir))
 
                 @test _maxrel(f1(lnee), read(grp["lnLambda_ee_f1"])) < 1e-13
                 @test _maxrel(f2(lnei), read(grp["lnLambda_ei_f2"])) < 1e-13
-                @test _maxrel(f1((ir, p) -> nu_s(cm, ir, p)), read(grp["nu_s_f1"])) < rtol
-                @test _maxrel(f2((ir, p) -> nu_s(cm, ir, p)), read(grp["nu_s_f2"])) < rtol
-                @test _maxrel(f1((ir, p) -> nu_D(cm, ir, p)), read(grp["nu_D_f1"])) < rtol
-                @test _maxrel(f2((ir, p) -> nu_D(cm, ir, p)), read(grp["nu_D_f2"])) < rtol
-                @test _maxrel(f1((ir, p) -> nu_par(cm, ir, p)), read(grp["nu_par_f1"])) < rtol
+                @test _maxrel(f1((ir, p) -> slowing_down_frequency(cm, ir, p)), read(grp["nu_s_f1"])) < rtol
+                @test _maxrel(f2((ir, p) -> slowing_down_frequency(cm, ir, p)), read(grp["nu_s_f2"])) < rtol
+                @test _maxrel(f1((ir, p) -> deflection_frequency(cm, ir, p)), read(grp["nu_D_f1"])) < rtol
+                @test _maxrel(f2((ir, p) -> deflection_frequency(cm, ir, p)), read(grp["nu_D_f2"])) < rtol
+                @test _maxrel(f1((ir, p) -> parallel_diffusion_frequency(cm, ir, p)),
+                              read(grp["nu_par_f1"])) < rtol
 
                 g = cylindrical_grid(mom, RadialGrid(uniform_r_faces(nr_, 0.5)))
                 op = add_synchrotron!(AdvectionDiffusion(g), plasma)
-                @test _maxrel(op.Ap, read(grp["synchrotron_f1"])) < 1e-13
-                @test _maxrel(op.Axi, read(grp["synchrotron_f2"])) < 1e-13
+                @test _maxrel(op.advection_p, read(grp["synchrotron_f1"])) < 1e-13
+                @test _maxrel(op.advection_xi, read(grp["synchrotron_f2"])) < 1e-13
             end
         end
 

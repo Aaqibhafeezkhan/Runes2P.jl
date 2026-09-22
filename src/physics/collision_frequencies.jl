@@ -8,14 +8,16 @@ using SpecialFunctions: besselkx, erf
 using QuadGK: quadgk
 
 """
-    CollisionSettings(; mode, screening, lnlambda, screened_diffusion, ion_size_table)
+    CollisionSettings(; mode, screening, coulomb_logarithm, screened_diffusion, ion_size_table)
 
 Defaults are those of DREAM's `CollisionHandler`.
 
 - `mode`: `:full` (relativistic Maxwellian targets, adds energy diffusion),
   `:superthermal` (cold target electrons) or `:ultra_relativistic`.
-- `screening`: `:partially` (Hesslow et al. 2018), `:completely` or `:non`.
-- `lnlambda`: `:thermal`, `:energy_dependent` or `:constant`.
+- `screening`: `:partial` (Hesslow et al. 2018), `:complete` or `:none` (DREAM's
+  `PARTIALLY_SCREENED`, `COMPLETELY_SCREENED`, `NON_SCREENED`).
+- `coulomb_logarithm`: `:thermal`, `:energy_dependent` or `:relativistic` (see
+  [`coulomb_logarithm`](@ref)).
 - `screened_diffusion`: energy diffusion from the full `ν_s` (`:maxwellian`) or from
   the free-electron part only (`:zero`).
 - `ion_size_table`: `:hesslow` uses Table 1 of Hesslow et al. 2018 as intended;
@@ -24,26 +26,26 @@ Defaults are those of DREAM's `CollisionHandler`.
 """
 Base.@kwdef struct CollisionSettings
     mode::Symbol = :full
-    screening::Symbol = :partially
-    lnlambda::Symbol = :thermal
+    screening::Symbol = :partial
+    coulomb_logarithm::Symbol = :thermal
     screened_diffusion::Symbol = :maxwellian
     ion_size_table::Symbol = :hesslow
-    function CollisionSettings(mode, screening, lnlambda, screened_diffusion, ion_size_table)
+    function CollisionSettings(mode, screening, coulomb_logarithm, screened_diffusion, ion_size_table)
         mode in (:superthermal, :full, :ultra_relativistic) ||
             throw(ArgumentError("unknown collision frequency mode $mode"))
-        screening in (:completely, :non, :partially) ||
+        screening in (:complete, :none, :partial) ||
             throw(ArgumentError("unknown screening model $screening"))
-        lnlambda in (:energy_dependent, :thermal, :constant) ||
-            throw(ArgumentError("unknown lnΛ model $lnlambda"))
+        coulomb_logarithm in (:energy_dependent, :thermal, :relativistic) ||
+            throw(ArgumentError("unknown Coulomb logarithm model $coulomb_logarithm"))
         screened_diffusion in (:maxwellian, :zero) ||
             throw(ArgumentError("unknown screened diffusion mode $screened_diffusion"))
         ion_size_table in (:hesslow, :dream) ||
             throw(ArgumentError("unknown ion size table $ion_size_table"))
-        return new(mode, screening, lnlambda, screened_diffusion, ion_size_table)
+        return new(mode, screening, coulomb_logarithm, screened_diffusion, ion_size_table)
     end
 end
 
-const COLLISION_PREFACTOR = 4π * Constants.r0^2 * Constants.c
+const COLLISION_PREFACTOR = 4pi * Constants.CLASSICAL_ELECTRON_RADIUS^2 * Constants.SPEED_OF_LIGHT
 
 """
     mean_excitation_energy(Z, Z0)
@@ -56,18 +58,18 @@ function mean_excitation_energy(Z::Integer, Z0::Integer)
     Z == Z0 && return NaN
     Z <= size(MEAN_EXCITATION_ENERGY, 1) && return MEAN_EXCITATION_ENERGY[Z, Z0+1]
     Z <= size(MEAN_EXCITATION_ENERGY_EXTENDED, 1) && return MEAN_EXCITATION_ENERGY_EXTENDED[Z, Z-Z0]
-    Ne = Z - Z0
+    bound = Z - Z0
     nmax = length(MEAN_EXCITATION_ENERGY_D)
-    if Ne <= nmax
-        D = MEAN_EXCITATION_ENERGY_D[Ne]
-        S0 = MEAN_EXCITATION_ENERGY_S0[Ne]
+    if bound <= nmax
+        D = MEAN_EXCITATION_ENERGY_D[bound]
+        S0 = MEAN_EXCITATION_ENERGY_S0[bound]
     else
         D = MEAN_EXCITATION_ENERGY_D[nmax]
-        S0 = Ne - sqrt(Ne * 10.0 / 14.99)
+        S0 = bound - sqrt(bound * 10.0 / 14.99)
     end
     A = (1 - D)^2
-    B = 2 * (1 - D) * (Ne * D - S0)
-    C = (Ne * D - S0)^2
+    B = 2 * (1 - D) * (bound * D - S0)
+    C = (bound * D - S0)^2
     return 14.99 * (A * Z^2 + B * Z + C)
 end
 
@@ -78,22 +80,22 @@ Effective ion size `ā_j` in units of the reduced Compton wavelength (`2/α · a
 DFT values from Hesslow et al. (2018) Table 1 where available, else their eq. 2.28.
 """
 function ion_size(Z::Integer, Z0::Integer; table::Symbol=:hesslow)
-    Zs = table === :dream ? ION_SIZE_Z_DREAM : ION_SIZE_Z
+    charges = table === :dream ? ION_SIZE_Z_DREAM : ION_SIZE_Z
     for n in eachindex(ION_SIZE_Z0)
-        if Zs[n] == Z && ION_SIZE_Z0[n] == Z0
-            return 2 / Constants.alpha * ION_SIZE_A[n]
+        if charges[n] == Z && ION_SIZE_Z0[n] == Z0
+            return 2 / Constants.FINE_STRUCTURE_CONSTANT * ION_SIZE_A[n]
         end
     end
-    return 2 / Constants.alpha * cbrt(9π * (Z - Z0)^2) / (4Z)
+    return 2 / Constants.FINE_STRUCTURE_CONSTANT * cbrt(9pi * (Z - Z0)^2) / (4Z)
 end
 
 # One ion charge state with its atomic parameters.
 struct ChargeState
-    Z::Int
-    Z0::Int
-    species::Int
-    I::Float64   # mean excitation energy / mc²
-    a::Float64   # effective ion size
+    nuclear_charge::Int
+    charge::Int
+    species_index::Int
+    mean_excitation_energy::Float64  # in units of mₑc²
+    effective_size::Float64          # ā_j, see ion_size
 end
 
 """
@@ -101,207 +103,225 @@ end
 
 Collision frequencies for a background plasma. Radius-dependent quantities
 (Coulomb logarithms, Bessel functions) are evaluated once; the frequencies are then
-evaluated at any momentum with [`nu_s`](@ref), [`nu_D`](@ref), [`nu_par`](@ref).
+evaluated at any momentum with [`slowing_down_frequency`](@ref),
+[`deflection_frequency`](@ref) and [`parallel_diffusion_frequency`](@ref).
 """
 struct CollisionModel{T,P<:PlasmaState}
     plasma::P
     settings::CollisionSettings
-    states::Vector{ChargeState}
-    n_free::Vector{T}
-    n_bound::Vector{T}
-    K0::Vector{T}   # e^{1/Θ} K_n(1/Θ)
-    K1::Vector{T}
-    K2::Vector{T}
+    charge_states::Vector{ChargeState}
+    free_electron_density::Vector{T}
+    bound_electron_density::Vector{T}
+    scaled_bessel_k0::Vector{T}   # e^{1/Θ} K_n(1/Θ), Θ = T/(mₑc²)
+    scaled_bessel_k1::Vector{T}
+    scaled_bessel_k2::Vector{T}
 end
 
 function CollisionModel(plasma::PlasmaState{T}, settings::CollisionSettings) where {T}
-    states = ChargeState[]
-    for (k, s) in enumerate(plasma.ions), Z0 in 0:s.Z
-        I = mean_excitation_energy(s.Z, Z0) / Constants.mc2inEV
-        a = Z0 == s.Z ? NaN : ion_size(s.Z, Z0; table=settings.ion_size_table)
-        push!(states, ChargeState(s.Z, Z0, k, I, a))
+    charge_states = ChargeState[]
+    for (index, s) in enumerate(plasma.ions), Z0 in 0:s.nuclear_charge
+        excitation = mean_excitation_energy(s.nuclear_charge, Z0) / Constants.ELECTRON_REST_ENERGY
+        effective_size = Z0 == s.nuclear_charge ? NaN :
+                         ion_size(s.nuclear_charge, Z0; table=settings.ion_size_table)
+        push!(charge_states, ChargeState(s.nuclear_charge, Z0, index, excitation, effective_size))
     end
-    nr_ = n_radii(plasma)
-    n_free = [free_electron_density(plasma, ir) for ir in 1:nr_]
-    n_bound = [bound_electron_density(plasma, ir) for ir in 1:nr_]
-    Θ = plasma.T_cold ./ Constants.mc2inEV
-    K0 = besselkx.(0, 1 ./ Θ)
-    K1 = besselkx.(1, 1 ./ Θ)
-    K2 = besselkx.(2, 1 ./ Θ)
-    return CollisionModel{eltype(K0),typeof(plasma)}(plasma, settings, states, n_free,
-                                                      n_bound, K0, K1, K2)
+    nr = radial_cell_count(plasma)
+    free = [free_electron_density(plasma, ir) for ir in 1:nr]
+    bound = [bound_electron_density(plasma, ir) for ir in 1:nr]
+    theta = plasma.cold_electron_temperature ./ Constants.ELECTRON_REST_ENERGY
+    k0 = besselkx.(0, 1 ./ theta)
+    k1 = besselkx.(1, 1 ./ theta)
+    k2 = besselkx.(2, 1 ./ theta)
+    return CollisionModel{eltype(k0),typeof(plasma)}(plasma, settings, charge_states, free,
+                                                      bound, k0, k1, k2)
 end
 
-@inline _density(cm::CollisionModel, st::ChargeState, ir) =
-    cm.plasma.ions[st.species].n[st.Z0+1, ir]
+@inline _charge_state_density(model::CollisionModel, state::ChargeState, ir) =
+    model.plasma.ions[state.species_index].charge_state_densities[state.charge+1, ir]
 
-_lnlambda(cm::CollisionModel, kind, p, ir) =
-    lnlambda(kind, cm.settings.lnlambda, p, cm.plasma.T_cold[ir], cm.n_free[ir])
+_normalized_temperature(model::CollisionModel, ir) =
+    model.plasma.cold_electron_temperature[ir] / Constants.ELECTRON_REST_ENERGY
 
-function _ntarget(cm::CollisionModel, ir)
-    n = cm.plasma.n_cold[ir]
-    cm.settings.screening === :non && (n += cm.n_bound[ir])
+_coulomb_logarithm(model::CollisionModel, collision, p, ir) =
+    coulomb_logarithm(collision, model.settings.coulomb_logarithm, p,
+                      model.plasma.cold_electron_temperature[ir], model.free_electron_density[ir])
+
+# Density of the target electrons of electron-electron collisions: the cold electrons,
+# plus the bound electrons without screening.
+function _target_electron_density(model::CollisionModel, ir)
+    n = model.plasma.cold_electron_density[ir]
+    model.settings.screening === :none && (n += model.bound_electron_density[ir])
     return max(n, zero(n))
 end
 
 # Thermal integrals Ψ_n(p) = ∫₀ᵖ γ(s)ⁿ⁻¹ exp(-(γ(s) - 1)/Θ) ds, following DREAM
 # evaluatePsi0/1/2: asymptotic expansions in the superthermal and low-energy limits,
 # adaptive quadrature otherwise.
-function _psi(n::Int, cm::CollisionModel, ir, p)
-    Θ = cm.plasma.T_cold[ir] / Constants.mc2inEV
-    γ = sqrt(1 + p^2)
-    γm1 = p^2 / (γ + 1)
-    thr = 10Θ
-    if p^2 > thr * (thr + 2)  # superthermal expansion
-        e = exp(-γm1 / Θ)
+function _psi(n::Int, model::CollisionModel, ir, p)
+    theta = _normalized_temperature(model, ir)
+    gamma = sqrt(1 + p^2)
+    gamma_minus_one = p^2 / (gamma + 1)
+    threshold = 10theta
+    if p^2 > threshold * (threshold + 2)  # superthermal expansion
+        e = exp(-gamma_minus_one / theta)
         if n == 0
-            return cm.K0[ir] + Θ * (-e / p) + Θ^2 * (γ / p^3 * e)
+            return model.scaled_bessel_k0[ir] + theta * (-e / p) + theta^2 * (gamma / p^3 * e)
         elseif n == 1
-            return cm.K1[ir] + Θ * (-γ / p * e) + Θ^2 * (e / p^3)
+            return model.scaled_bessel_k1[ir] + theta * (-gamma / p * e) + theta^2 * (e / p^3)
         else
-            return cm.K0[ir] + Θ * (cm.K1[ir] - γ^2 / p * e) + Θ^2 * (-γ * (γ^2 - 2) / p^3 * e)
+            return model.scaled_bessel_k0[ir] + theta * (model.scaled_bessel_k1[ir] - gamma^2 / p * e) +
+                   theta^2 * (-gamma * (gamma^2 - 2) / p^3 * e)
         end
-    elseif p < 0.15 || Θ < 0.005  # low-energy expansion
-        x = sqrt(γm1 / Θ)
-        O1 = 4n - 1.0
-        O2 = 2n^2 - 3n + 0.375
-        ψ = (1 + Θ * O1 / 8 + Θ^2 * 0.1875 * O2) * sqrt(π) / 2 * erf(x)
-        ψ -= Θ * x * exp(-x^2) * (O1 + Θ * O2 * (3 + 2x^2) / 2) / 8
-        return ψ * sqrt(2Θ)
+    elseif p < 0.15 || theta < 0.005  # low-energy expansion
+        x = sqrt(gamma_minus_one / theta)
+        order1 = 4n - 1.0
+        order2 = 2n^2 - 3n + 0.375
+        psi = (1 + theta * order1 / 8 + theta^2 * 0.1875 * order2) * sqrt(pi) / 2 * erf(x)
+        psi -= theta * x * exp(-x^2) * (order1 + theta * order2 * (3 + 2x^2) / 2) / 8
+        return psi * sqrt(2theta)
     else
         integrand = s -> begin
-            gs = sqrt(1 + s^2)
-            exp(-(s^2 / (1 + gs)) / Θ) * gs^(n - 1)
+            gamma_s = sqrt(1 + s^2)
+            exp(-(s^2 / (1 + gamma_s)) / theta) * gamma_s^(n - 1)
         end
         return first(quadgk(integrand, zero(p), p; rtol=1e-8))
     end
 end
 
-# In :full mode at p ≪ p_th the numerator is a difference of O(p) terms while M ∝ p³,
+# Thermal correction of the electron slowing down (1 unless mode = :full).
+# In :full mode at p ≪ p_th the numerator is a difference of O(p) terms while it is ∝ p³,
 # so relative round-off grows like (p_th/p)²; kept identical to DREAM for comparisons.
-function _electron_term_s(cm::CollisionModel, ir, p)
-    cm.settings.mode === :full || return one(p)
+function _thermal_slowing_down_factor(model::CollisionModel, ir, p)
+    model.settings.mode === :full || return one(p)
     p == 0 && return zero(p)
-    Θ = cm.plasma.T_cold[ir] / Constants.mc2inEV
-    γ = sqrt(1 + p^2)
-    γm1 = p^2 / (γ + 1)
-    M = γ^2 * _psi(1, cm, ir, p) - Θ * _psi(0, cm, ir, p) + (Θ * γ - 1) * p * exp(-γm1 / Θ)
-    return M / (γ^2 * cm.K2[ir])
+    theta = _normalized_temperature(model, ir)
+    gamma = sqrt(1 + p^2)
+    gamma_minus_one = p^2 / (gamma + 1)
+    numerator = gamma^2 * _psi(1, model, ir, p) - theta * _psi(0, model, ir, p) +
+                (theta * gamma - 1) * p * exp(-gamma_minus_one / theta)
+    return numerator / (gamma^2 * model.scaled_bessel_k2[ir])
 end
 
-function _electron_term_D(cm::CollisionModel, ir, p)
-    cm.settings.mode === :full || return one(p)
+# Thermal correction of the electron pitch-angle deflection (1 unless mode = :full).
+function _thermal_deflection_factor(model::CollisionModel, ir, p)
+    model.settings.mode === :full || return one(p)
     p == 0 && return zero(p)
-    Θ = cm.plasma.T_cold[ir] / Constants.mc2inEV
+    theta = _normalized_temperature(model, ir)
     p2 = p^2
-    γ = sqrt(1 + p2)
-    γm1 = p2 / (γ + 1)
-    M = (p2 * γ^2 + Θ^2) * _psi(0, cm, ir, p)
-    M += Θ * (2p2^2 - 1) * _psi(1, cm, ir, p)
-    M += γ * Θ * (1 + Θ * (2p2 - 1)) * p * exp(-γm1 / Θ)
-    return M / (p2 * γ^2 * cm.K2[ir])
+    gamma = sqrt(1 + p2)
+    gamma_minus_one = p2 / (gamma + 1)
+    numerator = (p2 * gamma^2 + theta^2) * _psi(0, model, ir, p)
+    numerator += theta * (2p2^2 - 1) * _psi(1, model, ir, p)
+    numerator += gamma * theta * (1 + theta * (2p2 - 1)) * p * exp(-gamma_minus_one / theta)
+    return numerator / (p2 * gamma^2 * model.scaled_bessel_k2[ir])
 end
 
 # Bound-electron stopping power, matched Bethe formula (Hesslow et al. eq. 2.31 with
 # DREAM's modification that keeps it positive).
-function _stopping(cm::CollisionModel, st::ChargeState, p)
-    NB = st.Z - st.Z0
-    NB == 0 && return zero(p)
+function _bound_electron_stopping(model::CollisionModel, state::ChargeState, p)
+    bound = state.nuclear_charge - state.charge
+    bound == 0 && return zero(p)
     p2 = p^2
-    γ = sqrt(1 + p2)
-    β2 = p2 / (1 + p2)
-    h = (p2 / sqrt(1 + γ)) / st.I
-    if cm.settings.mode === :full
-        return NB * log(1 + (h * exp(-β2))^LNLAMBDA_K) / LNLAMBDA_K
+    gamma = sqrt(1 + p2)
+    beta2 = p2 / (1 + p2)
+    h = (p2 / sqrt(1 + gamma)) / state.mean_excitation_energy
+    if model.settings.mode === :full
+        k = COULOMB_LOGARITHM_INTERPOLATION_EXPONENT
+        return bound * log(1 + (h * exp(-beta2))^k) / k
     else
-        return NB * log(exp(1) + h * exp(-β2))
+        return bound * log(exp(1) + h * exp(-beta2))
     end
 end
 
 # Bound-electron contribution to pitch-angle scattering (Hesslow et al. eq. 2.25).
-function _screened(st::ChargeState, p)
-    NB = st.Z - st.Z0
-    NB == 0 && return zero(p)
-    x = (p * st.a)^1.5
-    return 2 / 3 * NB * ((st.Z + st.Z0) * log(1 + x) - NB * x / (1 + x))
+function _bound_electron_scattering(state::ChargeState, p)
+    bound = state.nuclear_charge - state.charge
+    bound == 0 && return zero(p)
+    x = (p * state.effective_size)^1.5
+    return 2 / 3 * bound * ((state.nuclear_charge + state.charge) * log(1 + x) - bound * x / (1 + x))
 end
 
 """
-    nu_s(cm, ir, p)
+    slowing_down_frequency(model, ir, p)
 
-Slowing-down frequency [s⁻¹] at radius index `ir` and momentum `p`; the collisional
+Slowing-down frequency `ν_s` [s⁻¹] at radius index `ir` and momentum `p`; the collisional
 friction is `Aᵖ = -p ν_s`.
 """
-function nu_s(cm::CollisionModel, ir, p)
-    p == 0 && return zero(p * cm.K0[ir])
-    mode = cm.settings.mode
-    pre = mode === :ultra_relativistic ? COLLISION_PREFACTOR / p :
-          COLLISION_PREFACTOR * (1 + p^2) / p^3
-    ν = _lnlambda(cm, :ee, p, ir) * _electron_term_s(cm, ir, p) * _ntarget(cm, ir)
-    if cm.settings.screening === :partially
-        for st in cm.states
-            ν += _stopping(cm, st, p) * _density(cm, st, ir)
+function slowing_down_frequency(model::CollisionModel, ir, p)
+    p == 0 && return zero(p * model.scaled_bessel_k0[ir])
+    mode = model.settings.mode
+    prefactor = mode === :ultra_relativistic ? COLLISION_PREFACTOR / p :
+                COLLISION_PREFACTOR * (1 + p^2) / p^3
+    nu = _coulomb_logarithm(model, :electron_electron, p, ir) *
+         _thermal_slowing_down_factor(model, ir, p) * _target_electron_density(model, ir)
+    if model.settings.screening === :partial
+        for state in model.charge_states
+            nu += _bound_electron_stopping(model, state, p) * _charge_state_density(model, state, ir)
         end
     end
-    return pre * ν
+    return prefactor * nu
 end
 
 """
-    nu_D(cm, ir, p)
+    deflection_frequency(model, ir, p)
 
-Pitch-angle scattering frequency [s⁻¹]; the collisional pitch diffusion is
+Pitch-angle scattering (deflection) frequency `ν_D` [s⁻¹]; the collisional pitch diffusion is
 `Dᵠᵠ = ν_D (1 - ξ²)/2`.
 """
-function nu_D(cm::CollisionModel, ir, p)
-    p == 0 && return zero(p * cm.K0[ir])
-    mode = cm.settings.mode
-    pre = mode === :ultra_relativistic ? COLLISION_PREFACTOR / p^2 :
-          COLLISION_PREFACTOR * sqrt(1 + p^2) / p^3
-    ν = _lnlambda(cm, :ee, p, ir) * _electron_term_D(cm, ir, p) * _ntarget(cm, ir)
-    lnLei = _lnlambda(cm, :ei, p, ir)
-    nonscreened = cm.settings.screening === :non
-    for st in cm.states
-        Zfact = nonscreened ? st.Z^2 : st.Z0^2
-        ν += lnLei * Zfact * _density(cm, st, ir)
+function deflection_frequency(model::CollisionModel, ir, p)
+    p == 0 && return zero(p * model.scaled_bessel_k0[ir])
+    mode = model.settings.mode
+    prefactor = mode === :ultra_relativistic ? COLLISION_PREFACTOR / p^2 :
+                COLLISION_PREFACTOR * sqrt(1 + p^2) / p^3
+    nu = _coulomb_logarithm(model, :electron_electron, p, ir) *
+         _thermal_deflection_factor(model, ir, p) * _target_electron_density(model, ir)
+    electron_ion = _coulomb_logarithm(model, :electron_ion, p, ir)
+    unscreened = model.settings.screening === :none
+    for state in model.charge_states
+        charge_squared = unscreened ? state.nuclear_charge^2 : state.charge^2
+        nu += electron_ion * charge_squared * _charge_state_density(model, state, ir)
     end
-    if cm.settings.screening === :partially
-        for st in cm.states
-            ν += _screened(st, p) * _density(cm, st, ir)
+    if model.settings.screening === :partial
+        for state in model.charge_states
+            nu += _bound_electron_scattering(state, p) * _charge_state_density(model, state, ir)
         end
     end
-    return pre * ν
+    return prefactor * nu
 end
 
 """
-    nu_par(cm, ir, p)
+    parallel_diffusion_frequency(model, ir, p)
 
-Parallel (energy) diffusion frequency [s⁻¹], `Dᵖᵖ = ν_∥`; nonzero only in `:full` mode.
+Parallel (energy) diffusion frequency `ν_∥` [s⁻¹], `Dᵖᵖ = ν_∥`; nonzero only in `:full`
+mode.
 """
-function nu_par(cm::CollisionModel, ir, p)
-    z = zero(p * cm.K0[ir])
-    (cm.settings.mode === :full && p != 0) || return z
-    Θ = cm.plasma.T_cold[ir] / Constants.mc2inEV
-    if cm.settings.screened_diffusion === :maxwellian
-        νs = nu_s(cm, ir, p)
+function parallel_diffusion_frequency(model::CollisionModel, ir, p)
+    z = zero(p * model.scaled_bessel_k0[ir])
+    (model.settings.mode === :full && p != 0) || return z
+    theta = _normalized_temperature(model, ir)
+    if model.settings.screened_diffusion === :maxwellian
+        nu_s = slowing_down_frequency(model, ir, p)
     else  # free electrons only
-        νs = COLLISION_PREFACTOR * (1 + p^2) / p^3 * _lnlambda(cm, :ee, p, ir) *
-             _electron_term_s(cm, ir, p) * cm.plasma.n_cold[ir]
+        nu_s = COLLISION_PREFACTOR * (1 + p^2) / p^3 *
+               _coulomb_logarithm(model, :electron_electron, p, ir) *
+               _thermal_slowing_down_factor(model, ir, p) * model.plasma.cold_electron_density[ir]
     end
-    return Θ * sqrt(1 + p^2) * νs
+    return theta * sqrt(1 + p^2) * nu_s
 end
 
 """
-    p3nu_s_at_zero(cm, ir)
+    p3_slowing_down_frequency_at_zero(model, ir)
 
 `lim_{p→0} p³ ν_s`, which sets the particle flux through `p = 0`.
 """
-function p3nu_s_at_zero(cm::CollisionModel, ir)
-    z = zero(cm.K0[ir])
-    ν = _lnlambda(cm, :ee, z, ir) * _electron_term_s(cm, ir, z) * _ntarget(cm, ir)
-    if cm.settings.screening === :partially
-        for st in cm.states
-            ν += _stopping(cm, st, z) * _density(cm, st, ir)
+function p3_slowing_down_frequency_at_zero(model::CollisionModel, ir)
+    z = zero(model.scaled_bessel_k0[ir])
+    nu = _coulomb_logarithm(model, :electron_electron, z, ir) *
+         _thermal_slowing_down_factor(model, ir, z) * _target_electron_density(model, ir)
+    if model.settings.screening === :partial
+        for state in model.charge_states
+            nu += _bound_electron_stopping(model, state, z) * _charge_state_density(model, state, ir)
         end
     end
-    return COLLISION_PREFACTOR * ν
+    return COLLISION_PREFACTOR * nu
 end
