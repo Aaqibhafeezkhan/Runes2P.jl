@@ -94,7 +94,7 @@ _cell_weights(g) = [phase_space_jacobian(g, ir)[i, j] * momentum_grid(g).p_width
         g = cylindrical_grid(mom, RadialGrid(uniform_r_faces(4, 1.0)))
         rng = Xoshiro(5)
         W = _cell_weights(g)
-        for scheme in (:upwind, :central), _ in 1:5
+        for scheme in (:upwind, :central, :exponential_fitting), _ in 1:5
             op = AdvectionDiffusion(g; scheme, r_boundary=:zero_flux)
             for A in (op.advection_p, op.advection_xi, op.advection_r, op.diffusion_p_xi, op.diffusion_xi_p)
                 A .= randn(rng, size(A))
@@ -145,7 +145,7 @@ _cell_weights(g) = [phase_space_jacobian(g, ir)[i, j] * momentum_grid(g).p_width
         @test all(log2.(errs[1:end-1] ./ errs[2:end]) .> 1.8)
     end
 
-    @testset "upwind Fokker-Planck matrix keeps f non-negative" begin
+    @testset "upwind and exponential-fitting Fokker-Planck matrices keep f non-negative" begin
         # Non-negative off-diagonals make I - Δt M an M-matrix, so backward Euler
         # preserves positivity for any Δt.
         ions = [IonSpecies("D", 1, 1, [1e20]), IonSpecies("Ne", 10, 2, [1e19])]
@@ -153,16 +153,17 @@ _cell_weights(g) = [phase_space_jacobian(g, ir)[i, j] * momentum_grid(g).p_width
                              magnetic_field=[5.0])
         mom = MomentumGrid(biuniform_p_faces(40, 15, 0.0, 0.3, 5.0), uniform_xi_faces(12))
         g = cylindrical_grid(mom, RadialGrid(uniform_r_faces(1, 1.0)))
-        op = fokker_planck_operator(g, plasma, CollisionSettings(); synchrotron=true,
-                                    scheme=:upwind)
-        I_, J_, V_ = findnz(operator_matrix(op))
-        @test all(V_[k] >= 0 for k in eachindex(V_) if I_[k] != J_[k])
+        for scheme in (:upwind, :exponential_fitting)
+            op = fokker_planck_operator(g, plasma, CollisionSettings(); synchrotron=true, scheme)
+            I_, J_, V_ = findnz(operator_matrix(op))
+            @test all(V_[k] >= 0 for k in eachindex(V_) if I_[k] != J_[k])
+        end
     end
 
     @testset "apply! does not allocate" begin
         mom = MomentumGrid(biuniform_p_faces(20, 8, 0.0, 0.5, 3.0), uniform_xi_faces(10))
         g = cylindrical_grid(mom, RadialGrid(uniform_r_faces(3, 1.0)))
-        for scheme in (:upwind, :central)
+        for scheme in (:upwind, :central, :exponential_fitting)
             op = AdvectionDiffusion(g; scheme, p_upper_boundary=:f_zero, r_boundary=:absorbing)
             op.diffusion_p_xi .= 0.1
             f = rand(size(g)...)

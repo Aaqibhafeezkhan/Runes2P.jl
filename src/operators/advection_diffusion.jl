@@ -27,7 +27,23 @@ Boundary conditions:
   centre, adding diffusive loss `Dᵖᵖ f_N / (p_N - p_{N-1})` (DREAM `BC_F_0`).
 - `r = a` (`r_boundary`): `:zero_flux`, or `:absorbing` (`f = 0` on the wall face).
 
-Advective face values use first-order `:upwind` or second-order `:central` interpolation.
+Schemes (`scheme`), for the advection and diffusion along each direction between two cell
+centres; the cross terms `Dᵖᵠ`, `Dᵠᵖ` are always central:
+
+- `:central`: face value interpolated linearly between the centres, second order. Loses
+  positivity where the cell Péclet number `|A|Δ/D` exceeds 2 (the matrix gets negative
+  off-diagonal couplings).
+- `:upwind`: face value of the upstream cell, first order, positivity preserving.
+- `:exponential_fitting`: the Scharfetter-Gummel (Chang-Cooper) flux
+  `Γ = (D/Δ) [B(-w) f_L - B(w) f_R]`, `w = AΔ/D`, `B(x) = x/(eˣ - 1)`, with `Δ` the distance
+  between the centres. Exact for steady solutions of the one-dimensional face problem
+  with constant `A/D` between the centres (so the collisional Maxwellian is steady up to
+  the variation of `A/D` over a cell), positivity preserving for every Péclet number
+  (the off-diagonal couplings are `(D/Δ) B(±w) ≥ 0`), second order where the Péclet
+  number is small, where it reduces to the central flux with midpoint weights, and
+  upwind where it is large. Not in DREAM (Runes2P departure); used in
+  CQL3D (Chang-Cooper). Falls back to upwind advection with central diffusion where
+  `D ≤ 0`. At the `:f_zero` boundary the ghost cell enters the same flux.
 """
 struct AdvectionDiffusion{T<:AbstractFloat}
     grid::KineticGrid{T}
@@ -64,7 +80,7 @@ function AdvectionDiffusion(grid::KineticGrid{T}; scheme::Symbol=:upwind,
                             p_lower_boundary::Symbol=:zero_flux,
                             p_upper_boundary::Symbol=:outflow,
                             r_boundary::Symbol=:zero_flux) where {T}
-    scheme in (:upwind, :central) || throw(ArgumentError("unknown scheme $scheme"))
+    scheme in (:upwind, :central, :exponential_fitting) || throw(ArgumentError("unknown scheme $scheme"))
     p_lower_boundary in (:zero_flux, :prescribed) ||
         throw(ArgumentError("unknown lower p boundary condition $p_lower_boundary"))
     p_upper_boundary in (:outflow, :f_zero) ||
@@ -102,6 +118,29 @@ end
     end
 end
 
+# Bernoulli function B(x) = x/(eˣ - 1), with its series near 0 (B(0) = 1). For x > 0 in
+# the form x e⁻ˣ/(1 - e⁻ˣ), whose derivative stays finite under ForwardDiff where eˣ
+# overflows (a Péclet number above ~709, reachable once the coefficients depend on
+# unknowns such as the temperature)
+@inline function _bernoulli(x)
+    abs(x) < 1e-3 && return 1 - x / 2 + x^2 / 12 - x^4 / 720
+    x > 0 && return x * exp(-x) / -expm1(-x)
+    return x / expm1(x)
+end
+
+# Flux A f - D ∂f between two cell centres a distance `distance` apart, for the scheme;
+# `weight_left` is the linear-interpolation weight of the left centre at the face
+@inline function _face_flux(scheme, A, D, f_left, f_right, distance, weight_left)
+    if scheme === :exponential_fitting
+        if D > 0
+            w = A * distance / D
+            return D / distance * (_bernoulli(-w) * f_left - _bernoulli(w) * f_right)
+        end
+        return A * (A >= 0 ? f_left : f_right) - D * (f_right - f_left) / distance
+    end
+    return A * _face_value(scheme, A, f_left, f_right, weight_left) - D * (f_right - f_left) / distance
+end
+
 # Centred derivative of f in ξ at cell (i, j), one-sided at the ξ edges.
 Base.@propagate_inbounds function _xi_derivative(f, grid::MomentumGrid, i, j, ir)
     j_lower = max(j - 1, 1)
@@ -135,17 +174,21 @@ Base.@propagate_inbounds function _p_flux(op::AdvectionDiffusion, f, k, j, ir)
     A = op.advection_p[k, j, ir]
     if k == np + 1
         f_last = f[np, j, ir]
-        F = A > 0 ? A * f_last : zero(T)
         if op.p_upper_boundary === :f_zero && np > 1
-            F += op.diffusion_p_p[k, j, ir] * f_last / (m.p_centers[np] - m.p_centers[np-1])
+            distance = m.p_centers[np] - m.p_centers[np-1]
+            if op.scheme === :exponential_fitting
+                # the ghost cell with f = 0 at one spacing beyond the last centre
+                return V * _face_flux(op.scheme, A, op.diffusion_p_p[k, j, ir], f_last, zero(T), distance, 0.5)
+            end
+            return V * ((A > 0 ? A * f_last : zero(T)) + op.diffusion_p_p[k, j, ir] * f_last / distance)
         end
-        return V * F
+        return V * (A > 0 ? A * f_last : zero(T))
     end
     f_left = f[k-1, j, ir]
     f_right = f[k, j, ir]
-    weight_left = (m.p_centers[k] - m.p_faces[k]) / (m.p_centers[k] - m.p_centers[k-1])
-    F = A * _face_value(op.scheme, A, f_left, f_right, weight_left)
-    F -= op.diffusion_p_p[k, j, ir] * (f_right - f_left) / (m.p_centers[k] - m.p_centers[k-1])
+    distance = m.p_centers[k] - m.p_centers[k-1]
+    weight_left = (m.p_centers[k] - m.p_faces[k]) / distance
+    F = _face_flux(op.scheme, A, op.diffusion_p_p[k, j, ir], f_left, f_right, distance, weight_left)
     D = op.diffusion_p_xi[k, j, ir]
     if D != 0
         F -= D * (_xi_derivative(f, m, k - 1, j, ir) + _xi_derivative(f, m, k, j, ir)) / 2
@@ -163,9 +206,9 @@ Base.@propagate_inbounds function _xi_flux(op::AdvectionDiffusion, f, i, k, ir)
     f_left = f[i, k-1, ir]
     f_right = f[i, k, ir]
     A = op.advection_xi[i, k, ir]
-    weight_left = (m.xi_centers[k] - m.xi_faces[k]) / (m.xi_centers[k] - m.xi_centers[k-1])
-    F = A * _face_value(op.scheme, A, f_left, f_right, weight_left)
-    F -= op.diffusion_xi_xi[i, k, ir] * (f_right - f_left) / (m.xi_centers[k] - m.xi_centers[k-1])
+    distance = m.xi_centers[k] - m.xi_centers[k-1]
+    weight_left = (m.xi_centers[k] - m.xi_faces[k]) / distance
+    F = _face_flux(op.scheme, A, op.diffusion_xi_xi[i, k, ir], f_left, f_right, distance, weight_left)
     D = op.diffusion_xi_p[i, k, ir]
     if D != 0
         F -= D * (_p_derivative(f, m, i, k - 1, ir) + _p_derivative(f, m, i, k, ir)) / 2
@@ -191,9 +234,9 @@ Base.@propagate_inbounds function _r_flux(op::AdvectionDiffusion, f, i, j, k)
     end
     f_left = f[i, j, k-1]
     f_right = f[i, j, k]
-    weight_left = (rg.r_centers[k] - rg.r_faces[k]) / (rg.r_centers[k] - rg.r_centers[k-1])
-    F = A * _face_value(op.scheme, A, f_left, f_right, weight_left) -
-        D * (f_right - f_left) / (rg.r_centers[k] - rg.r_centers[k-1])
+    distance = rg.r_centers[k] - rg.r_centers[k-1]
+    weight_left = (rg.r_centers[k] - rg.r_faces[k]) / distance
+    F = _face_flux(op.scheme, A, D, f_left, f_right, distance, weight_left)
     return V * F
 end
 

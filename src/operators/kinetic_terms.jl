@@ -121,7 +121,8 @@ end
 Kinetic operator for the hot electrons: electric field, slowing down, pitch-angle
 scattering, energy diffusion (`:full` mode) and optionally synchrotron losses.
 The defaults match DREAM's hot-tail equation with centred interpolation and
-`f = 0` beyond `p_max`.
+`f = 0` beyond `p_max`. `scheme` is one of the schemes of [`AdvectionDiffusion`](@ref);
+`:exponential_fitting` keeps f non-negative at every resolution.
 """
 function fokker_planck_operator(grid::KineticGrid, plasma::PlasmaState,
                                 settings::CollisionSettings=CollisionSettings();
