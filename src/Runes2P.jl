@@ -33,6 +33,7 @@ include("solvers/krylov.jl")
 include("solvers/time_stepping.jl")
 
 export MomentumGrid, uniform_p_faces, biuniform_p_faces, tanh_p_faces, uniform_xi_faces
+export biuniform_theta_xi_faces
 export RadialGrid, uniform_r_faces
 export KineticGrid, cylindrical_grid, density, total_particles, has_shared_momentum_grid, momentum_grid
 export phase_space_jacobian, phase_space_jacobian_p_faces, phase_space_jacobian_xi_faces
@@ -45,7 +46,7 @@ export CollisionSettings, CollisionModel, slowing_down_frequency, deflection_fre
 export parallel_diffusion_frequency, p3_slowing_down_frequency_at_zero
 export mean_excitation_energy, ion_size
 export add_electric_field!, add_slowing_down!, add_pitch_scattering!, add_energy_diffusion!
-export add_synchrotron!, fokker_planck_operator
+export add_synchrotron!, fokker_planck_operator, zero_coefficients!, set_fokker_planck_coefficients!
 export SparseJacobian, jacobian, jacobian!, operator_matrix, stencil_pattern, sparse_ad_backend
 export is_local, check_stencil_pattern
 export xi_star, moller_cross_section, moller_flux, max_knockon_momentum, moller_total_rate
@@ -60,7 +61,7 @@ export ScalarUnknown, RadialUnknown, KineticUnknown, LowerLimit, UnknownLayout
 export unknown_id, unknown_names, unknown, unknown_range, radius_block_range, scalar_block_range
 export radial_view, kinetic_view, scalar_view, unknown_view, unknown_scales, describe, copy_unknowns!
 export EquationTerm, dependencies, coupling, treatment, sparsity!, rhs!, jacobian_vector_product!
-export FokkerPlanckTerm, KnockOnTerm, LinearTerm, DensityMomentTerm, MaxwellianSourceTerm, LayoutKineticArray, kinetic_array
+export FokkerPlanckTerm, PrescribedFokkerPlanckTerm, FluxCorrectionTerm, KnockOnTerm, LinearTerm, DensityMomentTerm, MaxwellianSourceTerm, LayoutKineticArray, kinetic_array
 export Equation, TimeDerivative, Algebraic, EquationSystem, Tolerance, tolerance
 export residual!, mass_matrix, jacobian_sparsity, jacobian_prototype, jacobian_operator, residual_scales, ode_function
 export LinearSolver, SparseLU, GMRES, RadiusBlockLU, RadiusBlockILU, NewtonSolver, NewtonWorkspace, NewtonResult, newton_solve!

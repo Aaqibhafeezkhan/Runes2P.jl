@@ -161,6 +161,125 @@ function sparsity!(entries, term::FokkerPlanckTerm, layout, row)
 end
 
 """
+    PrescribedFokkerPlanckTerm(unknown, operator::AdvectionDiffusion, plasma_at;
+                               settings=CollisionSettings(), synchrotron=false)
+
+Fokker-Planck term whose collision coefficients follow a prescribed, time-dependent
+plasma state (a cooling plasma, `T(t)` prescribed since Runes2P has no
+self-consistent temperature evolution yet). `plasma_at(t)` returns the [`PlasmaState`]
+(@ref) at time `t`; `operator`'s coefficients are rebuilt from it with
+[`set_fokker_planck_coefficients!`](@ref) (`operator`'s scheme and boundary conditions are
+unchanged). The rebuild is cached on `t`: colored AD calls `rhs!` once per colour at the
+same `t`, and the coefficients do not depend on the state `u`, so rebuilding once per
+distinct `t` is exact, not an approximation. Otherwise identical to
+[`FokkerPlanckTerm`](@ref), which it delegates to.
+"""
+struct PrescribedFokkerPlanckTerm{T,F} <: EquationTerm
+    unknown::Symbol
+    operator::AdvectionDiffusion{T}
+    plasma_at::F
+    settings::CollisionSettings
+    synchrotron::Bool
+    cached_t::Base.RefValue{Float64}
+end
+
+function PrescribedFokkerPlanckTerm(unknown::Symbol, operator::AdvectionDiffusion, plasma_at;
+                                    settings::CollisionSettings=CollisionSettings(), synchrotron::Bool=false)
+    return PrescribedFokkerPlanckTerm(unknown, operator, plasma_at, settings, synchrotron, Ref(NaN))
+end
+
+dependencies(term::PrescribedFokkerPlanckTerm) = [term.unknown]
+validate(term::PrescribedFokkerPlanckTerm, layout, row) =
+    validate(FokkerPlanckTerm(term.unknown, term.operator), layout, row)
+
+function _rebuild_at!(term::PrescribedFokkerPlanckTerm, t)
+    t == term.cached_t[] && return term.operator
+    set_fokker_planck_coefficients!(term.operator, term.plasma_at(t), term.settings; synchrotron=term.synchrotron)
+    term.cached_t[] = t
+    return term.operator
+end
+
+function rhs!(out, term::PrescribedFokkerPlanckTerm, u, layout, row, t)
+    _rebuild_at!(term, t)
+    return rhs!(out, FokkerPlanckTerm(term.unknown, term.operator), u, layout, row, t)
+end
+
+sparsity!(entries, term::PrescribedFokkerPlanckTerm, layout, row) =
+    sparsity!(entries, FokkerPlanckTerm(term.unknown, term.operator), layout, row)
+
+"""
+    FluxCorrectionTerm(unknown, full_operator, base_operator, plasma_at;
+                       settings=CollisionSettings(), synchrotron=false)
+
+Adds `apply!(full_operator, f) - apply!(base_operator, f)` to the residual of `unknown`,
+matrix-free, with a Jacobian-vector product of exactly zero. Paired in the same equation
+with [`PrescribedFokkerPlanckTerm`](@ref)`(unknown, base_operator, plasma_at; settings,
+synchrotron)`, the two terms' residuals add to `full_operator`'s alone (the correction
+exactly cancels `base_operator`'s own contribution), while the Newton Jacobian is
+`base_operator`'s exact, stored one plus this term's zero: a modified/quasi-Newton
+strategy, the residual of one scheme solved with another, cheaper scheme's Jacobian
+(DREAM's `AD_INTERP_JACOBIAN_UPWIND` when `base_operator` uses `:upwind` and
+`full_operator` a flux limiter such as `:tcdf`). The residual is the
+true, nonlinear `full_operator` one, so Newton still converges to its tolerance, generally
+over more iterations since the Jacobian is only approximate; `base_operator`'s own term
+supplies the stored block the direct solver or `GMRES`'s `RadiusBlockLU` preconditioner
+factorizes, so the pair needs no solver changes. Needs `coupling(base_operator) === :sparse`,
+i.e. a linear scheme (not a flux limiter) for `base_operator`, so its own term's Jacobian
+is exact.
+
+`full_operator`'s coefficients are rebuilt from `plasma_at(t)` and cached on `t`,
+independently of `base_operator`'s own term (each calls `plasma_at` once per distinct
+`t`); relies on `base_operator`'s term running first in the same `Equation` (the sparse
+terms, before the matrix-free ones, [`EquationSystem`](@ref)) so `base_operator` is
+already rebuilt at the same `t` when this term reads it.
+"""
+struct FluxCorrectionTerm{T,F} <: EquationTerm
+    unknown::Symbol
+    full_operator::AdvectionDiffusion{T}
+    base_operator::AdvectionDiffusion{T}
+    plasma_at::F
+    settings::CollisionSettings
+    synchrotron::Bool
+    cached_t::Base.RefValue{Float64}
+end
+
+function FluxCorrectionTerm(unknown::Symbol, full_operator::AdvectionDiffusion, base_operator::AdvectionDiffusion,
+                            plasma_at; settings::CollisionSettings=CollisionSettings(), synchrotron::Bool=false)
+    return FluxCorrectionTerm(unknown, full_operator, base_operator, plasma_at, settings, synchrotron, Ref(NaN))
+end
+
+dependencies(term::FluxCorrectionTerm) = [term.unknown]
+coupling(::FluxCorrectionTerm) = :matrix_free
+validate(term::FluxCorrectionTerm, layout, row) =
+    validate(FokkerPlanckTerm(term.unknown, term.full_operator), layout, row)
+
+function rhs!(out, term::FluxCorrectionTerm, u, layout, row, t)
+    if t != term.cached_t[]
+        set_fokker_planck_coefficients!(term.full_operator, term.plasma_at(t), term.settings;
+                                        synchrotron=term.synchrotron)
+        term.cached_t[] = t
+    end
+    id = unknown_id(layout, term.unknown)
+    if _equally_spaced(layout.radius_offsets[row]) && _equally_spaced(layout.radius_offsets[id])
+        np, nxi = layout.shapes[id, 1]
+        f = LayoutKineticArray(u, _offset_range(layout, id), np, nxi)
+        out_view = LayoutKineticArray(out, _offset_range(layout, row), np, nxi)
+        apply!(out_view, term.full_operator, f)
+        apply!(out_view, term.base_operator, f; scale=-1)
+    else
+        f = kinetic_array(u, layout, id)
+        out_view = kinetic_array(out, layout, row)
+        apply!(out_view, term.full_operator, f)
+        apply!(out_view, term.base_operator, f; scale=-1)
+    end
+    return out
+end
+
+# the base operator's own PrescribedFokkerPlanckTerm supplies the (approximate) Jacobian;
+# this correction contributes nothing to it by design
+jacobian_vector_product!(out, ::FluxCorrectionTerm, u, v, layout, row, t) = out
+
+"""
     KnockOnTerm(primary, operator::KnockOnOperator; target_density, treatment=:implicit)
 
 Knock-on source produced by the kinetic unknown `primary` on the kinetic row unknown

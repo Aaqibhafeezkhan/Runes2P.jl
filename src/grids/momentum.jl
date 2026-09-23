@@ -126,3 +126,21 @@ end
 Faces of a uniform pitch grid on `[-1, 1]` with `cell_count` cells.
 """
 uniform_xi_faces(cell_count::Integer) = collect(range(-1.0, 1.0; length=cell_count + 1))
+
+"""
+    biuniform_theta_xi_faces(cell_count, lower_cell_count, theta_separation)
+
+Faces of a two-region pitch grid, uniform in `θ = acos(ξ)`: `lower_cell_count` cells on
+`θ ∈ [0, theta_separation]` (near `ξ = 1`) and `cell_count - lower_cell_count` cells on
+`[theta_separation, π]`, returned as `ξ = cos θ` faces (DREAM `TYPE_BIUNIFORM_THETA`,
+`XiBiUniformThetaGridGenerator`). Refines towards
+`ξ = 1`, where runaway electrons concentrate.
+"""
+function biuniform_theta_xi_faces(cell_count::Integer, lower_cell_count::Integer, theta_separation::Real)
+    (1 <= lower_cell_count < cell_count) || throw(ArgumentError("each region needs at least one cell"))
+    0 < theta_separation < pi || throw(ArgumentError("require 0 < theta_separation < π"))
+    lower = range(0.0, float(theta_separation); length=lower_cell_count + 1)
+    upper = range(float(theta_separation), oftype(0.0, pi); length=cell_count - lower_cell_count + 1)
+    theta_faces = vcat(collect(lower), collect(upper)[2:end])
+    return reverse(cos.(theta_faces))
+end

@@ -12,6 +12,41 @@
         @test_throws ArgumentError MomentumGrid([0.0, 1.0], [-1.0, -6e-17, 0.0, 1.0])
     end
 
+    @testset "biuniform_theta_xi_faces" begin
+        n, n1, thsep = 15, 10, 0.5
+        faces = biuniform_theta_xi_faces(n, n1, thsep)
+        @test length(faces) == n + 1
+        @test issorted(faces; lt=<=)
+        @test faces[1] == -1.0
+        @test faces[end] == 1.0
+        # the separation face θ = thsep is near ξ = 1 (θ near 0), so in increasing-ξ order
+        # it is the (n - n1 + 1)-th face, not the (n1 + 1)-th
+        @test faces[n-n1+1] ≈ cos(thsep) rtol = 1e-14
+        @test count(<=(cos(thsep)), faces) == n - n1 + 1  # the coarse (upper-θ) region
+
+        # literal 1-indexed port of DREAM's XiBiUniformThetaGridGenerator::Rebuild loop
+        # (thMin = 0, thMax = π), th[k] and xi[k] holding its 0-indexed th_f[k-1], xi_f[k-1]
+        dth_lo = thsep / n1
+        dth_up = (pi - thsep) / (n - n1)
+        dth = [k <= n1 ? dth_lo : dth_up for k in 1:n]
+        th = zeros(n + 1)
+        th[1] = 0.0
+        for k in 2:n
+            th[k] = th[k-1] + dth[k-1]
+        end
+        xi = zeros(n + 1)
+        xi[n+1] = cos(0.0)
+        xi[1] = cos(pi)
+        for k in 2:n
+            xi[n-k+2] = cos(th[k])
+        end
+        @test faces ≈ xi rtol = 1e-14
+
+        @test_throws ArgumentError biuniform_theta_xi_faces(2, 2, 0.5)   # upper region needs a cell
+        @test_throws ArgumentError biuniform_theta_xi_faces(5, 2, 0.0)   # theta_separation must be in (0, π)
+        @test_throws ArgumentError biuniform_theta_xi_faces(5, 2, pi)
+    end
+
     @testset "cylindrical density of a Maxwellian-like f" begin
         mom = MomentumGrid(uniform_p_faces(400, 0.0, 1.0), uniform_xi_faces(4))
         rad = RadialGrid(uniform_r_faces(3, 1.0))

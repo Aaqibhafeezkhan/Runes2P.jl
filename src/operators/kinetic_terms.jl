@@ -132,14 +132,46 @@ function fokker_planck_operator(grid::KineticGrid, plasma::PlasmaState,
                                 synchrotron::Bool=false, scheme::Symbol=:central,
                                 p_scheme::Symbol=scheme, xi_scheme::Symbol=scheme,
                                 p_upper_boundary::Symbol=:f_zero, r_boundary::Symbol=:zero_flux)
-    radial_cell_count(plasma) == radial_cell_count(grid) ||
-        throw(DimensionMismatch("plasma and grid radii differ"))
     # DREAM replaces the electric-field advection by a diffusion term in the reduced
     # (pitch-averaged) equation; that form is not implemented.
     pitch_cell_count(grid) > 1 ||
         throw(ArgumentError("the reduced equation (one pitch cell) is not implemented"))
-    collisions = CollisionModel(plasma, settings)
     op = AdvectionDiffusion(grid; scheme, p_scheme, xi_scheme, p_upper_boundary, r_boundary)
+    set_fokker_planck_coefficients!(op, plasma, settings; synchrotron)
+    return op
+end
+
+"""
+    zero_coefficients!(op::AdvectionDiffusion)
+
+Set every coefficient array of `op` to zero (not `p_flux_at_lower_boundary`, a boundary
+value the caller sets independently of the physics terms). For rebuilding an operator's
+coefficients from a new plasma state: the `add_*!` functions accumulate
+into the arrays, so a rebuild needs them cleared first.
+"""
+function zero_coefficients!(op::AdvectionDiffusion)
+    for A in (op.advection_p, op.diffusion_p_p, op.diffusion_p_xi, op.advection_xi, op.diffusion_xi_xi,
+             op.diffusion_xi_p, op.advection_r, op.diffusion_r_r, op.advection_p_times_p2_at_zero)
+        fill!(A, zero(eltype(A)))
+    end
+    return op
+end
+
+"""
+    set_fokker_planck_coefficients!(op, plasma, settings=CollisionSettings(); synchrotron=false)
+
+Rebuild `op`'s coefficients in place from `plasma` and `settings` ([`zero_coefficients!`]
+(@ref) then the same `add_*!` calls as [`fokker_planck_operator`](@ref)), for a
+Fokker-Planck term whose plasma state changes with time
+([`PrescribedFokkerPlanckTerm`](@ref)). `op`'s scheme and boundary conditions are unchanged.
+"""
+function set_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaState,
+                                         settings::CollisionSettings=CollisionSettings();
+                                         synchrotron::Bool=false)
+    radial_cell_count(plasma) == radial_cell_count(op.grid) ||
+        throw(DimensionMismatch("plasma and grid radii differ"))
+    zero_coefficients!(op)
+    collisions = CollisionModel(plasma, settings)
     add_electric_field!(op, plasma)
     add_slowing_down!(op, collisions)
     add_pitch_scattering!(op, collisions)
