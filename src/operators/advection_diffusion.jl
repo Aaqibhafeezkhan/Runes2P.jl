@@ -24,7 +24,16 @@ Boundary conditions:
 - `ξ = ±1`: no flux.
 - `p = p_max` (`p_upper_boundary`): `:outflow`, advective outflow only (`Aᵖ > 0`); or
   `:f_zero`, outflow into a ghost cell with `f = 0` one cell spacing beyond the last
-  centre, adding diffusive loss `Dᵖᵖ f_N / (p_N - p_{N-1})` (DREAM `BC_F_0`).
+  centre, adding diffusive loss `Dᵖᵖ f_N / (p_N - p_{N-1})` (DREAM `BC_F_0`); or
+  `:constant_flux`, `𝒱'Γᵖ` at the boundary face held equal to `𝒱'Γᵖ` at the last interior
+  face (DREAM `BC_PHI_CONST`, its default; needs at least 2 momentum cells); or
+  `:extrapolated_flux`, `𝒱'Γᵖ` at the boundary linearly extrapolated in `p` from the last
+  two interior faces (DREAM `BC_DPHI_CONST`, "known to cause instabilities near `p_max`";
+  needs at least 3 momentum cells, no `:exponential_fitting` counterpart). Ported literally
+  from DREAM `PXiExternalLoss.cpp`, including an apparent index inconsistency: both terms
+  share the last interior face's `𝒱'` and are
+  multiplied by that face's own `Aᵖ`, while the second term's interpolation (upstream
+  direction and weights) and diffusion coefficient are the second-to-last face's own.
 - `r = a` (`r_boundary`): `:zero_flux`, or `:absorbing` (`f = 0` on the wall face).
 
 Schemes (`scheme`), for the advection and diffusion along each direction between two cell
@@ -106,8 +115,18 @@ function AdvectionDiffusion(grid::KineticGrid{T}; scheme::Symbol=:upwind, p_sche
         throw(ArgumentError("scheme $r_scheme is not available in r (four-point schemes need radial transport)"))
     p_lower_boundary in (:zero_flux, :prescribed) ||
         throw(ArgumentError("unknown lower p boundary condition $p_lower_boundary"))
-    p_upper_boundary in (:outflow, :f_zero) ||
+    p_upper_boundary in (:outflow, :f_zero, :constant_flux, :extrapolated_flux) ||
         throw(ArgumentError("unknown upper p boundary condition $p_upper_boundary"))
+    np, nxi, nr = size(grid)
+    if p_upper_boundary === :constant_flux && np < 2
+        throw(ArgumentError("constant_flux p_max boundary needs at least 2 momentum cells"))
+    end
+    if p_upper_boundary === :extrapolated_flux
+        np < 3 && throw(ArgumentError("extrapolated_flux p_max boundary needs at least 3 momentum cells"))
+        p_scheme === :exponential_fitting &&
+            throw(ArgumentError("extrapolated_flux has no exponential_fitting counterpart in DREAM " *
+                                "(BC_DPHI_CONST); its flux does not split into Aᵖ times a face value"))
+    end
     has_shared_momentum_grid(grid) ||
         throw(ArgumentError("AdvectionDiffusion needs one momentum grid for all radii (radial " *
                             "fluxes between different grids need a remap between them)"))
@@ -116,7 +135,6 @@ function AdvectionDiffusion(grid::KineticGrid{T}; scheme::Symbol=:upwind, p_sche
     end
     r_boundary in (:zero_flux, :absorbing) ||
         throw(ArgumentError("unknown radial boundary condition $r_boundary"))
-    np, nxi, nr = size(grid)
     on_p_faces() = zeros(T, np + 1, nxi, nr)
     on_xi_faces() = zeros(T, np, nxi + 1, nr)
     on_r_faces() = zeros(T, np, nxi, nr + 1)
@@ -215,6 +233,28 @@ Base.@propagate_inbounds function _xi_four_point_face(op::AdvectionDiffusion, f,
                               value(state, j_uu), value(f, j_d), value(f, j_u), value(f, j_uu))
 end
 
+# Γᵖ (not multiplied by 𝒱') through interior p face `k` (2 <= k <= momentum cell count),
+# between cells k-1 and k.
+Base.@propagate_inbounds function _p_interior_gamma(op::AdvectionDiffusion, f, k, j, ir, state)
+    m = op.momentum
+    np = momentum_cell_count(m)
+    A = op.advection_p[k, j, ir]
+    f_left = f[k-1, j, ir]
+    f_right = f[k, j, ir]
+    distance = m.p_centers[k] - m.p_centers[k-1]
+    weight_left = (m.p_centers[k] - m.p_faces[k]) / distance
+    F = if is_four_point_scheme(op.p_scheme) && np >= 3
+        A * _p_four_point_face(op, f, state, A, k, j, ir) - op.diffusion_p_p[k, j, ir] * (f_right - f_left) / distance
+    else
+        _face_flux(op.p_scheme, A, op.diffusion_p_p[k, j, ir], f_left, f_right, distance, weight_left)
+    end
+    D = op.diffusion_p_xi[k, j, ir]
+    if D != 0
+        F -= D * (_xi_derivative(f, m, k - 1, j, ir) + _xi_derivative(f, m, k, j, ir)) / 2
+    end
+    return F
+end
+
 # Flux Γᵖ through p face `k` (between cells k-1 and k), multiplied by 𝒱'. `state` gives the
 # limiter weights of a frozen limiter (`nothing`: the limiter at f itself).
 Base.@propagate_inbounds function _p_flux(op::AdvectionDiffusion, f, k, j, ir, state=nothing)
@@ -237,7 +277,35 @@ Base.@propagate_inbounds function _p_flux(op::AdvectionDiffusion, f, k, j, ir, s
     A = op.advection_p[k, j, ir]
     if k == np + 1
         f_last = f[np, j, ir]
-        if op.p_upper_boundary === :f_zero && np > 1
+        if op.p_upper_boundary === :constant_flux
+            # 𝒱'Γᵖ continued unchanged from the last interior face (DREAM BC_PHI_CONST)
+            return _p_flux(op, f, np, j, ir, state)
+        elseif op.p_upper_boundary === :extrapolated_flux
+            # linear extrapolation of 𝒱'Γᵖ from the last two interior faces (DREAM
+            # BC_DPHI_CONST, PXiExternalLoss.cpp), ported literally including an apparent
+            # index inconsistency: both advective terms are multiplied by the last
+            # interior face's Aᵖ (not each term's own), while the
+            # second term's interpolation (upstream direction and weights) and diffusion
+            # are the second-to-last face's own. Both terms share the last interior face's
+            # 𝒱'.
+            A_last = op.advection_p[np, j, ir]
+            A_prev = op.advection_p[np-1, j, ir]
+            gamma_last = _p_interior_gamma(op, f, np, j, ir, state)
+            face_value_prev = if is_four_point_scheme(op.p_scheme) && np >= 3
+                _p_four_point_face(op, f, state, A_prev, np - 1, j, ir)
+            else
+                f_left = f[np-2, j, ir]
+                f_right = f[np-1, j, ir]
+                distance_prev = m.p_centers[np-1] - m.p_centers[np-2]
+                weight_left = (m.p_centers[np-1] - m.p_faces[np-1]) / distance_prev
+                _face_value(op.p_scheme, A_prev, f_left, f_right, weight_left)
+            end
+            distance_prev = m.p_centers[np-1] - m.p_centers[np-2]
+            gamma_prev_dream = A_last * face_value_prev -
+                                op.diffusion_p_p[np-1, j, ir] * (f[np-1, j, ir] - f[np-2, j, ir]) / distance_prev
+            dd = m.p_widths[np] / m.p_widths[np-1]
+            return op.jacobian_p_faces[np, j, ir] * ((1 + dd) * gamma_last - dd * gamma_prev_dream)
+        elseif op.p_upper_boundary === :f_zero && np > 1
             distance = m.p_centers[np] - m.p_centers[np-1]
             if op.p_scheme === :exponential_fitting
                 # the ghost cell with f = 0 at one spacing beyond the last centre
@@ -247,20 +315,7 @@ Base.@propagate_inbounds function _p_flux(op::AdvectionDiffusion, f, k, j, ir, s
         end
         return V * (A > 0 ? A * f_last : zero(T))
     end
-    f_left = f[k-1, j, ir]
-    f_right = f[k, j, ir]
-    distance = m.p_centers[k] - m.p_centers[k-1]
-    weight_left = (m.p_centers[k] - m.p_faces[k]) / distance
-    F = if is_four_point_scheme(op.p_scheme) && np >= 3
-        A * _p_four_point_face(op, f, state, A, k, j, ir) - op.diffusion_p_p[k, j, ir] * (f_right - f_left) / distance
-    else
-        _face_flux(op.p_scheme, A, op.diffusion_p_p[k, j, ir], f_left, f_right, distance, weight_left)
-    end
-    D = op.diffusion_p_xi[k, j, ir]
-    if D != 0
-        F -= D * (_xi_derivative(f, m, k - 1, j, ir) + _xi_derivative(f, m, k, j, ir)) / 2
-    end
-    return V * F
+    return V * _p_interior_gamma(op, f, k, j, ir, state)
 end
 
 # Flux Γᵠ through ξ face `k` (between cells k-1 and k), multiplied by 𝒱'.

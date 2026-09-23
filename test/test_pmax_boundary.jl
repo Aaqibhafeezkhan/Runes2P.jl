@@ -1,0 +1,134 @@
+# p_max boundary conditions constant_flux (DREAM BC_PHI_CONST) and extrapolated_flux
+# (DREAM BC_DPHI_CONST), independent of DREAM. The DREAM comparison is
+# test_pmax_boundary_dream.jl.
+using ForwardDiff: ForwardDiff
+using Random
+using SparseArrays: nnz
+
+_random_op(g, rng, p_upper_boundary; p_scheme=:central) = begin
+    op = AdvectionDiffusion(g; p_scheme, xi_scheme=:central, p_upper_boundary)
+    for A in (op.advection_p, op.advection_xi, op.diffusion_p_xi, op.diffusion_xi_p)
+        A .= randn(rng, size(A))
+    end
+    for D in (op.diffusion_p_p, op.diffusion_xi_xi)
+        D .= rand(rng, size(D))
+    end
+    op
+end
+
+@testset "p_max boundary" begin
+    rng = Xoshiro(4)
+    mom = MomentumGrid(uniform_p_faces(8, 0.0, 2.0), uniform_xi_faces(5))
+    g = cylindrical_grid(mom, RadialGrid(uniform_r_faces(2, 1.0)))
+    np = momentum_cell_count(g)
+
+    @testset "grid too small" begin
+        tiny = cylindrical_grid(MomentumGrid(uniform_p_faces(1, 0.0, 1.0), uniform_xi_faces(2)),
+                                RadialGrid(uniform_r_faces(1, 1.0)))
+        @test_throws ArgumentError AdvectionDiffusion(tiny; p_upper_boundary=:constant_flux)
+        @test_throws ArgumentError AdvectionDiffusion(tiny; p_upper_boundary=:extrapolated_flux)
+        two = cylindrical_grid(MomentumGrid(uniform_p_faces(2, 0.0, 1.0), uniform_xi_faces(2)),
+                               RadialGrid(uniform_r_faces(1, 1.0)))
+        @test AdvectionDiffusion(two; p_upper_boundary=:constant_flux) isa AdvectionDiffusion
+        @test_throws ArgumentError AdvectionDiffusion(two; p_upper_boundary=:extrapolated_flux)
+    end
+
+    @testset "constant_flux: zero net p-divergence at the last cell" for scheme in (:upwind, :central, :exponential_fitting)
+        op = _random_op(g, rng, :constant_flux; p_scheme=scheme)
+        f = rand(rng, size(g)...)
+
+        # with p transport alone (no xi or r coefficients), the last cell's divergence is
+        # exactly zero: influx equals outflux
+        op_p_only = AdvectionDiffusion(g; p_scheme=scheme, xi_scheme=:central, p_upper_boundary=:constant_flux)
+        op_p_only.advection_p .= op.advection_p
+        op_p_only.diffusion_p_p .= op.diffusion_p_p
+        df = zeros(size(g))
+        apply!(df, op_p_only, f)
+        @test maximum(abs, df[np, :, :]) < 1e-12
+
+        # momentum_flux at the boundary equals the flux through the last interior face
+        for ir in 1:radial_cell_count(g)
+            @test momentum_flux(op, f, np + 1, ir) ≈ momentum_flux(op, f, np, ir)
+        end
+    end
+
+    @testset "extrapolated_flux matches DREAM's literal formula" begin
+        # the shared 𝒱' of the last interior face and both advective terms multiplied by
+        # that face's own Aᵖ (DREAM's PXiExternalLoss.cpp, ported as-is including the
+        # apparent index inconsistency); the second term's
+        # interpolation direction, weights and diffusion coefficient are the
+        # second-to-last face's own
+        op = _random_op(g, rng, :extrapolated_flux)
+        f = rand(rng, size(g)...)
+        for ir in 1:radial_cell_count(g), j in 1:pitch_cell_count(g)
+            gamma_last = Runes2P._p_interior_gamma(op, f, np, j, ir, nothing)
+            A_last = op.advection_p[np, j, ir]
+            A_prev = op.advection_p[np-1, j, ir]
+            f_left, f_right = f[np-2, j, ir], f[np-1, j, ir]
+            distance_prev = mom.p_centers[np-1] - mom.p_centers[np-2]
+            weight_left = (mom.p_centers[np-1] - mom.p_faces[np-1]) / distance_prev
+            face_value_prev = Runes2P._face_value(:central, A_prev, f_left, f_right, weight_left)
+            gamma_prev_dream = A_last * face_value_prev -
+                                op.diffusion_p_p[np-1, j, ir] * (f_right - f_left) / distance_prev
+            V_shared = op.jacobian_p_faces[np, j, ir]
+            dd = mom.p_widths[np] / mom.p_widths[np-1]
+            expected = V_shared * ((1 + dd) * gamma_last - dd * gamma_prev_dream)
+            @test Runes2P._p_flux(op, f, np + 1, j, ir) ≈ expected rtol = 1e-12
+        end
+    end
+
+    @testset "check_stencil_pattern" for boundary in (:constant_flux, :extrapolated_flux),
+                                          scheme in (:upwind, :central, :tcdf)
+        op = _random_op(g, rng, boundary; p_scheme=scheme)
+        @test check_stencil_pattern(op)
+    end
+
+    @testset "operator_matrix reproduces apply! (extrapolated_flux, central)" begin
+        op = _random_op(g, rng, :extrapolated_flux)
+        M = operator_matrix(op)
+        f = rand(rng, size(g)...)
+        df = zeros(size(g))
+        apply!(df, op, f)
+        @test M * vec(f) ≈ vec(df)
+        @test nnz(M) <= 14 * cell_count(g)
+    end
+
+    @testset "EquationSystem Jacobian (extrapolated_flux)" for scheme in (:central, :tcdf)
+        # FokkerPlanckTerm.sparsity! duplicates stencil_pattern(op); check_stencil_pattern
+        # only exercises the latter, so this compares the colored-AD stored Jacobian
+        # against a dense ForwardDiff Jacobian of the same sparse terms (as
+        # test_equation_system.jl does), which would catch entries missing from
+        # sparsity! that stencil_pattern already has
+        op = _random_op(g, rng, :extrapolated_flux; p_scheme=scheme)
+        layout = UnknownLayout(g.radial_grid, [KineticUnknown(:f, g; scale=1.0)])
+        system = EquationSystem(layout, [Equation(:f, TimeDerivative(), FokkerPlanckTerm(:f, op))])
+        u = rand(rng, length(layout))
+        J = jacobian_prototype(system)
+        jacobian!(J, system, u, 0.0)
+        function sparse_part(x)
+            out = zeros(eltype(x), length(x))
+            for bound in system.sparse_terms
+                Runes2P.rhs!(out, bound.term, x, layout, bound.row, 0.0)
+            end
+            return out
+        end
+        dense = ForwardDiff.jacobian(sparse_part, u)
+        @test Matrix(J) ≈ dense rtol = 1e-10
+        @test all(jacobian_sparsity(system)[findall(!iszero, dense)])
+    end
+
+    @testset "conservation with random coefficients" for boundary in (:constant_flux, :extrapolated_flux)
+        op = _random_op(g, rng, boundary)
+        op.advection_r .= randn(rng, size(op.advection_r))
+        op.diffusion_r_r .= rand(rng, size(op.diffusion_r_r))
+        f = rand(rng, size(g)...)
+        df = zeros(size(g))
+        apply!(df, op, f)
+        loss = _conservation_residual(g, df)
+        # the flux-form divergence telescopes to the p_max face alone: r is :zero_flux and
+        # p_min = 0 has no p²Aᵖ term set
+        expected = sum(mom.xi_widths[j] * g.radial_grid.r_widths[ir] * Runes2P._p_flux(op, f, np + 1, j, ir)
+                       for j in 1:pitch_cell_count(g), ir in 1:radial_cell_count(g))
+        @test loss ≈ -expected rtol = 1e-10
+    end
+end

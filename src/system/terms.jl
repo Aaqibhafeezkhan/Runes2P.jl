@@ -142,6 +142,13 @@ function sparsity!(entries, term::FokkerPlanckTerm, layout, row)
             1 <= ir + dr <= nr || continue
             push!(entries, (r, _kinetic_index(layout, id, ir + dr, i, j)))
         end
+        # the extrapolated p_max boundary flux couples the last row up to 3 cells in p
+        # (its second term has no p-ξ cross contribution)
+        if term.operator.p_upper_boundary === :extrapolated_flux && i == np
+            for d in 1:3
+                np - d >= 1 && push!(entries, (r, _kinetic_index(layout, id, ir, np - d, j)))
+            end
+        end
     end
     return entries
 end
