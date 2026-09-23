@@ -163,7 +163,7 @@ _cell_weights(g) = [phase_space_jacobian(g, ir)[i, j] * momentum_grid(g).p_width
     @testset "apply! does not allocate" begin
         mom = MomentumGrid(biuniform_p_faces(20, 8, 0.0, 0.5, 3.0), uniform_xi_faces(10))
         g = cylindrical_grid(mom, RadialGrid(uniform_r_faces(3, 1.0)))
-        for scheme in (:upwind, :central, :exponential_fitting)
+        for scheme in (:upwind, :central, :exponential_fitting, :quick, :tcdf)
             op = AdvectionDiffusion(g; scheme, p_upper_boundary=:f_zero, r_boundary=:absorbing)
             op.diffusion_p_xi .= 0.1
             f = rand(size(g)...)

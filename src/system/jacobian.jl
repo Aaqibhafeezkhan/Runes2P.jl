@@ -1,5 +1,6 @@
 using ADTypes: AutoForwardDiff, AutoSparse, KnownJacobianSparsityDetector
 import ForwardDiff
+_value(x::ForwardDiff.Dual) = _value(ForwardDiff.value(x))
 import DifferentiationInterface as DI
 using SparseConnectivityTracer: TracerSparsityDetector
 using SparseMatrixColorings: GreedyColoringAlgorithm
@@ -21,12 +22,18 @@ function sparse_ad_backend(; pattern=nothing)
 end
 
 """
-    stencil_pattern(grid)
+    stencil_pattern(grid; p_width=1, xi_width=1)
+    stencil_pattern(op::AdvectionDiffusion)
 
 Sparsity pattern of the local transport operators: the 3×3 `(p, ξ)` neighbourhood
-(including the p-ξ cross terms) and the two radial neighbours of each cell.
+(including the p-ξ cross terms), the cells up to `p_width` away in p and `xi_width` away
+in ξ along the axes (2 for the four-point schemes), and the two radial neighbours of each
+cell. For an operator, the widths follow its schemes.
 """
-function stencil_pattern(grid::KineticGrid)
+stencil_pattern(op::AdvectionDiffusion) =
+    stencil_pattern(op.grid; p_width=stencil_half_width(op.p_scheme), xi_width=stencil_half_width(op.xi_scheme))
+
+function stencil_pattern(grid::KineticGrid; p_width::Integer=1, xi_width::Integer=1)
     np, nxi, nr = size(grid)
     index = LinearIndices((np, nxi, nr))
     rows = Int[]
@@ -38,6 +45,12 @@ function stencil_pattern(grid::KineticGrid)
         for dj in -1:1, di in -1:1
             (1 <= i + di <= np && 1 <= j + dj <= nxi) || continue
             push!(rows, row); push!(columns, index[i+di, j+dj, ir])
+        end
+        for d in 2:p_width, s in (-d, d)
+            1 <= i + s <= np && (push!(rows, row); push!(columns, index[i+s, j, ir]))
+        end
+        for d in 2:xi_width, s in (-d, d)
+            1 <= j + s <= nxi && (push!(rows, row); push!(columns, index[i, j+s, ir]))
         end
         for dr in (-1, 1)
             1 <= ir + dr <= nr || continue
@@ -56,7 +69,9 @@ shaped like `grid`. Sparsity pattern and coloring are computed once;
 
 `residual!` must contain only stencil-local terms. Terms with global momentum coupling,
 such as the knock-on operator, make the Jacobian dense per radius and are applied
-matrix-free in the Krylov solver instead.
+matrix-free in the Krylov solver instead. The default pattern has width 1; for an operator
+with four-point schemes pass `backend=sparse_ad_backend(pattern=stencil_pattern(op))`, or
+the coloring folds the second neighbours silently onto the pattern.
 """
 struct SparseJacobian{P,B,F}
     residual!::F
@@ -109,15 +124,30 @@ is_local(::AdvectionDiffusion) = true
 """
     check_stencil_pattern(op)
 
-Trace `op` on its grid and return `true` if every traced Jacobian entry lies inside
-`stencil_pattern(op.grid)`. Slow (operator tracing); intended for tests of new local
-operators.
+Return `true` if every entry of the Jacobian of `op` lies inside `stencil_pattern(op)`.
+A linear operator is traced on its grid; one with a scheme that is nonlinear in f gets its
+dense Jacobian by ForwardDiff at a random positive state (tracing cannot follow the
+branches of a limiter). Slow; intended for tests of local operators on small grids.
 """
 function check_stencil_pattern(op)
-    M = operator_matrix(op; backend=sparse_ad_backend(), check_local=false)
-    pattern = stencil_pattern(op.grid)
+    pattern = stencil_pattern(op)
+    if is_linear(op)
+        M = operator_matrix(op; backend=sparse_ad_backend(), check_local=false)
+        return all(pattern[findall(!iszero, M)])
+    end
+    f0 = 0.5 .+ rand(size(op.grid)...)
+    residual = x -> (y = zeros(eltype(x), size(op.grid)); apply!(y, op, reshape(x, size(op.grid))); vec(y))
+    M = ForwardDiff.jacobian(residual, vec(f0))
     return all(pattern[findall(!iszero, M)])
 end
+
+"""
+    is_linear(op)
+
+Whether the operator is linear in f (up to a constant source); false for flux-limiter
+schemes, whose face values depend on f.
+"""
+is_linear(op::AdvectionDiffusion) = !(is_nonlinear_scheme(op.p_scheme) || is_nonlinear_scheme(op.xi_scheme))
 
 """
     operator_matrix(op; backend=sparse_ad_backend(pattern=stencil_pattern(op.grid)))
@@ -131,7 +161,10 @@ function operator_matrix(op; backend=nothing, check_local::Bool=true)
                             "stencil pattern would silently corrupt the matrix. Apply it " *
                             "matrix-free instead."))
     end
-    backend = something(backend, sparse_ad_backend(pattern=stencil_pattern(op.grid)))
+    op isa AdvectionDiffusion && !is_linear(op) &&
+        throw(ArgumentError("the operator uses a flux limiter and is nonlinear in f; it has no matrix " *
+                            "(its Jacobian depends on f: use jacobian! of an EquationSystem)"))
+    backend = something(backend, sparse_ad_backend(pattern=stencil_pattern(op)))
     residual! = (df, f) -> (fill!(df, zero(eltype(df))); apply!(df, op, f))
     sj = SparseJacobian(residual!, op.grid; backend)
     return jacobian(sj, zeros(eltype(op.advection_p), size(op.grid)))

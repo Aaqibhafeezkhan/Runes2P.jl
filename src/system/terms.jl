@@ -123,11 +123,20 @@ end
 function sparsity!(entries, term::FokkerPlanckTerm, layout, row)
     id = unknown_id(layout, term.unknown)
     np, nxi, nr = size(term.operator.grid)
+    p_width = stencil_half_width(term.operator.p_scheme)
+    xi_width = stencil_half_width(term.operator.xi_scheme)
     for ir in 1:nr, j in 1:nxi, i in 1:np
         r = _kinetic_index(layout, row, ir, i, j)
         for dj in -1:1, di in -1:1
             (1 <= i + di <= np && 1 <= j + dj <= nxi) || continue
             push!(entries, (r, _kinetic_index(layout, id, ir, i + di, j + dj)))
+        end
+        # the second neighbours of the four-point schemes
+        for d in 2:p_width, s in (-d, d)
+            1 <= i + s <= np && push!(entries, (r, _kinetic_index(layout, id, ir, i + s, j)))
+        end
+        for d in 2:xi_width, s in (-d, d)
+            1 <= j + s <= nxi && push!(entries, (r, _kinetic_index(layout, id, ir, i, j + s)))
         end
         for dr in (-1, 1)
             1 <= ir + dr <= nr || continue

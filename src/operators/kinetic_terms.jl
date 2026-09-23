@@ -116,17 +116,21 @@ end
 
 """
     fokker_planck_operator(grid, plasma, settings; synchrotron=false, scheme=:central,
+                           p_scheme=scheme, xi_scheme=scheme,
                            p_upper_boundary=:f_zero, r_boundary=:zero_flux)
 
 Kinetic operator for the hot electrons: electric field, slowing down, pitch-angle
 scattering, energy diffusion (`:full` mode) and optionally synchrotron losses.
 The defaults match DREAM's hot-tail equation with centred interpolation and
 `f = 0` beyond `p_max`. `scheme` is one of the schemes of [`AdvectionDiffusion`](@ref);
-`:exponential_fitting` keeps f non-negative at every resolution.
+`:exponential_fitting` keeps f non-negative at every resolution;
+`p_scheme` and `xi_scheme` set the directions separately (DREAM's `adv_interp/p1` and
+`p2`), e.g. `p_scheme = :tcdf` for DREAM's TCDF limiter.
 """
 function fokker_planck_operator(grid::KineticGrid, plasma::PlasmaState,
                                 settings::CollisionSettings=CollisionSettings();
                                 synchrotron::Bool=false, scheme::Symbol=:central,
+                                p_scheme::Symbol=scheme, xi_scheme::Symbol=scheme,
                                 p_upper_boundary::Symbol=:f_zero, r_boundary::Symbol=:zero_flux)
     radial_cell_count(plasma) == radial_cell_count(grid) ||
         throw(DimensionMismatch("plasma and grid radii differ"))
@@ -135,7 +139,7 @@ function fokker_planck_operator(grid::KineticGrid, plasma::PlasmaState,
     pitch_cell_count(grid) > 1 ||
         throw(ArgumentError("the reduced equation (one pitch cell) is not implemented"))
     collisions = CollisionModel(plasma, settings)
-    op = AdvectionDiffusion(grid; scheme, p_upper_boundary, r_boundary)
+    op = AdvectionDiffusion(grid; scheme, p_scheme, xi_scheme, p_upper_boundary, r_boundary)
     add_electric_field!(op, plasma)
     add_slowing_down!(op, collisions)
     add_pitch_scattering!(op, collisions)

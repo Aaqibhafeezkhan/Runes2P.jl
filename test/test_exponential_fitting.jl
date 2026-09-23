@@ -82,7 +82,8 @@ negative_couplings(L) = (IJV = findnz(L); count(k -> IJV[1][k] != IJV[2][k] && I
 
     @testset "backward Euler keeps f non-negative" begin
         # a 1 keV Maxwellian relaxing on a 100 eV plasma with E = 1 V/m, 40 steps of 50 μs,
-        # on the grid of runaway/basic.py (observed with central: 194 negative cells)
+        # on the grid of runaway/basic.py (observed with central: 26 112 negative values
+        # over the saved states, 194 in the final one)
         function relax(scheme)
             g, op = iter_plasma_operator(basic_grid, 100.0, 1.0; scheme)
             layout = UnknownLayout(g.radial_grid, [KineticUnknown(:hot_tail_distribution, g; scale=1e20)])
