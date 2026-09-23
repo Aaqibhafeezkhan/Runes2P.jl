@@ -29,19 +29,29 @@ Sparsity pattern of the local transport operators: the 3×3 `(p, ξ)` neighbourh
 (including the p-ξ cross terms), the cells up to `p_width` away in p and `xi_width` away
 in ξ along the axes (2 for the four-point schemes), and the two radial neighbours of each
 cell. For an operator, the widths follow its schemes; with `p_upper_boundary =
-:extrapolated_flux` the last momentum row is additionally coupled up to 3 cells away in p
-along `j` (the extrapolated flux uses the last two interior faces; its
-second term has no p-ξ cross contribution).
+:extrapolated_flux` or `:extrapolated_flux_consistent` the last momentum row is
+additionally coupled up to 3 cells away in p along `j` (the extrapolated flux uses the
+last two interior faces), and, for `:extrapolated_flux_consistent` only,
+diagonally to `(np - 2, j ± 1)` through its second term's p-ξ cross contribution
+(`:extrapolated_flux`'s second term has none).
 """
 function stencil_pattern(op::AdvectionDiffusion)
     pattern = stencil_pattern(op.grid; p_width=stencil_half_width(op.p_scheme), xi_width=stencil_half_width(op.xi_scheme))
-    op.p_upper_boundary === :extrapolated_flux || return pattern
+    op.p_upper_boundary in (:extrapolated_flux, :extrapolated_flux_consistent) || return pattern
     np, nxi, nr = size(op.grid)
     index = LinearIndices((np, nxi, nr))
     rows = Int[]
     columns = Int[]
-    for ir in 1:nr, j in 1:nxi, d in 1:3
-        np - d >= 1 && (push!(rows, index[np, j, ir]); push!(columns, index[np-d, j, ir]))
+    for ir in 1:nr, j in 1:nxi
+        for d in 1:3
+            np - d >= 1 && (push!(rows, index[np, j, ir]); push!(columns, index[np-d, j, ir]))
+        end
+        if op.p_upper_boundary === :extrapolated_flux_consistent
+            for s in (-1, 1)
+                np >= 2 && 1 <= j + s <= nxi &&
+                    (push!(rows, index[np, j, ir]); push!(columns, index[np-2, j+s, ir]))
+            end
+        end
     end
     extra = sparse(rows, columns, trues(length(rows)), np * nxi * nr, np * nxi * nr)
     return pattern .| extra

@@ -33,7 +33,14 @@ Boundary conditions:
   from DREAM `PXiExternalLoss.cpp`, including an apparent index inconsistency: both terms
   share the last interior face's `𝒱'` and are
   multiplied by that face's own `Aᵖ`, while the second term's interpolation (upstream
-  direction and weights) and diffusion coefficient are the second-to-last face's own.
+  direction and weights) and diffusion coefficient are the second-to-last face's own; or
+  `:extrapolated_flux_consistent`, `𝒱'Γᵖ` linearly extrapolated with every face's own `𝒱'`
+  and `Γᵖ` throughout, matching DREAM's stated definition of `BC_DPHI_CONST` ("dΦ/dp
+  constant", `Φ = 𝒱'Γᵖ`) rather than its code, which besides the `Aᵖ` index above also
+  shares one `𝒱'` between the two terms (needs at least 3 momentum
+  cells). Runes2P departure: DREAM comparisons keep `:extrapolated_flux` so they stay exact to
+  round-off; new Runes2P setups that want `BC_DPHI_CONST`'s extrapolation without reproducing
+  DREAM's apparent bugs should use this instead.
 - `r = a` (`r_boundary`): `:zero_flux`, or `:absorbing` (`f = 0` on the wall face).
 
 Schemes (`scheme`), for the advection and diffusion along each direction between two cell
@@ -115,7 +122,8 @@ function AdvectionDiffusion(grid::KineticGrid{T}; scheme::Symbol=:upwind, p_sche
         throw(ArgumentError("scheme $r_scheme is not available in r (four-point schemes need radial transport)"))
     p_lower_boundary in (:zero_flux, :prescribed) ||
         throw(ArgumentError("unknown lower p boundary condition $p_lower_boundary"))
-    p_upper_boundary in (:outflow, :f_zero, :constant_flux, :extrapolated_flux) ||
+    p_upper_boundary in (:outflow, :f_zero, :constant_flux, :extrapolated_flux,
+                        :extrapolated_flux_consistent) ||
         throw(ArgumentError("unknown upper p boundary condition $p_upper_boundary"))
     np, nxi, nr = size(grid)
     if p_upper_boundary === :constant_flux && np < 2
@@ -126,6 +134,9 @@ function AdvectionDiffusion(grid::KineticGrid{T}; scheme::Symbol=:upwind, p_sche
         p_scheme === :exponential_fitting &&
             throw(ArgumentError("extrapolated_flux has no exponential_fitting counterpart in DREAM " *
                                 "(BC_DPHI_CONST); its flux does not split into Aᵖ times a face value"))
+    end
+    if p_upper_boundary === :extrapolated_flux_consistent && np < 3
+        throw(ArgumentError("extrapolated_flux_consistent p_max boundary needs at least 3 momentum cells"))
     end
     has_shared_momentum_grid(grid) ||
         throw(ArgumentError("AdvectionDiffusion needs one momentum grid for all radii (radial " *
@@ -305,6 +316,15 @@ Base.@propagate_inbounds function _p_flux(op::AdvectionDiffusion, f, k, j, ir, s
                                 op.diffusion_p_p[np-1, j, ir] * (f[np-1, j, ir] - f[np-2, j, ir]) / distance_prev
             dd = m.p_widths[np] / m.p_widths[np-1]
             return op.jacobian_p_faces[np, j, ir] * ((1 + dd) * gamma_last - dd * gamma_prev_dream)
+        elseif op.p_upper_boundary === :extrapolated_flux_consistent
+            # linear extrapolation of 𝒱'Γᵖ (DREAM's own "dΦ/dp constant", Φ = 𝒱'Γᵖ) using
+            # each face's own 𝒱' and Γᵖ throughout, unlike DREAM's code (which
+            # also shares one 𝒱' between the two terms, a second deviation from its
+            # stated definition beside the Aᵖ index)
+            phi_last = _p_flux(op, f, np, j, ir, state)
+            phi_prev = _p_flux(op, f, np - 1, j, ir, state)
+            dd = m.p_widths[np] / m.p_widths[np-1]
+            return (1 + dd) * phi_last - dd * phi_prev
         elseif op.p_upper_boundary === :f_zero && np > 1
             distance = m.p_centers[np] - m.p_centers[np-1]
             if op.p_scheme === :exponential_fitting
