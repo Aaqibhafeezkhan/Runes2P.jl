@@ -167,9 +167,12 @@ end
 
 """
     is_linear(op)
+    is_linear(term)
 
 Whether the operator is linear in f (up to a constant source); false for flux-limiter
-schemes, whose face values depend on f.
+schemes, whose face values depend on f. For an [`EquationTerm`](@ref): whether the term
+is linear in the state up to a constant (`false` by default; terms opt in), which lets
+[`NewtonSolver`](@ref) accept a step of a linear system after one iteration.
 """
 is_linear(op::AdvectionDiffusion) = !(is_nonlinear_scheme(op.p_scheme) || is_nonlinear_scheme(op.xi_scheme))
 

@@ -28,7 +28,8 @@ RadiusBlockILU(; drop_tolerance::Real=1e-4) = RadiusBlockILU(Float64(drop_tolera
 
 """
     GMRES(; preconditioner=RadiusBlockLU(), relative_tolerance=1e-10, max_iterations=200,
-          restart_length=30, preconditioner_refresh=:every_iteration, refresh_iterations=10)
+          restart_length=30, preconditioner_refresh=:every_iteration, refresh_iterations=10,
+          operator=:exact)
 
 Newton-Krylov linear solver: restarted GMRES (Krylov.jl) on the scaled Newton operator
 `W (M/dt - J) S`, where `J` is the stored Jacobian plus the implicit matrix-free terms,
@@ -37,6 +38,13 @@ right preconditioned by `preconditioner` (a [`RadiusBlockLU`](@ref) or
 GMRES minimizes is the true residual of the scaled system; a solve succeeds when
 `‖b - A x‖ ≤ relative_tolerance ‖b‖` within `max_iterations` iterations, and otherwise
 the Newton iteration fails with `:linear_solve_failed`.
+
+`operator` sets what `J` is for terms whose stored block is an approximation of their
+Jacobian ([`jacobian_kind`](@ref)): `:exact` adds their
+[`jacobian_correction_product!`](@ref) to every product, so Newton is exact and the
+approximate block only preconditions; `:stored` uses the stored matrix as it is, a
+quasi-Newton iteration (DREAM's `AD_INTERP_JACOBIAN_LINEAR` and `UPWIND`). Without such
+terms the two are the same.
 
 `preconditioner_refresh` sets when the preconditioner is factorized again:
 
@@ -58,13 +66,15 @@ Base.@kwdef struct GMRES{P<:BlockPreconditioner} <: LinearSolver
     restart_length::Int = 30
     preconditioner_refresh::Symbol = :every_iteration
     refresh_iterations::Int = 10
+    operator::Symbol = :exact
 end
 
 requires_stored_jacobian(::GMRES) = false
 
 # The scaled Newton operator A v = matrix v - W (J_mf (S v)), with `matrix` the scaled
 # stored part W (M/dt - J) S and J_mf the products of the implicit matrix-free terms at
-# the current iterate.
+# the current iterate, plus, with `exact`, the corrections of the terms whose stored
+# block is approximate.
 mutable struct NewtonOperator{T,S<:EquationSystem}
     const matrix::SparseMatrixCSC{T,Int}
     const system::S
@@ -73,6 +83,7 @@ mutable struct NewtonOperator{T,S<:EquationSystem}
     const state::Vector{T}
     const scaled_input::Vector{T}
     const product::Vector{T}
+    const exact::Bool
     time::T
 end
 
@@ -83,10 +94,13 @@ Base.eltype(::NewtonOperator{T}) where {T} = T
 function LinearAlgebra.mul!(y::AbstractVector, op::NewtonOperator, v::AbstractVector)
     mul!(y, op.matrix, v)
     system = op.system
-    isempty(system.matrix_free_terms) && return y
+    corrections = op.exact && !isempty(system.correction_terms)
+    isempty(system.matrix_free_terms) && !corrections && return y
     @. op.scaled_input = op.scales * v
     fill!(op.product, zero(eltype(op.product)))
     _add_products!(op.product, system.matrix_free_terms, op.state, op.scaled_input, system.layout, op.time)
+    corrections && _add_corrections!(op.product, system.correction_terms, op.state, op.scaled_input, system.layout,
+                                     op.time)
     @. y -= op.row_weights * op.product
     return y
 end
@@ -189,14 +203,16 @@ end
 krylov_iterations(cache::GMRESCache) = cache.iterations
 preconditioner_updates(cache::GMRESCache) = cache.updates
 linear_tolerance(cache::GMRESCache) = cache.solver.relative_tolerance
+newton_operator_exact(cache::GMRESCache) = cache.solver.operator === :exact
 
 function linear_solver_cache(solver::GMRES, matrix::SparseMatrixCSC{T}, system::EquationSystem,
                              row_weights, scales) where {T}
     solver.preconditioner_refresh in (:every_iteration, :every_step, :on_demand) ||
         throw(ArgumentError("unknown preconditioner_refresh $(solver.preconditioner_refresh)"))
+    solver.operator in (:exact, :stored) || throw(ArgumentError("operator must be :exact or :stored"))
     n = size(matrix, 1)
     operator = NewtonOperator(matrix, system, row_weights, scales, zeros(T, n), zeros(T, n), zeros(T, n),
-                              zero(T))
+                              solver.operator === :exact, zero(T))
     factors = BlockFactors(solver.preconditioner, matrix, system.layout)
     workspace = GmresWorkspace(n, n, Vector{T}; memory=solver.restart_length)
     return GMRESCache(solver, operator, factors, workspace, 0, 0, false, NaN, 0)

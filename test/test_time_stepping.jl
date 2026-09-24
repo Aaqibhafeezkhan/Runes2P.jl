@@ -98,7 +98,9 @@ square_root_step(u0, k, dt) = ((-k * dt + sqrt((k * dt)^2 + 4u0)) / 2)^2
         @test result.status === :converged
         @test u[1] ≈ 200.0 rtol = 1e-12
         @test result.smallest_step_length == 1.0
-        @test result.iterations == 2
+        # a linear system: the solve and the check of its update, accepted without the
+        # residual test
+        @test result.iterations == 2 && result.linear_step
 
         # decay by a factor 1000: the limit lets each iteration remove at most 90% of the
         # distance to zero, so a few more iterations, never below zero
@@ -218,6 +220,7 @@ square_root_step(u0, k, dt) = ((-k * dt + sqrt((k * dt)^2 + 4u0)) / 2)^2
         @test all(stats.accepted)
         @test all(==(:converged), stats.status)
         @test all(==(2), stats.newton_iterations)
+        @test all(stats.accepted_as_linear)
         @test all(==(0), stats.krylov_iterations)
         @test length(stats.iteration_attempt) == sum(stats.newton_iterations)
         @test stats.iteration_attempt == repeat(1:length(times)-1, inner=2)

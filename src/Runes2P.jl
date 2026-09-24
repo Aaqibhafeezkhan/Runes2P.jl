@@ -39,7 +39,7 @@ export KineticGrid, cylindrical_grid, density, total_particles, has_shared_momen
 export phase_space_jacobian, phase_space_jacobian_p_faces, phase_space_jacobian_xi_faces
 export phase_space_jacobian_r_faces, phase_space_jacobian_over_p2_at_zero
 export momentum_cell_count, pitch_cell_count, radial_cell_count, cell_count
-export AdvectionDiffusion, apply!, momentum_flux
+export AdvectionDiffusion, apply!, momentum_flux, with_scheme
 export Constants, IonSpecies, PlasmaState, free_electron_density, bound_electron_density
 export coulomb_logarithm, thermal_coulomb_logarithm, relativistic_coulomb_logarithm
 export CollisionSettings, CollisionModel, slowing_down_frequency, deflection_frequency
@@ -61,9 +61,10 @@ export ScalarUnknown, RadialUnknown, KineticUnknown, LowerLimit, UnknownLayout
 export unknown_id, unknown_names, unknown, unknown_range, radius_block_range, scalar_block_range
 export radial_view, kinetic_view, scalar_view, unknown_view, unknown_scales, describe, copy_unknowns!
 export EquationTerm, dependencies, coupling, treatment, sparsity!, rhs!, jacobian_vector_product!
-export FokkerPlanckTerm, PrescribedFokkerPlanckTerm, FluxCorrectionTerm, KnockOnTerm, LinearTerm, DensityMomentTerm, MaxwellianSourceTerm, LayoutKineticArray, kinetic_array
+export jacobian_kind, jacobian_correction_product!, is_linear
+export FokkerPlanckTerm, PrescribedFokkerPlanckTerm, KnockOnTerm, LinearTerm, DensityMomentTerm, MaxwellianSourceTerm, LayoutKineticArray, kinetic_array
 export Equation, TimeDerivative, Algebraic, EquationSystem, Tolerance, tolerance
-export residual!, mass_matrix, jacobian_sparsity, jacobian_prototype, jacobian_operator, residual_scales, ode_function
+export residual!, mass_matrix, jacobian_sparsity, jacobian_prototype, jacobian_operator, jacobian_colors, residual_scales, ode_function
 export LinearSolver, SparseLU, GMRES, RadiusBlockLU, RadiusBlockILU, NewtonSolver, NewtonWorkspace, NewtonResult, newton_solve!
 export SolverStatistics, TimeSolution, TimeStepFailure, integrate, write_output
 

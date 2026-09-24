@@ -19,8 +19,13 @@ Supertype of the terms of an [`Equation`](@ref). A term implements
   add `(∂ rhs_term / ∂u) v` to `out`;
 
 and optionally `treatment(term)` (`:implicit` by default; `:explicit` terms are evaluated
-at the previous time level and contribute nothing to the Jacobian) and
-`validate(term, layout, row)` (checks against the layout, run when the system is built).
+at the previous time level and contribute nothing to the Jacobian),
+`validate(term, layout, row)` (checks against the layout, run when the system is built),
+[`is_linear`](@ref)`(term)` (`false` by default: whether the term is linear in the state,
+up to a constant, which lets a linear system accept a Newton step after one iteration)
+and, for `:sparse` terms whose stored block is an approximation of their Jacobian
+(a quasi-Newton matrix), [`jacobian_kind`](@ref)`(term) === :approximate`
+with [`jacobian_correction_product!`](@ref) supplying the difference to the exact product.
 """
 abstract type EquationTerm end
 
@@ -28,6 +33,30 @@ function dependencies end
 coupling(::EquationTerm) = :sparse
 treatment(::EquationTerm) = :implicit
 validate(::EquationTerm, layout, row) = nothing
+
+"""
+    jacobian_kind(term)
+
+`:exact` (default) when the stored Jacobian block of a `:sparse` term is the derivative
+of its residual, `:approximate` when it is a cheaper matrix (a frozen limiter, another
+scheme's Jacobian, [`FokkerPlanckTerm`](@ref)). With an approximate block the Newton
+iteration on the stored matrix converges linearly (a quasi-Newton method), which
+[`NewtonSolver`](@ref) accounts for; [`GMRES`](@ref)`(operator=:exact)` restores the
+exact Newton operator through [`jacobian_correction_product!`](@ref).
+"""
+jacobian_kind(::EquationTerm) = :exact
+
+"""
+    jacobian_correction_product!(out, term, u, v, layout, row, t)
+
+For a `:sparse` term with `jacobian_kind(term) === :approximate`: add `(J_exact - J_stored) v`
+to `out`, the difference between the exact Jacobian-vector product of the term's
+residual and the product of its stored block, both at the state `u`. Nothing for exact
+terms.
+"""
+jacobian_correction_product!(out, ::EquationTerm, u, v, layout, row, t) = out
+
+is_linear(::EquationTerm) = false
 
 """
     LayoutKineticArray
@@ -82,18 +111,76 @@ end
     layout.offsets[id, ir] + i + (j - 1) * layout.shapes[id, ir][1]
 
 """
-    FokkerPlanckTerm(unknown, operator::AdvectionDiffusion)
+    FokkerPlanckTerm(unknown, operator::AdvectionDiffusion; jacobian=:exact)
 
 Advection-diffusion (Fokker-Planck) operator applied to the kinetic unknown `unknown`,
 added to the equation of the row unknown (normally the same). Stored sparse, with the
-3×3 `(p, ξ)` stencil and the two radial neighbours. Needs a shared momentum grid.
+3×3 `(p, ξ)` stencil, the second neighbours of the four-point schemes and the two radial
+neighbours. Needs a shared momentum grid.
+
+`jacobian` selects what the stored Jacobian block holds for a flux-limiter scheme (DREAM's
+`ad_jac` setting of `AdvectionInterpolation`). The residual is always the operator's own, so
+every mode converges to the same solution:
+
+- `:exact`: the Jacobian of the residual by colored forward-mode AD, including the
+  limiter's derivative ψ′ (DREAM `AD_INTERP_JACOBIAN_FULL`, which carries ψ′ only for the
+  limiters DREAM counts as smooth);
+- `:frozen_limiter`: the limiter weights frozen at the iterate and differentiated as
+  constants (`apply!(...; limiter_state)`, DREAM `AD_INTERP_JACOBIAN_LINEAR`);
+- a linear scheme name (`:upwind`, `:central`, `:exponential_fitting`, `:quick`,
+  `:upwind_second_order`): the Jacobian of the operator with that scheme in p and ξ
+  ([`with_scheme`](@ref); `:upwind` is DREAM `AD_INTERP_JACOBIAN_UPWIND`), with that
+  scheme's stencil (3-point for the two-point schemes).
+
+For a scheme linear in `f` the frozen limiter is the exact Jacobian, and another linear
+scheme's is still a different matrix (upwind's for a central residual, DREAM #126).
+With an approximate block the term declares [`jacobian_kind`](@ref)`(term) === :approximate`: the Newton iteration on the
+stored matrix is a quasi-Newton one that converges linearly, or, with
+[`GMRES`](@ref)`(operator=:exact)`, the stored block only preconditions the exact Newton
+operator ([`jacobian_correction_product!`](@ref), one dual-number pass of the operator
+per product).
 """
+struct JacobianCorrectionTag end
+
 struct FokkerPlanckTerm{T} <: EquationTerm
     unknown::Symbol
     operator::AdvectionDiffusion{T}
+    jacobian::Symbol
+    stored_operator::AdvectionDiffusion{T}   # the operator whose (frozen) derivative is the stored block
+    values::Array{T,3}                       # the iterate's values (frozen limiter, corrections)
+    correction::Array{T,3}
+    dual_input::Array{ForwardDiff.Dual{JacobianCorrectionTag,T,1},3}
+    dual_output::Array{ForwardDiff.Dual{JacobianCorrectionTag,T,1},3}
+end
+
+const LINEAR_JACOBIAN_SCHEMES = (:upwind, :central, :exponential_fitting, :quick, :upwind_second_order)
+
+function FokkerPlanckTerm(unknown::Symbol, operator::AdvectionDiffusion{T}; jacobian::Symbol=:exact) where {T}
+    stored = if jacobian in (:exact, :frozen_limiter)
+        operator
+    elseif jacobian in LINEAR_JACOBIAN_SCHEMES
+        with_scheme(operator, jacobian)
+    else
+        throw(ArgumentError("jacobian must be :exact, :frozen_limiter or a linear scheme " *
+                            "($(join(LINEAR_JACOBIAN_SCHEMES, ", "))), not $jacobian"))
+    end
+    dims = _jacobian_kind(jacobian, operator, stored) === :approximate ? size(operator.grid) : (0, 0, 0)
+    D = ForwardDiff.Dual{JacobianCorrectionTag,T,1}
+    return FokkerPlanckTerm{T}(unknown, operator, jacobian, stored, zeros(T, dims), zeros(T, dims),
+                               zeros(D, dims), zeros(D, dims))
+end
+
+# a frozen limiter of a linear scheme is the exact derivative; another scheme's Jacobian
+# is exact only when it is the operator's own scheme
+function _jacobian_kind(jacobian, operator, stored)
+    jacobian === :exact && return :exact
+    jacobian === :frozen_limiter && return is_linear(operator) ? :exact : :approximate
+    return (stored.p_scheme, stored.xi_scheme) == (operator.p_scheme, operator.xi_scheme) ? :exact : :approximate
 end
 
 dependencies(term::FokkerPlanckTerm) = [term.unknown]
+jacobian_kind(term::FokkerPlanckTerm) = _jacobian_kind(term.jacobian, term.operator, term.stored_operator)
+is_linear(term::FokkerPlanckTerm) = is_linear(term.operator)
 
 function validate(term::FokkerPlanckTerm, layout, row)
     id = unknown_id(layout, term.unknown)
@@ -112,19 +199,42 @@ function rhs!(out, term::FokkerPlanckTerm, u, layout, row, t)
     if _equally_spaced(layout.radius_offsets[row]) && _equally_spaced(layout.radius_offsets[id])
         # equally spaced radius blocks (the usual case) index by arithmetic instead of a load
         np, nxi = layout.shapes[id, 1]
-        apply!(LayoutKineticArray(out, _offset_range(layout, row), np, nxi), term.operator,
-               LayoutKineticArray(u, _offset_range(layout, id), np, nxi))
+        _fokker_planck!(LayoutKineticArray(out, _offset_range(layout, row), np, nxi), term,
+                        LayoutKineticArray(u, _offset_range(layout, id), np, nxi))
     else
-        apply!(kinetic_array(out, layout, row), term.operator, kinetic_array(u, layout, id))
+        _fokker_planck!(kinetic_array(out, layout, row), term, kinetic_array(u, layout, id))
     end
     return out
 end
 
+# the operator on `f` into `df`, with the stored block's derivative for a dual state
+function _fokker_planck!(df, term::FokkerPlanckTerm, f)
+    if jacobian_kind(term) === :exact || !(eltype(f) <: ForwardDiff.Dual)
+        apply!(df, term.operator, f)
+    elseif term.jacobian === :frozen_limiter
+        # a dual state (Jacobian assembly): the limiter weights at the values, applied as
+        # constants; the value part is the full residual, since the weights at f are f's own
+        term.values .= _value.(f)
+        apply!(df, term.operator, f; limiter_state=term.values)
+    else
+        # the derivative of the other scheme, with the value part corrected to the
+        # operator's own residual (constant sources cancel in the difference)
+        apply!(df, term.stored_operator, f)
+        term.values .= _value.(f)
+        fill!(term.correction, zero(eltype(term.correction)))
+        apply!(term.correction, term.operator, term.values)
+        apply!(term.correction, term.stored_operator, term.values; scale=-1)
+        df .+= term.correction
+    end
+    return df
+end
+
 function sparsity!(entries, term::FokkerPlanckTerm, layout, row)
     id = unknown_id(layout, term.unknown)
-    np, nxi, nr = size(term.operator.grid)
-    p_width = stencil_half_width(term.operator.p_scheme)
-    xi_width = stencil_half_width(term.operator.xi_scheme)
+    op = term.stored_operator
+    np, nxi, nr = size(op.grid)
+    p_width = stencil_half_width(op.p_scheme)
+    xi_width = stencil_half_width(op.xi_scheme)
     for ir in 1:nr, j in 1:nxi, i in 1:np
         r = _kinetic_index(layout, row, ir, i, j)
         for dj in -1:1, di in -1:1
@@ -145,7 +255,7 @@ function sparsity!(entries, term::FokkerPlanckTerm, layout, row)
         # the extrapolated p_max boundary flux couples the last row up to 3 cells in p
         # (:extrapolated_flux's second term has no p-ξ cross contribution,
         # :extrapolated_flux_consistent's does)
-        pub = term.operator.p_upper_boundary
+        pub = op.p_upper_boundary
         if pub in (:extrapolated_flux, :extrapolated_flux_consistent) && i == np
             for d in 1:3
                 np - d >= 1 && push!(entries, (r, _kinetic_index(layout, id, ir, np - d, j)))
@@ -160,9 +270,36 @@ function sparsity!(entries, term::FokkerPlanckTerm, layout, row)
     return entries
 end
 
+# (J_exact - J_stored) v in one dual pass: the operator's directional derivative along v
+# minus the stored operator's (the frozen limiter's, or the other scheme's); allocation
+# free with the term's buffers
+function jacobian_correction_product!(out, term::FokkerPlanckTerm, u, v, layout, row, t)
+    jacobian_kind(term) === :approximate || return out
+    id = unknown_id(layout, term.unknown)
+    f, direction = kinetic_array(u, layout, id), kinetic_array(v, layout, id)
+    input, output = term.dual_input, term.dual_output
+    D = eltype(input)
+    @inbounds for k in CartesianIndices(input)
+        input[k] = D(f[k], ForwardDiff.Partials((direction[k],)))
+    end
+    fill!(output, zero(D))
+    apply!(output, term.operator, input)
+    if term.jacobian === :frozen_limiter
+        term.values .= f
+        apply!(output, term.operator, input; scale=-1, limiter_state=term.values)
+    else
+        apply!(output, term.stored_operator, input; scale=-1)
+    end
+    out_view = kinetic_array(out, layout, row)
+    @inbounds for k in CartesianIndices(output)
+        out_view[k] += ForwardDiff.partials(output[k], 1)
+    end
+    return out
+end
+
 """
     PrescribedFokkerPlanckTerm(unknown, operator::AdvectionDiffusion, plasma_at;
-                               settings=CollisionSettings(), synchrotron=false)
+                               settings=CollisionSettings(), synchrotron=false, jacobian=:exact)
 
 Fokker-Planck term whose collision coefficients follow a prescribed, time-dependent
 plasma state (a cooling plasma, `T(t)` prescribed since Runes2P has no
@@ -172,11 +309,10 @@ self-consistent temperature evolution yet). `plasma_at(t)` returns the [`PlasmaS
 unchanged). The rebuild is cached on `t`: colored AD calls `rhs!` once per colour at the
 same `t`, and the coefficients do not depend on the state `u`, so rebuilding once per
 distinct `t` is exact, not an approximation. Otherwise identical to
-[`FokkerPlanckTerm`](@ref), which it delegates to.
+[`FokkerPlanckTerm`](@ref)`(unknown, operator; jacobian)`, which it wraps (`term.inner`).
 """
 struct PrescribedFokkerPlanckTerm{T,F} <: EquationTerm
-    unknown::Symbol
-    operator::AdvectionDiffusion{T}
+    inner::FokkerPlanckTerm{T}
     plasma_at::F
     settings::CollisionSettings
     synchrotron::Bool
@@ -184,132 +320,34 @@ struct PrescribedFokkerPlanckTerm{T,F} <: EquationTerm
 end
 
 function PrescribedFokkerPlanckTerm(unknown::Symbol, operator::AdvectionDiffusion, plasma_at;
-                                    settings::CollisionSettings=CollisionSettings(), synchrotron::Bool=false)
-    return PrescribedFokkerPlanckTerm(unknown, operator, plasma_at, settings, synchrotron, Ref(NaN))
+                                    settings::CollisionSettings=CollisionSettings(), synchrotron::Bool=false,
+                                    jacobian::Symbol=:exact)
+    return PrescribedFokkerPlanckTerm(FokkerPlanckTerm(unknown, operator; jacobian), plasma_at, settings,
+                                      synchrotron, Ref(NaN))
 end
 
-dependencies(term::PrescribedFokkerPlanckTerm) = [term.unknown]
-validate(term::PrescribedFokkerPlanckTerm, layout, row) =
-    validate(FokkerPlanckTerm(term.unknown, term.operator), layout, row)
+dependencies(term::PrescribedFokkerPlanckTerm) = dependencies(term.inner)
+validate(term::PrescribedFokkerPlanckTerm, layout, row) = validate(term.inner, layout, row)
+jacobian_kind(term::PrescribedFokkerPlanckTerm) = jacobian_kind(term.inner)
+is_linear(term::PrescribedFokkerPlanckTerm) = is_linear(term.inner)
+sparsity!(entries, term::PrescribedFokkerPlanckTerm, layout, row) = sparsity!(entries, term.inner, layout, row)
 
 function _rebuild_at!(term::PrescribedFokkerPlanckTerm, t)
-    t == term.cached_t[] && return term.operator
-    set_fokker_planck_coefficients!(term.operator, term.plasma_at(t), term.settings; synchrotron=term.synchrotron)
+    t == term.cached_t[] && return term.inner.operator
+    set_fokker_planck_coefficients!(term.inner.operator, term.plasma_at(t), term.settings;
+                                    synchrotron=term.synchrotron)
     term.cached_t[] = t
-    return term.operator
+    return term.inner.operator
 end
 
 function rhs!(out, term::PrescribedFokkerPlanckTerm, u, layout, row, t)
     _rebuild_at!(term, t)
-    return rhs!(out, FokkerPlanckTerm(term.unknown, term.operator), u, layout, row, t)
+    return rhs!(out, term.inner, u, layout, row, t)
 end
 
-sparsity!(entries, term::PrescribedFokkerPlanckTerm, layout, row) =
-    sparsity!(entries, FokkerPlanckTerm(term.unknown, term.operator), layout, row)
-
-"""
-    FluxCorrectionTerm(unknown, full_operator, base_operator, plasma_at;
-                       settings=CollisionSettings(), synchrotron=false, jacobian=:zero)
-
-Adds `apply!(full_operator, f) - apply!(base_operator, f)` to the residual of `unknown`,
-matrix-free, with a Jacobian-vector product of exactly zero. Paired in the same equation
-with [`PrescribedFokkerPlanckTerm`](@ref)`(unknown, base_operator, plasma_at; settings,
-synchrotron)`, the two terms' residuals add to `full_operator`'s alone (the correction
-exactly cancels `base_operator`'s own contribution), while the Newton Jacobian is
-`base_operator`'s exact, stored one plus this term's zero: a modified/quasi-Newton
-strategy, the residual of one scheme solved with another, cheaper scheme's Jacobian
-(DREAM's `AD_INTERP_JACOBIAN_UPWIND` when `base_operator` uses `:upwind` and
-`full_operator` a flux limiter such as `:tcdf`). The residual is the
-true, nonlinear `full_operator` one, so Newton still converges to its tolerance, generally
-over more iterations since the Jacobian is only approximate; `base_operator`'s own term
-supplies the stored block the direct solver or `GMRES`'s `RadiusBlockLU` preconditioner
-factorizes, so the pair needs no solver changes. Needs `coupling(base_operator) === :sparse`,
-i.e. a linear scheme (not a flux limiter) for `base_operator`, so its own term's Jacobian
-is exact.
-
-`jacobian = :exact` gives the term the Jacobian-vector product of its own residual
-(`full_operator`'s minus `base_operator`'s, by forward-mode AD), so the Newton operator of
-`GMRES` is `full_operator`'s exact one while the stored block, which the preconditioner
-factorizes, stays `base_operator`'s: `base_operator` as a preconditioner for an exact
-Newton iteration of `full_operator` (e.g. `:van_albada` with an
-`:exponential_fitting` preconditioner). Needs `GMRES`; the direct solver refuses
-matrix-free terms either way. The `:exact` product allocates its dual-number arrays on
-every call: a benchmark device, not a production path.
-
-`full_operator`'s coefficients are rebuilt from `plasma_at(t)` and cached on `t`,
-independently of `base_operator`'s own term (each calls `plasma_at` once per distinct
-`t`); relies on `base_operator`'s term running first in the same `Equation` (the sparse
-terms, before the matrix-free ones, [`EquationSystem`](@ref)) so `base_operator` is
-already rebuilt at the same `t` when this term reads it.
-"""
-struct FluxCorrectionTerm{T,F} <: EquationTerm
-    unknown::Symbol
-    full_operator::AdvectionDiffusion{T}
-    base_operator::AdvectionDiffusion{T}
-    plasma_at::F
-    settings::CollisionSettings
-    synchrotron::Bool
-    jacobian::Symbol
-    cached_t::Base.RefValue{Float64}
-end
-
-function FluxCorrectionTerm(unknown::Symbol, full_operator::AdvectionDiffusion, base_operator::AdvectionDiffusion,
-                            plasma_at; settings::CollisionSettings=CollisionSettings(), synchrotron::Bool=false,
-                            jacobian::Symbol=:zero)
-    jacobian in (:zero, :exact) || throw(ArgumentError("jacobian must be :zero or :exact, not $jacobian"))
-    return FluxCorrectionTerm(unknown, full_operator, base_operator, plasma_at, settings, synchrotron, jacobian,
-                              Ref(NaN))
-end
-
-dependencies(term::FluxCorrectionTerm) = [term.unknown]
-coupling(::FluxCorrectionTerm) = :matrix_free
-validate(term::FluxCorrectionTerm, layout, row) =
-    validate(FokkerPlanckTerm(term.unknown, term.full_operator), layout, row)
-
-function _rebuild!(term::FluxCorrectionTerm, t)
-    if t != term.cached_t[]
-        set_fokker_planck_coefficients!(term.full_operator, term.plasma_at(t), term.settings;
-                                        synchrotron=term.synchrotron)
-        term.cached_t[] = t
-    end
-    return term
-end
-
-function rhs!(out, term::FluxCorrectionTerm, u, layout, row, t)
-    _rebuild!(term, t)
-    id = unknown_id(layout, term.unknown)
-    if _equally_spaced(layout.radius_offsets[row]) && _equally_spaced(layout.radius_offsets[id])
-        np, nxi = layout.shapes[id, 1]
-        f = LayoutKineticArray(u, _offset_range(layout, id), np, nxi)
-        out_view = LayoutKineticArray(out, _offset_range(layout, row), np, nxi)
-        apply!(out_view, term.full_operator, f)
-        apply!(out_view, term.base_operator, f; scale=-1)
-    else
-        f = kinetic_array(u, layout, id)
-        out_view = kinetic_array(out, layout, row)
-        apply!(out_view, term.full_operator, f)
-        apply!(out_view, term.base_operator, f; scale=-1)
-    end
-    return out
-end
-
-# with `jacobian = :zero` the base operator's own PrescribedFokkerPlanckTerm supplies the
-# (approximate) Jacobian and this correction contributes nothing to it; with `:exact` the
-# product is the directional derivative of the correction's residual along v
-struct FluxCorrectionTag end
-
-function jacobian_vector_product!(out, term::FluxCorrectionTerm, u, v, layout, row, t)
-    term.jacobian === :zero && return out
-    _rebuild!(term, t)
-    id = unknown_id(layout, term.unknown)
-    f, direction = kinetic_array(u, layout, id), kinetic_array(v, layout, id)
-    dual = ForwardDiff.Dual{FluxCorrectionTag}.(f, direction)
-    product = zeros(eltype(dual), size(dual))
-    apply!(product, term.full_operator, dual)
-    apply!(product, term.base_operator, dual; scale=-1)
-    out_view = kinetic_array(out, layout, row)
-    out_view .+= ForwardDiff.partials.(product, 1)
-    return out
+function jacobian_correction_product!(out, term::PrescribedFokkerPlanckTerm, u, v, layout, row, t)
+    _rebuild_at!(term, t)
+    return jacobian_correction_product!(out, term.inner, u, v, layout, row, t)
 end
 
 """
@@ -337,6 +375,8 @@ function KnockOnTerm(primary::Symbol, operator::KnockOnOperator; target_density,
     return KnockOnTerm(primary, operator, target_density, treatment)
 end
 
+# linear in the primary with a prescribed target density; bilinear when it is an unknown
+is_linear(term::KnockOnTerm) = !(term.target_density isa Symbol)
 dependencies(term::KnockOnTerm) =
     term.target_density isa Symbol ? [term.primary, term.target_density] : [term.primary]
 coupling(::KnockOnTerm) = :matrix_free
@@ -408,6 +448,7 @@ end
 LinearTerm(unknown::Symbol; coefficient::Real=1.0) = LinearTerm(unknown, Float64(coefficient))
 
 dependencies(term::LinearTerm) = [term.unknown]
+is_linear(::LinearTerm) = true
 
 function validate(term::LinearTerm, layout, row)
     id = unknown_id(layout, term.unknown)
@@ -456,6 +497,7 @@ end
 DensityMomentTerm(kinetic::Symbol; coefficient::Real=1.0) = DensityMomentTerm(kinetic, Float64(coefficient))
 
 dependencies(term::DensityMomentTerm) = [term.kinetic]
+is_linear(::DensityMomentTerm) = true
 
 function validate(term::DensityMomentTerm, layout, row)
     layout.kinds[unknown_id(layout, term.kinetic)] === :kinetic ||

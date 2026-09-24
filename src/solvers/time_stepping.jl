@@ -21,6 +21,8 @@ time array (DREAM #296):
   limits nor the line search shortened a step);
 - `accepted_at_residual_floor`: the step converged with its residual above
   `residual_tolerance`, at the round-off floor of a stiff step (see [`NewtonSolver`](@ref));
+- `accepted_as_linear`: the step was accepted after one Newton iteration as a linear
+  system (see [`NewtonSolver`](@ref));
 - `wall_time`: seconds spent in the step.
 
 The history of every Newton iteration is in `iteration_attempt` (index of the attempted
@@ -41,6 +43,7 @@ struct SolverStatistics
     convergence_order::Vector{Float64}
     smallest_step_length::Vector{Float64}
     accepted_at_residual_floor::Vector{Bool}
+    accepted_as_linear::Vector{Bool}
     wall_time::Vector{Float64}
     iteration_attempt::Vector{Int}
     iteration_residual_norm::Vector{Float64}
@@ -48,7 +51,7 @@ struct SolverStatistics
     iteration_step_length::Vector{Float64}
 end
 SolverStatistics() = SolverStatistics(Float64[], Float64[], Bool[], Symbol[], Int[], Int[], Int[], Float64[],
-                                      Float64[], Float64[], Float64[], Float64[], Bool[], Float64[], Int[],
+                                      Float64[], Float64[], Float64[], Float64[], Bool[], Bool[], Float64[], Int[],
                                       Float64[], Float64[], Float64[])
 
 function _record!(stats::SolverStatistics, t, dt, result::NewtonResult, ws::NewtonWorkspace, wall)
@@ -65,6 +68,7 @@ function _record!(stats::SolverStatistics, t, dt, result::NewtonResult, ws::Newt
     push!(stats.convergence_order, result.convergence_order)
     push!(stats.smallest_step_length, result.smallest_step_length)
     push!(stats.accepted_at_residual_floor, result.status === :converged && result.residual_floor)
+    push!(stats.accepted_as_linear, result.status === :converged && result.linear_step)
     push!(stats.wall_time, wall)
     attempt = length(stats.time)
     append!(stats.iteration_attempt, fill(attempt, length(ws.update_norms)))

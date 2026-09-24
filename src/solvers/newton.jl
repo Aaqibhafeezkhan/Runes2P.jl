@@ -6,7 +6,7 @@
 """
     NewtonSolver(; linear_solver=SparseLU(), max_iterations=30, max_reduction=0.9,
                  residual_tolerance=1e-8, floor_linear_tolerance=1e-8, line_search=false,
-                 sufficient_decrease=1e-4, max_backtracks=20)
+                 sufficient_decrease=1e-4, max_backtracks=20, linear_acceptance=true)
 
 Settings of the Newton iteration of a backward-Euler step.
 
@@ -24,7 +24,23 @@ Settings of the Newton iteration of a backward-Euler step.
   its error (an inexact Jacobian or linear solve, DREAM #262). An inexact linear solve
   with relative residual `η` contracts the error by about `η` per iteration, so the waiver
   applies only when the last linear solve was accurate to `floor_linear_tolerance`
-  (always true for direct solvers; for [`GMRES`](@ref) its `relative_tolerance`).
+  (always true for direct solvers; for [`GMRES`](@ref) its `relative_tolerance`), and
+  never when the Newton matrix is itself approximate (a term with
+  [`jacobian_kind`](@ref)`(term) === :approximate` solved on the stored matrix): such a
+  quasi-Newton iteration converges linearly by design, its residual falls by a constant
+  factor per iteration that the stall test would mistake for the floor, and only the
+  residual criterion holds it.
+- A system that is linear in the state (every implicit term [`is_linear`](@ref)) with
+  an exact Newton matrix and a linear solve accurate to `floor_linear_tolerance` is
+  accepted as soon as the update test passes, without the residual test
+  (`linear_acceptance`, flagged as `linear_step` in [`NewtonResult`](@ref)): the first
+  iteration solves the step, the second confirms it with an update at round-off, and
+  the residual is then at its round-off floor whatever it is, so the iterations that
+  would only establish the floor are saved (about three
+  iterations per step for exponential fitting). The second iteration is kept, since a
+  solve bounds the residual and not the error: accepting the first solve alone loses
+  its refinement on ill-conditioned steps (1e-6 observed). A step shortened by a lower
+  limit or the line search is not accepted this way.
 - Lower limits ([`LowerLimit`](@ref), declared on the unknowns) shorten the whole step so
   that no limited entry loses more than the fraction `max_reduction` of its distance to
   its limit in one iteration. Only steps towards the limit are shortened, never growth
@@ -46,6 +62,7 @@ Base.@kwdef struct NewtonSolver{L<:LinearSolver}
     line_search::Bool = false
     sufficient_decrease::Float64 = 1e-4
     max_backtracks::Int = 20
+    linear_acceptance::Bool = true
 end
 
 """
@@ -61,9 +78,10 @@ may exceed `residual_tolerance` on a stiff step, see [`NewtonSolver`](@ref)), th
 scaled norm `max |δ|/scale` of the last update, the estimated `convergence_order` (`NaN`
 when fewer than three updates are above round-off), the smallest step length used, the
 Krylov iterations and preconditioner factorizations summed over the iterations (0 for
-direct solvers) and `residual_floor`,
+direct solvers), `residual_floor`,
 true when the step converged with the residual above `residual_tolerance` because the
-residual had stopped decreasing.
+residual had stopped decreasing (or, for a linear step, was not checked against it), and
+`linear_step`, true when the step was accepted after one iteration as a linear system.
 """
 struct NewtonResult
     status::Symbol
@@ -76,6 +94,7 @@ struct NewtonResult
     krylov_iterations::Int
     preconditioner_updates::Int
     residual_floor::Bool
+    linear_step::Bool
 end
 
 """
@@ -83,11 +102,17 @@ end
 
 Buffers, tolerances, lower limits and the linear-solver cache for Newton iterations on
 `system`, reused over all time steps. The per-iteration history of the last solve is in
-the fields `residual_norms`, `update_norms` and `step_lengths`.
+the fields `residual_norms`, `update_norms` and `step_lengths`. `exact_jacobian` records
+whether the Newton matrix is the exact Jacobian (no term with an approximate stored
+block, or a linear solver whose operator restores it, [`GMRES`](@ref)`(operator=:exact)`),
+and `linear` whether the system is linear in the state and the matrix exact, so one
+iteration solves a step.
 """
 struct NewtonWorkspace{T,S<:EquationSystem,L,C}
     system::S
     solver::NewtonSolver{L}
+    exact_jacobian::Bool
+    linear::Bool
     residual::Vector{T}
     trial_residual::Vector{T}
     update::Vector{T}
@@ -149,7 +174,9 @@ function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver=NewtonS
     fill!(matrix.nzval, zero(T))
     matrix.nzval[diagonal_positions] .= one(T)
     cache = linear_solver_cache(solver.linear_solver, matrix, system, row_weights, scales)
-    return NewtonWorkspace(system, solver, zeros(T, n), zeros(T, n), zeros(T, n), zeros(T, n),
+    exact_jacobian = system.stored_jacobian_exact || newton_operator_exact(cache)
+    return NewtonWorkspace(system, solver, exact_jacobian, system.linear && exact_jacobian, zeros(T, n),
+                           zeros(T, n), zeros(T, n), zeros(T, n),
                            zeros(T, n), zeros(T, n), row_weights, scales, absolute, relative, jacobian,
                            matrix, diagonal_positions, limited, limit_tolerance, limit_reference, cache,
                            Float64[], Float64[], Float64[])
@@ -280,10 +307,11 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
     krylov = 0
     updates = 0
     smallest_step = 1.0
-    result(status, iterations, initial; residual_floor=false) =
+    result(status, iterations, initial; residual_floor=false, linear_step=false) =
         NewtonResult(status, iterations, initial, isempty(ws.residual_norms) ? initial : last(ws.residual_norms),
                      isempty(ws.update_norms) ? NaN : last(ws.update_norms),
-                     _convergence_order(ws.update_norms), smallest_step, krylov, updates, residual_floor)
+                     _convergence_order(ws.update_norms), smallest_step, krylov, updates, residual_floor,
+                     linear_step)
 
     status = _checked_residual!(ws.residual, u, u_old, system, t, dt)
     status === :ok || return result(status, 0, NaN)
@@ -316,8 +344,23 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
         push!(ws.update_norms, maximum(abs, ws.scaled_update))
         push!(ws.residual_norms, _residual_norm(ws, ws.residual))
         push!(ws.step_lengths, step)
+        residual_small = last(ws.residual_norms) <= solver.residual_tolerance
         update_converged = all(eachindex(u)) do i
             abs(ws.update[i]) <= ws.absolute[i] + ws.relative[i] * abs(u[i])
+        end
+        # A linear system with the exact matrix and an accurate solve: once the update
+        # (the error estimate of the previous iterate) passes, no further iteration can
+        # improve the state, and the residual is at its round-off floor whatever it is,
+        # so the residual test is not needed (it would only add the iterations that
+        # establish the floor). The update test itself stays: accepting the
+        # first solve alone loses the refinement the second iteration provides on
+        # ill-conditioned steps (errors of the condition number times the solve's
+        # accuracy, 1e-6 observed with a Krylov tolerance of 1e-10 and on a direct solve
+        # of a steady-state step).
+        if ws.linear && solver.linear_acceptance && step == 1 && update_converged &&
+           linear_tolerance(ws.cache) <= solver.floor_linear_tolerance
+            status = _below_lower_limit(ws, u) ? :below_lower_limit : :converged
+            return result(status, iteration, initial; residual_floor=!residual_small, linear_step=true)
         end
         # The residual of a stiff step has a round-off floor: F = M(u - u_old)/dt - rhs
         # cancels two terms of size dt‖L‖ times the unknown, so the scaled residual cannot
@@ -325,11 +368,11 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
         # Once the update is within tolerance and the residual has stopped decreasing, the
         # iteration has converged as far as the arithmetic allows.
         # An inexact linear solve converges linearly, with a small update that understates
-        # the error unless the solve was accurate (DREAM #262), so the waiver needs that.
+        # the error unless the solve was accurate (DREAM #262), so the waiver needs that;
+        # so does an approximate Newton matrix (a quasi-Newton iteration).
         residual_stalled = length(ws.residual_norms) > 1 &&
                            last(ws.residual_norms) >= 0.9 * ws.residual_norms[end-1] &&
-                           linear_tolerance(ws.cache) <= solver.floor_linear_tolerance
-        residual_small = last(ws.residual_norms) <= solver.residual_tolerance
+                           linear_tolerance(ws.cache) <= solver.floor_linear_tolerance && ws.exact_jacobian
         if update_converged && (residual_small || residual_stalled)
             status = _below_lower_limit(ws, u) ? :below_lower_limit : :converged
             return result(status, iteration, initial; residual_floor=!residual_small)

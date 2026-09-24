@@ -162,6 +162,32 @@ function AdvectionDiffusion(grid::KineticGrid{T}; scheme::Symbol=:upwind, p_sche
                                  stack(phase_space_jacobian_over_p2_at_zero(grid, ir) for ir in radii))
 end
 
+"""
+    with_scheme(op::AdvectionDiffusion, scheme; p_scheme=scheme, xi_scheme=scheme)
+
+The operator `op` with other interpolation schemes in p and ξ, sharing every coefficient
+array, boundary value and boundary condition with `op` (a rebuild of `op`'s coefficients,
+[`set_fokker_planck_coefficients!`](@ref), is seen by both). The radial scheme is
+unchanged. Used by the Jacobian modes of [`FokkerPlanckTerm`](@ref): the
+residual of one scheme with the stored Jacobian of another.
+"""
+function with_scheme(op::AdvectionDiffusion{T}, scheme::Symbol; p_scheme::Symbol=scheme,
+                     xi_scheme::Symbol=scheme) where {T}
+    for s in (p_scheme, xi_scheme)
+        s in (:upwind, :central, :exponential_fitting) || is_four_point_scheme(s) ||
+            throw(ArgumentError("unknown scheme $s"))
+    end
+    p_scheme === :exponential_fitting && op.p_upper_boundary === :extrapolated_flux &&
+        throw(ArgumentError("extrapolated_flux has no exponential_fitting counterpart in DREAM " *
+                            "(BC_DPHI_CONST); its flux does not split into Aᵖ times a face value"))
+    return AdvectionDiffusion{T}(op.grid, op.advection_p, op.diffusion_p_p, op.diffusion_p_xi, op.advection_xi,
+                                 op.diffusion_xi_xi, op.diffusion_xi_p, op.advection_r, op.diffusion_r_r,
+                                 op.p_flux_at_lower_boundary, op.advection_p_times_p2_at_zero, p_scheme, xi_scheme,
+                                 op.r_scheme, op.p_lower_boundary, op.p_upper_boundary, op.r_boundary, op.momentum,
+                                 op.jacobian_centers, op.jacobian_p_faces, op.jacobian_xi_faces, op.jacobian_r_faces,
+                                 op.jacobian_over_p2_at_zero)
+end
+
 @inline function _face_value(scheme, advection, f_left, f_right, weight_left)
     if scheme === :upwind
         return advection >= 0 ? f_left : f_right

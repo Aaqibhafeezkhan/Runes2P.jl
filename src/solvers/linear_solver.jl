@@ -27,7 +27,10 @@ terms. A solver implements
 - `krylov_iterations(cache)`, `preconditioner_updates(cache)`: Krylov iterations and
   preconditioner factorizations of the last solve (0 for direct solvers);
 - `linear_tolerance(cache)`: bound on the relative residual `‖b - A x‖/‖b‖` of the last
-  solve (0 for direct solvers), used by the residual-floor rule of the Newton iteration.
+  solve (0 for direct solvers), used by the residual-floor rule of the Newton iteration;
+- `newton_operator_exact(cache)`: whether the solver's Newton operator is the exact
+  Jacobian when the system has terms with an approximate stored block
+  ([`jacobian_kind`](@ref); false for solvers on the stored matrix alone).
 """
 abstract type LinearSolver end
 
@@ -50,6 +53,7 @@ requires_stored_jacobian(::SparseLU) = true
 krylov_iterations(::SparseLUCache) = 0
 preconditioner_updates(::SparseLUCache) = 0
 linear_tolerance(::SparseLUCache) = 0.0
+newton_operator_exact(::SparseLUCache) = false
 
 linear_solver_cache(::SparseLU, matrix::SparseMatrixCSC, system, row_weights, scales) =
     SparseLUCache(lu(matrix; check=false))

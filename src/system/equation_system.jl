@@ -4,6 +4,7 @@
 
 using LinearAlgebra: Diagonal
 using SparseArrays: nnz
+using SparseMatrixColorings: ncolors
 
 """
     TimeDerivative()
@@ -61,16 +62,25 @@ terms are split into three groups:
 - explicit terms, evaluated at the previous time level in [`residual!`](@ref) and absent
   from the Jacobian.
 
+Sparse terms whose stored block is an approximation ([`jacobian_kind`](@ref)`(term) ===
+:approximate`) are also listed in `correction_terms`;
+`stored_jacobian_exact` is false when there are any, and `linear` is true when every
+implicit term is linear in the state ([`is_linear`](@ref)), both read by the Newton
+iteration.
+
 `time_scale` [s] sets the scaling of differential rows ([`residual_scales`](@ref));
 `newton_tolerances` and `time_step_tolerances` map unknown names to [`Tolerance`](@ref)s
 (defaults from [`tolerance`](@ref)).
 """
-struct EquationSystem{T,S<:Tuple,M<:Tuple,X<:Tuple,F,P,B}
+struct EquationSystem{T,S<:Tuple,M<:Tuple,X<:Tuple,C<:Tuple,F,P,B}
     layout::UnknownLayout{T}
     equations::Vector{Equation}
     sparse_terms::S
     matrix_free_terms::M
     explicit_terms::X
+    correction_terms::C
+    stored_jacobian_exact::Bool
+    linear::Bool
     mass::Vector{T}
     pattern::SparseMatrixCSC{Bool,Int}
     sparse_rhs!::F
@@ -98,6 +108,13 @@ end
     bound = first(terms)
     jacobian_vector_product!(out, bound.term, u, v, layout, bound.row, t)
     return _add_products!(out, Base.tail(terms), u, v, layout, t)
+end
+
+@inline _add_corrections!(out, ::Tuple{}, u, v, layout, t) = out
+@inline function _add_corrections!(out, terms::Tuple, u, v, layout, t)
+    bound = first(terms)
+    jacobian_correction_product!(out, bound.term, u, v, layout, bound.row, t)
+    return _add_corrections!(out, Base.tail(terms), u, v, layout, t)
 end
 
 function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
@@ -148,6 +165,8 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
     end
     sparse_tuple, matrix_free_tuple, explicit_tuple = Tuple(sparse_terms), Tuple(matrix_free_terms),
                                                       Tuple(explicit_terms)
+    correction_tuple = Tuple(bound for bound in sparse_terms if jacobian_kind(bound.term) === :approximate)
+    linear = all(bound -> is_linear(bound.term), sparse_terms) && all(bound -> is_linear(bound.term), matrix_free_terms)
 
     # structural pattern of the stored Jacobian: the diagonal (for M/Δt) and the sparse terms
     n = length(layout)
@@ -173,7 +192,8 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
     nnz(prototype) == nnz(pattern) ||
         error("the Jacobian prototype lost structural entries ($(nnz(prototype)) of $(nnz(pattern)))")
     return EquationSystem(layout, collect(Equation, equations), sparse_tuple, matrix_free_tuple,
-                          explicit_tuple, mass, pattern, sparse_rhs!, preparation, backend, prototype,
+                          explicit_tuple, correction_tuple, isempty(correction_tuple), linear, mass, pattern,
+                          sparse_rhs!, preparation, backend, prototype,
                           time, buffer, zeros(T, n), T(time_scale), Dict{Symbol,Tolerance}(newton_tolerances),
                           Dict{Symbol,Tolerance}(time_step_tolerances))
 end
@@ -234,11 +254,20 @@ jacobian_sparsity(system::EquationSystem) = system.pattern
 jacobian_prototype(system::EquationSystem) = copy(system.prototype)
 
 """
+    jacobian_colors(system)
+
+Number of colors of the stored Jacobian's column coloring: the number of directional
+derivatives (dual-number passes over the sparse terms) one [`jacobian!`](@ref) costs.
+"""
+jacobian_colors(system::EquationSystem) = ncolors(system.preparation.coloring_result)
+
+"""
     jacobian!(J, system::EquationSystem, u, t)
 
 Values of the stored Jacobian `∂rhs/∂u` of the implicit `:sparse` terms at `(u, t)`, into
-`J` (from [`jacobian_prototype`](@ref)), by colored forward-mode AD. Matrix-free and
-explicit terms are not included.
+`J` (from [`jacobian_prototype`](@ref)), by colored forward-mode AD; for terms with an
+approximate Jacobian ([`jacobian_kind`](@ref)) their stored block, not the derivative.
+Matrix-free and explicit terms are not included.
 """
 function jacobian!(J::SparseMatrixCSC, system::EquationSystem, u::AbstractVector, t)
     system.time[] = t
@@ -251,18 +280,21 @@ end
 
 `∂rhs/∂u` at `(u, t)` as a linear operator: the stored matrix `J` (from
 [`jacobian!`](@ref) at the same point) plus the products of the implicit matrix-free
-terms. `u` is referenced, not copied. The products go through a buffer owned by the
+terms and the corrections of the terms with an approximate stored block
+([`jacobian_correction_product!`](@ref)), so the operator is the exact Jacobian whatever
+the stored blocks hold. `u` is referenced, not copied. The products go through a buffer owned by the
 system, shared by all operators of the same system, so they must not be applied
 concurrently. The Newton-Krylov solver [`GMRES`](@ref) builds its own operator.
 """
 function jacobian_operator(J::SparseMatrixCSC{T}, system::EquationSystem, u::AbstractVector, t) where {T}
     stored = LinearOperator(J)
-    isempty(system.matrix_free_terms) && return stored
+    isempty(system.matrix_free_terms) && isempty(system.correction_terms) && return stored
     n = length(system.layout)
     product = system.product
     function matrix_free!(result, v, a, b)
         fill!(product, zero(T))
         _add_products!(product, system.matrix_free_terms, u, v, system.layout, t)
+        _add_corrections!(product, system.correction_terms, u, v, system.layout, t)
         if iszero(b)
             result .= a .* product
         else
