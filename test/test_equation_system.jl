@@ -77,7 +77,9 @@ end
     plasma = PlasmaState(cold_electron_temperature=[100.0, 300.0],
                          ions=[IonSpecies("D", 1, 1, [1e20, 5e19])],
                          electric_field=[5.0, 2.0], magnetic_field=[5.0, 5.0])
-    fp = fokker_planck_operator(g, plasma; synchrotron=true)
+    # a scheme linear in f: the finite-difference Jacobian reference below is exact only
+    # where the operator is smooth, which a limiter is not at random states
+    fp = fokker_planck_operator(g, plasma; synchrotron=true, scheme=:exponential_fitting)
     knockon = KnockOnOperator(g, g, 0.2)
     layout = UnknownLayout(rad, [KineticUnknown(:hot_tail_distribution, g; scale=1e16),
                                  RadialUnknown(:total_electron_density; scale=1e20),

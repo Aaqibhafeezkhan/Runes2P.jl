@@ -39,11 +39,22 @@ end
         settings = CollisionSettings(mode=:full, screening=:complete)
         cm = CollisionModel(plasma, settings)
         @test p3_slowing_down_frequency_at_zero(cm, 1) == 0
+        # centred interpolation, second order; the default van Albada limiter is below,
+        # exponential fitting in test_exponential_fitting.jl
         errs = Float64[]
+        errs_van_albada = Float64[]
         for n1 in (50, 100, 200)
             mom = MomentumGrid(uniform_p_faces(n1, 0.0, 0.5), uniform_xi_faces(4))
             g = cylindrical_grid(mom, RadialGrid(uniform_r_faces(1, 1.0)))
-            op = fokker_planck_operator(g, plasma, settings)
+            f = [exp(-(sqrt(1 + mom.p_centers[i]^2) - 1) / Θ) for i in 1:n1, _ in 1:4, _ in 1:1]
+            op_va = fokker_planck_operator(g, plasma, settings)
+            df = zeros(size(g))
+            apply!(df, op_va, f)
+            fric = zeros(size(g))
+            op_va.diffusion_p_p .= 0
+            apply!(fric, op_va, f)
+            push!(errs_van_albada, maximum(abs, df[1:n1÷2, :, :]) / maximum(abs, fric[1:n1÷2, :, :]))
+            op = fokker_planck_operator(g, plasma, settings; scheme=:central)
             f = [exp(-(sqrt(1 + mom.p_centers[i]^2) - 1) / Θ) for i in 1:n1, _ in 1:4, _ in 1:1]
             df = zeros(size(g))
             apply!(df, op, f)
@@ -57,6 +68,11 @@ end
         rates = log2.(errs[1:end-1] ./ errs[2:end])
         @test all(rates .> 1.8)
         @test errs[end] < 2e-4
+        # van Albada: observed orders 1.75 and 1.75, 4.5e-4 at 200 cells,
+        # about 4 times central's error; the limiter flattens the slope at the peak p = 0
+        rates_van_albada = log2.(errs_van_albada[1:end-1] ./ errs_van_albada[2:end])
+        @test all(rates_van_albada .> 1.7)
+        @test errs_van_albada[end] < 5e-4
     end
 
     @testset "collision frequency limits" begin
@@ -96,7 +112,7 @@ end
             settings = CollisionSettings(mode=:full, screening=:complete, coulomb_logarithm=:thermal)
             plasma(E) = PlasmaState(; cold_electron_temperature=[T], ions, electric_field=[E],
                                     magnetic_field=[0.0], kw...)
-            MC = operator_matrix(fokker_planck_operator(g, plasma(0.0), settings))
+            MC = operator_matrix(fokker_planck_operator(g, plasma(0.0), settings; scheme=:central))
             opE = AdvectionDiffusion(g; scheme=:central, p_upper_boundary=:f_zero)
             add_electric_field!(opE, plasma(1.0))
             fM = [exp(-(sqrt(1 + mom.p_centers[i]^2) - 1) / Θ) for i in 1:np_, _ in 1:nxi, _ in 1:1]

@@ -116,21 +116,27 @@ end
 
 """
     fokker_planck_operator(grid, plasma, settings; synchrotron=false,
-                           scheme=:exponential_fitting, p_scheme=scheme, xi_scheme=scheme,
+                           scheme=:van_albada, p_scheme=scheme, xi_scheme=scheme,
                            p_upper_boundary=:f_zero, r_boundary=:zero_flux)
 
 Kinetic operator for the hot electrons: electric field, slowing down, pitch-angle
 scattering, energy diffusion (`:full` mode) and optionally synchrotron losses, with
 `f = 0` beyond `p_max` as in DREAM's hot-tail equation. `scheme` is one of the schemes
-of [`AdvectionDiffusion`](@ref). The default, `:exponential_fitting`, keeps f
-non-negative at every resolution; `scheme = :central` is
-DREAM's default (centred interpolation) and the setting of the DREAM comparisons.
+of [`AdvectionDiffusion`](@ref). The default, the van Albada limiter,
+was converged in p on the production hot-tail grid where exponential fitting overstated
+the slide-away particle loss by 2.5×, cost 2.1× exponential fitting per run there (GMRES,
+one factorization per step), and stayed non-negative in every cooling run down to 3
+momentum cells, with steady Newton convergence (4–7 iterations per step, where MUSCL,
+SMART and TCDF reach 30). It has no positivity proof: `:exponential_fitting` keeps f
+non-negative at every resolution at first-order accuracy in the
+advection-dominated tail. `scheme = :central` is DREAM's default (centred interpolation)
+and the setting of the DREAM comparisons.
 `p_scheme` and `xi_scheme` set the directions separately (DREAM's `adv_interp/p1` and
 `p2`), e.g. `p_scheme = :tcdf` for DREAM's TCDF limiter.
 """
 function fokker_planck_operator(grid::KineticGrid, plasma::PlasmaState,
                                 settings::CollisionSettings=CollisionSettings();
-                                synchrotron::Bool=false, scheme::Symbol=:exponential_fitting,
+                                synchrotron::Bool=false, scheme::Symbol=:van_albada,
                                 p_scheme::Symbol=scheme, xi_scheme::Symbol=scheme,
                                 p_upper_boundary::Symbol=:f_zero, r_boundary::Symbol=:zero_flux)
     # DREAM replaces the electric-field advection by a diffusion term in the reduced
