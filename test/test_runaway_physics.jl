@@ -147,7 +147,9 @@ end
         # changes by a factor of six million (4.2e15 to 2.6e22 m⁻³s⁻¹). The factor 0.6 is
         # a difference in collision model, and DREAM's kinetic solver shows it too: the
         # network was trained on CODE with the energy-dependent lnΛ in ν_s and ν_D and the
-        # thermal lnΛ in ν_∥.
+        # thermal lnΛ in ν_∥. The 0.58 is a value of
+        # this 110 × 14 grid: converged in p and ξ the ratio at E/E_c = 10 is 0.724, and
+        # the band below holds both.
         @test all(0.45 .< to_network .< 0.8)
         @test maximum(to_network) / minimum(to_network) < 1.2
         # Connor-Hastie is asymptotic in E/E_D and fails at the low end, where it

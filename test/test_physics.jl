@@ -69,7 +69,9 @@ end
         @test all(rates .> 1.8)
         @test errs[end] < 2e-4
         # van Albada: observed orders 1.75 and 1.75, 4.5e-4 at 200 cells,
-        # about 4 times central's error; the limiter flattens the slope at the peak p = 0
+        # about 4 times central's error; the limiter flattens the slope at the peak p = 0.
+        # This is the residual in the bulk only (p < 0.25, about 5.6 p_th at 1 keV); the
+        # steady state's tail is far less accurate
         rates_van_albada = log2.(errs_van_albada[1:end-1] ./ errs_van_albada[2:end])
         @test all(rates_van_albada .> 1.7)
         @test errs_van_albada[end] < 5e-4
