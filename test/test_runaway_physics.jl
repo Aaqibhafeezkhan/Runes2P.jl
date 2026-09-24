@@ -17,7 +17,11 @@ function runaway_case(temperature, density, field, momentum_grid_)
                          ions=[IonSpecies("D", 1, 1, [density])], electric_field=[field],
                          magnetic_field=[5.0])
     settings = CollisionSettings(mode=:full, screening=:complete, coulomb_logarithm=:relativistic)
-    return g, plasma, fokker_planck_operator(g, plasma, settings)
+    # Centred interpolation, as DREAM's kinetic comparison and the ratios stated below.
+    # Exponential fitting, first order at the high cell Péclet numbers of the tail, puts
+    # the rate at E/E_c = 10 at 0.75 of the network on this grid, against centred's 0.58;
+    # under refinement the two approach each other (0.655 and 0.645 at 440 momentum cells).
+    return g, plasma, fokker_planck_operator(g, plasma, settings; scheme=:central)
 end
 
 function maxwellian_state(layout, g, density, temperature)
@@ -101,7 +105,8 @@ end
                                      magnetic_field=[read(data["B"])])
                 op = fokker_planck_operator(g, plasma,
                                             CollisionSettings(; mode=:full, screening=:complete,
-                                                              coulomb_logarithm))
+                                                              coulomb_logarithm);
+                                            scheme=:central)  # DREAM's default
                 layout = UnknownLayout(rad, [KineticUnknown(:hot_tail_distribution, g; scale=n)])
                 u0 = zeros(length(layout))
                 kinetic_view(u0, layout, 1, 1) .= read(grp["f_hot_initial"])[:, :, 1]

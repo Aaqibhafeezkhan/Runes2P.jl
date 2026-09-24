@@ -43,7 +43,8 @@ const DREAM_TIME_STEPPING_DATA = joinpath(@__DIR__, "data", "dream_time_stepping
                                      cold_electron_density=read(grp["n_cold"])[:, 1], ions=ions,
                                      electric_field=read(h5["E"]),
                                      magnetic_field=fill(read(h5["B"]), nr))
-                fokker_planck = fokker_planck_operator(g, plasma, settings; synchrotron=true)
+                fokker_planck = fokker_planck_operator(g, plasma, settings; synchrotron=true,
+                                                       scheme=:central)  # DREAM's default
                 knockon = KnockOnOperator(g, g, p_cut; dream_compatible=true, primary_pitch_points=1,
                                           table_size=80)
                 layout = UnknownLayout(g.radial_grid, [KineticUnknown(:hot_tail_distribution, g; scale=1e16)])

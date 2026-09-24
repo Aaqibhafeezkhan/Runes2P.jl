@@ -35,7 +35,7 @@ const DREAM_KINETIC_DATA = joinpath(@__DIR__, "data", "dream_kinetic_operator.h5
                                      cold_electron_density=read(grp["n_cold"])[:, 1], ions=ions,
                                      electric_field=read(h5["E"]),
                                      magnetic_field=fill(read(h5["B"]), radial_cell_count(g)))
-                op = fokker_planck_operator(g, plasma, settings; synchrotron=true)
+                op = fokker_planck_operator(g, plasma, settings; synchrotron=true, scheme=:central)  # DREAM's default
                 M = operator_matrix(op)
                 f1_runes2p = reshape((I - dt * M) \ vec(f0), size(g))
                 for ir in 1:radial_cell_count(g)

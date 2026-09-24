@@ -37,7 +37,7 @@ _test_plasma(temperature; density=1e20, field=1.0, nr=1) =
     end
 
     @testset "rebuild is cached on t: a constant T(t) reproduces FokkerPlanckTerm bit for bit" begin
-        op_static = fokker_planck_operator(g, _test_plasma(150.0), settings)
+        op_static = fokker_planck_operator(g, _test_plasma(150.0), settings; scheme=:central)
         op_prescribed = AdvectionDiffusion(g; scheme=:central, p_upper_boundary=:f_zero)
         calls = Ref(0)
         plasma_at(t) = (calls[] += 1; _test_plasma(150.0))

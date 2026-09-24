@@ -28,7 +28,7 @@ function regression_cases()
                      [parallel_diffusion_frequency(model, ir, x) for x in p, ir in 1:2])
         push!(cases, "p3_slowing_down_at_zero_$name" =>
                      [p3_slowing_down_frequency_at_zero(model, ir) for ir in 1:2])
-        op = fokker_planck_operator(g, plasma, s; synchrotron=true)
+        op = fokker_planck_operator(g, plasma, s; synchrotron=true, scheme=:central)  # values stored with it
         f = [1 + 0.5 * sin(1.3i + 0.7j + 2.1ir)
              for i in 1:momentum_cell_count(g), j in 1:pitch_cell_count(g), ir in 1:2]
         df = zeros(size(g))

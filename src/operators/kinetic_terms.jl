@@ -115,21 +115,22 @@ function add_synchrotron!(op::AdvectionDiffusion, plasma::PlasmaState)
 end
 
 """
-    fokker_planck_operator(grid, plasma, settings; synchrotron=false, scheme=:central,
-                           p_scheme=scheme, xi_scheme=scheme,
+    fokker_planck_operator(grid, plasma, settings; synchrotron=false,
+                           scheme=:exponential_fitting, p_scheme=scheme, xi_scheme=scheme,
                            p_upper_boundary=:f_zero, r_boundary=:zero_flux)
 
 Kinetic operator for the hot electrons: electric field, slowing down, pitch-angle
-scattering, energy diffusion (`:full` mode) and optionally synchrotron losses.
-The defaults match DREAM's hot-tail equation with centred interpolation and
-`f = 0` beyond `p_max`. `scheme` is one of the schemes of [`AdvectionDiffusion`](@ref);
-`:exponential_fitting` keeps f non-negative at every resolution;
+scattering, energy diffusion (`:full` mode) and optionally synchrotron losses, with
+`f = 0` beyond `p_max` as in DREAM's hot-tail equation. `scheme` is one of the schemes
+of [`AdvectionDiffusion`](@ref). The default, `:exponential_fitting`, keeps f
+non-negative at every resolution; `scheme = :central` is
+DREAM's default (centred interpolation) and the setting of the DREAM comparisons.
 `p_scheme` and `xi_scheme` set the directions separately (DREAM's `adv_interp/p1` and
 `p2`), e.g. `p_scheme = :tcdf` for DREAM's TCDF limiter.
 """
 function fokker_planck_operator(grid::KineticGrid, plasma::PlasmaState,
                                 settings::CollisionSettings=CollisionSettings();
-                                synchrotron::Bool=false, scheme::Symbol=:central,
+                                synchrotron::Bool=false, scheme::Symbol=:exponential_fitting,
                                 p_scheme::Symbol=scheme, xi_scheme::Symbol=scheme,
                                 p_upper_boundary::Symbol=:f_zero, r_boundary::Symbol=:zero_flux)
     # DREAM replaces the electric-field advection by a diffusion term in the reduced
