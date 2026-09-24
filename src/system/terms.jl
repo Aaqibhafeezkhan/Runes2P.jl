@@ -209,7 +209,7 @@ sparsity!(entries, term::PrescribedFokkerPlanckTerm, layout, row) =
 
 """
     FluxCorrectionTerm(unknown, full_operator, base_operator, plasma_at;
-                       settings=CollisionSettings(), synchrotron=false)
+                       settings=CollisionSettings(), synchrotron=false, jacobian=:zero)
 
 Adds `apply!(full_operator, f) - apply!(base_operator, f)` to the residual of `unknown`,
 matrix-free, with a Jacobian-vector product of exactly zero. Paired in the same equation
@@ -227,6 +227,15 @@ factorizes, so the pair needs no solver changes. Needs `coupling(base_operator) 
 i.e. a linear scheme (not a flux limiter) for `base_operator`, so its own term's Jacobian
 is exact.
 
+`jacobian = :exact` gives the term the Jacobian-vector product of its own residual
+(`full_operator`'s minus `base_operator`'s, by forward-mode AD), so the Newton operator of
+`GMRES` is `full_operator`'s exact one while the stored block, which the preconditioner
+factorizes, stays `base_operator`'s: `base_operator` as a preconditioner for an exact
+Newton iteration of `full_operator` (e.g. `:van_albada` with an
+`:exponential_fitting` preconditioner). Needs `GMRES`; the direct solver refuses
+matrix-free terms either way. The `:exact` product allocates its dual-number arrays on
+every call: a benchmark device, not a production path.
+
 `full_operator`'s coefficients are rebuilt from `plasma_at(t)` and cached on `t`,
 independently of `base_operator`'s own term (each calls `plasma_at` once per distinct
 `t`); relies on `base_operator`'s term running first in the same `Equation` (the sparse
@@ -240,12 +249,16 @@ struct FluxCorrectionTerm{T,F} <: EquationTerm
     plasma_at::F
     settings::CollisionSettings
     synchrotron::Bool
+    jacobian::Symbol
     cached_t::Base.RefValue{Float64}
 end
 
 function FluxCorrectionTerm(unknown::Symbol, full_operator::AdvectionDiffusion, base_operator::AdvectionDiffusion,
-                            plasma_at; settings::CollisionSettings=CollisionSettings(), synchrotron::Bool=false)
-    return FluxCorrectionTerm(unknown, full_operator, base_operator, plasma_at, settings, synchrotron, Ref(NaN))
+                            plasma_at; settings::CollisionSettings=CollisionSettings(), synchrotron::Bool=false,
+                            jacobian::Symbol=:zero)
+    jacobian in (:zero, :exact) || throw(ArgumentError("jacobian must be :zero or :exact, not $jacobian"))
+    return FluxCorrectionTerm(unknown, full_operator, base_operator, plasma_at, settings, synchrotron, jacobian,
+                              Ref(NaN))
 end
 
 dependencies(term::FluxCorrectionTerm) = [term.unknown]
@@ -253,12 +266,17 @@ coupling(::FluxCorrectionTerm) = :matrix_free
 validate(term::FluxCorrectionTerm, layout, row) =
     validate(FokkerPlanckTerm(term.unknown, term.full_operator), layout, row)
 
-function rhs!(out, term::FluxCorrectionTerm, u, layout, row, t)
+function _rebuild!(term::FluxCorrectionTerm, t)
     if t != term.cached_t[]
         set_fokker_planck_coefficients!(term.full_operator, term.plasma_at(t), term.settings;
                                         synchrotron=term.synchrotron)
         term.cached_t[] = t
     end
+    return term
+end
+
+function rhs!(out, term::FluxCorrectionTerm, u, layout, row, t)
+    _rebuild!(term, t)
     id = unknown_id(layout, term.unknown)
     if _equally_spaced(layout.radius_offsets[row]) && _equally_spaced(layout.radius_offsets[id])
         np, nxi = layout.shapes[id, 1]
@@ -275,9 +293,24 @@ function rhs!(out, term::FluxCorrectionTerm, u, layout, row, t)
     return out
 end
 
-# the base operator's own PrescribedFokkerPlanckTerm supplies the (approximate) Jacobian;
-# this correction contributes nothing to it by design
-jacobian_vector_product!(out, ::FluxCorrectionTerm, u, v, layout, row, t) = out
+# with `jacobian = :zero` the base operator's own PrescribedFokkerPlanckTerm supplies the
+# (approximate) Jacobian and this correction contributes nothing to it; with `:exact` the
+# product is the directional derivative of the correction's residual along v
+struct FluxCorrectionTag end
+
+function jacobian_vector_product!(out, term::FluxCorrectionTerm, u, v, layout, row, t)
+    term.jacobian === :zero && return out
+    _rebuild!(term, t)
+    id = unknown_id(layout, term.unknown)
+    f, direction = kinetic_array(u, layout, id), kinetic_array(v, layout, id)
+    dual = ForwardDiff.Dual{FluxCorrectionTag}.(f, direction)
+    product = zeros(eltype(dual), size(dual))
+    apply!(product, term.full_operator, dual)
+    apply!(product, term.base_operator, dual; scale=-1)
+    out_view = kinetic_array(out, layout, row)
+    out_view .+= ForwardDiff.partials.(product, 1)
+    return out
+end
 
 """
     KnockOnTerm(primary, operator::KnockOnOperator; target_density, treatment=:implicit)

@@ -76,6 +76,39 @@ _flux_correction_plasma(temperature=100.0; density=1e20, field=5.0, nr=1) =
         @test all(combo_solution.statistics.accepted)
     end
 
+    @testset "jacobian = :exact: the full operator's Newton matrix, the base operator's stored block" begin
+        op_base = AdvectionDiffusion(g; scheme=:exponential_fitting, p_upper_boundary=:f_zero)
+        op_full = AdvectionDiffusion(g; scheme=:van_albada, p_upper_boundary=:f_zero)
+        exact_system = EquationSystem(layout, [Equation(:f, TimeDerivative(),
+                                                        PrescribedFokkerPlanckTerm(:f, op_base, plasma_at; settings),
+                                                        FluxCorrectionTerm(:f, op_full, op_base, plasma_at; settings,
+                                                                           jacobian=:exact))])
+        op_full_ref = AdvectionDiffusion(g; scheme=:van_albada, p_upper_boundary=:f_zero)
+        full_system = EquationSystem(layout, [Equation(:f, TimeDerivative(),
+                                                       PrescribedFokkerPlanckTerm(:f, op_full_ref, plasma_at; settings))])
+        # a smooth positive state: the limiter's slope ratios are well defined
+        theta = 0.05
+        u0 = [exp(-mom.p_centers[i]^2 / (2theta)) * (1 + 0.3 * mom.xi_centers[j])
+              for i in 1:momentum_cell_count(g), j in 1:pitch_cell_count(g), _ in 1:1] |> vec
+        J = jacobian_prototype(exact_system)
+        jacobian!(J, exact_system, u0, t)
+        J_full = jacobian_prototype(full_system)
+        jacobian!(J_full, full_system, u0, t)
+        v = rand(Xoshiro(3), length(layout))
+        # stored block: exponential fitting's; operator: van Albada's exact Jacobian
+        set_fokker_planck_coefficients!(op_base, plasma_at(t), settings)
+        @test Matrix(J) ≈ Matrix(operator_matrix(op_base)) rtol = 1e-12
+        @test jacobian_operator(J, exact_system, u0, t) * v ≈ J_full * v rtol = 1e-10
+        # Newton converges as with van Albada's own Jacobian, to the same state
+        times = [0.0, 1e-5]
+        exact_solution = integrate(exact_system, u0, times; solver=NewtonSolver(linear_solver=GMRES()))
+        full_solution = integrate(full_system, u0, times)
+        @test exact_solution.states[:, end] ≈ full_solution.states[:, end] rtol = 1e-8
+        @test maximum(exact_solution.statistics.newton_iterations) <=
+              maximum(full_solution.statistics.newton_iterations) + 1
+        @test_throws ArgumentError FluxCorrectionTerm(:f, op_full, op_base, plasma_at; settings, jacobian=:frozen)
+    end
+
     @testset "validate requires base_operator's term to run first (documented, not enforced structurally)" begin
         term = FluxCorrectionTerm(:f, op_tcdf, op_upwind, plasma_at; settings)
         @test dependencies(term) == [:f]
