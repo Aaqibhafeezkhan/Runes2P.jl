@@ -116,27 +116,32 @@ end
 
 """
     fokker_planck_operator(grid, plasma, settings; synchrotron=false,
-                           scheme=:van_albada, p_scheme=scheme, xi_scheme=scheme,
+                           scheme=:exponential_fitting, p_scheme=scheme, xi_scheme=scheme,
                            p_upper_boundary=:f_zero, r_boundary=:zero_flux)
 
 Kinetic operator for the hot electrons: electric field, slowing down, pitch-angle
 scattering, energy diffusion (`:full` mode) and optionally synchrotron losses, with
 `f = 0` beyond `p_max` as in DREAM's hot-tail equation. `scheme` is one of the schemes
-of [`AdvectionDiffusion`](@ref). The default, the van Albada limiter,
-was converged in p on the production hot-tail grid where exponential fitting overstated
-the slide-away particle loss by 2.5×, cost 2.1× exponential fitting per run there (GMRES,
-one factorization per step), and stayed non-negative in every cooling run down to 3
-momentum cells, with steady Newton convergence (4–7 iterations per step, where MUSCL,
-SMART and TCDF reach 30). It has no positivity proof: `:exponential_fitting` keeps f
-non-negative at every resolution at first-order accuracy in the
-advection-dominated tail. `scheme = :central` is DREAM's default (centred interpolation)
-and the setting of the DREAM comparisons.
+of [`AdvectionDiffusion`](@ref). The default, exponential fitting (decision of the
+author, 2026-09-25, replacing van Albada), keeps f non-negative at every resolution,
+holds the collisional Maxwellian's tail to second order where every limiter
+overpopulates it (f/f_MJ of 1 800 for van Albada at 6 p_th
+on the production grid at 1 keV, and a Dreicer rate 3.5 times the converged one), is
+linear in f (two Newton iterations per step, an exact stored Jacobian, about half the
+cost of the limiters). Its price is first-order accuracy where a smooth
+tail is driven by the field: the slide-away loss through `p_max` on the production grid
+is 0.87%, 0.58% and 0.46% at 1×, 2× and 4× the momentum cells against 0.34% converged,
+the hot-tail seed of a fast quench 4% high at 1×, so field-driven tails need more
+momentum cells than a limiter, with the error roughly halving per doubling (README, DREAM
+compatibility and departures). `:van_albada` (Runes2P) and DREAM's limiters stay available;
+`scheme = :central` is DREAM's default (centred interpolation) and the setting of the
+DREAM comparisons.
 `p_scheme` and `xi_scheme` set the directions separately (DREAM's `adv_interp/p1` and
 `p2`), e.g. `p_scheme = :tcdf` for DREAM's TCDF limiter.
 """
 function fokker_planck_operator(grid::KineticGrid, plasma::PlasmaState,
                                 settings::CollisionSettings=CollisionSettings();
-                                synchrotron::Bool=false, scheme::Symbol=:van_albada,
+                                synchrotron::Bool=false, scheme::Symbol=:exponential_fitting,
                                 p_scheme::Symbol=scheme, xi_scheme::Symbol=scheme,
                                 p_upper_boundary::Symbol=:f_zero, r_boundary::Symbol=:zero_flux)
     # DREAM replaces the electric-field advection by a diffusion term in the reduced

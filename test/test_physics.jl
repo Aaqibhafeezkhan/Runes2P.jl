@@ -47,7 +47,7 @@ end
             mom = MomentumGrid(uniform_p_faces(n1, 0.0, 0.5), uniform_xi_faces(4))
             g = cylindrical_grid(mom, RadialGrid(uniform_r_faces(1, 1.0)))
             f = [exp(-(sqrt(1 + mom.p_centers[i]^2) - 1) / Θ) for i in 1:n1, _ in 1:4, _ in 1:1]
-            op_va = fokker_planck_operator(g, plasma, settings)
+            op_va = fokker_planck_operator(g, plasma, settings; scheme=:van_albada)   # explicit, not the default scheme
             df = zeros(size(g))
             apply!(df, op_va, f)
             fric = zeros(size(g))

@@ -139,15 +139,15 @@ negative_couplings(L) = (IJV = findnz(L); count(k -> IJV[1][k] != IJV[2][k] && I
     end
 
     @testset "default of fokker_planck_operator" begin
-        # van Albada is the default, after exponential fitting;
-        # exponential fitting and DREAM's centred interpolation are chosen explicitly
+        # exponential fitting is the default again, after van Albada; van Albada and DREAM's
+        # centred interpolation are chosen explicitly
         mom = MomentumGrid(uniform_p_faces(10, 0.0, 1.0), uniform_xi_faces(4))
         g = cylindrical_grid(mom, RadialGrid(uniform_r_faces(1, 1.0)))
         plasma = PlasmaState(cold_electron_temperature=[100.0], cold_electron_density=[1e20],
                              ions=[IonSpecies("D", 1, 1, [1e20])], electric_field=[1.0], magnetic_field=[5.0])
         op = fokker_planck_operator(g, plasma)
-        @test op.p_scheme === :van_albada && op.xi_scheme === :van_albada
-        @test fokker_planck_operator(g, plasma; scheme=:exponential_fitting).p_scheme === :exponential_fitting
+        @test op.p_scheme === :exponential_fitting && op.xi_scheme === :exponential_fitting
+        @test fokker_planck_operator(g, plasma; scheme=:van_albada).p_scheme === :van_albada
         @test fokker_planck_operator(g, plasma; scheme=:central).p_scheme === :central
     end
 end
