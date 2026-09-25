@@ -95,6 +95,10 @@ struct NewtonResult
     preconditioner_updates::Int
     residual_floor::Bool
     linear_step::Bool
+    jacobian_time::Float64        # seconds in jacobian! (assembly of the stored blocks)
+    residual_time::Float64        # seconds in residual evaluations, line search included
+    factorization_time::Float64   # seconds factorizing (LU, or the preconditioner blocks)
+    linear_solve_time::Float64    # seconds in the linear solves, factorization included
 end
 
 """
@@ -307,26 +311,34 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
     krylov = 0
     updates = 0
     smallest_step = 1.0
+    jacobian_seconds = residual_seconds = factorization_seconds = solve_seconds = 0.0
     result(status, iterations, initial; residual_floor=false, linear_step=false) =
         NewtonResult(status, iterations, initial, isempty(ws.residual_norms) ? initial : last(ws.residual_norms),
                      isempty(ws.update_norms) ? NaN : last(ws.update_norms),
                      _convergence_order(ws.update_norms), smallest_step, krylov, updates, residual_floor,
-                     linear_step)
+                     linear_step, jacobian_seconds, residual_seconds, factorization_seconds, solve_seconds)
 
+    started = time_ns()
     status = _checked_residual!(ws.residual, u, u_old, system, t, dt)
+    residual_seconds += (time_ns() - started) / 1e9
     status === :ok || return result(status, 0, NaN)
     initial = _residual_norm(ws, ws.residual)
     for iteration in 1:solver.max_iterations
+        started = time_ns()
         try
             jacobian!(ws.jacobian, system, u, t)
         catch err
             err isa DomainError || rethrow()
             return result(:domain_error, iteration - 1, initial)
         end
+        jacobian_seconds += (time_ns() - started) / 1e9
         all(isfinite, ws.jacobian.nzval) || return result(:non_finite_residual, iteration - 1, initial)
         _newton_matrix!(ws, dt)
         @. ws.scaled_rhs = -ws.row_weights * ws.residual
+        started = time_ns()
         linear_status = solve!(ws.scaled_update, ws.cache, ws.matrix, ws.scaled_rhs, u, t, dt, iteration)
+        solve_seconds += (time_ns() - started) / 1e9
+        factorization_seconds += factorization_time(ws.cache)
         krylov += krylov_iterations(ws.cache)
         updates += preconditioner_updates(ws.cache)
         linear_status === :ok || return result(linear_status, iteration - 1, initial)
@@ -335,7 +347,9 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
 
         limited_step = _limited_step_length(ws, u, ws.update)
         limited_step > 0 || return result(:below_lower_limit, iteration - 1, initial)
+        started = time_ns()
         step, status = _take_step!(ws, u, u_old, t, dt, limited_step)
+        residual_seconds += (time_ns() - started) / 1e9
         smallest_step = min(smallest_step, step)
         status === :ok || return result(status, iteration - 1, initial)
         copyto!(u, ws.trial)

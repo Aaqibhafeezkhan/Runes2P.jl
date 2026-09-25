@@ -198,10 +198,12 @@ mutable struct GMRESCache{T,O<:NewtonOperator{T},F<:BlockFactors{T},W,P}
     factorized::Bool
     factorized_dt::Float64
     last_iterations::Int
+    factorization_seconds::Float64   # in the last solve
 end
 
 krylov_iterations(cache::GMRESCache) = cache.iterations
 preconditioner_updates(cache::GMRESCache) = cache.updates
+factorization_time(cache::GMRESCache) = cache.factorization_seconds
 linear_tolerance(cache::GMRESCache) = cache.solver.relative_tolerance
 newton_operator_exact(cache::GMRESCache) = cache.solver.operator === :exact
 
@@ -215,7 +217,7 @@ function linear_solver_cache(solver::GMRES, matrix::SparseMatrixCSC{T}, system::
                               solver.operator === :exact, zero(T))
     factors = BlockFactors(solver.preconditioner, matrix, system.layout)
     workspace = GmresWorkspace(n, n, Vector{T}; memory=solver.restart_length)
-    return GMRESCache(solver, operator, factors, workspace, 0, 0, false, NaN, 0)
+    return GMRESCache(solver, operator, factors, workspace, 0, 0, false, NaN, 0, 0.0)
 end
 
 function _needs_factorization(cache::GMRESCache, dt, iteration)
@@ -231,7 +233,9 @@ end
 
 function _factorize!(cache::GMRESCache, matrix, dt)
     cache.updates += 1
+    started = time_ns()
     cache.factorized = factorize!(cache.factors, cache.solver.preconditioner, matrix)
+    cache.factorization_seconds += (time_ns() - started) / 1e9
     cache.factorized_dt = dt
     return cache.factorized
 end
@@ -253,6 +257,7 @@ function solve!(x::AbstractVector, cache::GMRESCache, matrix::SparseMatrixCSC, b
     operator.time = t
     cache.iterations = 0
     cache.updates = 0
+    cache.factorization_seconds = 0.0
     fresh = _needs_factorization(cache, dt, iteration)
     fresh && (_factorize!(cache, matrix, dt) || return :singular_matrix)
     solved = _gmres!(cache, b)

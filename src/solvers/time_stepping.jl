@@ -23,7 +23,11 @@ time array (DREAM #296):
   `residual_tolerance`, at the round-off floor of a stiff step (see [`NewtonSolver`](@ref));
 - `accepted_as_linear`: the step was accepted after one Newton iteration as a linear
   system (see [`NewtonSolver`](@ref));
-- `wall_time`: seconds spent in the step.
+- `wall_time`: seconds spent in the step, of which `jacobian_time` in the assembly of the
+  stored Jacobian blocks, `residual_time` in residual evaluations (line search included),
+  `linear_solve_time` in the linear solves and, within it, `factorization_time` in the
+  LU or preconditioner factorizations (the rest of the solve time is the Krylov
+  iteration, with the matrix-free terms' products).
 
 The history of every Newton iteration is in `iteration_attempt` (index of the attempted
 step it belongs to), `iteration_residual_norm`, `iteration_update_norm` and
@@ -45,14 +49,18 @@ struct SolverStatistics
     accepted_at_residual_floor::Vector{Bool}
     accepted_as_linear::Vector{Bool}
     wall_time::Vector{Float64}
+    jacobian_time::Vector{Float64}
+    residual_time::Vector{Float64}
+    factorization_time::Vector{Float64}
+    linear_solve_time::Vector{Float64}
     iteration_attempt::Vector{Int}
     iteration_residual_norm::Vector{Float64}
     iteration_update_norm::Vector{Float64}
     iteration_step_length::Vector{Float64}
 end
 SolverStatistics() = SolverStatistics(Float64[], Float64[], Bool[], Symbol[], Int[], Int[], Int[], Float64[],
-                                      Float64[], Float64[], Float64[], Float64[], Bool[], Bool[], Float64[], Int[],
-                                      Float64[], Float64[], Float64[])
+                                      Float64[], Float64[], Float64[], Float64[], Bool[], Bool[], Float64[],
+                                      Float64[], Float64[], Float64[], Float64[], Int[], Float64[], Float64[], Float64[])
 
 function _record!(stats::SolverStatistics, t, dt, result::NewtonResult, ws::NewtonWorkspace, wall)
     push!(stats.time, t)
@@ -70,6 +78,10 @@ function _record!(stats::SolverStatistics, t, dt, result::NewtonResult, ws::Newt
     push!(stats.accepted_at_residual_floor, result.status === :converged && result.residual_floor)
     push!(stats.accepted_as_linear, result.status === :converged && result.linear_step)
     push!(stats.wall_time, wall)
+    push!(stats.jacobian_time, result.jacobian_time)
+    push!(stats.residual_time, result.residual_time)
+    push!(stats.factorization_time, result.factorization_time)
+    push!(stats.linear_solve_time, result.linear_solve_time)
     attempt = length(stats.time)
     append!(stats.iteration_attempt, fill(attempt, length(ws.update_norms)))
     append!(stats.iteration_residual_norm, ws.residual_norms)

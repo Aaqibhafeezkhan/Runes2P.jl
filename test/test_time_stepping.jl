@@ -222,6 +222,11 @@ square_root_step(u0, k, dt) = ((-k * dt + sqrt((k * dt)^2 + 4u0)) / 2)^2
         @test all(==(2), stats.newton_iterations)
         @test all(stats.accepted_as_linear)
         @test all(==(0), stats.krylov_iterations)
+        # the timed parts of a step are within its wall time, the factorization within the solve
+        @test all(>=(0), stats.jacobian_time) && all(>=(0), stats.residual_time)
+        @test all(stats.factorization_time .<= stats.linear_solve_time)
+        @test all(stats.jacobian_time .+ stats.residual_time .+ stats.linear_solve_time .<= stats.wall_time)
+        @test all(>(0), stats.jacobian_time) && all(>(0), stats.factorization_time)
         @test length(stats.iteration_attempt) == sum(stats.newton_iterations)
         @test stats.iteration_attempt == repeat(1:length(times)-1, inner=2)
         @test_throws ArgumentError integrate(system, u0, [0.0, 0.1, 0.1])

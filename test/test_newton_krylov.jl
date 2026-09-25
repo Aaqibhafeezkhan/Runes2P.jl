@@ -101,6 +101,10 @@ end
         direct = integrate(system, u0, times)
         lu_run = integrate(system, u0, times; solver=NewtonSolver(linear_solver=GMRES()))
         @test lu_run.statistics.krylov_iterations == lu_run.statistics.newton_iterations
+        # the block factorization is timed once per step with the default refresh
+        st = lu_run.statistics
+        @test all(>(0), st.factorization_time) && all(st.factorization_time .<= st.linear_solve_time)
+        @test all(st.jacobian_time .+ st.residual_time .+ st.linear_solve_time .<= st.wall_time)
         @test relative_difference(lu_run.states[:, end], direct.states[:, end]) < 1e-12
         ilu_run = integrate(system, u0, times;
                             solver=NewtonSolver(linear_solver=GMRES(preconditioner=RadiusBlockILU(drop_tolerance=1e-2))))

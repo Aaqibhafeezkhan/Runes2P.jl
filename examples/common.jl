@@ -137,6 +137,9 @@ function report(solution, grid; wall=NaN)
             count(st.accepted_as_linear))
     isnan(wall) || @printf("; wall time %.2f s", wall)
     println()
+    @printf("time per step: %.1f ms, of which Jacobian %.1f, residual %.1f, factorization %.1f, linear solve %.1f\n",
+            1e3 * mean(st.wall_time), 1e3 * mean(st.jacobian_time), 1e3 * mean(st.residual_time),
+            1e3 * mean(st.factorization_time), 1e3 * mean(st.linear_solve_time))
     states = solution.states
     negative = count(<(0), states)
     @printf("positivity: %d negative entries over the saved states; min f / max f = %.2e\n", negative, minimum(states) / maximum(states))

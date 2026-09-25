@@ -26,6 +26,8 @@ terms. A solver implements
   matrix;
 - `krylov_iterations(cache)`, `preconditioner_updates(cache)`: Krylov iterations and
   preconditioner factorizations of the last solve (0 for direct solvers);
+- `factorization_time(cache)`: seconds spent factorizing in the last solve (the LU of a
+  direct solver, the preconditioner blocks of a Krylov solver);
 - `linear_tolerance(cache)`: bound on the relative residual `‖b - A x‖/‖b‖` of the last
   solve (0 for direct solvers), used by the residual-floor rule of the Newton iteration;
 - `newton_operator_exact(cache)`: whether the solver's Newton operator is the exact
@@ -47,21 +49,25 @@ struct SparseLU <: LinearSolver end
 
 mutable struct SparseLUCache{F}
     factorization::F
+    factorization_seconds::Float64
 end
 
 requires_stored_jacobian(::SparseLU) = true
 krylov_iterations(::SparseLUCache) = 0
 preconditioner_updates(::SparseLUCache) = 0
+factorization_time(cache::SparseLUCache) = cache.factorization_seconds
 linear_tolerance(::SparseLUCache) = 0.0
 newton_operator_exact(::SparseLUCache) = false
 
 linear_solver_cache(::SparseLU, matrix::SparseMatrixCSC, system, row_weights, scales) =
-    SparseLUCache(lu(matrix; check=false))
+    SparseLUCache(lu(matrix; check=false), 0.0)
 
 function solve!(x::AbstractVector, cache::SparseLUCache, matrix::SparseMatrixCSC, b::AbstractVector,
                 u, t, dt, iteration)
     # reuses the symbolic analysis of the pattern
+    started = time_ns()
     lu!(cache.factorization, matrix; check=false)
+    cache.factorization_seconds = (time_ns() - started) / 1e9
     issuccess(cache.factorization) || return :singular_matrix
     ldiv!(x, cache.factorization, b)
     return :ok
