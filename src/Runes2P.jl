@@ -35,7 +35,7 @@ include("solvers/time_stepping.jl")
 export MomentumGrid, uniform_p_faces, biuniform_p_faces, tanh_p_faces, uniform_xi_faces
 export biuniform_theta_xi_faces
 export RadialGrid, uniform_r_faces
-export KineticGrid, cylindrical_grid, density, total_particles, has_shared_momentum_grid, momentum_grid
+export KineticGrid, cylindrical_grid, density, current_density, pitch_moment_weights, total_particles, has_shared_momentum_grid, momentum_grid
 export phase_space_jacobian, phase_space_jacobian_p_faces, phase_space_jacobian_xi_faces
 export phase_space_jacobian_r_faces, phase_space_jacobian_over_p2_at_zero
 export momentum_cell_count, pitch_cell_count, radial_cell_count, cell_count
@@ -62,7 +62,7 @@ export unknown_id, unknown_names, unknown, unknown_range, radius_block_range, sc
 export radial_view, kinetic_view, scalar_view, unknown_view, unknown_scales, describe, copy_unknowns!
 export EquationTerm, dependencies, coupling, treatment, sparsity!, rhs!, jacobian_vector_product!
 export jacobian_kind, jacobian_correction_product!, is_linear
-export FokkerPlanckTerm, PrescribedFokkerPlanckTerm, KnockOnTerm, LinearTerm, DensityMomentTerm, MaxwellianSourceTerm, LayoutKineticArray, kinetic_array
+export FokkerPlanckTerm, PrescribedFokkerPlanckTerm, KnockOnTerm, LinearTerm, DensityMomentTerm, CurrentMomentTerm, MaxwellianSourceTerm, LayoutKineticArray, kinetic_array
 export Equation, TimeDerivative, Algebraic, EquationSystem, Tolerance, tolerance
 export residual!, mass_matrix, jacobian_sparsity, jacobian_prototype, jacobian_operator, jacobian_colors, residual_scales, ode_function
 export LinearSolver, SparseLU, GMRES, RadiusBlockLU, RadiusBlockILU, NewtonSolver, NewtonWorkspace, NewtonResult, newton_solve!

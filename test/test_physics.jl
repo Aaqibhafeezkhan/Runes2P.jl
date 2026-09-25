@@ -102,10 +102,12 @@ end
         # Linear response f = f_M + f₁ with C f₁ = -E f_M. Without electron-electron
         # collisions (n_cold → 0) the operator reduces to a Lorentz gas, whose
         # conductivity is σ_L = (32/3π) n e² τ_e / m = 64√(2π) ε₀² T^{3/2} / (√m e² Z lnΛ)
-        # (Braginskii, Z → ∞). The ξ moment with the cell-centre rule underestimates
-        # ∫ ξ² dξ = 2/3 by the relative amount Δξ²/4; the ratio below divides out this
-        # known ξ error, (3/2) Σ ξ_j² Δξ_j, so that only the p discretization is tested.
-        function conductivity_ratio(; Z, np_, T=10.0, ne=1e20, lorentz=true, nxi=4)
+        # (Braginskii, Z → ∞). f₁ is exactly ∝ ξ_j on the discrete grid (ξ_j is an
+        # eigenvector of the discrete pitch scattering), so the current with the
+        # piecewise-linear pitch rule has no ξ error and the ratio tests the
+        # p discretization alone; with the cell-centre rule (DREAM's) the ratio is short by
+        # the known factor (3/2) Σ ξ_j² Δξ_j (Δξ²/4 relative, 6.25% at 4 pitch cells).
+        function conductivity_ratio(; Z, np_, T=10.0, ne=1e20, lorentz=true, nxi=4, pitch_rule=:linear)
             Θ = T / Constants.ELECTRON_REST_ENERGY
             mom = MomentumGrid(uniform_p_faces(np_, 0.0, 7 * sqrt(2Θ)), uniform_xi_faces(nxi))
             g = cylindrical_grid(mom, RadialGrid(uniform_r_faces(1, 1.0)))
@@ -124,16 +126,17 @@ end
             shift = 1e-10 * minimum(abs, filter(!iszero, LinearAlgebra.diag(MC))) *
                     LinearAlgebra.I
             f1 = reshape((shift - MC) \ (operator_matrix(opE) * vec(fM)), size(g))
-            j = Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT *
-                sum(phase_space_jacobian(g, 1)[i, k] / g.radial_grid.spatial_jacobian[1] *
-                    mom.p_widths[i] * mom.xi_widths[k] *
-                    mom.p_centers[i] / sqrt(1 + mom.p_centers[i]^2) * mom.xi_centers[k] * f1[i, k, 1]
-                    for i in 1:np_, k in 1:nxi)
+            j = current_density(g, f1; pitch_rule)[1]
             σL = 64 * sqrt(2π) * Constants.VACUUM_PERMITTIVITY^2 * (T * Constants.ELEMENTARY_CHARGE)^1.5 /
                  (sqrt(Constants.ELECTRON_MASS) * Constants.ELEMENTARY_CHARGE^2 * Z *
                   thermal_coulomb_logarithm(T, ne))
-            return abs(j) / σL / (1.5 * sum(mom.xi_centers .^ 2 .* mom.xi_widths))
+            return abs(j) / σL
         end
+        # the cell-centre rule reproduces the linear rule once its ξ error is divided out
+        mom4 = MomentumGrid(uniform_p_faces(2, 0.0, 1.0), uniform_xi_faces(4))
+        xi_factor = 1.5 * sum(mom4.xi_centers .^ 2 .* mom4.xi_widths)
+        @test conductivity_ratio(Z=1, np_=40, pitch_rule=:cell_center) / xi_factor ≈
+              conductivity_ratio(Z=1, np_=40) rtol = 1e-12
         # Second order in p; the extrapolated limit differs from the nonrelativistic
         # σ_L by -3.9 Θ (first relativistic correction, 8e-5 at 10 eV).
         errs = [conductivity_ratio(Z=1, np_=n) - 1 for n in (40, 80, 160, 320)]

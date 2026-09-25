@@ -47,6 +47,14 @@ const DREAM_KINETIC_DATA = joinpath(@__DIR__, "data", "dream_kinetic_operator.h5
                 end
                 # particles leave only through p = 0, equally in both codes
                 @test density(g, f1_runes2p) ≈ density(g, f1) rtol = 1e-12
+                # DREAM's current moment of its own f_hot is the cell-centre pitch rule
+                # (CurrentDensityFromDistributionFunction: e v ξ f Δp Δξ 2π p²); the full
+                # variant's j_hot carries DREAM's hot-region momentum threshold
+                if variant == "superthermal_complete_energy"
+                    j_dream = read(grp["j_hot"])[:, end]
+                    @test current_density(g, f1; pitch_rule=:cell_center) ≈ j_dream rtol = 1e-12
+                    @test !isapprox(current_density(g, f1), j_dream; rtol=1e-3)
+                end
             end
         end
     end

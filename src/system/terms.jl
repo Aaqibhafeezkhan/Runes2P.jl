@@ -538,6 +538,58 @@ function sparsity!(entries, term::DensityMomentTerm, layout, row)
 end
 
 """
+    CurrentMomentTerm(kinetic, grid; coefficient=1, pitch_rule=:linear)
+
+`coefficient` times the current density of the kinetic unknown `kinetic` on `grid`
+([`current_density`](@ref); `pitch_rule = :cell_center` is DREAM's `j_hot` moment), added
+to a radial row unknown with one component (the ohmic or hot-electron current defined by
+an algebraic equation). The pitch weights are built per radius when the term is created,
+so different momentum grids at different radii work; `grid` must be the unknown's grid.
+"""
+struct CurrentMomentTerm <: EquationTerm
+    kinetic::Symbol
+    coefficient::Float64
+    pitch_rule::Symbol
+    pitch_weights::Vector{Vector{Float64}}   # per radius
+end
+function CurrentMomentTerm(kinetic::Symbol, grid::KineticGrid; coefficient::Real=1.0, pitch_rule::Symbol=:linear)
+    weights = [pitch_moment_weights(momentum_grid(grid, ir); pitch_rule) for ir in 1:radial_cell_count(grid)]
+    return CurrentMomentTerm(kinetic, Float64(coefficient), pitch_rule, weights)
+end
+
+dependencies(term::CurrentMomentTerm) = [term.kinetic]
+is_linear(::CurrentMomentTerm) = true
+
+function validate(term::CurrentMomentTerm, layout, row)
+    id = unknown_id(layout, term.kinetic)
+    layout.kinds[id] === :kinetic ||
+        throw(ArgumentError("CurrentMomentTerm needs a kinetic unknown"))
+    layout.kinds[row] === :radial && layout.sizes[row, 1] == 1 ||
+        throw(ArgumentError("CurrentMomentTerm adds to a radial unknown with one component"))
+    length(term.pitch_weights) == radial_cell_count(layout) ||
+        throw(DimensionMismatch("the term's grid does not match the layout's radii"))
+    for ir in 1:radial_cell_count(layout)
+        layout.shapes[id, ir][2] == length(term.pitch_weights[ir]) ||
+            throw(DimensionMismatch("the term's grid does not match $(term.kinetic) at radius $ir"))
+    end
+    return nothing
+end
+
+function rhs!(out, term::CurrentMomentTerm, u, layout, row, t)
+    id = unknown_id(layout, term.kinetic)
+    grid = kinetic_grid(layout, id)
+    for ir in 1:radial_cell_count(layout)
+        j = _current_moment(momentum_grid(grid, ir), term.pitch_weights[ir], phase_space_jacobian(grid, ir),
+                            kinetic_view(u, layout, id, ir))
+        out[first(unknown_range(layout, row, ir))] += term.coefficient * j / grid.radial_grid.spatial_jacobian[ir]
+    end
+    return out
+end
+
+sparsity!(entries, term::CurrentMomentTerm, layout, row) =
+    sparsity!(entries, DensityMomentTerm(term.kinetic, term.coefficient), layout, row)
+
+"""
     MaxwellianSourceTerm(kinetic, grid, temperature; target_density, rate,
                          bulk_momentum=Inf)
 
