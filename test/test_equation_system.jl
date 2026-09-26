@@ -224,6 +224,14 @@ end
         # an algebraic unknown missing from its own equation cannot be determined
         undetermined = Equation(:hot_electron_density, Algebraic(), DensityMomentTerm(:hot_tail_distribution))
         @test_throws ArgumentError EquationSystem(layout, [eqs[1:2]; undetermined; eqs[4:5]])
+        # an explicit term is evaluated at the previous time level and determines nothing
+        kinetic_only = UnknownLayout(layout.radial_grid, [KineticUnknown(:hot_tail_distribution, g)])
+        explicit_source = MaxwellianSourceTerm(:hot_tail_distribution, g, 500.0; target_density=1e20, rate=1.0)
+        @test_throws "no implicit term" EquationSystem(kinetic_only,
+            [Equation(:hot_tail_distribution, Algebraic(), explicit_source)])
+        @test EquationSystem(kinetic_only, [Equation(:hot_tail_distribution, Algebraic(), explicit_source,
+                                                     LinearTerm(:hot_tail_distribution; coefficient=-1.0))]) isa
+              EquationSystem
         @test_throws ArgumentError EquationSystem(layout, eqs[1:4])
         @test_throws ArgumentError EquationSystem(layout, [eqs; eqs[2]])
         undeclared = Equation(:temperature, TimeDerivative(), LinearTerm(:pressure))
@@ -348,4 +356,23 @@ end
                                                     target_density=target, rate)
     @test_throws ArgumentError MaxwellianSourceTerm(:hot_tail_distribution, g, temperature;
                                                     target_density=target, rate, bulk_momentum=1e-9)
+    # the unknown the term reads and the row it adds to both live on the term's grid
+    other = cylindrical_grid(MomentumGrid(uniform_p_faces(12, 0.0, 2.0), uniform_xi_faces(4)), rad)
+    two = UnknownLayout(rad, [KineticUnknown(:hot_tail_distribution, g; scale=1e20),
+                              KineticUnknown(:runaway_distribution, other; scale=1e20)])
+    source(row, source_term) = Equation(row, TimeDerivative(), source_term)
+    decay(row) = Equation(row, TimeDerivative(), LinearTerm(row; coefficient=-1.0))
+    @test EquationSystem(two, [source(:hot_tail_distribution, term), decay(:runaway_distribution)]) isa
+          EquationSystem
+    @test_throws DimensionMismatch EquationSystem(two, [decay(:hot_tail_distribution),
+                                                        source(:runaway_distribution, term)])
+    reads_other = MaxwellianSourceTerm(:runaway_distribution, g, temperature; target_density=target, rate,
+                                       bulk_momentum=bound)
+    @test_throws DimensionMismatch EquationSystem(two, [source(:hot_tail_distribution, reads_other),
+                                                        decay(:runaway_distribution)])
+    # a grid with the same faces built separately is accepted
+    same_faces = cylindrical_grid(MomentumGrid(copy(mom.p_faces), copy(mom.xi_faces)), rad)
+    on_copy = MaxwellianSourceTerm(:hot_tail_distribution, same_faces, temperature; target_density=target, rate,
+                                   bulk_momentum=bound)
+    @test EquationSystem(layout, [source(:hot_tail_distribution, on_copy)]) isa EquationSystem
 end

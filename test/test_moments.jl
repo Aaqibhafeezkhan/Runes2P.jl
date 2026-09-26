@@ -133,6 +133,16 @@ using Random: MersenneTwister
                          LinearTerm(:hot_electron_current; coefficient=-1)),
                 Equation(:hot_tail_distribution, TimeDerivative(),
                          LinearTerm(:hot_tail_distribution; coefficient=-1.0))])
+            # equal cell counts with other pitch faces: the weights belong to the term's grid
+            same_counts = cylindrical_grid([grids[1], MomentumGrid(uniform_p_faces(6, 0.0, 0.6),
+                                                                   uniform_xi_faces(7))], rad)
+            @test [pitch_cell_count(same_counts, ir) for ir in 1:2] == [pitch_cell_count(ragged, ir) for ir in 1:2]
+            @test_throws DimensionMismatch EquationSystem(layout, [
+                Equation(:hot_electron_current, Algebraic(),
+                         CurrentMomentTerm(:hot_tail_distribution, same_counts),
+                         LinearTerm(:hot_electron_current; coefficient=-1)),
+                Equation(:hot_tail_distribution, TimeDerivative(),
+                         LinearTerm(:hot_tail_distribution; coefficient=-1.0))])
             @test_throws ArgumentError EquationSystem(layout, [
                 Equation(:hot_tail_distribution, Algebraic(),
                          CurrentMomentTerm(:hot_tail_distribution, ragged),

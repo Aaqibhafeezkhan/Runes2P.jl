@@ -56,10 +56,12 @@ cutoff_window(thermal_p, critical_p; thermal_factor=4) =
     choose_cutoff(p_faces, lower, upper; current_cutoff=nothing)
 
 Cutoff momentum on a momentum-grid face (`p_faces`) inside the window `[lower, upper)`,
-returned as `(p_cutoff, inside_window)`. A `current_cutoff` still inside the window is
-kept, so the kernels are rebuilt only when the window moves past it. Otherwise the face
-closest (in log p) to `√(lower·upper)` is taken (the smallest face `≥ lower` when
-`upper = Inf`), which leaves room for the bounds to move in either direction. If no
+returned as `(p_cutoff, inside_window)`. A `current_cutoff` that is a face of the grid and
+still inside the window is kept, so the kernels are rebuilt only when the window moves
+past it; a value that is not a face (another grid's cutoff) is replaced. Otherwise the
+face closest (in log p) to `√(lower·upper)` is taken, with `lower` raised to the smallest
+positive face when it lies below it (the smallest face `≥ lower` when `upper = Inf`),
+which leaves room for the bounds to move in either direction. If no
 positive face lies inside the window (window closed or narrower than a cell), the largest
 positive face below `upper` is returned (keeping knock-ons above the critical momentum,
 at the cost of the lower bound), or the smallest positive face if none is below `upper`,
@@ -70,7 +72,8 @@ has no partial cell at the cutoff.
 """
 function choose_cutoff(p_faces::AbstractVector{T}, lower::Real, upper::Real;
                        current_cutoff=nothing) where {T}
-    if current_cutoff !== nothing && lower <= current_cutoff < upper && current_cutoff > 0
+    if current_cutoff !== nothing && lower <= current_cutoff < upper && current_cutoff > 0 &&
+       any(==(current_cutoff), p_faces)
         return (p_cutoff=T(current_cutoff), inside_window=true)
     end
     faces = filter(>(0), p_faces)

@@ -59,6 +59,19 @@ _test_plasma(temperature; density=1e20, field=1.0, nr=1) =
         @test calls[] <= length(times)
     end
 
+    @testset "a plasma state defined only on the run's time interval" begin
+        # the construction evaluates the term once, at initial_time
+        plasma_from_one(t) = t >= 1 ? _test_plasma(300.0 - 1e3 * (t - 1)) :
+                             throw(ArgumentError("no plasma state before t = 1"))
+        op = AdvectionDiffusion(g; scheme=:central, p_upper_boundary=:f_zero)
+        term = PrescribedFokkerPlanckTerm(:f, op, plasma_from_one; settings)
+        layout = UnknownLayout(g.radial_grid, [KineticUnknown(:f, g; scale=1.0)])
+        @test_throws ArgumentError EquationSystem(layout, [Equation(:f, TimeDerivative(), term)])
+        system = EquationSystem(layout, [Equation(:f, TimeDerivative(), term)]; initial_time=1.0)
+        solution = integrate(system, rand(Xoshiro(3), length(layout)), [1.0, 1.001, 1.002])
+        @test all(solution.statistics.accepted)
+    end
+
     @testset "EquationSystem Jacobian" begin
         plasma_at(t) = _test_plasma(300.0 - 1e5 * t)  # an arbitrary time dependence
         op = AdvectionDiffusion(g; scheme=:central, p_upper_boundary=:f_zero)

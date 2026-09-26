@@ -162,14 +162,17 @@ end
   [`KnockOnKernels`](@ref); the table then covers the `ξ*` of the interval ends of all
   contributing pairs, so that no pair is clamped and the production stays exact.
   `:midpoint` evaluates `ξ*` once, at the midpoint of the interval (the earlier scheme),
-  and `:centre` once at the knock-on cell centre (DREAM). Both keep `ξ* < 1` except for
-  `:centre` on a knock-on grid coarser than the primary grid; the table of the two
+  and `:centre` once at the knock-on cell centre (DREAM). `:midpoint` keeps `ξ* < 1`.
+  `:centre` does not on a knock-on grid coarser than the primary grid, where a cell
+  centre can lie above `p1`: a pair with `ξ* > 1` in the table range is refused with an
+  `ArgumentError`, since no pitch distribution exists for it. The table of the two
   single-`ξ*` modes covers the `ξ*` of all contributing pairs.
 - `dream_compatible = true` reproduces DREAM (`MollerDeltaAngleKernel.cpp`): `ξ*` at the
   knock-on cell centre, and a table range from the pairs with `γ(p_{i-1/2}) < γ(p1_k) - 1`
   (a total energy compared with a kinetic energy). For primaries below γ₁ ≈ 3 this misses
   contributing pairs, whose `ξ*` is then clamped to the table edge; with a knock-on grid
-  coarser than the primary grid, a cell centre above `p1` gives `ξ* > 1`.
+  coarser than the primary grid, a cell centre above `p1` gives `ξ* > 1`, which the
+  range criterion excludes for most grids and clamps.
 - The knock-on pitch grid must span `[-1, 1]`; the primary pitch grid may cover part of it.
 - `primary_pitch`: how the primary pitch enters. `:centre` evaluates it at the cell
   centre (DREAM), which breaks reciprocity and isotropy at O(1) in the max norm.
@@ -217,6 +220,11 @@ function MollerPitchKernel(knockon::MomentumGrid{T}, primary::MomentumGrid{T}, p
         end
         pair_xi_star[i, k] = xi_s
         (in_range && isfinite(xi_s)) || continue
+        # ξ* at the cell centre of a knock-on cell wider than the primary's reach
+        xi_s <= 1 + 8 * eps(T) ||
+            throw(ArgumentError("ξ* = $xi_s > 1 for knock-on cell $i (centre $(knockon.p_centers[i])) and " *
+                                "primary cell $k (p1 = $p1): the knock-on grid is coarser than the " *
+                                "primary grid; use xi_star_mode = :interval or :midpoint"))
         if xi_star_mode === :interval
             # the whole ξ* range of the pair must be inside the table: the hat functions
             # are a partition of unity there, which keeps the production exact

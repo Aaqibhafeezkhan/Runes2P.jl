@@ -221,6 +221,13 @@ using QuadGK: quadgk
         @test xi_star(kn.p_centers[1], pr.p_centers[3]) > 1
         Kc = MollerPitchKernel(kn, pr, 0.1)
         @test all(isfinite, Kc.table) && last(Kc.xi_star_values) < 1
+        Km = MollerPitchKernel(kn, pr, 0.1; xi_star_mode=:midpoint)
+        @test all(isfinite, Km.table) && last(Km.xi_star_values) < 1
+        # ξ* at the cell centre has no pitch distribution there and is refused
+        @test_throws "coarser than the primary grid" MollerPitchKernel(kn, pr, 0.1; xi_star_mode=:centre)
+        # DREAM's range criterion excludes these pairs and clamps them to the table edge
+        Kd = MollerPitchKernel(kn, pr, 0.1; dream_compatible=true)
+        @test all(isfinite, Kd.table) && last(Kd.xi_star_values) < 1
     end
 
     @testset "cutoff above the knock-on grid" begin

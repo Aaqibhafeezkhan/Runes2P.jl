@@ -21,8 +21,8 @@ time array (DREAM #296):
   limits nor the line search shortened a step);
 - `accepted_at_residual_floor`: the step converged with its residual above
   `residual_tolerance`, at the round-off floor of a stiff step (see [`NewtonSolver`](@ref));
-- `accepted_as_linear`: the step was accepted after one Newton iteration as a linear
-  system (see [`NewtonSolver`](@ref));
+- `accepted_as_linear`: the step was accepted as a linear system, on the update test
+  alone at the second Newton iteration (see [`NewtonSolver`](@ref));
 - `wall_time`: seconds spent in the step, of which `jacobian_time` in the assembly of the
   stored Jacobian blocks, `residual_time` in residual evaluations (line search included),
   `linear_solve_time` in the linear solves and, within it, `factorization_time` in the

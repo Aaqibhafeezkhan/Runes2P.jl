@@ -38,7 +38,15 @@ end
                                 RadialGrid(uniform_r_faces(1, 1.0)))
         @test_throws ArgumentError AdvectionDiffusion(tiny; p_upper_boundary=:constant_flux)
         @test_throws ArgumentError AdvectionDiffusion(tiny; p_upper_boundary=:extrapolated_flux)
-        two = cylindrical_grid(MomentumGrid(uniform_p_faces(2, 0.0, 1.0), uniform_xi_faces(2)),
+        # f_zero on one momentum cell is the outflow boundary (used by the pitch-only tests)
+        outflow, f_zero = (AdvectionDiffusion(tiny; p_upper_boundary=b) for b in (:outflow, :f_zero))
+        for op in (outflow, f_zero)
+            op.advection_p .= 0.7
+            op.diffusion_p_p .= 0.3
+        end
+        f_tiny = reshape([1.0, 2.0], 1, 2, 1)
+        @test apply!(zeros(1, 2, 1), f_zero, f_tiny) == apply!(zeros(1, 2, 1), outflow, f_tiny)
+        two =cylindrical_grid(MomentumGrid(uniform_p_faces(2, 0.0, 1.0), uniform_xi_faces(2)),
                                RadialGrid(uniform_r_faces(1, 1.0)))
         @test AdvectionDiffusion(two; p_upper_boundary=:constant_flux) isa AdvectionDiffusion
         @test_throws ArgumentError AdvectionDiffusion(two; p_upper_boundary=:extrapolated_flux)

@@ -43,10 +43,11 @@ end
 
 """
     PlasmaState(; cold_electron_temperature, ions, electric_field, magnetic_field,
-                cold_electron_density=free_electron_density(ions))
+                cold_electron_density=nothing)
 
-Keyword constructor; the cold-electron density defaults to the free-electron density from
-quasi-neutrality.
+Keyword constructor; without `cold_electron_density` the cold-electron density is the
+free-electron density from quasi-neutrality ([`free_electron_density`](@ref)) at each
+radius.
 """
 function PlasmaState(; cold_electron_temperature, ions, electric_field, magnetic_field,
                      cold_electron_density=nothing)

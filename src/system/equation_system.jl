@@ -4,7 +4,7 @@
 
 using LinearAlgebra: Diagonal
 using SparseArrays: nnz
-using SparseMatrixColorings: ncolors
+using SparseMatrixColorings: column_groups
 
 """
     TimeDerivative()
@@ -46,14 +46,15 @@ struct BoundTerm{E<:EquationTerm}
 end
 
 """
-    EquationSystem(layout, equations; time_scale=1, newton_tolerances, time_step_tolerances)
+    EquationSystem(layout, equations; time_scale=1, newton_tolerances, time_step_tolerances,
+                   initial_time=0)
 
 The system `M du/dt = rhs(u, t)` for the unknowns of `layout`, with one
 [`Equation`](@ref) per unknown. On construction it checks that every unknown has exactly
 one equation, that every term's dependencies are unknowns of the layout (and passes the
 term's own checks), and that every algebraic unknown appears in its own equation (some
-term depends on it; the numerical regularity of the algebraic block is not checked). The
-terms are split into three groups:
+implicit term depends on it; the numerical regularity of the algebraic block is not
+checked). The terms are split into three groups:
 
 - implicit `:sparse` terms, whose Jacobian is stored ([`jacobian!`](@ref), colored AD over
   these terms alone);
@@ -70,7 +71,14 @@ iteration.
 
 `time_scale` [s] sets the scaling of differential rows ([`residual_scales`](@ref));
 `newton_tolerances` and `time_step_tolerances` map unknown names to [`Tolerance`](@ref)s
-(defaults from [`tolerance`](@ref)).
+(defaults from [`tolerance`](@ref)). The time-step tolerances are stored for time-step
+error control, which [`integrate`](@ref) does not have yet (fixed steps with halving on
+failure).
+
+The construction evaluates the implicit `:sparse` terms once, at the zero state and the
+time `initial_time`, for the structure of the stored Jacobian. Set `initial_time` to the
+start of the run when a term is defined only on the run's time interval (the `plasma_at`
+of a [`PrescribedFokkerPlanckTerm`](@ref)).
 """
 struct EquationSystem{T,S<:Tuple,M<:Tuple,X<:Tuple,C<:Tuple,F,P,B}
     layout::UnknownLayout{T}
@@ -120,7 +128,8 @@ end
 function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
                         time_scale::Real=1.0,
                         newton_tolerances::AbstractDict=Dict{Symbol,Tolerance}(),
-                        time_step_tolerances::AbstractDict=Dict{Symbol,Tolerance}()) where {T}
+                        time_step_tolerances::AbstractDict=Dict{Symbol,Tolerance}(),
+                        initial_time::Real=0.0) where {T}
     count = length(layout.unknowns)
     rows = zeros(Int, count)
     for eq in equations
@@ -138,9 +147,10 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
         eq.kind isa Union{TimeDerivative,Algebraic} ||
             throw(ArgumentError("unknown equation kind $(eq.kind)"))
         if eq.kind isa Algebraic
-            any(term -> eq.unknown in dependencies(term), eq.terms) ||
-                throw(ArgumentError("the algebraic equation of $(eq.unknown) has no term depending on " *
-                                    "$(eq.unknown), so it cannot determine it"))
+            # explicit terms are evaluated at the previous time level and determine nothing
+            any(term -> treatment(term) === :implicit && eq.unknown in dependencies(term), eq.terms) ||
+                throw(ArgumentError("the algebraic equation of $(eq.unknown) has no implicit term " *
+                                    "depending on $(eq.unknown), so it cannot determine it"))
         else
             for range in _unknown_ranges(layout, row)
                 mass[range] .= one(T)
@@ -176,7 +186,7 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
     end
     pattern = sparse(first.(entries), last.(entries), trues(length(entries)), n, n, (a, b) -> a | b)
 
-    time = Ref(zero(T))
+    time = Ref(T(initial_time))
     # residual of the stored part alone: the coloring must not see matrix-free terms, whose
     # entries outside the pattern would be folded onto entries inside it
     sparse_rhs! = let terms = sparse_tuple, layout = layout, time = time
@@ -187,8 +197,9 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
     buffer = zeros(T, n)
     preparation = DI.prepare_jacobian(sparse_rhs!, buffer, backend, x0)
     prototype = DI.jacobian(sparse_rhs!, buffer, preparation, backend, x0)
-    # the prototype is evaluated at u = 0, where some derivatives vanish; it must still carry
-    # the whole pattern, or jacobian! at other states would miss entries
+    # the prototype is evaluated at u = 0 and t = initial_time, where some derivatives
+    # vanish; it must still carry the whole pattern, or jacobian! at other states would
+    # miss entries
     nnz(prototype) == nnz(pattern) ||
         error("the Jacobian prototype lost structural entries ($(nnz(prototype)) of $(nnz(pattern)))")
     return EquationSystem(layout, collect(Equation, equations), sparse_tuple, matrix_free_tuple,
@@ -259,7 +270,7 @@ jacobian_prototype(system::EquationSystem) = copy(system.prototype)
 Number of colors of the stored Jacobian's column coloring: the number of directional
 derivatives (dual-number passes over the sparse terms) one [`jacobian!`](@ref) costs.
 """
-jacobian_colors(system::EquationSystem) = ncolors(system.preparation.coloring_result)
+jacobian_colors(system::EquationSystem) = length(column_groups(system.preparation))
 
 """
     jacobian!(J, system::EquationSystem, u, t)
@@ -310,7 +321,10 @@ end
 
 Scale of every row of the residual: `scale/time_scale` for differential rows and `scale`
 for algebraic rows, with `scale` the reference scale of the row's unknown. Dividing the
-residual by these makes all rows of order one.
+residual by these makes all rows of order one. The Newton iteration of
+[`NewtonSolver`](@ref) does not use them: it weights differential rows by `dt/scale`,
+since round-off in `(u - u_old)/dt` at a short step would exceed a tolerance scaled by a
+fixed `time_scale`.
 """
 function residual_scales(system::EquationSystem)
     scales = unknown_scales(system.layout)

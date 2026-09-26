@@ -29,7 +29,8 @@ const MEAN_EXCITATION_ENERGY_D = [0, 0.00, 0.24, 0.34, 0.41, 0.45, 0.48, 0.50, 0
 # Parameter S_N0 of the analytic mean excitation energy formula, index N_bound.
 const MEAN_EXCITATION_ENERGY_S0 = [0, 0.30, 1.51, 2.32, 3.13, 3.90, 4.67, 5.44, 6.21, 6.97, 8.10, 9.08, 10.03, 10.94]
 
-# Extended mean excitation energy [eV], row Z, column N_bound = Z - Z0.
+# Extended mean excitation energy [eV], row Z, column N_bound = Z - Z0 (semi-empirical
+# model of DREAM's tools/Generate_MeanExcitationEnergy.py, rows 19 to 86).
 const MEAN_EXCITATION_ENERGY_EXTENDED = [
     NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN;
     NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN;

@@ -12,10 +12,11 @@ Settings of the Newton iteration of a backward-Euler step.
 
 - Convergence needs both a small update and a small residual (DREAM #262): every entry
   of the full Newton update `δ` satisfies `|δ| ≤ absolute + relative |u|` with the
-  unknown's Newton [`Tolerance`](@ref) (an infinite absolute tolerance excludes it), and
-  the residual, measured as the change it causes in one step relative to the unknown's
-  scale (`dt |F|/scale` on differential rows, `|F|/scale` on algebraic rows), is at most
-  `residual_tolerance` everywhere. A stiff step is an exception: when the transient and the
+  unknown's Newton [`Tolerance`](@ref), and the residual, measured as the change it
+  causes in one step relative to the unknown's scale (`dt |F|/scale` on differential
+  rows, `|F|/scale` on algebraic rows), is at most `residual_tolerance` everywhere. An
+  infinite absolute tolerance excludes an unknown from both tests; the
+  merit function of the line search keeps all rows. A stiff step is an exception: when the transient and the
   right-hand side cancel to many digits, round-off holds the residual above
   `residual_tolerance` whatever the iterate, so a converged update is accepted once the
   residual stops decreasing (it grew, or fell by less than 10%, in the last iteration).
@@ -69,7 +70,8 @@ end
     NewtonResult
 
 Outcome of [`newton_solve!`](@ref): `status` (`:converged`, or the reason of failure:
-`:max_iterations`, `:singular_matrix`, `:non_finite_residual`, `:non_finite_update`,
+`:max_iterations`, `:singular_matrix`, `:non_finite_residual`, `:non_finite_jacobian`
+(a non-finite entry of the stored Jacobian at a finite residual), `:non_finite_update`,
 `:domain_error`, `:line_search_failed`, `:linear_solve_failed`: an iterative linear
 solve did not reach its tolerance, `:below_lower_limit`: an entry at its lower limit
 would be pushed below it, or the converged state lies below it), the number of
@@ -81,7 +83,8 @@ Krylov iterations and preconditioner factorizations summed over the iterations (
 direct solvers), `residual_floor`,
 true when the step converged with the residual above `residual_tolerance` because the
 residual had stopped decreasing (or, for a linear step, was not checked against it), and
-`linear_step`, true when the step was accepted after one iteration as a linear system.
+`linear_step`, true when the step was accepted as a linear system, on the update test
+alone (at the second iteration, see [`NewtonSolver`](@ref)).
 """
 struct NewtonResult
     status::Symbol
@@ -109,8 +112,8 @@ Buffers, tolerances, lower limits and the linear-solver cache for Newton iterati
 the fields `residual_norms`, `update_norms` and `step_lengths`. `exact_jacobian` records
 whether the Newton matrix is the exact Jacobian (no term with an approximate stored
 block, or a linear solver whose operator restores it, [`GMRES`](@ref)`(operator=:exact)`),
-and `linear` whether the system is linear in the state and the matrix exact, so one
-iteration solves a step.
+and `linear` whether the system is linear in the state and the matrix exact, so the first
+iteration solves a step and the second confirms it.
 """
 struct NewtonWorkspace{T,S<:EquationSystem,L,C}
     system::S
@@ -295,7 +298,7 @@ end
 Solve the backward-Euler step from `u_old` to time `t` with step `dt`, starting from the
 guess in `u` and overwriting it. Returns a [`NewtonResult`](@ref); on failure `u` holds
 the last iterate. Never throws for a failed iteration: a singular matrix, a non-finite
-residual or update, a `DomainError` from a term (evaluation outside the physical
+residual, Jacobian or update, a `DomainError` from a term (evaluation outside the physical
 domain), a linear solve that did not converge, a failed line search, an entry below its lower limit at convergence and the
 iteration limit are reported through the status, for the time stepper to handle
 (DREAM #25, #81).
@@ -332,7 +335,7 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
             return result(:domain_error, iteration - 1, initial)
         end
         jacobian_seconds += (time_ns() - started) / 1e9
-        all(isfinite, ws.jacobian.nzval) || return result(:non_finite_residual, iteration - 1, initial)
+        all(isfinite, ws.jacobian.nzval) || return result(:non_finite_jacobian, iteration - 1, initial)
         _newton_matrix!(ws, dt)
         @. ws.scaled_rhs = -ws.row_weights * ws.residual
         started = time_ns()

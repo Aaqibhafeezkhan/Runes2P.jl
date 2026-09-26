@@ -22,10 +22,16 @@ and optionally `treatment(term)` (`:implicit` by default; `:explicit` terms are 
 at the previous time level and contribute nothing to the Jacobian),
 `validate(term, layout, row)` (checks against the layout, run when the system is built),
 [`is_linear`](@ref)`(term)` (`false` by default: whether the term is linear in the state,
-up to a constant, which lets a linear system accept a Newton step after one iteration)
+up to a constant, which lets a linear system accept a Newton step on the update test alone)
 and, for `:sparse` terms whose stored block is an approximation of their Jacobian
 (a quasi-Newton matrix), [`jacobian_kind`](@ref)`(term) === :approximate`
 with [`jacobian_correction_product!`](@ref) supplying the difference to the exact product.
+
+A term defined outside the package adds its methods under the qualified names
+(`Runes2P.dependencies(term::MyTerm) = ...`, `function Runes2P.rhs!(out, term::MyTerm, ...)`).
+`validate` is not exported, since only the construction of an [`EquationSystem`](@ref)
+calls it and the name is common to many packages; the other functions are exported for
+calls.
 """
 abstract type EquationTerm end
 
@@ -106,9 +112,21 @@ function _offset_range(layout::UnknownLayout, id)
     return range(first(offsets); step, length=length(offsets))
 end
 
+# whether two kinetic grids have the same radii and the same momentum grid at each of them
+function _same_momentum_grids(a::KineticGrid, b::KineticGrid)
+    a === b && return true
+    a.radial_grid.r_faces == b.radial_grid.r_faces || return false
+    return all(ir -> momentum_grid(a, ir).p_faces == momentum_grid(b, ir).p_faces &&
+                     momentum_grid(a, ir).xi_faces == momentum_grid(b, ir).xi_faces,
+               1:radial_cell_count(a))
+end
+
 # index of cell (i, j) of kinetic unknown `id` at radius `ir`
 @inline _kinetic_index(layout::UnknownLayout, id, ir, i, j) =
     layout.offsets[id, ir] + i + (j - 1) * layout.shapes[id, ir][1]
+
+# tag of the dual numbers of jacobian_correction_product!
+struct JacobianCorrectionTag end
 
 """
     FokkerPlanckTerm(unknown, operator::AdvectionDiffusion; jacobian=:exact)
@@ -140,8 +158,6 @@ stored matrix is a quasi-Newton one that converges linearly, or, with
 operator ([`jacobian_correction_product!`](@ref), one dual-number pass of the operator
 per product).
 """
-struct JacobianCorrectionTag end
-
 struct FokkerPlanckTerm{T} <: EquationTerm
     unknown::Symbol
     operator::AdvectionDiffusion{T}
@@ -303,8 +319,8 @@ end
 
 Fokker-Planck term whose collision coefficients follow a prescribed, time-dependent
 plasma state (a cooling plasma, `T(t)` prescribed since Runes2P has no
-self-consistent temperature evolution yet). `plasma_at(t)` returns the [`PlasmaState`]
-(@ref) at time `t`; `operator`'s coefficients are rebuilt from it with
+self-consistent temperature evolution yet). `plasma_at(t)` returns the
+[`PlasmaState`](@ref) at time `t`; `operator`'s coefficients are rebuilt from it with
 [`set_fokker_planck_coefficients!`](@ref) (`operator`'s scheme and boundary conditions are
 unchanged). The rebuild is cached on `t`: colored AD calls `rhs!` once per colour at the
 same `t`, and the coefficients do not depend on the state `u`, so rebuilding once per
@@ -544,17 +560,19 @@ end
 ([`current_density`](@ref); `pitch_rule = :cell_center` is DREAM's `j_hot` moment), added
 to a radial row unknown with one component (the ohmic or hot-electron current defined by
 an algebraic equation). The pitch weights are built per radius when the term is created,
-so different momentum grids at different radii work; `grid` must be the unknown's grid.
+so different momentum grids at different radii work; `grid` must be the unknown's grid
+(the same radii and momentum faces, checked when the system is built).
 """
-struct CurrentMomentTerm <: EquationTerm
+struct CurrentMomentTerm{G<:KineticGrid} <: EquationTerm
     kinetic::Symbol
+    grid::G
     coefficient::Float64
     pitch_rule::Symbol
     pitch_weights::Vector{Vector{Float64}}   # per radius
 end
 function CurrentMomentTerm(kinetic::Symbol, grid::KineticGrid; coefficient::Real=1.0, pitch_rule::Symbol=:linear)
     weights = [pitch_moment_weights(momentum_grid(grid, ir); pitch_rule) for ir in 1:radial_cell_count(grid)]
-    return CurrentMomentTerm(kinetic, Float64(coefficient), pitch_rule, weights)
+    return CurrentMomentTerm(kinetic, grid, Float64(coefficient), pitch_rule, weights)
 end
 
 dependencies(term::CurrentMomentTerm) = [term.kinetic]
@@ -566,12 +584,9 @@ function validate(term::CurrentMomentTerm, layout, row)
         throw(ArgumentError("CurrentMomentTerm needs a kinetic unknown"))
     layout.kinds[row] === :radial && layout.sizes[row, 1] == 1 ||
         throw(ArgumentError("CurrentMomentTerm adds to a radial unknown with one component"))
-    length(term.pitch_weights) == radial_cell_count(layout) ||
-        throw(DimensionMismatch("the term's grid does not match the layout's radii"))
-    for ir in 1:radial_cell_count(layout)
-        layout.shapes[id, ir][2] == length(term.pitch_weights[ir]) ||
-            throw(DimensionMismatch("the term's grid does not match $(term.kinetic) at radius $ir"))
-    end
+    # the pitch weights belong to the term's grid: equal cell counts are not enough
+    _same_momentum_grids(term.grid, kinetic_grid(layout, id)) ||
+        throw(DimensionMismatch("the term's grid does not match $(term.kinetic)"))
     return nothing
 end
 
@@ -593,17 +608,18 @@ sparsity!(entries, term::CurrentMomentTerm, layout, row) =
     MaxwellianSourceTerm(kinetic, grid, temperature; target_density, rate,
                          bulk_momentum=Inf)
 
-Source with the shape of a Maxwellian at `temperature` [eV], whose magnitude drives the
-density of the kinetic unknown `kinetic` back to `target_density` (a number, or one value
-per radius) at the rate `rate` [1/s]:
+Source with the shape of a non-relativistic Maxwellian `exp(-p²/2Θ)`, `Θ = T/mₑc²`, at
+`temperature` [eV] (DREAM's `ParticleSourceTerm` uses the relativistic one), whose
+magnitude drives the density of the kinetic unknown `kinetic` back to `target_density` (a
+number, or one value per radius) at the rate `rate` [1/s]:
 
     S(p, ξ) = rate (n_target - n(f)) f_M(p) / n_M,
 
-with `f_M` the Maxwellian on the grid of the row unknown and `n_M` its density, so the
-source adds `rate (n_target - n(f))` particles per second and per unit volume and nothing
-else. It keeps a thermal bulk from draining into the runaway region, which is what the
-published Dreicer rates assume; with `rate = 1/Δt` a step restores the
-particles the previous step lost.
+with `f_M` the Maxwellian on `grid` and `n_M` its density, so the source adds
+`rate (n_target - n(f))` particles per second and per unit volume and nothing else.
+`kinetic` and the row unknown both live on `grid`. It keeps a thermal bulk from draining
+into the runaway region, which is what the published Dreicer rates assume; with
+`rate = 1/Δt` a step restores the particles the previous step lost.
 
 `n(f)` counts the cells below `bulk_momentum`, and `n_target` is the density of the bulk
 there. The bound matters: with the whole grid counted, particles moving from the bulk into
@@ -618,6 +634,7 @@ unknowns.
 """
 struct MaxwellianSourceTerm{T,D} <: EquationTerm
     kinetic::Symbol
+    grid::KineticGrid{T}
     shape::Vector{Matrix{T}}   # normalized Maxwellian per radius, density 1
     bulk_cells::Vector{Int}    # per radius: momentum cells counted, 1:bulk_cells
     target_density::D
@@ -646,7 +663,7 @@ function MaxwellianSourceTerm(kinetic::Symbol, grid::KineticGrid{T}, temperature
                grid.radial_grid.spatial_jacobian[ir]
         values ./ norm
     end
-    return MaxwellianSourceTerm{T,typeof(target_density)}(kinetic, shape, bulk_cells, target_density,
+    return MaxwellianSourceTerm{T,typeof(target_density)}(kinetic, grid, shape, bulk_cells, target_density,
                                                          Float64(rate))
 end
 
@@ -657,9 +674,10 @@ function validate(term::MaxwellianSourceTerm, layout, row)
     id = unknown_id(layout, term.kinetic)
     layout.kinds[id] === :kinetic && layout.kinds[row] === :kinetic ||
         throw(ArgumentError("MaxwellianSourceTerm reads and adds to kinetic unknowns"))
-    for ir in 1:radial_cell_count(layout)
-        layout.shapes[row, ir] == size(term.shape[ir]) ||
-            throw(DimensionMismatch("the source shape does not match $(layout.unknowns[row].name)"))
+    # the density is counted on the grid of `kinetic` and the source added on the row's
+    for k in (id, row)
+        _same_momentum_grids(term.grid, kinetic_grid(layout, k)) ||
+            throw(DimensionMismatch("the term's grid does not match $(layout.unknowns[k].name)"))
     end
     term.target_density isa AbstractVector && length(term.target_density) != radial_cell_count(layout) &&
         throw(DimensionMismatch("target_density needs one value per radius"))

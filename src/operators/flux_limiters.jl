@@ -39,7 +39,9 @@ end
 end
 
 # TCDF (Zhang et al., J. Comput. Phys. 302, 114 (2015), C¹ and piecewise), OSPRE and
-# van Albada as ψ(r) with its derivative ψ'(r)
+# van Albada as ψ(r) with its derivative ψ'(r). OSPRE is DREAM's formula for every r,
+# without a cutoff at r ≤ 0 (ψ < 0 for -1 < r < 0, ψ → 1.5 for r → -∞), which the
+# round-off agreement with DREAM needs. Van Albada is Runes2P's own and is zero for r ≤ 0.
 @inline function _limiter(scheme, r)
     if scheme === :tcdf
         r < 0 && return r * (1 + r) / (1 + r * r), (1 + 2r - r * r) / (1 + r * r)^2
@@ -127,8 +129,9 @@ end
 # is defined with the AD code)
 _value(x::Real) = x
 
-# centre and value of cell i along one direction, with ghost cells mirrored about the
-# boundary faces; `lower_mirrored`/`upper_mirrored` false gives zero ghost values
+# centre of cell i along one direction, and the index of the cell whose value a mirrored
+# ghost cell takes; ghost cells are mirrored about the boundary faces. Zero ghost values
+# (p_min > 0, beyond p_max) are set by the caller, `_p_four_point_face`
 @inline function _ghost_center(centers, faces, i)
     n = length(centers)
     i < 1 && return 2 * faces[1] - centers[1-i]

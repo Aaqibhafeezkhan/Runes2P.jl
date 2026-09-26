@@ -51,8 +51,11 @@ const COLLISION_PREFACTOR = 4pi * Constants.CLASSICAL_ELECTRON_RADIUS^2 * Consta
     mean_excitation_energy(Z, Z0)
 
 Mean excitation energy [eV] of charge state `Z0` of element `Z` (DREAM
-`SlowingDownFrequency::GetAtomicParameter`): tabulated up to Z = 86, analytic
-formula of Sauer, Sabin and Oddershede (2018) beyond.
+`SlowingDownFrequency::GetAtomicParameter`). Up to Z = 18 the tabulated values of Sauer,
+Sabin and Oddershede (2018). For Z = 19 to 86 DREAM's extended table, a semi-empirical
+electron-density model (DREAM `tools/Generate_MeanExcitationEnergy.py`), which is not
+hydrogenic for one and two bound electrons: 5123.6 eV for K¹⁸⁺ against `14.99 Z²` =
+5411 eV. Beyond Z = 86 the analytic formula of Sauer, Sabin and Oddershede.
 """
 function mean_excitation_energy(Z::Integer, Z0::Integer)
     Z == Z0 && return NaN
@@ -101,10 +104,12 @@ end
 """
     CollisionModel(plasma, settings)
 
-Collision frequencies for a background plasma. Radius-dependent quantities
-(Coulomb logarithms, Bessel functions) are evaluated once; the frequencies are then
-evaluated at any momentum with [`slowing_down_frequency`](@ref),
-[`deflection_frequency`](@ref) and [`parallel_diffusion_frequency`](@ref).
+Collision frequencies for a background plasma. Radius-dependent quantities (free and
+bound electron densities, Bessel functions, atomic parameters of the charge states) are
+evaluated once; the frequencies are then evaluated at any momentum with
+[`slowing_down_frequency`](@ref), [`deflection_frequency`](@ref) and
+[`parallel_diffusion_frequency`](@ref). The Coulomb logarithm is evaluated in each call,
+since the energy-dependent model depends on the momentum.
 """
 struct CollisionModel{T,P<:PlasmaState}
     plasma::P
@@ -312,7 +317,15 @@ end
 """
     p3_slowing_down_frequency_at_zero(model, ir)
 
-`lim_{p→0} p³ ν_s`, which sets the particle flux through `p = 0`.
+`lim_{p→0} p³ ν_s`, which sets the particle flux through `p = 0`. As DREAM's
+`SlowingDownFrequency::GetP3NuSAtZero`, the value uses the prefactor `4π r₀² c` in every
+mode. In `:ultra_relativistic` mode, where `ν_s ∝ 1/p` and the analytic limit is 0, it
+therefore returns the `:superthermal` value. The friction of that mode is the constant
+drift `Aᵖ = -4π r₀² c lnΛ n`, which brings electrons to `p = 0` in a finite time, and
+DREAM's value lets them leave the grid there: the sink through `p = 0` is `1/Δp₁²` times
+the inflow through the first interior face at equal `f`, so the first cell absorbs. With
+the analytic limit the first cell would collect them without bound. DREAM runs the mode
+on a runaway grid from `p = 0` (`examples/init_f_re`).
 """
 function p3_slowing_down_frequency_at_zero(model::CollisionModel, ir)
     z = zero(model.scaled_bessel_k0[ir])

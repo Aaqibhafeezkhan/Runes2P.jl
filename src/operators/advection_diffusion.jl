@@ -15,7 +15,9 @@ through the outer boundaries.
 Boundary conditions:
 - `p = 0`: flux `(𝒱'/p²)|₀ · (p²Aᵖ)|₀ · f₁`, with the limit `p²Aᵖ` given in
   `op.advection_p_times_p2_at_zero[j, ir]` (nonzero for collisional friction, which
-  removes particles through `p = 0` as in DREAM).
+  removes particles through `p = 0` as in DREAM). With `:quick` and
+  `:upwind_second_order` the scheme's own face value at `p = 0` replaces `f₁`, as in
+  DREAM's `AdvectionTerm`; the limiters give `f₁` there (mirrored ghost cells).
 - `r = 0`: no flux, because 𝒱' vanishes there.
 - `p = p_min > 0` (`p_lower_boundary`): `:zero_flux`, or `:prescribed` with the flux `Γᵖ`
   through the face given in `op.p_flux_at_lower_boundary[j, ir]` (positive into the
@@ -24,7 +26,9 @@ Boundary conditions:
 - `ξ = ±1`: no flux.
 - `p = p_max` (`p_upper_boundary`): `:outflow`, advective outflow only (`Aᵖ > 0`); or
   `:f_zero`, outflow into a ghost cell with `f = 0` one cell spacing beyond the last
-  centre, adding diffusive loss `Dᵖᵖ f_N / (p_N - p_{N-1})` (DREAM `BC_F_0`); or
+  centre, adding diffusive loss `Dᵖᵖ f_N / (p_N - p_{N-1})` (DREAM `BC_F_0`; with one
+  momentum cell there is no spacing and the boundary is `:outflow`, which the pitch-only
+  tests on one momentum cell use); or
   `:constant_flux`, `𝒱'Γᵖ` at the boundary face held equal to `𝒱'Γᵖ` at the last interior
   face (DREAM `BC_PHI_CONST`, its default; needs at least 2 momentum cells); or
   `:extrapolated_flux`, `𝒱'Γᵖ` at the boundary linearly extrapolated in `p` from the last
@@ -66,7 +70,8 @@ centres; the cross terms `Dᵖᵠ`, `Dᵠᵖ` are always central:
   upstream cells and one downstream cell (`src/operators/flux_limiters.jl`), with ghost
   cells as DREAM sets them for the hot-tail distribution: mirrored at p = 0 (zero at a
   lower boundary p_min > 0), zero beyond p_max, mirrored at ξ = ±1. The fluxes through
-  the boundary faces keep the rules listed above (upwind at p_max, as DREAM's `BC_F_0`).
+  the boundary faces keep the rules listed above (the scheme's face value at p = 0,
+  upwind at p_max as DREAM's `BC_F_0`).
   With fewer than three cells in a direction the face value is central, as in DREAM.
 
 The scheme can differ per direction (`p_scheme`, `xi_scheme`, `r_scheme`; `scheme` sets
@@ -125,6 +130,9 @@ function AdvectionDiffusion(grid::KineticGrid{T}; scheme::Symbol=:upwind, p_sche
     p_upper_boundary in (:outflow, :f_zero, :constant_flux, :extrapolated_flux,
                         :extrapolated_flux_consistent) ||
         throw(ArgumentError("unknown upper p boundary condition $p_upper_boundary"))
+    has_shared_momentum_grid(grid) ||
+        throw(ArgumentError("AdvectionDiffusion needs one momentum grid for all radii (radial " *
+                            "fluxes between different grids need a remap between them)"))
     np, nxi, nr = size(grid)
     if p_upper_boundary === :constant_flux && np < 2
         throw(ArgumentError("constant_flux p_max boundary needs at least 2 momentum cells"))
@@ -138,9 +146,6 @@ function AdvectionDiffusion(grid::KineticGrid{T}; scheme::Symbol=:upwind, p_sche
     if p_upper_boundary === :extrapolated_flux_consistent && np < 3
         throw(ArgumentError("extrapolated_flux_consistent p_max boundary needs at least 3 momentum cells"))
     end
-    has_shared_momentum_grid(grid) ||
-        throw(ArgumentError("AdvectionDiffusion needs one momentum grid for all radii (radial " *
-                            "fluxes between different grids need a remap between them)"))
     if p_lower_boundary === :prescribed && momentum_grid(grid).p_faces[1] == 0
         throw(ArgumentError("a prescribed p flux needs p_min > 0"))
     end
@@ -241,7 +246,6 @@ end
 Base.@propagate_inbounds function _p_four_point_face(op::AdvectionDiffusion, f, state, A, k, j, ir)
     m = op.momentum
     np = momentum_cell_count(m)
-    T = eltype(f)
     # upstream U1, U2 and downstream D1 by the sign of A (DREAM: A > 0 is positive flow)
     i_u, i_uu, i_d = A > 0 ? (k - 1, k - 2, k) : (k, k + 1, k - 1)
     centers, faces = m.p_centers, m.p_faces
@@ -351,7 +355,7 @@ Base.@propagate_inbounds function _p_flux(op::AdvectionDiffusion, f, k, j, ir, s
             phi_prev = _p_flux(op, f, np - 1, j, ir, state)
             dd = m.p_widths[np] / m.p_widths[np-1]
             return (1 + dd) * phi_last - dd * phi_prev
-        elseif op.p_upper_boundary === :f_zero && np > 1
+        elseif op.p_upper_boundary === :f_zero && np > 1  # one cell: outflow below
             distance = m.p_centers[np] - m.p_centers[np-1]
             if op.p_scheme === :exponential_fitting
                 # the ghost cell with f = 0 at one spacing beyond the last centre
@@ -470,7 +474,7 @@ function momentum_flux(op::AdvectionDiffusion, f::AbstractArray{<:Any,3}, face::
                        ir::Integer=1)
     m = momentum_grid(op.grid, ir)
     1 <= face <= momentum_cell_count(m) + 1 ||
-        throw(BoundsError("momentum face $face outside the grid"))
+        throw(ArgumentError("momentum face $face outside the grid (1 to $(momentum_cell_count(m) + 1))"))
     total = zero(eltype(f))
     @inbounds for j in 1:pitch_cell_count(m)
         total += m.xi_widths[j] * _p_flux(op, f, face, j, ir)

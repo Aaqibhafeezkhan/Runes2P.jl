@@ -13,7 +13,10 @@ unknown `reference` (one component) at the same radius, or the unknown's own sca
 `reference` is `nothing`. Declared on the unknown with `nonnegative = true` (tolerance 0)
 or `nonnegative = LowerLimit(...)`, e.g. `RadialUnknown(:ion_densities; components=3,
 nonnegative=LowerLimit(tolerance=1e-12, reference=:total_electron_density))`. Scalar
-unknowns take no reference.
+unknowns take no reference. An unknown that can sit at exactly 0 (an empty charge state)
+needs a positive tolerance: with tolerance 0 a round-off negative update of an entry at
+its limit fails the Newton step (`:below_lower_limit`), and shorter time steps do not
+help.
 """
 struct LowerLimit
     tolerance::Float64

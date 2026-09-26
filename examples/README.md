@@ -1,6 +1,7 @@
 # Examples
 
-Basic runs of the methods in the code, each a script with `name=value` switches on the command line and defaults that run as they are. The environment is `examples/Project.toml` (Runes2P from the parent directory, HDF5 for the output):
+Basic runs of the methods in the code, each a script with `name=value` switches on the command line and defaults that run as they are.
+The environment is `examples/Project.toml` (Runes2P from the parent directory, HDF5 for the output):
 
 ```sh
 julia --project=examples -e 'using Pkg; Pkg.instantiate()'   # once
@@ -9,7 +10,8 @@ julia --project=examples examples/cooling.jl scheme=van_albada solver=gmres
 julia --project=examples examples/avalanche.jl treatment=implicit solver=gmres
 ```
 
-Each script prints the solver statistics (steps, Newton and Krylov iterations, factorizations, steps accepted at the residual floor or as a linear system), the negative entries of the saved states and the density at every save; `output=run.h5` writes the solution with `write_output` (layout, saved states per unknown, solver statistics).
+Each script prints the solver statistics (steps, Newton and Krylov iterations, factorizations, steps accepted at the residual floor or as a linear system), the negative entries of the saved states and the density at every save.
+`output=run.h5` writes the solution with `write_output` (layout, saved states per unknown, solver statistics).
 
 | Script | Run |
 |---|---|
@@ -44,4 +46,6 @@ The switches, shared through `common.jl` (a script's own defaults are in its hea
 | `dt=`, `t_end=`, `saves=` | s, s, integer | time step, end time, number of saved states |
 | `output=` | file name | HDF5 output of the solution |
 
-Parameter values come from DREAM's examples or, for the cooling plasma, a generic test case; each script names its source. The default scheme, exponential fitting, keeps f non-negative at every resolution and is first order where a smooth tail is driven by the field, so field-driven quantities (the runaway fraction of `relaxation.jl` at large `e_over_ec`, the loss through `p_max` in `cooling.jl`) need a check against a finer `np=` (see the README of the repository, "DREAM compatibility and departures"); the limiters converge faster there and cost about twice per step.
+Parameter values come from DREAM's examples or, for the cooling plasma, a generic test case; each script names its source.
+The default scheme, exponential fitting, keeps f non-negative at every resolution and is first order where a smooth tail is driven by the field, so field-driven quantities (the runaway fraction of `relaxation.jl` at large `e_over_ec`, the loss through `p_max` in `cooling.jl`) need a check against a finer `np=` (see the README of the repository, "DREAM compatibility and departures").
+The limiters converge faster there and cost about twice per step.

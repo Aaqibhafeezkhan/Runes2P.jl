@@ -177,6 +177,10 @@ square_root_step(u0, k, dt) = ((-k * dt + sqrt((k * dt)^2 + 4u0)) / 2)^2
                                            ConstantSourceTerm(NaN))
         u = [1.0]
         @test newton_solve!(u, [1.0], NewtonWorkspace(nan_source), 1.0, 1.0).status === :non_finite_residual
+        # a finite residual with a non-finite Jacobian: √x at x = 0
+        u = [0.0]
+        steep = NewtonWorkspace(single_unknown_system(TimeDerivative(), SquareRootDecayTerm(:x, 10.0)))
+        @test newton_solve!(u, [0.0], steep, 1.0, 1.0).status === :non_finite_jacobian
         u = [1.0]
         few = NewtonWorkspace(single_unknown_system(TimeDerivative(), SquareRootDecayTerm(:x, 10.0);
                                                     nonnegative=true), NewtonSolver(max_iterations=2))

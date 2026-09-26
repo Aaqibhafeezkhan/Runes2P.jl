@@ -172,15 +172,18 @@ end
 Whether the operator is linear in f (up to a constant source); false for flux-limiter
 schemes, whose face values depend on f. For an [`EquationTerm`](@ref): whether the term
 is linear in the state up to a constant (`false` by default; terms opt in), which lets
-[`NewtonSolver`](@ref) accept a step of a linear system after one iteration.
+[`NewtonSolver`](@ref) accept a step of a linear system on the update test alone.
 """
 is_linear(op::AdvectionDiffusion) = !(is_nonlinear_scheme(op.p_scheme) || is_nonlinear_scheme(op.xi_scheme))
 
 """
-    operator_matrix(op; backend=sparse_ad_backend(pattern=stencil_pattern(op.grid)))
+    operator_matrix(op; backend=sparse_ad_backend(pattern=stencil_pattern(op)), check_local=true)
 
 Sparse matrix `M` with `vec(apply(op, f)) = M * vec(f) + c` for an operator `op` that is
-linear in `f` up to a constant source `c`.
+linear in `f` up to a constant source `c`. The default pattern follows the operator's
+schemes and boundary conditions ([`stencil_pattern`](@ref)). `check_local = true` refuses
+operators that are not local ([`is_local`](@ref)); pass `false` only with a backend that
+detects the pattern itself.
 """
 function operator_matrix(op; backend=nothing, check_local::Bool=true)
     if check_local && !is_local(op)

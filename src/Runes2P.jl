@@ -60,6 +60,7 @@ export dreicer_field, thermal_collision_time, connor_hastie_rate, avalanche_grow
 export ScalarUnknown, RadialUnknown, KineticUnknown, LowerLimit, UnknownLayout
 export unknown_id, unknown_names, unknown, unknown_range, radius_block_range, scalar_block_range
 export radial_view, kinetic_view, scalar_view, unknown_view, unknown_scales, describe, copy_unknowns!
+export kinetic_grid
 export EquationTerm, dependencies, coupling, treatment, sparsity!, rhs!, jacobian_vector_product!
 export jacobian_kind, jacobian_correction_product!, is_linear
 export FokkerPlanckTerm, PrescribedFokkerPlanckTerm, KnockOnTerm, LinearTerm, DensityMomentTerm, CurrentMomentTerm, MaxwellianSourceTerm, LayoutKineticArray, kinetic_array

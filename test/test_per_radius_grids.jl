@@ -57,6 +57,9 @@
                              ions=[IonSpecies("D", 1, 1, fill(1e20, 3))],
                              electric_field=fill(1.0, 3), magnetic_field=fill(5.0, 3))
         @test_throws ArgumentError fokker_planck_operator(g, plasma)
+        # the message names the reason, not the accessor that failed
+        @test_throws "one momentum grid for all radii" AdvectionDiffusion(g)
+        @test_throws "one momentum grid for all radii" fokker_planck_operator(g, plasma)
     end
 
     @testset "knock-on operator on different grids" begin

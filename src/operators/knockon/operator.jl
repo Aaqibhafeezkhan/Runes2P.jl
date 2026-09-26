@@ -8,7 +8,9 @@
 # - `:blas`: contract each tabulated slice with the primary weights first,
 #   `Y_m = D_m W[:, k ∈ K_m]` (one matrix product per slice m, restricted to the primary
 #   momenta K_m whose pairs use slice m), then gather
-#   `C[i, j] = Σ_k S_ik (w0 Y_{m0}[j, k] + w1 Y_{m0+1}[j, k])`.
+#   `C[i, j] = Σ_k S_ik (w0 Y_{m0}[j, k] + w1 Y_{m0+1}[j, k])` for the two slices of a
+#   single ξ* (`:midpoint`, `:centre`), or the sum over every slice of the pair's ξ* range
+#   with `:interval` (`KnockOnKernels`).
 #   Interpolation is linear, so both give the same result up to summation order.
 
 using LinearAlgebra: mul!
@@ -261,9 +263,10 @@ Set the cutoff momentum (a number for all radii, or one value per radius) and re
 the kernels of the radii whose cutoff changed. Kernels are cached by the momentum grids
 of the radius and the cutoff value, so radii with the same grids and cutoff share one
 set, and a combination already in use costs nothing. Returns the number of kernel sets
-built. A rebuild costs a few operator applications; snapping the
-cutoff to momentum cell faces ([`choose_cutoff`](@ref)) keeps rebuilds rare when the
-cutoff follows the plasma.
+built. When a cutoff is invalid or a kernel cannot be built, the operator is unchanged.
+A rebuild costs a few operator applications; snapping the cutoff
+to momentum cell faces ([`choose_cutoff`](@ref)) keeps rebuilds rare when the cutoff
+follows the plasma.
 
 A `knockon_linear_operator` of `op` sees the new kernels.
 """
@@ -271,21 +274,23 @@ function set_cutoff!(op::KnockOnOperator{T}, p_cutoff::Union{Real,AbstractVector
     nr = radial_cell_count(op.knockon)
     p_cutoff isa AbstractVector && length(p_cutoff) != nr &&
         throw(DimensionMismatch("p_cutoff must be a number or have one entry per radius"))
-    built = 0
-    for ir in 1:nr
-        cutoff = T(p_cutoff isa AbstractVector ? p_cutoff[ir] : p_cutoff)
-        cutoff > 0 || throw(ArgumentError("p_cutoff must be positive"))
-        key = _kernel_key(op, ir, cutoff)
-        kernels = get(op.cache, key, nothing)
-        if kernels === nothing
-            kernels = KnockOnKernels(momentum_grid(op.knockon, ir), momentum_grid(op.primary, ir),
-                                     cutoff; op.pitch_options...)
-            op.cache[key] = kernels
-            built += 1
+    cutoffs = T[p_cutoff isa AbstractVector ? p_cutoff[ir] : p_cutoff for ir in 1:nr]
+    all(>(0), cutoffs) || throw(ArgumentError("p_cutoff must be positive"))
+    # the new kernels are built before the operator changes, so a failure (a cutoff or a
+    # grid the kernels refuse) leaves it as it was
+    built = Dict{keytype(op.cache),KnockOnKernels{T}}()
+    kernels = map(1:nr) do ir
+        key = _kernel_key(op, ir, cutoffs[ir])
+        get(op.cache, key) do
+            get!(built, key) do
+                KnockOnKernels(momentum_grid(op.knockon, ir), momentum_grid(op.primary, ir),
+                               cutoffs[ir]; op.pitch_options...)
+            end
         end
-        op.p_cutoff[ir] = cutoff
-        op.kernels[ir] = kernels
     end
+    merge!(op.cache, built)
+    copyto!(op.p_cutoff, cutoffs)
+    copyto!(op.kernels, kernels)
     # keep only the kernels in use
     in_use = Set(_kernel_key(op, ir, op.p_cutoff[ir]) for ir in 1:nr)
     for key in collect(keys(op.cache))
@@ -296,7 +301,7 @@ function set_cutoff!(op::KnockOnOperator{T}, p_cutoff::Union{Real,AbstractVector
         column_count > size(op.slice_products, 2) &&
             (op.slice_products = zeros(T, size(op.slice_products, 1), column_count))
     end
-    return built
+    return length(built)
 end
 
 """
@@ -435,7 +440,9 @@ acting on `vec(f)` of the primary grid and returning `vec` of the knock-on grid:
 implicit (Jacobian) form of the knock-on term, for use in Krylov solvers and in sums
 with other `LinearOperator`s or matrices. `C` is linear in `f`, so the Jacobian-vector
 product is [`apply!`](@ref) itself. `total_electron_density` is referenced, not copied:
-updating it in place (e.g. between Newton iterations) changes the operator.
+updating it in place (e.g. between Newton iterations) changes the operator. Both grids
+need a shared momentum grid, as `apply!` does; with a momentum grid per radius the
+products go through [`apply_at_radius!`](@ref), as in [`KnockOnTerm`](@ref).
 
 The derivative with respect to the total electron density is `C(f)/n_tot` at each radius
 (DREAM's only Jacobian block for this term, which it treats explicitly in `f`). Treating

@@ -28,6 +28,9 @@
         # hysteresis: a current value inside the window is kept
         @test choose_cutoff(p_f, 0.1, 0.5; current_cutoff=0.12) == (p_cutoff=0.12, inside_window=true)
         @test choose_cutoff(p_f, 0.13, 0.5; current_cutoff=0.12).p_cutoff != 0.12
+        # a current value that is not a face (another grid's cutoff) is replaced by a face
+        c = choose_cutoff(p_f, 0.1, 0.5; current_cutoff=0.13)
+        @test c.inside_window && c.p_cutoff in p_f && c.p_cutoff != 0.13
         # no upper bound (E ≤ E_c): smallest face above the lower bound
         @test choose_cutoff(p_f, 0.05, Inf) == (p_cutoff=0.06, inside_window=true)
         # closed window: largest face below p_crit, flagged
@@ -72,6 +75,11 @@
         @test L * vec(f) ≈ vec(Cb) rtol = 1e-14
         @test_throws DimensionMismatch set_cutoff!(op, [pa, pb])
         @test_throws ArgumentError set_cutoff!(op, 0.0)
+        # an invalid cutoff at a later radius leaves the operator as it was
+        before = (copy(op.p_cutoff), copy(op.kernels), length(op.cache))
+        @test_throws ArgumentError set_cutoff!(op, [pa, momentum_grid(g).p_faces[13], -1.0])
+        @test op.p_cutoff == before[1] && length(op.cache) == before[3]
+        @test all(k -> op.kernels[k] === before[2][k], eachindex(op.kernels))
     end
 
     @testset "production above a reference momentum does not depend on p_c" begin

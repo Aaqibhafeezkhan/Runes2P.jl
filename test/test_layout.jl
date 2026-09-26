@@ -72,6 +72,9 @@ using ForwardDiff: Dual
         @test unknown_view(u, layout, :plasma_current)[] == 1.5e6
         @test_throws ArgumentError kinetic_view(u, layout, E, 1)
         @test_throws ArgumentError radial_view(u, layout, f_hot, 1)
+        # the grid of a kinetic unknown, as terms read it
+        @test kinetic_grid(layout, f_hot) === hot && kinetic_grid(layout, f_re) === runaway
+        @test_throws ArgumentError kinetic_grid(layout, E)
         @test_throws ArgumentError scalar_view(u, layout, E)
     end
 
