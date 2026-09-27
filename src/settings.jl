@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.1"
+const OUTPUT_FORMAT_VERSION = v"0.2"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -101,16 +101,18 @@ Context shared by the [`describe`](@ref) calls of one run. Kinetic grids are des
 once and referred to by name (`grid_1`, `grid_2`, … in the order of first use; grids with
 equal faces share a name). `times` are the run's time points, at which prescribed
 functions of time are sampled. The tables of the samples are kept in the context and
-referred to by name (`table_1`, …), each at most `max_table_bytes` large.
+referred to by name (`table_1`, …), each at most `max_table_bytes` large. A function used
+by several terms or updates has one table.
 """
 struct DescriptionContext
     grids::Vector{KineticGrid}
     times::Vector{Float64}
     max_table_bytes::Int
     tables::Vector{SettingsRecord}
+    table_sources::Vector{Any}
 end
 DescriptionContext(; times=Float64[], max_table_bytes::Integer=MAX_PRESCRIBED_TABLE_BYTES) =
-    DescriptionContext(KineticGrid[], collect(Float64, times), Int(max_table_bytes), SettingsRecord[])
+    DescriptionContext(KineticGrid[], collect(Float64, times), Int(max_table_bytes), SettingsRecord[], Any[])
 
 "Name of `grid` in the context, registering it at its first use."
 function grid_name!(context::DescriptionContext, grid::KineticGrid)
@@ -126,10 +128,15 @@ end
 describe(context::DescriptionContext) =
     SettingsRecord("grid_$k" => describe(grid) for (k, grid) in enumerate(context.grids))
 
-"Name of `table` in the context, which keeps it."
-function table_name!(context::DescriptionContext, table::SettingsRecord)
-    push!(context.tables, table)
-    return "table_$(length(context.tables))"
+"Name of the table of the prescribed plasma `plasma_at` in the context, which builds it at the first use."
+function prescribed_table!(context::DescriptionContext, plasma_at)
+    k = findfirst(source -> source === plasma_at, context.table_sources)
+    if k === nothing
+        push!(context.table_sources, plasma_at)
+        push!(context.tables, describe_prescribed_plasma(plasma_at, context))
+        k = length(context.tables)
+    end
+    return "table_$k"
 end
 
 "Records of the tables registered in the context, by name."
@@ -427,7 +434,7 @@ function describe(term::PrescribedFokkerPlanckTerm, context::DescriptionContext)
     record["collision_settings"] = describe(term.settings)
     record["synchrotron"] = term.synchrotron
     record["plasma"] = _callable_name(term.plasma_at)
-    record["plasma_table"] = table_name!(context, describe_prescribed_plasma(term.plasma_at, context))
+    record["plasma_table"] = prescribed_table!(context, term.plasma_at)
     return record
 end
 
@@ -635,7 +642,7 @@ end
 # the record of a run
 
 "Sections of the settings that define the setup of a run, covered by `setup_hash`."
-const SETUP_SECTIONS = ("grids", "layout", "system", "prescribed", "solver", "time", "run")
+const SETUP_SECTIONS = ("grids", "layout", "system", "updates", "prescribed", "solver", "time", "run")
 
 _has_undescribed(record::AbstractDict) =
     get(record, "described", true) === false || any(_has_undescribed, values(record))
@@ -651,13 +658,14 @@ end
 
 """
     run_settings(system; solver=NewtonSolver(), times=Float64[], save_times=times,
-                 max_step_halvings=10, description=Dict())
+                 max_step_halvings=10, description=Dict(), updates=(), checkpoint=nothing)
 
 The record of a run, written by [`write_output`](@ref) as the `settings` group. Sections:
 
 - `grids`: the kinetic grids by name, with their faces;
 - `layout`: the unknowns, their order, sizes, scales and lower limits;
 - `system`: the equations with every term and its options, the tolerances;
+- `updates`: the interval updates by name ([`IntervalUpdate`](@ref));
 - `prescribed`: the tables of the prescribed functions of time, sampled at the time
   points ([`describe_prescribed_plasma`](@ref)), which the terms refer to by name. They
   are a section of their own so that the hash of `system` does not change with the time
@@ -668,23 +676,30 @@ The record of a run, written by [`write_output`](@ref) as the `settings` group. 
   the parameters a hand-built coefficient came from), as plain values;
 - `code`: [`code_version`](@ref), with the commit of Runes2P;
 - `environment`: [`run_environment`](@ref);
-- `hashes`: [`settings_hash`](@ref) of each of the first seven sections, and
-  `setup_hash` of the seven together. `code` and `environment` are outside the hashes, so
-  the same setup has the same hash on another machine and commit;
+- `checkpoint`: the checkpoint settings, or the type `none`;
+- `hashes`: [`settings_hash`](@ref) of each of the first eight sections, and
+  `setup_hash` of the eight together. `code`, `environment` and `checkpoint` are outside
+  the hashes, so the same setup has the same hash on another machine and commit;
 - `complete`: false when some object of the run has no record of its own (a term defined
   outside the package, a prescribed function that fails at a time point).
 
-[`integrate`](@ref) builds the record at its start and returns it in the solution.
+[`integrate`](@ref) builds the record at its start and returns it in the solution, with
+the record of the segment added under `segment`: its number, its start time, the number
+of states saved before it, and for a resumed segment the file it resumed from, the commit
+and setup hash of the run that wrote it and the sections whose hash changed.
 """
 function run_settings(system::EquationSystem; solver::NewtonSolver=NewtonSolver(),
                       times::AbstractVector=Float64[], save_times::AbstractVector=times,
                       max_step_halvings::Integer=10, description=SettingsRecord(),
+                      updates=(), checkpoint=nothing,
                       max_table_bytes::Integer=MAX_PRESCRIBED_TABLE_BYTES)
     context = DescriptionContext(; times, max_table_bytes)
     record = SettingsRecord()
     record["layout"] = describe(system.layout, context)
     record["system"] = describe(system, context)
-    # after the layout and the terms have named their grids and tables
+    record["updates"] = SettingsRecord(update_name(update) => describe(update, context)
+                                       for update in _checked_updates(updates))
+    # after the layout, the terms and the updates have named their grids and tables
     record["grids"] = describe(context)
     record["prescribed"] = describe_tables(context)
     record["solver"] = describe(solver)
@@ -695,6 +710,7 @@ function run_settings(system::EquationSystem; solver::NewtonSolver=NewtonSolver(
     record["setup_hash"] = settings_hash(SettingsRecord(section => record[section] for section in SETUP_SECTIONS))
     record["code"] = code_version()
     record["environment"] = run_environment()
+    record["checkpoint"] = checkpoint === nothing ? SettingsRecord("type" => "none") : describe(checkpoint)
     return record
 end
 

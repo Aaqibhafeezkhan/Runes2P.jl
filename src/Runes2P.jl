@@ -31,6 +31,8 @@ include("solvers/linear_solver.jl")
 include("solvers/newton.jl")
 include("solvers/krylov.jl")
 include("settings.jl")
+include("solvers/interval_updates.jl")
+include("solvers/checkpoint.jl")
 include("solvers/time_stepping.jl")
 
 export MomentumGrid, uniform_p_faces, biuniform_p_faces, tanh_p_faces, uniform_xi_faces
@@ -71,5 +73,7 @@ export LinearSolver, SparseLU, GMRES, RadiusBlockLU, RadiusBlockILU, NewtonSolve
 export SolverStatistics, TimeSolution, TimeStepFailure, integrate, write_output
 export OUTPUT_FORMAT_VERSION, DescriptionContext, run_settings, read_settings, settings_hash, settings_fields
 export code_version, run_environment, describe_prescribed_plasma, resolved_pitch_options
+export IntervalUpdate, KnockOnCutoffUpdate, free_critical_momentum
+export CheckpointSettings, StoredState, read_checkpoint, write_checkpoint, read_state, read_output
 
 end # module Runes2P
