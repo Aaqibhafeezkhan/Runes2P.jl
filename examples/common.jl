@@ -132,6 +132,8 @@ directory of its files, `checkpoint_interval=` the wall time between checkpoints
 continues from the last checkpoint when there is one. `stop_file=` and `wall_budget=` [s]
 stop the segment at a time point, with `slack=` [s] in the margin. In a Slurm job with
 checkpoints the segment stops before the end of the job without further switches.
+`log=stdout` or `log=<file>` writes the progress log, and `request_file=` names the file
+whose appearance asks for an entry.
 """
 function run_options()
     name = argument("checkpoint", "")
@@ -144,7 +146,11 @@ function run_options()
            StopCondition(stop_file=has_argument("stop_file") ? argument("stop_file", "") : nothing,
                          wall_budget=has_argument("wall_budget") ? number("wall_budget", 0.0) : nothing,
                          slack=number("slack", 300.0)) : nothing
-    return (; checkpoint, resume, stop)
+    target = argument("log", "")
+    request_file = has_argument("request_file") ? argument("request_file", "") : nothing
+    log = isempty(target) ? nothing :
+          target == "stdout" ? ProgressLog(; request_file) : ProgressLog(; file=target, request_file)
+    return (; checkpoint, resume, stop, log)
 end
 
 "End the script with the exit status of the run, which the batch script of a segment reads."

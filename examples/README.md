@@ -48,6 +48,7 @@ The switches, shared through `common.jl` (a script's own defaults are in its hea
 | `checkpoint=`, `checkpoint_dir=`, `checkpoint_interval=` | name, directory, s | checkpoints and segment outputs of a run of that name (`relaxation.jl`, `cooling.jl`); 1800 s between checkpoints by default |
 | `resume=`, `overwrite=` | `true`, `false` (default) | continue from the last checkpoint when there is one; let a run replace the segment files of an earlier one |
 | `stop_file=`, `wall_budget=`, `slack=` | file name, s, s | stop the segment at a time point when the file appears or the budget runs out; in a Slurm job with checkpoints the end of the job is the budget |
+| `log=`, `request_file=` | `stdout` or a file name; file name | progress log of the run (`relaxation.jl`, `cooling.jl`), appended to a file; the file whose appearance asks for an entry |
 
 Parameter values come from DREAM's examples or, for the cooling plasma, a generic test case; each script names its source.
 The default scheme, exponential fitting, keeps f non-negative at every resolution and is first order where a smooth tail is driven by the field, so field-driven quantities (the runaway fraction of `relaxation.jl` at large `e_over_ec`, the loss through `p_max` in `cooling.jl`) need a check against a finer `np=` (see the README of the repository, "DREAM compatibility and departures").

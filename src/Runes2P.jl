@@ -33,6 +33,7 @@ include("solvers/krylov.jl")
 include("settings.jl")
 include("solvers/interval_updates.jl")
 include("solvers/checkpoint.jl")
+include("solvers/progress_log.jl")
 include("solvers/time_stepping.jl")
 
 export MomentumGrid, uniform_p_faces, biuniform_p_faces, tanh_p_faces, uniform_xi_faces
@@ -76,5 +77,6 @@ export code_version, run_environment, describe_prescribed_plasma, resolved_pitch
 export IntervalUpdate, KnockOnCutoffUpdate, free_critical_momentum
 export CheckpointSettings, StoredState, read_checkpoint, write_checkpoint, read_state, read_output
 export StopCondition, stop_reason, run_status, exit_status
+export ProgressLog, write_header, write_entry, log_event!
 
 end # module Runes2P

@@ -531,6 +531,11 @@ deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 version = "1.11.0"
 
+[[deps.Profile]]
+deps = ["StyledStrings"]
+uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
+version = "1.11.0"
+
 [[deps.QuadGK]]
 deps = ["DataStructures", "LinearAlgebra"]
 git-tree-sha1 = "5e8e8b0ab68215d7a2b14b9921a946fee794749e"
@@ -568,7 +573,7 @@ uuid = "ae029012-a4dd-5104-9daa-d747884805df"
 version = "1.3.1"
 
 [[deps.Runes2P]]
-deps = ["ADTypes", "DifferentiationInterface", "ForwardDiff", "IncompleteLU", "Krylov", "LibGit2", "LinearAlgebra", "LinearOperators", "QuadGK", "SHA", "SparseArrays", "SparseConnectivityTracer", "SparseMatrixColorings", "SpecialFunctions"]
+deps = ["ADTypes", "DifferentiationInterface", "ForwardDiff", "IncompleteLU", "Krylov", "LibGit2", "LinearAlgebra", "LinearOperators", "Logging", "Printf", "Profile", "QuadGK", "SHA", "SparseArrays", "SparseConnectivityTracer", "SparseMatrixColorings", "SpecialFunctions"]
 path = ".."
 uuid = "7ac8527a-7440-4908-b219-e6c5e734431e"
 version = "0.1.0"

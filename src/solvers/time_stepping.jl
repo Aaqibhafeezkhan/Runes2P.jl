@@ -141,7 +141,8 @@ end
 
 """
     integrate(system, u0, times; solver=NewtonSolver(), save_times=times, max_step_halvings=10,
-              description=Dict(), updates=(), checkpoint=nothing, resume=false, stop=nothing)
+              description=Dict(), updates=(), checkpoint=nothing, resume=false, stop=nothing,
+              log=nothing)
 
 Backward-Euler integration of `system` from the state `u0` at `times[1]` through the
 time points `times` (any increasing array, e.g. nonuniform or matching the restarts of
@@ -188,12 +189,29 @@ last one, when the wall time left does not cover another interval or a stop file
 appears. The segment writes its checkpoint and returns what it has saved;
 [`run_status`](@ref) of the solution is then `:stopped`, and [`exit_status`](@ref) is the
 exit status for the script.
+
+`log` ([`ProgressLog`](@ref)) reports while the run is going: a header, entries at
+milestones of the simulated time, after a silence and on demand, and the events of the
+run when they happen. The warnings of the run are written to it.
 """
-function integrate(system::EquationSystem{T}, u0::AbstractVector, times::AbstractVector;
-                   solver::NewtonSolver=NewtonSolver(), save_times::AbstractVector=times,
-                   max_step_halvings::Integer=10, description=Dict{String,Any}(),
-                   updates=(), checkpoint::Union{Nothing,CheckpointSettings}=nothing, resume=false,
-                   stop::Union{Nothing,StopCondition}=nothing) where {T}
+function integrate(system::EquationSystem, u0::AbstractVector, times::AbstractVector;
+                   log::Union{Nothing,ProgressLog}=nothing, options...)
+    log === nothing && return _integrate(system, u0, times; log, options...)
+    # the log takes the warnings of the run, and the report of Julia on SIGUSR1 while it runs
+    report = Profile.peek_report[]
+    try
+        return Logging.with_logger(() -> _integrate(system, u0, times; log, options...), log)
+    finally
+        Profile.peek_report[] = report
+    end
+end
+
+function _integrate(system::EquationSystem{T}, u0::AbstractVector, times::AbstractVector;
+                    solver::NewtonSolver=NewtonSolver(), save_times::AbstractVector=times,
+                    max_step_halvings::Integer=10, description=Dict{String,Any}(),
+                    updates=(), checkpoint::Union{Nothing,CheckpointSettings}=nothing, resume=false,
+                    stop::Union{Nothing,StopCondition}=nothing,
+                    log::Union{Nothing,ProgressLog}=nothing) where {T}
     layout = system.layout
     n = length(layout)
     length(u0) == n || throw(DimensionMismatch("u0 does not match the layout"))
@@ -207,7 +225,7 @@ function integrate(system::EquationSystem{T}, u0::AbstractVector, times::Abstrac
     checkpoint === nothing || _require_hdf5(write_checkpoint, "writing checkpoints")
 
     settings = run_settings(system; solver, times, save_times, max_step_halvings, description, updates,
-                            checkpoint, stop)
+                            checkpoint, stop, log)
     stored = _resume_state(resume, checkpoint)
     u_old = Vector{T}(u0)
     first_interval, first_save, segment = 1, 1, 1
@@ -283,6 +301,8 @@ function integrate(system::EquationSystem{T}, u0::AbstractVector, times::Abstrac
     while stored === nothing && next_save <= length(save_times) && save_times[next_save] == first(times)
         save!(u_old)
     end
+    start_log!(log, settings, u_old, layout, T(times[first_interval]), times, first_interval - 1, stats)
+    finish(reason, t, intervals) = write_entry(log, reason, u_old, layout, t, times, intervals, stats)
 
     for interval in first_interval:length(times)-1
         t, t_end = T(times[interval]), T(times[interval+1])
@@ -300,9 +320,29 @@ function integrate(system::EquationSystem{T}, u0::AbstractVector, times::Abstrac
             _record!(stats, t_next, h, result, ws, (time_ns() - started) / 1e9)
             if result.status !== :converged
                 halvings += 1
-                halvings > max_step_halvings && throw(TimeStepFailure(t_next, h, result.status, stats))
+                if halvings > max_step_halvings
+                    log_event!(log, "run failed", Logging.Error,
+                               "the step to t = $t_next s with the time step $h s failed with the status " *
+                               "$(result.status) after $max_step_halvings halvings")
+                    finish("segment end, failed", t, interval - 1)
+                    throw(TimeStepFailure(t_next, h, result.status, stats))
+                end
+                log_event!(log, "step failed", Logging.Warn,
+                           "the step to t = $t_next s with the time step $h s ended with the status " *
+                           "$(result.status) and is retried with half the time step")
+                report_step!(log, u_old, layout, t, times, interval - 1, stats)
                 dt = h / 2
                 continue
+            end
+            if log !== nothing
+                result.residual_floor && !result.linear_step &&
+                    log_event!(log, "residual floor", Logging.Info,
+                               "the step to t = $t_next s was accepted with the residual $(result.residual_norm) " *
+                               "above the tolerance, where it had stopped decreasing")
+                negative = _negative_cells(u, layout)
+                negative > 0 && log_event!(log, "negative values", Logging.Warn,
+                                           "$negative negative cells of the kinetic unknowns after the step to " *
+                                           "t = $t_next s")
             end
             while next_save <= length(save_times) && save_times[next_save] <= t_next
                 s = save_times[next_save]
@@ -315,6 +355,7 @@ function integrate(system::EquationSystem{T}, u0::AbstractVector, times::Abstrac
             end
             copyto!(u_old, u)
             t = t_next
+            t < t_end && report_step!(log, u_old, layout, t, times, interval - 1, stats)
         end
         longest_interval = max(longest_interval, time() - started_interval)
         last_interval = interval == length(times) - 1
@@ -337,12 +378,21 @@ function integrate(system::EquationSystem{T}, u0::AbstractVector, times::Abstrac
                                              checkpoint_file(checkpoint)))
                 last_checkpoint = time()
                 longest_write = max(longest_write, last_checkpoint - started_write)
+                log_event!(log, "checkpoint", Logging.Info,
+                           "written at t = $t_end s in $(round(last_checkpoint - started_write; digits=2)) s: " *
+                           checkpoint_file(checkpoint))
             end
         end
         update_segment!(status, t_end, intervals; reason)
-        reason === nothing || return segment_solution()
+        if reason !== nothing
+            log_event!(log, "stop", Logging.Warn, "the segment stops at t = $t_end s: $reason")
+            finish("segment end, stopped: $reason", t_end, interval)
+            return segment_solution()
+        end
+        last_interval || report_progress!(log, u_old, layout, t_end, times, interval, stats)
     end
     update_segment!("finished", times[end], length(times) - first_interval)
+    finish("segment end, finished", T(times[end]), length(times) - 1)
     return segment_solution()
 end
 

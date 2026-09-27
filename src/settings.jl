@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.3"
+const OUTPUT_FORMAT_VERSION = v"0.4"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -659,7 +659,7 @@ end
 """
     run_settings(system; solver=NewtonSolver(), times=Float64[], save_times=times,
                  max_step_halvings=10, description=Dict(), updates=(), checkpoint=nothing,
-                 stop=nothing)
+                 stop=nothing, log=nothing)
 
 The record of a run, written by [`write_output`](@ref) as the `settings` group. Sections:
 
@@ -679,9 +679,11 @@ The record of a run, written by [`write_output`](@ref) as the `settings` group. 
 - `environment`: [`run_environment`](@ref);
 - `checkpoint`: the checkpoint settings, or the type `none`;
 - `stop`: the stop condition, or the type `none`;
+- `log`: the settings of the progress log, or the type `none`;
 - `hashes`: [`settings_hash`](@ref) of each of the first eight sections, and
-  `setup_hash` of the eight together. `code`, `environment`, `checkpoint` and `stop` are
-  outside the hashes, so the same setup has the same hash on another machine and commit;
+  `setup_hash` of the eight together. `code`, `environment`, `checkpoint`, `stop` and
+  `log` are outside the hashes, so the same setup has the same hash on another machine
+  and commit;
 - `complete`: false when some object of the run has no record of its own (a term defined
   outside the package, a prescribed function that fails at a time point).
 
@@ -695,7 +697,7 @@ hash changed.
 function run_settings(system::EquationSystem; solver::NewtonSolver=NewtonSolver(),
                       times::AbstractVector=Float64[], save_times::AbstractVector=times,
                       max_step_halvings::Integer=10, description=SettingsRecord(),
-                      updates=(), checkpoint=nothing, stop=nothing,
+                      updates=(), checkpoint=nothing, stop=nothing, log=nothing,
                       max_table_bytes::Integer=MAX_PRESCRIBED_TABLE_BYTES)
     context = DescriptionContext(; times, max_table_bytes)
     record = SettingsRecord()
@@ -716,6 +718,7 @@ function run_settings(system::EquationSystem; solver::NewtonSolver=NewtonSolver(
     record["environment"] = run_environment()
     record["checkpoint"] = checkpoint === nothing ? SettingsRecord("type" => "none") : describe(checkpoint)
     record["stop"] = stop === nothing ? SettingsRecord("type" => "none") : describe(stop)
+    record["log"] = log === nothing ? SettingsRecord("type" => "none") : describe(log)
     return record
 end
 

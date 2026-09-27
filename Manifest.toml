@@ -2,7 +2,7 @@
 
 julia_version = "1.13.0"
 manifest_format = "2.1"
-project_hash = "864d0ebb19e8c543e9c31d828a2c35ff2f06597d"
+project_hash = "4bc3f1ec30a0c2e7f5ba9f8ec7fd6459aac6eb42"
 
 [[deps.ADTypes]]
 deps = ["PrecompileTools"]
@@ -310,6 +310,10 @@ version = "1.0.1"
     ChangesOfVariables = "9e997f8a-9a97-42d5-a9f1-ce6bfc15e2c0"
     InverseFunctions = "3587e190-3f89-42d0-90ee-14403ec27112"
 
+[[deps.Logging]]
+uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
+version = "1.11.0"
+
 [[deps.MacroTools]]
 git-tree-sha1 = "1e0228a030642014fe5cfe68c2c0a818f9e3f522"
 registries = "General"
@@ -399,6 +403,11 @@ deps = ["Unicode"]
 uuid = "de0858da-6303-5e67-8744-51eddeeeb8d7"
 version = "1.11.0"
 
+[[deps.Profile]]
+deps = ["StyledStrings"]
+uuid = "9abbd945-dff8-562f-b5e8-e1ebf5ef1b79"
+version = "1.11.0"
+
 [[deps.QuadGK]]
 deps = ["DataStructures", "LinearAlgebra"]
 git-tree-sha1 = "5e8e8b0ab68215d7a2b14b9921a946fee794749e"
@@ -429,7 +438,7 @@ uuid = "189a3867-3050-52da-a836-e630ba90ab69"
 version = "1.2.2"
 
 [[deps.Runes2P]]
-deps = ["ADTypes", "DifferentiationInterface", "ForwardDiff", "IncompleteLU", "Krylov", "LibGit2", "LinearAlgebra", "LinearOperators", "QuadGK", "SHA", "SparseArrays", "SparseConnectivityTracer", "SparseMatrixColorings", "SpecialFunctions"]
+deps = ["ADTypes", "DifferentiationInterface", "ForwardDiff", "IncompleteLU", "Krylov", "LibGit2", "LinearAlgebra", "LinearOperators", "Logging", "Printf", "Profile", "QuadGK", "SHA", "SparseArrays", "SparseConnectivityTracer", "SparseMatrixColorings", "SpecialFunctions"]
 path = "."
 uuid = "7ac8527a-7440-4908-b219-e6c5e734431e"
 version = "0.1.0"
