@@ -289,7 +289,12 @@ function _integrate(system::EquationSystem{T}, u0::AbstractVector, times::Abstra
         next_save += 1
         return nothing
     end
-    apply_updates!(t) = foreach(update -> apply_update!(update, u_old, layout, t), updates)
+    # an update may change coefficients, so a stored Jacobian is not kept across it
+    function apply_updates!(t)
+        foreach(update -> apply_update!(update, u_old, layout, t), updates)
+        isempty(updates) || invalidate_jacobian!(ws)
+        return nothing
+    end
     segment_solution() = _segment_solution(layout, save_times, first_save, next_save - first_save, saved, stats,
                                            settings, updates, saved_updates)
 

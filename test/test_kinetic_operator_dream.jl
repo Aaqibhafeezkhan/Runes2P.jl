@@ -64,6 +64,7 @@ end
     checkout = joinpath(@__DIR__, "..", "reference", "dream", "DREAM")
     for file in (DREAM_COLLISION_DATA, DREAM_KINETIC_DATA,
                  joinpath(@__DIR__, "data", "dream_time_stepping.h5"),
+                 joinpath(@__DIR__, "data", "dream_cooling_positivity.h5"),
                  joinpath(@__DIR__, "data", "dream_runaway_rates.h5"), DREAM_DREICER_KINETIC_DATA,
                  joinpath(@__DIR__, "data", "dream_example_runaway.h5"),
                  joinpath(@__DIR__, "data", "dream_example_avalanche.h5"),

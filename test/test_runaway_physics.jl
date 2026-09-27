@@ -231,7 +231,10 @@ end
         # DREAM's fluid growth rate uses the effective critical momentum of Hesslow et al.
         # 2019, which includes screening and pitch-angle scattering; the kinetic operator
         # reproduces it to 3% (measured 23.0 against 22.3 s⁻¹ at this resolution, and 23.7,
-        # i.e. 6%, with 160 momentum and 18 pitch cells)
+        # i.e. 6%, with 160 momentum and 18 pitch cells). The 12 time steps of 6.7 ms are
+        # not converged: the explicit knock-on term gives 23.6, 25.6 and 26.1 s⁻¹ at 12, 48
+        # and 192 steps with exponential fitting, the implicit one 28.1, 26.7 and 26.4, so
+        # the converged kinetic rate is 26.2 s⁻¹, 18% above the fluid formula
         @test rate ≈ read(reference["GammaAva"])[case] rtol = 0.15
         # the Rosenbluth-Putvinski estimate at the test-particle critical momentum is 2.5
         # times larger, which is the ambiguity of DREAM #40

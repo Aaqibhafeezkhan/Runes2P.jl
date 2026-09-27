@@ -80,6 +80,36 @@ include("test_pitch_accuracy_helpers.jl")
         @test pitch_equilibrium_error(pitch_production_faces(1), :central, kappa).minimum < 0
     end
 
+    @testset "SMART reaches the pitch equilibrium by time stepping" begin
+        # from a distant start the steady Newton step of SMART cycles between the linear
+        # pieces of its limiter on two of nine grids (period 2 and 4 on the uniform-θ grid
+        # of 16 cells, no convergence at 2x the production pitch grid). The steady state
+        # exists and is positive: time steps of 0.01 reach it with 1.03 to 1.05 Newton
+        # iterations per step, and the steady step started there converges in 2 to 3
+        # iterations. Errors measured: 0.0947 and 0.0482.
+        kappa = 20.0
+        for (faces, bound) in ((pitch_uniform_theta_faces(16), 0.11), (pitch_production_faces(2), 0.06))
+            mom, system = pitch_system(faces, :smart, xi -> kappa * (1 - xi^2), xi -> 1 - xi^2)
+            widths = mom.xi_widths
+            start = ones(length(widths))
+            solution = integrate(system, start, collect(0:0.01:20))
+            @test all(solution.statistics.accepted)
+            @test sum(solution.statistics.newton_iterations) < 1.2 * length(solution.statistics.newton_iterations)
+            @test minimum(solution.states) > 0
+            state = solution.states[:, end]
+            @test maximum(abs, state .- solution.states[:, end-1]) < 1e-12 * maximum(state)
+            exact = [(exp(kappa * (mom.xi_faces[j+1] - 1)) - exp(kappa * (mom.xi_faces[j] - 1))) / (kappa * widths[j])
+                     for j in eachindex(widths)]
+            exact .*= sum(start .* widths) / sum(exact .* widths)
+            @test sum(abs.(state .- exact) .* widths) / sum(exact .* widths) < bound
+            steady = copy(state)
+            result = newton_solve!(steady, start, NewtonWorkspace(system, NewtonSolver(max_iterations=100)), 1e8, 1e8)
+            @test result.status === :converged
+            @test result.iterations <= 4
+            @test minimum(steady) > 0
+        end
+    end
+
     @testset "pure pitch advection against the characteristics" begin
         # production pitch grid at 1x, 2x, 4x, 8x:
         # van Albada 0.18, 0.098, 0.029, 0.0064 (second order from 2x); exponential fitting,

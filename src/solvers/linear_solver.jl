@@ -32,9 +32,15 @@ terms. A solver implements
   solve (0 for direct solvers), used by the residual-floor rule of the Newton iteration;
 - `newton_operator_exact(cache)`: whether the solver's Newton operator is the exact
   Jacobian when the system has terms with an approximate stored block
-  ([`jacobian_kind`](@ref); false for solvers on the stored matrix alone).
+  ([`jacobian_kind`](@ref); false for solvers on the stored matrix alone);
+- `matrix_unchanged!(cache, unchanged)`, optional: told before every solve whether the
+  matrix has the values of the last solve, so that a factorization of it can be kept
+  (a system linear in the state, [`NewtonSolver`](@ref)). Without a method the solver
+  treats every matrix as new.
 """
 abstract type LinearSolver end
+
+matrix_unchanged!(cache, unchanged::Bool) = nothing
 
 """
     SparseLU()
@@ -50,7 +56,12 @@ struct SparseLU <: LinearSolver end
 mutable struct SparseLUCache{F}
     factorization::F
     factorization_seconds::Float64
+    factorized::Bool          # the factorization is that of the matrix of the last solve
+    matrix_unchanged::Bool    # the matrix of the next solve is that of the last one
+    factorizations::Int       # numerical factorizations since the cache was made
 end
+
+matrix_unchanged!(cache::SparseLUCache, unchanged::Bool) = (cache.matrix_unchanged = unchanged; nothing)
 
 requires_stored_jacobian(::SparseLU) = true
 krylov_iterations(::SparseLUCache) = 0
@@ -60,15 +71,20 @@ linear_tolerance(::SparseLUCache) = 0.0
 newton_operator_exact(::SparseLUCache) = false
 
 linear_solver_cache(::SparseLU, matrix::SparseMatrixCSC, system, row_weights, scales) =
-    SparseLUCache(lu(matrix; check=false), 0.0)
+    SparseLUCache(lu(matrix; check=false), 0.0, false, false, 0)
 
 function solve!(x::AbstractVector, cache::SparseLUCache, matrix::SparseMatrixCSC, b::AbstractVector,
                 u, t, dt, iteration)
-    # reuses the symbolic analysis of the pattern
-    started = time_ns()
-    lu!(cache.factorization, matrix; check=false)
-    cache.factorization_seconds = (time_ns() - started) / 1e9
-    issuccess(cache.factorization) || return :singular_matrix
+    cache.factorization_seconds = 0.0
+    if !(cache.factorized && cache.matrix_unchanged)
+        # reuses the symbolic analysis of the pattern
+        started = time_ns()
+        lu!(cache.factorization, matrix; check=false)
+        cache.factorization_seconds = (time_ns() - started) / 1e9
+        cache.factorizations += 1
+        cache.factorized = issuccess(cache.factorization)
+        cache.factorized || return :singular_matrix
+    end
     ldiv!(x, cache.factorization, b)
     return :ok
 end

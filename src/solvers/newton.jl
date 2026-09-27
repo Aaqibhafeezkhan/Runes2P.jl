@@ -6,7 +6,8 @@
 """
     NewtonSolver(; linear_solver=SparseLU(), max_iterations=30, max_reduction=0.9,
                  residual_tolerance=1e-8, floor_linear_tolerance=1e-8, line_search=false,
-                 sufficient_decrease=1e-4, max_backtracks=20, linear_acceptance=true)
+                 sufficient_decrease=1e-4, max_backtracks=20, linear_acceptance=true,
+                 reuse_linear_matrix=true)
 
 Settings of the Newton iteration of a backward-Euler step.
 
@@ -42,6 +43,13 @@ Settings of the Newton iteration of a backward-Euler step.
   solve bounds the residual and not the error: accepting the first solve alone loses
   its refinement on ill-conditioned steps (1e-6 observed). A step shortened by a lower
   limit or the line search is not accepted this way.
+- The stored Jacobian of such a system does not depend on the state, only on the
+  coefficients, which are functions of the time. With `reuse_linear_matrix` it is
+  assembled once per time level and kept for the later iterations of the step, and the
+  Newton matrix and its factorization are kept while the time step is the same as well.
+  An interval update of the time stepper discards them
+  ([`invalidate_jacobian!`](@ref)). `reuse_linear_matrix = false` assembles and factorizes
+  in every iteration, as DREAM does.
 - Lower limits ([`LowerLimit`](@ref), declared on the unknowns) shorten the whole step so
   that no limited entry loses more than the fraction `max_reduction` of its distance to
   its limit in one iteration. Only steps towards the limit are shortened, never growth
@@ -64,6 +72,7 @@ Base.@kwdef struct NewtonSolver{L<:LinearSolver}
     sufficient_decrease::Float64 = 1e-4
     max_backtracks::Int = 20
     linear_acceptance::Bool = true
+    reuse_linear_matrix::Bool = true
 end
 
 """
@@ -113,7 +122,10 @@ the fields `residual_norms`, `update_norms` and `step_lengths`. `exact_jacobian`
 whether the Newton matrix is the exact Jacobian (no term with an approximate stored
 block, or a linear solver whose operator restores it, [`GMRES`](@ref)`(operator=:exact)`),
 and `linear` whether the system is linear in the state and the matrix exact, so the first
-iteration solves a step and the second confirms it.
+iteration solves a step and the second confirms it. For such a system `assembled_time` is
+the time level of the stored Jacobian and `matrix_step` the time step of the Newton
+matrix (`NaN`: none kept, see [`invalidate_jacobian!`](@ref)); `jacobian_assemblies`
+counts the assemblies of the stored Jacobian since the workspace was made.
 """
 struct NewtonWorkspace{T,S<:EquationSystem,L,C}
     system::S
@@ -140,6 +152,23 @@ struct NewtonWorkspace{T,S<:EquationSystem,L,C}
     residual_norms::Vector{Float64}
     update_norms::Vector{Float64}
     step_lengths::Vector{Float64}
+    assembled_time::Base.RefValue{Float64}
+    matrix_step::Base.RefValue{Float64}
+    jacobian_assemblies::Base.RefValue{Int}
+end
+
+"""
+    invalidate_jacobian!(workspace::NewtonWorkspace)
+
+Discard the stored Jacobian and the Newton matrix that a system linear in the state keeps
+between the iterations of a time level ([`NewtonSolver`](@ref), `reuse_linear_matrix`).
+To be called when coefficients of the system were changed by hand at an unchanged time.
+The time stepper calls it after the interval updates.
+"""
+function invalidate_jacobian!(ws::NewtonWorkspace)
+    ws.assembled_time[] = NaN
+    ws.matrix_step[] = NaN
+    return ws
 end
 
 function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver=NewtonSolver()) where {T}
@@ -186,7 +215,7 @@ function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver=NewtonS
                            zeros(T, n), zeros(T, n), zeros(T, n),
                            zeros(T, n), zeros(T, n), row_weights, scales, absolute, relative, jacobian,
                            matrix, diagonal_positions, limited, limit_tolerance, limit_reference, cache,
-                           Float64[], Float64[], Float64[])
+                           Float64[], Float64[], Float64[], Ref(NaN), Ref(NaN), Ref(0))
 end
 
 # residual with the errors of evaluation outside the physical domain turned into a status
@@ -326,17 +355,31 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
     residual_seconds += (time_ns() - started) / 1e9
     status === :ok || return result(status, 0, NaN)
     initial = _residual_norm(ws, ws.residual)
+    reuse = ws.linear && solver.reuse_linear_matrix
     for iteration in 1:solver.max_iterations
-        started = time_ns()
-        try
-            jacobian!(ws.jacobian, system, u, t)
-        catch err
-            err isa DomainError || rethrow()
-            return result(:domain_error, iteration - 1, initial)
+        # the stored Jacobian of a system linear in the state changes with the time level
+        # alone, the Newton matrix with the time level and the time step
+        same_jacobian = reuse && ws.assembled_time[] == t
+        if !same_jacobian
+            invalidate_jacobian!(ws)
+            started = time_ns()
+            try
+                jacobian!(ws.jacobian, system, u, t)
+            catch err
+                err isa DomainError || rethrow()
+                return result(:domain_error, iteration - 1, initial)
+            end
+            jacobian_seconds += (time_ns() - started) / 1e9
+            ws.jacobian_assemblies[] += 1
+            all(isfinite, ws.jacobian.nzval) || return result(:non_finite_jacobian, iteration - 1, initial)
+            reuse && (ws.assembled_time[] = t)
         end
-        jacobian_seconds += (time_ns() - started) / 1e9
-        all(isfinite, ws.jacobian.nzval) || return result(:non_finite_jacobian, iteration - 1, initial)
-        _newton_matrix!(ws, dt)
+        same_matrix = same_jacobian && ws.matrix_step[] == dt
+        if !same_matrix
+            _newton_matrix!(ws, dt)
+            reuse && (ws.matrix_step[] = dt)
+        end
+        matrix_unchanged!(ws.cache, same_matrix)
         @. ws.scaled_rhs = -ws.row_weights * ws.residual
         started = time_ns()
         linear_status = solve!(ws.scaled_update, ws.cache, ws.matrix, ws.scaled_rhs, u, t, dt, iteration)
@@ -344,7 +387,10 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
         factorization_seconds += factorization_time(ws.cache)
         krylov += krylov_iterations(ws.cache)
         updates += preconditioner_updates(ws.cache)
-        linear_status === :ok || return result(linear_status, iteration - 1, initial)
+        if linear_status !== :ok
+            invalidate_jacobian!(ws)
+            return result(linear_status, iteration - 1, initial)
+        end
         @. ws.update = ws.scales * ws.scaled_update
         all(isfinite, ws.update) || return result(:non_finite_update, iteration - 1, initial)
 

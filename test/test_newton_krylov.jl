@@ -123,8 +123,14 @@ end
         every_iteration = run(:every_iteration)
         every_step = run(:every_step)
         on_demand = run(:on_demand)
-        stats = every_iteration.statistics
+        # the system is linear in the state: the matrix of the second iteration of a step is
+        # that of the first, and its factors are kept
+        @test all(==(1), every_iteration.statistics.preconditioner_updates)
+        every_matrix = integrate(system, u0, times;
+                                 solver=NewtonSolver(linear_solver=GMRES(), reuse_linear_matrix=false))
+        stats = every_matrix.statistics
         @test stats.preconditioner_updates == stats.newton_iterations
+        @test every_matrix.states == every_iteration.states
         @test all(==(1), every_step.statistics.preconditioner_updates)
         # prescribed coefficients and a constant step: one factorization for the whole run
         @test sum(on_demand.statistics.preconditioner_updates) == 1

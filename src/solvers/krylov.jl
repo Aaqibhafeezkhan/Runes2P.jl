@@ -48,7 +48,10 @@ terms the two are the same.
 
 `preconditioner_refresh` sets when the preconditioner is factorized again:
 
-- `:every_iteration`: every Newton iteration, from the current matrix;
+- `:every_iteration`: every Newton iteration, from the current matrix. For a system that
+  is linear in the state the matrix of the later iterations of a step is that of the
+  first, and its factors are kept, so the preconditioner is factorized once per step
+  ([`NewtonSolver`](@ref), `reuse_linear_matrix`);
 - `:every_step`: in the first Newton iteration of each time step;
 - `:on_demand`: when the time step changes (by more than a relative 1e-8), or when the
   last solve needed more than
@@ -199,7 +202,10 @@ mutable struct GMRESCache{T,O<:NewtonOperator{T},F<:BlockFactors{T},W,P}
     factorized_dt::Float64
     last_iterations::Int
     factorization_seconds::Float64   # in the last solve
+    matrix_unchanged::Bool           # the stored matrix of the next solve is that of the last one
 end
+
+matrix_unchanged!(cache::GMRESCache, unchanged::Bool) = (cache.matrix_unchanged = unchanged; nothing)
 
 krylov_iterations(cache::GMRESCache) = cache.iterations
 preconditioner_updates(cache::GMRESCache) = cache.updates
@@ -217,13 +223,14 @@ function linear_solver_cache(solver::GMRES, matrix::SparseMatrixCSC{T}, system::
                               solver.operator === :exact, zero(T))
     factors = BlockFactors(solver.preconditioner, matrix, system.layout)
     workspace = GmresWorkspace(n, n, Vector{T}; memory=solver.restart_length)
-    return GMRESCache(solver, operator, factors, workspace, 0, 0, false, NaN, 0, 0.0)
+    return GMRESCache(solver, operator, factors, workspace, 0, 0, false, NaN, 0, 0.0, false)
 end
 
 function _needs_factorization(cache::GMRESCache, dt, iteration)
     cache.factorized || return true
     refresh = cache.solver.preconditioner_refresh
-    refresh === :every_iteration && return true
+    # the factors of an unchanged matrix are those of a new factorization
+    refresh === :every_iteration && return !cache.matrix_unchanged
     refresh === :every_step && return iteration == 1
     # steps between the points of a range differ in the last bits, which is no reason to
     # factorize again

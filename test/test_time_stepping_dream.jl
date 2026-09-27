@@ -69,7 +69,8 @@ const DREAM_TIME_STEPPING_DATA = joinpath(@__DIR__, "data", "dream_time_stepping
                         @test all(==(2), stats.newton_iterations)
                         if solver_name == "GMRES"
                             @test stats.krylov_iterations == stats.newton_iterations
-                            @test stats.preconditioner_updates == stats.newton_iterations
+                            # one factorization per step: the second iteration has the same matrix
+                            @test all(==(1), stats.preconditioner_updates)
                         end
                         errors = map(eachindex(times)) do m
                             worst = 0.0
