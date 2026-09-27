@@ -167,6 +167,7 @@ function zero_coefficients!(op::AdvectionDiffusion)
              op.diffusion_xi_p, op.advection_r, op.diffusion_r_r, op.advection_p_times_p2_at_zero)
         fill!(A, zero(eltype(A)))
     end
+    op.coefficient_source[] = nothing
     return op
 end
 
@@ -191,5 +192,6 @@ function set_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaS
     add_pitch_scattering!(op, collisions)
     add_energy_diffusion!(op, collisions)
     synchrotron && add_synchrotron!(op, plasma)
+    op.coefficient_source[] = (; plasma, settings, synchrotron)
     return op
 end

@@ -252,6 +252,23 @@ function KnockOnOperator(knockon::KineticGrid{T}, primary::KineticGrid{T},
     return op
 end
 
+"""
+    resolved_pitch_options(options::NamedTuple)
+
+The kernel options of a [`KnockOnOperator`](@ref) with the defaults filled in: the
+keywords of [`MollerPitchKernel`](@ref) and `xi_star_points` of [`KnockOnKernels`](@ref).
+The operator keeps the keywords it was given, and the record of a run needs the values
+used ([`describe`](@ref)).
+"""
+function resolved_pitch_options(options::NamedTuple)
+    dream_compatible = get(options, :dream_compatible, false)
+    return (table_size=get(options, :table_size, 80), dream_compatible=dream_compatible,
+            xi_star_mode=get(options, :xi_star_mode, dream_compatible ? :centre : :interval),
+            primary_pitch=get(options, :primary_pitch, dream_compatible ? :centre : :split),
+            primary_pitch_points=get(options, :primary_pitch_points, 4),
+            xi_star_points=get(options, :xi_star_points, 4))
+end
+
 # Kernels depend on the two momentum grids of a radius and on its cutoff.
 _kernel_key(op::KnockOnOperator{T}, ir, cutoff) where {T} =
     (objectid(momentum_grid(op.knockon, ir)), objectid(momentum_grid(op.primary, ir)), T(cutoff))

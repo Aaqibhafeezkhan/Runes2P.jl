@@ -103,6 +103,9 @@ struct AdvectionDiffusion{T<:AbstractFloat}
     jacobian_xi_faces::Array{T,3}
     jacobian_r_faces::Array{T,3}
     jacobian_over_p2_at_zero::Matrix{T}
+    # what the coefficients were last built from by set_fokker_planck_coefficients!
+    # (`nothing` for coefficients set by hand); read by `describe`, shared by with_scheme
+    coefficient_source::Base.RefValue{Any}
 end
 
 """
@@ -164,7 +167,8 @@ function AdvectionDiffusion(grid::KineticGrid{T}; scheme::Symbol=:upwind, p_sche
                                  stack(phase_space_jacobian_p_faces(grid, ir) for ir in radii),
                                  stack(phase_space_jacobian_xi_faces(grid, ir) for ir in radii),
                                  copy(phase_space_jacobian_r_faces(grid)),
-                                 stack(phase_space_jacobian_over_p2_at_zero(grid, ir) for ir in radii))
+                                 stack(phase_space_jacobian_over_p2_at_zero(grid, ir) for ir in radii),
+                                 Ref{Any}(nothing))
 end
 
 """
@@ -190,7 +194,7 @@ function with_scheme(op::AdvectionDiffusion{T}, scheme::Symbol; p_scheme::Symbol
                                  op.p_flux_at_lower_boundary, op.advection_p_times_p2_at_zero, p_scheme, xi_scheme,
                                  op.r_scheme, op.p_lower_boundary, op.p_upper_boundary, op.r_boundary, op.momentum,
                                  op.jacobian_centers, op.jacobian_p_faces, op.jacobian_xi_faces, op.jacobian_r_faces,
-                                 op.jacobian_over_p2_at_zero)
+                                 op.jacobian_over_p2_at_zero, op.coefficient_source)
 end
 
 @inline function _face_value(scheme, advection, f_left, f_right, weight_left)

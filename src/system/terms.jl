@@ -639,6 +639,8 @@ struct MaxwellianSourceTerm{T,D} <: EquationTerm
     bulk_cells::Vector{Int}    # per radius: momentum cells counted, 1:bulk_cells
     target_density::D
     rate::Float64
+    temperature::Float64       # [eV], of the shape
+    bulk_momentum::Float64
 end
 
 function MaxwellianSourceTerm(kinetic::Symbol, grid::KineticGrid{T}, temperature::Real;
@@ -664,7 +666,8 @@ function MaxwellianSourceTerm(kinetic::Symbol, grid::KineticGrid{T}, temperature
         values ./ norm
     end
     return MaxwellianSourceTerm{T,typeof(target_density)}(kinetic, grid, shape, bulk_cells, target_density,
-                                                         Float64(rate))
+                                                         Float64(rate), Float64(temperature),
+                                                         Float64(bulk_momentum))
 end
 
 dependencies(term::MaxwellianSourceTerm) = [term.kinetic]

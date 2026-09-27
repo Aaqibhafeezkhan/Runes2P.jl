@@ -30,6 +30,7 @@ include("system/equation_system.jl")
 include("solvers/linear_solver.jl")
 include("solvers/newton.jl")
 include("solvers/krylov.jl")
+include("settings.jl")
 include("solvers/time_stepping.jl")
 
 export MomentumGrid, uniform_p_faces, biuniform_p_faces, tanh_p_faces, uniform_xi_faces
@@ -68,5 +69,7 @@ export Equation, TimeDerivative, Algebraic, EquationSystem, Tolerance, tolerance
 export residual!, mass_matrix, jacobian_sparsity, jacobian_prototype, jacobian_operator, jacobian_colors, residual_scales, ode_function
 export LinearSolver, SparseLU, GMRES, RadiusBlockLU, RadiusBlockILU, NewtonSolver, NewtonWorkspace, NewtonResult, newton_solve!
 export SolverStatistics, TimeSolution, TimeStepFailure, integrate, write_output
+export OUTPUT_FORMAT_VERSION, DescriptionContext, run_settings, read_settings, settings_hash, settings_fields
+export code_version, run_environment, describe_prescribed_plasma, resolved_pitch_options
 
 end # module Runes2P

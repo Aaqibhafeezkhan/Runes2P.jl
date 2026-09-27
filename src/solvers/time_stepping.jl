@@ -102,7 +102,10 @@ struct TimeSolution{T,L<:UnknownLayout}
     times::Vector{T}
     states::Matrix{T}
     statistics::SolverStatistics
+    settings::Dict{String,Any}
 end
+TimeSolution(layout::UnknownLayout, times::Vector, states::Matrix, statistics::SolverStatistics) =
+    TimeSolution(layout, times, states, statistics, Dict{String,Any}())
 
 """
     TimeStepFailure
@@ -123,7 +126,8 @@ Base.showerror(io::IO, e::TimeStepFailure) =
           "after halving the time step to $(e.time_step)")
 
 """
-    integrate(system, u0, times; solver=NewtonSolver(), save_times=times, max_step_halvings=10)
+    integrate(system, u0, times; solver=NewtonSolver(), save_times=times, max_step_halvings=10,
+              description=Dict())
 
 Backward-Euler integration of `system` from the state `u0` at `times[1]` through the
 time points `times` (any increasing array, e.g. nonuniform or matching the restarts of
@@ -137,10 +141,15 @@ States are saved at `save_times` (increasing, inside `[times[1], times[end]]`),
 independently of the steps (DREAM #81, #93): a save time that falls between the ends of a
 step gets the linear interpolation of its end states, the dense output of backward Euler.
 Returns a [`TimeSolution`](@ref).
+
+The solution carries the record of the run's settings ([`run_settings`](@ref)), taken
+before the first step: the grids, the layout, every term, the solver, the time points,
+the code version with the commit of Runes2P, and `description`, a dictionary of plain values
+the caller adds (a run name, the origin of the initial state).
 """
 function integrate(system::EquationSystem{T}, u0::AbstractVector, times::AbstractVector;
                    solver::NewtonSolver=NewtonSolver(), save_times::AbstractVector=times,
-                   max_step_halvings::Integer=10) where {T}
+                   max_step_halvings::Integer=10, description=Dict{String,Any}()) where {T}
     layout = system.layout
     n = length(layout)
     length(u0) == n || throw(DimensionMismatch("u0 does not match the layout"))
@@ -151,6 +160,7 @@ function integrate(system::EquationSystem{T}, u0::AbstractVector, times::Abstrac
     all(s -> first(times) <= s <= last(times), save_times) ||
         throw(ArgumentError("save_times must lie inside [times[1], times[end]]"))
 
+    settings = run_settings(system; solver, times, save_times, max_step_halvings, description)
     ws = NewtonWorkspace(system, solver)
     stats = SolverStatistics()
     saved = Matrix{T}(undef, n, length(save_times))
@@ -194,13 +204,16 @@ function integrate(system::EquationSystem{T}, u0::AbstractVector, times::Abstrac
             t = t_next
         end
     end
-    return TimeSolution(layout, collect(T, save_times), saved, stats)
+    return TimeSolution(layout, collect(T, save_times), saved, stats, settings)
 end
 
 """
     write_output(filename, solution::TimeSolution)
 
-Write a [`TimeSolution`](@ref) to an HDF5 file: `format_version`, the
+Write a [`TimeSolution`](@ref) to an HDF5 file: the root
+attributes `format_version` ([`OUTPUT_FORMAT_VERSION`](@ref)), `runes2p_commit`,
+`runes2p_version` and `runes2p_tree_clean`, the record of the run under `settings`
+([`run_settings`](@ref), read back by [`read_settings`](@ref)), the
 [`describe`](@ref) record of the layout under `layout`, the saved `time`, one dataset per
 unknown under `unknowns` (scalar `(t)`, radial `(components, r, t)`, kinetic on a shared
 grid `(p, xi, r, t)`, on per-radius grids a group with one `(p, xi, t)` dataset per radius

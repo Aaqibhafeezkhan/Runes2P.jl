@@ -55,8 +55,9 @@ _test_plasma(temperature; density=1e20, field=1.0, nr=1) =
 
         # one rebuild per distinct t (plus the solver's own initial residual check at
         # t = 0), not one per colour or per Newton iteration; without the cache this
-        # would run into the dozens for 3 steps (colours x Newton iterations)
-        @test calls[] <= length(times)
+        # would run into the dozens for 3 steps (colours x Newton iterations). The record
+        # of the run samples the plasma once more at every time point.
+        @test calls[] <= 2 * length(times)
     end
 
     @testset "a plasma state defined only on the run's time interval" begin

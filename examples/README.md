@@ -11,7 +11,7 @@ julia --project=examples examples/avalanche.jl treatment=implicit solver=gmres
 ```
 
 Each script prints the solver statistics (steps, Newton and Krylov iterations, factorizations, steps accepted at the residual floor or as a linear system), the negative entries of the saved states and the density at every save.
-`output=run.h5` writes the solution with `write_output` (layout, saved states per unknown, solver statistics).
+`output=run.h5` writes the solution with `write_output` (layout, saved states per unknown, solver statistics, and the settings of the run with the commit of Runes2P).
 
 | Script | Run |
 |---|---|
