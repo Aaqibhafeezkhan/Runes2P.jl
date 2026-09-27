@@ -566,19 +566,28 @@ function code_version()
     return deepcopy(record)
 end
 
-_cpu_model() =
-    try
+const _CPU_MODEL = Ref{Union{Nothing,String}}(nothing)
+
+# Read once per session: `Sys.cpu_info()` queries every core and takes a noticeable time on a
+# machine with many cores, which every call of `integrate` would pay.
+function _cpu_model()
+    cached = _CPU_MODEL[]
+    cached === nothing || return cached
+    model = try
         String(first(Sys.cpu_info()).model)
     catch
         "unknown"
     end
+    _CPU_MODEL[] = model
+    return model
+end
 
 """
     run_environment()
 
 Record of where a run runs: host, CPU model, thread counts of the machine, Julia and
 BLAS, the BLAS libraries, the start time, and the Slurm job when there is one. It is not
-part of the setup hash.
+part of the setup hash. The CPU model is read once per session.
 """
 function run_environment()
     libraries = join((basename(library.libname) for library in BLAS.get_config().loaded_libs), ", ")

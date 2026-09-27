@@ -426,6 +426,10 @@ _is_plain(x) = false
 
         environment = run_environment()
         @test environment["hostname"] == gethostname()
+        @test environment["cpu_model"] == String(first(Sys.cpu_info()).model)
+        # the record of a run does not ask the machine again
+        run_environment()
+        @test (@elapsed run_environment()) < 0.05
         @test environment["julia_threads"] == Threads.nthreads()
         @test environment["cpu_threads"] == Sys.CPU_THREADS
         @test occursin(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4}$", environment["start_time"])
