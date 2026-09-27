@@ -43,6 +43,67 @@
         @test choose_cutoff(p_f, 0.001, 0.01) == (p_cutoff=0.02, inside_window=false)
     end
 
+    @testset "the cutoff rule" begin
+        # A synthetic cooling: per leg the largest temperature [eV], the smallest critical
+        # momentum (Inf where no radius has a threshold) and the cutoff of the rule, computed
+        # once from the definitions of kinetic_energy and momentum_at_energy with the factor 10.
+        legs = [(10000.0, Inf, 0.655505008417307),
+                (3000.0, Inf, 0.34765466076970897),
+                (1000.0, 3.0, 0.3665119374376161),
+                (300.0, Inf, 0.10851808154758555),
+                (100.0, 0.8, 0.12196764394299793),
+                (30.0, 0.5, 0.07260686799836712),
+                (10.0, 0.3, 0.043097247409211586),
+                (3.0, 0.2, 0.026116502953235553)]
+        for (temperature, critical_p, cutoff) in legs
+            target = cutoff_target(temperature, critical_p)
+            @test target.p_cutoff ≈ cutoff rtol = 1e-9
+            @test target.policy === (isinf(critical_p) ? :no_ceiling : :log_midpoint)
+            # both margins of the rule: above the thermal momentum, below the threshold
+            @test momentum_at_energy(temperature) < target.p_cutoff < critical_p
+        end
+        # the midpoint has equal margins in the logarithm of the energy
+        target = cutoff_target(50.0, 0.4)
+        @test target.energy / 50.0 ≈ kinetic_energy(0.4) / target.energy rtol = 1e-13
+        @test target.energy ≈ sqrt(50.0 * kinetic_energy(0.4)) rtol = 1e-14
+        @test cutoff_target(50.0, Inf; no_ceiling_factor=3).energy == 150.0
+        # energy and momentum
+        @test kinetic_energy(sqrt(3.0)) ≈ Constants.ELECTRON_REST_ENERGY rtol = 1e-14      # γ = 2
+        @test kinetic_energy(1e-6) ≈ Constants.ELECTRON_REST_ENERGY * 1e-12 / 2 rtol = 1e-12
+        @test momentum_at_energy(kinetic_energy(0.37)) ≈ 0.37 rtol = 1e-14
+        @test momentum_at_energy(25.0) ≈ thermal_momentum(25.0) rtol = 1e-4              # non-relativistic
+        # a threshold that is not above the thermal energy: the lower bound counts
+        hot = cutoff_target(20e3, 0.1)
+        @test kinetic_energy(0.1) < 20e3
+        @test hot.policy === :closed
+        @test hot.energy == 200e3
+        @test_throws ArgumentError cutoff_target(0.0, 0.1)
+        @test_throws ArgumentError cutoff_target(10.0, 0.1; no_ceiling_factor=1)
+
+        # the face: nearest to the target in the logarithm of the energy
+        p_f = uniform_p_faces(50, 0.0, 1.0)  # faces every 0.02
+        @test choose_cutoff_face(p_f, 0.072, 0.011, 0.5) == (p_cutoff=0.08, inside_window=true)
+        @test choose_cutoff_face(p_f, 0.069, 0.011, 0.5) == (p_cutoff=0.06, inside_window=true)
+        # in the logarithm the middle between 0.02 and 0.04 is below 0.03
+        @test choose_cutoff_face(p_f, 0.029, 0.001, 0.5).p_cutoff == 0.04
+        @test choose_cutoff_face(p_f, 0.028, 0.001, 0.5).p_cutoff == 0.02
+        # the face in force is kept while the target is between its neighbours
+        @test choose_cutoff_face(p_f, 0.095, 0.011, 0.5; current_cutoff=0.08).p_cutoff == 0.08
+        @test choose_cutoff_face(p_f, 0.105, 0.011, 0.5; current_cutoff=0.08).p_cutoff == 0.1
+        @test choose_cutoff_face(p_f, 0.065, 0.011, 0.5; current_cutoff=0.08).p_cutoff == 0.08
+        @test choose_cutoff_face(p_f, 0.055, 0.011, 0.5; current_cutoff=0.08).p_cutoff == 0.06
+        # not when it has left the window, or is not a face
+        @test choose_cutoff_face(p_f, 0.065, 0.011, 0.07; current_cutoff=0.08).p_cutoff == 0.06
+        @test choose_cutoff_face(p_f, 0.085, 0.011, 0.5; current_cutoff=0.09).p_cutoff == 0.08
+        # the bounds are open: a face on a bound is outside
+        @test choose_cutoff_face(p_f, 0.05, 0.04, 0.08).p_cutoff == 0.06
+        # no face inside the window: the nearest face to the target, flagged
+        @test choose_cutoff_face(p_f, 0.05, 0.041, 0.059) == (p_cutoff=0.06, inside_window=false)
+        @test choose_cutoff_face(p_f, 0.005, 0.001, 0.015) == (p_cutoff=0.02, inside_window=false)
+        # no upper bound, and a target beyond the grid
+        @test choose_cutoff_face(p_f, 1.2, 0.25, Inf) == (p_cutoff=1.0, inside_window=true)
+    end
+
     rad = RadialGrid(uniform_r_faces(3, 0.5))
     g = cylindrical_grid(MomentumGrid(biuniform_p_faces(40, 20, 0.0, 0.5, 4.0), uniform_xi_faces(8)), rad)
     f = [exp(-p / 0.9) * (1.3 + ξ) * (2 + r)

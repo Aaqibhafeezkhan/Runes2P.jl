@@ -108,15 +108,16 @@ _count(pattern, text) = length(collect(eachmatch(pattern, text)))
                        "state = true", text)
         @test occursin("9 time points from t = 0 to 0.0008 s, intervals from 0.0001 to 0.0001 s", text)
         @test occursin("7 save times, at most 10 halvings of a step", text)
-        @test occursin("f: kinetic on grid_1, scale 1e+20, 96 entries", text)
+        @test occursin("f: kinetic on grid_1, scale 1e+20, 128 entries", text)
         @test occursin("hot_density: radial, scale 1e+20, 2 entries", text)
-        @test occursin("grid_1: cylindrical geometry, 2 radii from r = 0 to 1 m, 12 momentum cells from p = 0 to 1.2 " *
-                       "(first cell 0.1), 4 pitch cells", text)
+        @test occursin("grid_1: cylindrical geometry, 2 radii from r = 0 to 1 m, 16 momentum cells from p = 0 to 1.2 " *
+                       "(first cell 0.025), 4 pitch cells", text)
         @test occursin("type = PrescribedFokkerPlanckTerm", text)
         @test occursin("p_scheme = exponential_fitting", text)
         @test occursin("type = KnockOnTerm", text)
         @test occursin("type = KnockOnCutoffUpdate", text)
-        @test occursin("diffusion_r_r = 12 × 4 × 3 values from 50 to 50", text)   # arrays are summarized
+        @test occursin("diffusion_r_r = 16 × 4 × 3 values from 50 to 50", text)   # arrays are summarized
+        @test occursin("placement = energy_midpoint", text)
         @test occursin("table_1:", text)
         @test occursin("name = log test", text)
         @test occursin("delta_b_over_b = 0.001", text)

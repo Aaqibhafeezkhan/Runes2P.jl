@@ -74,7 +74,8 @@ export LinearSolver, SparseLU, GMRES, RadiusBlockLU, RadiusBlockILU, NewtonSolve
 export SolverStatistics, TimeSolution, TimeStepFailure, integrate, write_output
 export OUTPUT_FORMAT_VERSION, DescriptionContext, run_settings, read_settings, settings_hash, settings_fields
 export code_version, run_environment, describe_prescribed_plasma, resolved_pitch_options
-export IntervalUpdate, KnockOnCutoffUpdate, free_critical_momentum
+export IntervalUpdate, KnockOnCutoffUpdate, free_critical_momentum, total_critical_momentum
+export kinetic_energy, momentum_at_energy, cutoff_target, choose_cutoff_face
 export CheckpointSettings, StoredState, read_checkpoint, write_checkpoint, read_state, read_output
 export StopCondition, stop_reason, run_status, exit_status
 export ProgressLog, write_header, write_entry, log_event!

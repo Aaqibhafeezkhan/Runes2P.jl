@@ -14,16 +14,18 @@ function _checkpoint_plasma(t; nr=2, t_end=8e-4)
 end
 
 # Fokker-Planck term with the prescribed plasma, radial diffusion, a knock-on term whose
-# cutoff follows the plasma, and a density moment as a second unknown
+# cutoff follows the plasma, and a density moment as a second unknown. The momentum grid
+# has faces every 0.025 below 0.2, where the cutoff of the energy-midpoint rule moves in this
+# plasma, and every 0.125 above.
 function _checkpoint_case(; treatment=:explicit, with_density=true)
     nr = 2
-    mom = MomentumGrid(uniform_p_faces(12, 0.0, 1.2), uniform_xi_faces(4))
+    mom = MomentumGrid(biuniform_p_faces(16, 8, 0.0, 0.2, 1.2), uniform_xi_faces(4))
     grid = cylindrical_grid(mom, RadialGrid(uniform_r_faces(nr, 1.0)))
     plasma_at(t) = _checkpoint_plasma(t; nr)
     op = AdvectionDiffusion(grid; scheme=:exponential_fitting, p_upper_boundary=:f_zero)
     radial = AdvectionDiffusion(grid; scheme=:central, r_boundary=:absorbing)
     radial.diffusion_r_r .= 50.0
-    knockon = KnockOnOperator(grid, grid, 0.4)
+    knockon = KnockOnOperator(grid, grid, 0.45)
     terms = (PrescribedFokkerPlanckTerm(:f, op, plasma_at; settings=CollisionSettings(mode=:full)),
              FokkerPlanckTerm(:f, radial),
              KnockOnTerm(:f, knockon; target_density=fill(1e20, nr), treatment))
@@ -64,7 +66,10 @@ _checkpoint_directory() = mktempdir()
         case = _checkpoint_case()
         update = case.update()
         @test Runes2P.update_name(update) == "knockon_cutoff"
-        @test Runes2P.update_state(update) == [0.4, 0.4]
+        @test Runes2P.update_state(update) == [0.45, 0.45]
+        @test update.placement === :energy_midpoint
+        @test update.no_ceiling_factor == 10.0
+        @test update.per_radius === true
         faces = case.mom.p_faces
         seen = Set{Float64}()
         for t in case.times
@@ -72,29 +77,115 @@ _checkpoint_directory() = mktempdir()
             changed = Runes2P.apply_update!(update, case.u0, case.layout, t)
             plasma = case.plasma_at(t)
             for ir in 1:2
-                window = cutoff_window(thermal_momentum(plasma.cold_electron_temperature[ir]),
-                                       Runes2P.free_critical_momentum(plasma, ir))
-                expected = choose_cutoff(faces, window.lower, window.upper; current_cutoff=before[ir])
-                @test case.knockon.p_cutoff[ir] == expected.p_cutoff
-                @test update.inside_window[ir] == expected.inside_window
-                @test case.knockon.p_cutoff[ir] in faces
-                # a cutoff inside its window is kept
-                window.lower <= before[ir] < window.upper && @test case.knockon.p_cutoff[ir] == before[ir]
-                push!(seen, case.knockon.p_cutoff[ir])
+                temperature = plasma.cold_electron_temperature[ir]
+                threshold = total_critical_momentum(plasma, ir)
+                target = cutoff_target(temperature, threshold)
+                @test target.policy === :log_midpoint
+                @test update.policy[ir] === :log_midpoint
+                expected = choose_cutoff_face(faces, target.p_cutoff, momentum_at_energy(temperature), threshold;
+                                              current_cutoff=before[ir])
+                cutoff = case.knockon.p_cutoff[ir]
+                @test cutoff == expected.p_cutoff
+                @test update.inside_window[ir] === true
+                @test cutoff in faces
+                # inside the window of the rule, and within one cell of its target
+                @test momentum_at_energy(temperature) < cutoff < threshold
+                k = findfirst(==(cutoff), faces)
+                @test faces[k-1] < target.p_cutoff < faces[k+1]
+                push!(seen, cutoff)
             end
             @test changed == (case.knockon.p_cutoff != before)
             # applying it again at the same time changes nothing
             @test Runes2P.apply_update!(update, case.u0, case.layout, t) === false
         end
-        @test length(seen) >= 3          # the cutoff moved during the sequence
-        @test update.rebuilds[] >= 2
+        @test length(seen) >= 4          # the cutoff moved during the sequence
+        @test update.rebuilds[] >= 3
         @test Runes2P.update_state(update) == case.knockon.p_cutoff
 
-        # DREAM's free critical field: the cold electrons with the relativistic Coulomb logarithm
+        # one cutoff for all radii, as DREAM has it: the largest temperature and the
+        # smallest threshold
+        case = _checkpoint_case()
+        single = KnockOnCutoffUpdate(case.knockon, case.plasma_at; per_radius=false)
+        for t in case.times
+            before = copy(case.knockon.p_cutoff)
+            Runes2P.apply_update!(single, case.u0, case.layout, t)
+            plasma = case.plasma_at(t)
+            temperature = maximum(plasma.cold_electron_temperature)
+            threshold = minimum(total_critical_momentum(plasma, ir) for ir in 1:2)
+            target = cutoff_target(temperature, threshold)
+            expected = choose_cutoff_face(faces, target.p_cutoff, momentum_at_energy(temperature), threshold;
+                                          current_cutoff=before[1])
+            @test case.knockon.p_cutoff == fill(expected.p_cutoff, 2)
+        end
+
+        # the placement in the window: inside the window, kept while it stays inside
+        case = _checkpoint_case()
+        window_update = KnockOnCutoffUpdate(case.knockon, case.plasma_at; placement=:window,
+                                            critical_momentum_at=free_critical_momentum)
+        for t in case.times
+            before = copy(case.knockon.p_cutoff)
+            Runes2P.apply_update!(window_update, case.u0, case.layout, t)
+            plasma = case.plasma_at(t)
+            for ir in 1:2
+                window = cutoff_window(thermal_momentum(plasma.cold_electron_temperature[ir]),
+                                       free_critical_momentum(plasma, ir))
+                expected = choose_cutoff(faces, window.lower, window.upper; current_cutoff=before[ir])
+                @test case.knockon.p_cutoff[ir] == expected.p_cutoff
+                @test window_update.inside_window[ir] == expected.inside_window
+                @test window_update.policy[ir] === :window
+                window.lower <= before[ir] < window.upper && @test case.knockon.p_cutoff[ir] == before[ir]
+            end
+        end
+
+        # a threshold below the thermal energy: the lower bound counts, and the choice is flagged
+        case = _checkpoint_case()
+        closed = KnockOnCutoffUpdate(case.knockon, t -> _checkpoint_plasma(0.0); critical_momentum_at=(plasma, ir) -> 0.03)
+        Runes2P.apply_update!(closed, case.u0, case.layout, 0.0)
+        @test closed.policy == [:closed, :closed]
+        @test closed.inside_window == [false, false]
+        for (ir, temperature) in enumerate((1000.0, 2000.0))
+            target = momentum_at_energy(10 * temperature)
+            k = findfirst(==(case.knockon.p_cutoff[ir]), faces)
+            @test faces[k-1] < target < faces[k+1]
+        end
+        # no threshold: ten times the temperature
+        case = _checkpoint_case()
+        free_of_threshold = KnockOnCutoffUpdate(case.knockon, case.plasma_at; critical_momentum_at=(plasma, ir) -> Inf)
+        Runes2P.apply_update!(free_of_threshold, case.u0, case.layout, 0.0)
+        @test free_of_threshold.policy == [:no_ceiling, :no_ceiling]
+        @test free_of_threshold.inside_window == [true, true]
+
+        # the critical fields of DREAM: the cold electrons, and all electrons, with the
+        # relativistic Coulomb logarithm of the cold ones
         plasma = case.plasma_at(0.0)
-        critical = critical_field(1e20, relativistic_coulomb_logarithm(1000.0, 1e20))
-        @test Runes2P.free_critical_momentum(plasma, 1) == critical_momentum(1.0, critical)
-        @test Runes2P.free_critical_momentum(plasma, 1) ≈ 1 / sqrt(1.0 / critical - 1) rtol = 1e-14
+        logarithm = relativistic_coulomb_logarithm(1000.0, 1e20)
+        critical = critical_field(1e20, logarithm)
+        @test free_critical_momentum(plasma, 1) == critical_momentum(1.0, critical)
+        @test free_critical_momentum(plasma, 1) ≈ 1 / sqrt(1.0 / critical - 1) rtol = 1e-14
+        @test total_critical_momentum(plasma, 1) == free_critical_momentum(plasma, 1)     # no bound electrons
+        argon = zeros(19, 2)
+        argon[1, :] .= 5e19                     # neutral: 18 bound electrons each
+        with_argon = PlasmaState(cold_electron_temperature=[1000.0, 1000.0], cold_electron_density=[1e20, 1e20],
+                                 ions=[IonSpecies("D", 1, 1, fill(1e20, 2)), IonSpecies("Ar", 18, argon)],
+                                 electric_field=[1.0, 0.5], magnetic_field=[5.0, 5.0])
+        @test free_critical_momentum(with_argon, 1) == free_critical_momentum(plasma, 1)
+        total = critical_field(1e20 + 18 * 5e19, logarithm)
+        @test total_critical_momentum(with_argon, 1) == critical_momentum(1.0, total)
+        @test total_critical_momentum(with_argon, 1) > 3 * free_critical_momentum(with_argon, 1)
+        @test total_critical_momentum(with_argon, 2) == Inf          # 0.5 V/m is below the total critical field
+        @test isfinite(free_critical_momentum(with_argon, 2))
+        # Before the quench of a fully kinetic run most free electrons are hot. The Coulomb
+        # logarithm takes all free electrons, as DREAM's lnLambdaC does, and the free
+        # critical field the cold ones. The values are those of a synthetic
+        # hot plasma before the thermal quench: the cold electrons are 1 % of the free ones,
+        # so the cold density alone gives the larger logarithm.
+        hot = PlasmaState(cold_electron_temperature=[5000.0], cold_electron_density=[1e-2 * 1e20],
+                          ions=[IonSpecies("D", 1, 1, [1e20])], electric_field=[1.0], magnetic_field=[5.0])
+        all_free = relativistic_coulomb_logarithm(5000.0, 1e20)
+        cold_only = relativistic_coulomb_logarithm(5000.0, 1e-2 * 1e20)
+        @test cold_only > all_free
+        @test free_critical_momentum(hot, 1) == critical_momentum(1.0, critical_field(1e-2 * 1e20, all_free))
+        @test total_critical_momentum(hot, 1) == critical_momentum(1.0, critical_field(1e20, all_free))
 
         # restoring a state sets the operator, and the kernels are those of a fresh operator
         state = Runes2P.update_state(update)
@@ -109,14 +200,20 @@ _checkpoint_directory() = mktempdir()
         record = describe(update, DescriptionContext(times=case.times))
         @test record["type"] == "KnockOnCutoffUpdate"
         @test record["name"] == "knockon_cutoff"
+        @test record["placement"] == "energy_midpoint"
+        @test record["no_ceiling_factor"] == 10.0
+        @test record["per_radius"] === true
         @test record["thermal_factor"] == 4.0
-        @test record["critical_momentum"] == "free_critical_momentum"
+        @test record["critical_momentum"] == "total_critical_momentum"
         @test record["plasma"] == "plasma_at"
         @test record["plasma_table"] == "table_1"
+        @test describe(window_update, DescriptionContext())["placement"] == "window"
         fields = settings_fields(KnockOnCutoffUpdate)
         @test Set(union(fields.described, fields.derived)) == Set(fieldnames(KnockOnCutoffUpdate))
 
         @test_throws ArgumentError KnockOnCutoffUpdate(case.knockon, case.plasma_at; thermal_factor=0)
+        @test_throws ArgumentError KnockOnCutoffUpdate(case.knockon, case.plasma_at; no_ceiling_factor=1)
+        @test_throws ArgumentError KnockOnCutoffUpdate(case.knockon, case.plasma_at; placement=:nearest)
         @test_throws ArgumentError integrate(case.system, case.u0, case.times; updates=(update, case.update()))
         @test_throws ArgumentError integrate(case.system, case.u0, case.times; updates=(1,))
     end
@@ -126,7 +223,7 @@ _checkpoint_directory() = mktempdir()
         solution = integrate(case.system, case.u0, case.times; save_times=case.save_times, updates=(case.update(),))
         cutoffs = solution.update_states["knockon_cutoff"]
         @test size(cutoffs) == (2, length(case.save_times))
-        @test length(unique(cutoffs)) >= 3
+        @test length(unique(cutoffs)) >= 4
         # the state of a saved time is the cutoff of the interval that computed it
         reference = _checkpoint_case()
         update = reference.update()
@@ -143,7 +240,7 @@ _checkpoint_directory() = mktempdir()
         end
         # the record describes the setup as built: the cutoff the operator was given
         operator = solution.settings["system"]["equations"]["f"]["terms"]["term_3"]["operator"]
-        @test operator["p_cutoff"] == [0.4, 0.4]
+        @test operator["p_cutoff"] == [0.45, 0.45]
         @test solution.settings["updates"]["knockon_cutoff"]["type"] == "KnockOnCutoffUpdate"
         @test collect(keys(solution.settings["prescribed"])) == ["table_1"]   # one table for the one function
         @test solution.settings["segment"] ==

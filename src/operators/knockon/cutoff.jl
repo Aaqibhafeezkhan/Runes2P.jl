@@ -87,3 +87,85 @@ function choose_cutoff(p_faces::AbstractVector{T}, lower::Real, upper::Real;
     target = log(sqrt(max(lower, first(faces)) * upper))
     return (p_cutoff=candidates[argmin(abs.(log.(candidates) .- target))], inside_window=true)
 end
+
+# The cutoff rule of `cutoff_target`:
+# both bounds as energies, the cutoff at the logarithmic midpoint between them, which
+# makes the smaller of the two margins as large as it can be. DREAM keeps one cutoff
+# (`pCutAvalanche`) for a run; Runes2P applies the rule at every requested time point and
+# per radius (`KnockOnCutoffUpdate`).
+
+"""
+    kinetic_energy(p)
+
+Kinetic energy `(γ - 1) mₑc²` in eV of an electron with the momentum `p` in units of
+`mₑc`, in a form that keeps its digits for small `p`.
+"""
+kinetic_energy(p) = Constants.ELECTRON_REST_ENERGY * p^2 / (sqrt(1 + p^2) + 1)
+
+"""
+    momentum_at_energy(energy)
+
+Momentum in units of `mₑc` of an electron with the kinetic energy `energy` in eV, the
+inverse of [`kinetic_energy`](@ref).
+"""
+function momentum_at_energy(energy)
+    x = energy / Constants.ELECTRON_REST_ENERGY
+    return sqrt(x * (x + 2))
+end
+
+"""
+    cutoff_target(temperature, critical_p; no_ceiling_factor=10)
+
+Knock-on cutoff by the following rule (a choice of this package), returned as
+`(p_cutoff, energy, policy)`:
+
+- with a runaway threshold (`critical_p` finite), the logarithmic midpoint in energy
+  between the thermal energy, which is the temperature [eV], and the kinetic energy at
+  the critical momentum, `E = √(T E_crit)` (`policy = :log_midpoint`);
+- without one (`critical_p = Inf`, the field below the critical field, where no avalanche
+  is physical), `no_ceiling_factor` times the temperature (`:no_ceiling`);
+- where the threshold is not above the thermal energy, which an estimate of the critical
+  momentum can give in a hot plasma, the lower bound counts, since the operator heats the
+  bulk when the cutoff comes near the thermal momentum: `no_ceiling_factor` times the
+  temperature again (`:closed`).
+
+`no_ceiling_factor = 10` is a choice of this package.
+"""
+function cutoff_target(temperature::Real, critical_p::Real; no_ceiling_factor::Real=10)
+    temperature > 0 || throw(ArgumentError("the temperature must be positive"))
+    no_ceiling_factor > 1 || throw(ArgumentError("no_ceiling_factor must be above 1"))
+    policy = isinf(critical_p) ? :no_ceiling :
+             kinetic_energy(critical_p) > temperature ? :log_midpoint : :closed
+    energy = policy === :log_midpoint ? sqrt(temperature * kinetic_energy(critical_p)) :
+             no_ceiling_factor * temperature
+    return (p_cutoff=momentum_at_energy(energy), energy=energy, policy=policy)
+end
+
+"""
+    choose_cutoff_face(p_faces, target, lower, upper; current_cutoff=nothing)
+
+The face of the momentum grid for a cutoff with the target `target`, inside the open
+window `(lower, upper)`, returned as `(p_cutoff, inside_window)`: the face nearest to the
+target in the logarithm of the energy. A `current_cutoff` that is a face inside the
+window is kept while the target lies between its two neighbouring faces, so a target that
+hovers between two faces does not rebuild the kernels at every time point; the cutoff
+is then at most one cell from the target. Without a face inside the window, the face
+nearest to the target is taken and `inside_window` is false.
+"""
+function choose_cutoff_face(p_faces::AbstractVector{T}, target::Real, lower::Real, upper::Real;
+                            current_cutoff=nothing) where {T}
+    faces = filter(>(0), p_faces)
+    isempty(faces) && throw(ArgumentError("the momentum grid has no positive face"))
+    distance(p) = abs(log(kinetic_energy(p) / kinetic_energy(target)))
+    inside = filter(p -> lower < p < upper, faces)
+    isempty(inside) && return (p_cutoff=T(faces[argmin(distance.(faces))]), inside_window=false)
+    if current_cutoff !== nothing
+        k = findfirst(==(current_cutoff), faces)
+        if k !== nothing && lower < current_cutoff < upper
+            below = k > 1 ? faces[k-1] : zero(T)
+            above = k < length(faces) ? faces[k+1] : T(Inf)
+            below < target < above && return (p_cutoff=T(current_cutoff), inside_window=true)
+        end
+    end
+    return (p_cutoff=T(inside[argmin(distance.(inside))]), inside_window=true)
+end
