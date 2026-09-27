@@ -141,7 +141,7 @@ end
 
 """
     integrate(system, u0, times; solver=NewtonSolver(), save_times=times, max_step_halvings=10,
-              description=Dict(), updates=(), checkpoint=nothing, resume=false)
+              description=Dict(), updates=(), checkpoint=nothing, resume=false, stop=nothing)
 
 Backward-Euler integration of `system` from the state `u0` at `times[1]` through the
 time points `times` (any increasing array, e.g. nonuniform or matching the restarts of
@@ -182,11 +182,18 @@ keeps its value of `u0`. The updates are set back to their stored states. The se
 may differ from those of the run that stored the state (tolerances, the solver, later
 time points, terms); the record names the sections that changed (`segment` in the
 settings) and a warning lists them.
+
+`stop` ([`StopCondition`](@ref)) ends the segment at a requested time point before the
+last one, when the wall time left does not cover another interval or a stop file
+appears. The segment writes its checkpoint and returns what it has saved;
+[`run_status`](@ref) of the solution is then `:stopped`, and [`exit_status`](@ref) is the
+exit status for the script.
 """
 function integrate(system::EquationSystem{T}, u0::AbstractVector, times::AbstractVector;
                    solver::NewtonSolver=NewtonSolver(), save_times::AbstractVector=times,
                    max_step_halvings::Integer=10, description=Dict{String,Any}(),
-                   updates=(), checkpoint::Union{Nothing,CheckpointSettings}=nothing, resume=false) where {T}
+                   updates=(), checkpoint::Union{Nothing,CheckpointSettings}=nothing, resume=false,
+                   stop::Union{Nothing,StopCondition}=nothing) where {T}
     layout = system.layout
     n = length(layout)
     length(u0) == n || throw(DimensionMismatch("u0 does not match the layout"))
@@ -200,7 +207,7 @@ function integrate(system::EquationSystem{T}, u0::AbstractVector, times::Abstrac
     checkpoint === nothing || _require_hdf5(write_checkpoint, "writing checkpoints")
 
     settings = run_settings(system; solver, times, save_times, max_step_halvings, description, updates,
-                            checkpoint)
+                            checkpoint, stop)
     stored = _resume_state(resume, checkpoint)
     u_old = Vector{T}(u0)
     first_interval, first_save, segment = 1, 1, 1
@@ -222,15 +229,30 @@ function integrate(system::EquationSystem{T}, u0::AbstractVector, times::Abstrac
     end
     settings["segment"] = _segment_record(segment, stored, settings, times[first_interval],
                                           stored === nothing ? 0 : stored.saved_count)
-    if stored !== nothing && settings["segment"]["settings_changed"]
-        @warn "resuming $(stored.source) with changed settings" sections = settings["segment"]["changed_sections"]
-    end
     if checkpoint !== nothing
         mkpath(checkpoint.directory)
         file = segment_file(checkpoint, segment)
-        isfile(file) && !checkpoint.overwrite &&
-            throw(ArgumentError("the segment file $file exists; resume the run, choose another name or set " *
-                                "overwrite = true in the checkpoint settings"))
+        # With resume = true the run owns its name: a file with the number of this segment
+        # is what an attempt of it left that was killed between its output and its
+        # checkpoint, and is replaced. Any other run must not replace a segment file.
+        isfile(file) && !checkpoint.overwrite && resume !== true &&
+            throw(ArgumentError("the segment file $file exists; continue the run with resume = true, choose " *
+                                "another name or set overwrite = true in the checkpoint settings"))
+    end
+    if stored !== nothing && settings["segment"]["settings_changed"]
+        @warn "resuming $(stored.source) with changed settings" sections = settings["segment"]["changed_sections"]
+    end
+
+    # a stop file of an earlier segment is not a request to this one
+    stop === nothing || isempty(stop.stop_file) || rm(stop.stop_file; force=true)
+    segment_record = settings["segment"]
+    function update_segment!(status, time, intervals; reason=nothing, checkpoint_written=false)
+        segment_record["status"] = status
+        segment_record["end_time"] = Float64(time)
+        segment_record["intervals"] = intervals
+        reason === nothing || (segment_record["stop_reason"] = reason)
+        checkpoint_written && (segment_record["checkpoint_written"] = true)
+        return nothing
     end
 
     ws = NewtonWorkspace(system, solver)
@@ -255,6 +277,7 @@ function integrate(system::EquationSystem{T}, u0::AbstractVector, times::Abstrac
 
     started_run = time()
     last_checkpoint = started_run
+    longest_interval, longest_write = 0.0, 0.0
     apply_updates!(T(times[first_interval]))
     # the state at the first time point is saved by a run that starts there
     while stored === nothing && next_save <= length(save_times) && save_times[next_save] == first(times)
@@ -264,6 +287,7 @@ function integrate(system::EquationSystem{T}, u0::AbstractVector, times::Abstrac
     for interval in first_interval:length(times)-1
         t, t_end = T(times[interval]), T(times[interval+1])
         interval > first_interval && apply_updates!(t)
+        started_interval = time()
         dt = t_end - t
         halvings = 0
         while t < t_end
@@ -292,9 +316,16 @@ function integrate(system::EquationSystem{T}, u0::AbstractVector, times::Abstrac
             copyto!(u_old, u)
             t = t_next
         end
+        longest_interval = max(longest_interval, time() - started_interval)
+        last_interval = interval == length(times) - 1
+        # the last time point is the end of the run, not a stop
+        reason = last_interval ? nothing : stop_reason(stop, longest_interval, longest_write)
+        status = last_interval ? "finished" : reason === nothing ? "running" : "stopped"
+        intervals = interval - first_interval + 1
         if checkpoint !== nothing
-            last_interval = interval == length(times) - 1
-            if last_interval || time() - last_checkpoint >= checkpoint.interval
+            if last_interval || reason !== nothing || time() - last_checkpoint >= checkpoint.interval
+                started_write = time()
+                update_segment!(status, t_end, intervals; reason, checkpoint_written=true)
                 # the output first: a checkpoint then never names states its segment file lacks
                 write_output(segment_file(checkpoint, segment), segment_solution(); atomic=true)
                 write_checkpoint(checkpoint,
@@ -305,9 +336,13 @@ function integrate(system::EquationSystem{T}, u0::AbstractVector, times::Abstrac
                                              _run_summary(summary_before, stats, time() - started_run),
                                              checkpoint_file(checkpoint)))
                 last_checkpoint = time()
+                longest_write = max(longest_write, last_checkpoint - started_write)
             end
         end
+        update_segment!(status, t_end, intervals; reason)
+        reason === nothing || return segment_solution()
     end
+    update_segment!("finished", times[end], length(times) - first_interval)
     return segment_solution()
 end
 

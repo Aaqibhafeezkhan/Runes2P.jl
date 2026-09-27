@@ -1,6 +1,7 @@
 # Shared helpers of the example scripts: command-line switches (`name=value`), the
-# plasma, grid, scheme, collision and solver builders from them, the run report and
-# HDF5 output. Every switch has a default, so each script runs without arguments.
+# plasma, grid, scheme, collision and solver builders from them, checkpoints and stop,
+# the run report and HDF5 output. Every switch has a default, so each script runs without
+# arguments.
 using Runes2P, Printf, Statistics
 using HDF5   # loads Runes2P's HDF5 extension, which defines write_output
 
@@ -123,8 +124,37 @@ function times_from_switches(; dt=1e-5, t_end=1e-3, saves=11)
     return collect(0:dt:t_end), collect(range(0, t_end; length=integer("saves", saves)))
 end
 
+"""
+Checkpoints, resume and stop of a run in segments, the keywords of `integrate`:
+`checkpoint=` is the name of the run (no checkpoints without it), `checkpoint_dir=` the
+directory of its files, `checkpoint_interval=` the wall time between checkpoints [s],
+`overwrite=true` lets a run replace the segment files of an earlier one, `resume=true`
+continues from the last checkpoint when there is one. `stop_file=` and `wall_budget=` [s]
+stop the segment at a time point, with `slack=` [s] in the margin. In a Slurm job with
+checkpoints the segment stops before the end of the job without further switches.
+"""
+function run_options()
+    name = argument("checkpoint", "")
+    checkpoint = isempty(name) ? nothing :
+                 CheckpointSettings(name; directory=argument("checkpoint_dir", "."),
+                                    interval=number("checkpoint_interval", 1800.0), overwrite=boolean("overwrite", false))
+    resume = checkpoint !== nothing && boolean("resume", false)
+    asked = has_argument("stop_file") || has_argument("wall_budget")
+    stop = asked || (checkpoint !== nothing && haskey(ENV, "SLURM_JOB_END_TIME")) ?
+           StopCondition(stop_file=has_argument("stop_file") ? argument("stop_file", "") : nothing,
+                         wall_budget=has_argument("wall_budget") ? number("wall_budget", 0.0) : nothing,
+                         slack=number("slack", 300.0)) : nothing
+    return (; checkpoint, resume, stop)
+end
+
+"End the script with the exit status of the run, which the batch script of a segment reads."
+finish(solution) = exit(exit_status(solution))
+
 "Solver statistics, positivity and density of a run; `output=file.h5` writes the solution."
 function report(solution, grid; wall=NaN)
+    segment = solution.settings["segment"]
+    @printf("segment %d from t = %.3e s to %.3e s: %s%s\n", segment["index"], segment["start_time"], segment["end_time"],
+            segment["status"], haskey(segment, "stop_reason") ? " (" * segment["stop_reason"] * ")" : "")
     st = solution.statistics
     accepted = st.accepted
     steps = count(accepted)
@@ -141,6 +171,10 @@ function report(solution, grid; wall=NaN)
             1e3 * mean(st.wall_time), 1e3 * mean(st.jacobian_time), 1e3 * mean(st.residual_time),
             1e3 * mean(st.factorization_time), 1e3 * mean(st.linear_solve_time))
     states = solution.states
+    if isempty(states)
+        println("the segment saved no state")
+        return solution
+    end
     negative = count(<(0), states)
     @printf("positivity: %d negative entries over the saved states; min f / max f = %.2e\n", negative, minimum(states) / maximum(states))
     for (k, t) in enumerate(solution.times)

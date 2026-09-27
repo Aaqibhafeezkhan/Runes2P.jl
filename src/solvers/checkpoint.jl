@@ -17,9 +17,10 @@ A checkpoint is written at a requested time point when `interval` seconds of wal
 have passed since the last one (0 writes one at every time point), and always at the end
 of the segment. Files are written to a temporary file, synced and renamed.
 
-A segment refuses to replace the segment file of an earlier run unless `overwrite` is
-true. A chain of segments never meets one: a segment file exists only once its segment
-has written a checkpoint, and the next segment then has the next number.
+A run refuses to replace the segment file of another run unless `overwrite` is true.
+A run continued with `resume = true` replaces the file with the number of its segment:
+the output is written before the checkpoint, so an attempt of the segment that was killed
+between the two leaves its file behind, and the checkpoint still names the segment before.
 """
 struct CheckpointSettings
     name::String
@@ -203,10 +204,13 @@ function changed_sections(before::AbstractDict, now::AbstractDict)
                         if get(old, section, "") != get(new, section, "")])
 end
 
-# record of the segment in the settings of a run: outside the setup hash
+# record of the segment in the settings of a run: outside the setup hash. The status, the
+# time reached and the number of intervals done follow the run (`_update_segment!`).
 function _segment_record(segment::Integer, stored, settings::AbstractDict, start_time::Real, saved_before::Integer)
     record = SettingsRecord("index" => Int(segment), "start_time" => Float64(start_time),
-                            "resumed" => stored !== nothing, "saved_before" => Int(saved_before))
+                            "resumed" => stored !== nothing, "saved_before" => Int(saved_before),
+                            "status" => "running", "end_time" => Float64(start_time), "intervals" => 0,
+                            "checkpoint_written" => false)
     stored === nothing && return record
     record["resumed_from"] = stored.source
     record["resumed_from_segment"] = stored.segment
@@ -218,4 +222,102 @@ function _segment_record(segment::Integer, stored, settings::AbstractDict, start
     record["settings_changed"] = !isempty(changed)
     isempty(changed) || (record["changed_sections"] = changed)
     return record
+end
+
+# Clean stop of a segment. Julia exits
+# on SIGTERM without running user code, so a run cannot react to the signal at the time
+# limit. It stops by itself instead, at a requested time point, when the wall time left
+# does not cover another interval or when a stop file appears, which the batch script
+# creates on the warning signal of the batch system.
+
+"""
+    StopCondition(; end_time=nothing, wall_budget=nothing, stop_file=nothing, slack=300)
+
+When a segment stops before the last time point. [`integrate`](@ref) asks at every
+requested time point, never inside an interval, so an interval with halved steps is
+finished first. It stops when
+
+- the wall time left until `end_time` is less than the margin: the longest interval of
+  the segment so far, plus the longest write of a checkpoint with its output so far, plus
+  `slack` seconds (the rule of SCR: interval, write time and a slack; the default slack
+  is the margin of GS2, 300 s);
+- the file `stop_file` exists.
+
+`end_time` is a UNIX time in seconds. By default it is `SLURM_JOB_END_TIME` of the
+environment when that is set, so a run in a Slurm job stops before its time limit without
+further settings. `wall_budget` gives the end as seconds from now. With both, the earlier
+end counts.
+
+A stop file left by an earlier segment is removed when the segment starts. A segment
+always completes one interval before it stops, so that every segment of a run makes
+progress.
+"""
+struct StopCondition
+    end_time::Float64
+    stop_file::String
+    slack::Float64
+end
+
+function StopCondition(; end_time::Union{Nothing,Real}=nothing, wall_budget::Union{Nothing,Real}=nothing,
+                       stop_file::Union{Nothing,AbstractString}=nothing, slack::Real=300)
+    slack >= 0 || throw(ArgumentError("the slack must not be negative"))
+    wall_budget === nothing || wall_budget > 0 || throw(ArgumentError("the wall budget must be positive"))
+    ends = Float64[]
+    if end_time !== nothing
+        push!(ends, Float64(end_time))
+    elseif haskey(ENV, "SLURM_JOB_END_TIME")
+        from_slurm = tryparse(Float64, ENV["SLURM_JOB_END_TIME"])
+        from_slurm === nothing || push!(ends, from_slurm)
+    end
+    wall_budget === nothing || push!(ends, time() + Float64(wall_budget))
+    return StopCondition(isempty(ends) ? Inf : minimum(ends), stop_file === nothing ? "" : String(stop_file),
+                         Float64(slack))
+end
+
+describe(stop::StopCondition) =
+    SettingsRecord("type" => "StopCondition", "end_time" => stop.end_time, "stop_file" => stop.stop_file,
+                   "slack" => stop.slack)
+
+"""
+    stop_reason(stop, longest_interval, longest_write; now=time())
+
+Why the segment stops now, `"stop file"` or `"wall time"`, or `nothing` when it goes on.
+`longest_interval` and `longest_write` are the wall times in seconds of the longest
+interval and of the longest checkpoint write of the segment so far.
+"""
+function stop_reason(stop::StopCondition, longest_interval::Real, longest_write::Real; now::Real=time())
+    isempty(stop.stop_file) || !isfile(stop.stop_file) || return "stop file"
+    now + longest_interval + longest_write + stop.slack >= stop.end_time && return "wall time"
+    return nothing
+end
+stop_reason(::Nothing, longest_interval, longest_write; now=time()) = nothing
+
+"Exit status of a script whose run finished."
+const EXIT_FINISHED = 0
+"Exit status of a script whose segment stopped at a checkpoint, to be followed by another segment."
+const EXIT_STOPPED = 85
+"Exit status of a script whose segment stopped without a checkpoint to continue from."
+const EXIT_STOPPED_WITHOUT_CHECKPOINT = 86
+
+"""
+    run_status(solution)
+
+`:finished` when the run reached its last time point, `:stopped` when the segment stopped
+before it ([`StopCondition`](@ref)). `solution.settings["segment"]` has the reason
+(`stop_reason`) and the time reached (`end_time`).
+"""
+run_status(solution) = Symbol(get(get(solution.settings, "segment", SettingsRecord()), "status", "finished"))
+
+"""
+    exit_status(solution)
+
+Exit status for the script of a segment, which a batch script that chains the segments
+reads: $EXIT_FINISHED when the run finished, $EXIT_STOPPED when the segment stopped and
+wrote a checkpoint, so that another segment follows, and $EXIT_STOPPED_WITHOUT_CHECKPOINT
+when it stopped without checkpoints, where another segment would start from the beginning.
+"""
+function exit_status(solution)
+    run_status(solution) === :finished && return EXIT_FINISHED
+    segment = solution.settings["segment"]
+    return get(segment, "checkpoint_written", false) ? EXIT_STOPPED : EXIT_STOPPED_WITHOUT_CHECKPOINT
 end

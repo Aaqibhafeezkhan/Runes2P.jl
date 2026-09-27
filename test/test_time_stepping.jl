@@ -271,7 +271,7 @@ square_root_step(u0, k, dt) = ((-k * dt + sqrt((k * dt)^2 + 4u0)) / 2)^2
         file = tempname() * ".h5"
         write_output(file, solution)
         h5open(file) do h5
-            @test read(attributes(h5)["format_version"]) == "0.2"
+            @test read(attributes(h5)["format_version"]) == "0.3"
             @test read(h5["time"]) == [0.0, 0.1, 0.2]
             f = read(h5["unknowns/hot_tail_distribution"])
             @test size(f) == (5, 3, 2, 3)

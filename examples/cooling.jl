@@ -11,6 +11,7 @@
 #   julia --project=examples examples/cooling.jl scheme=van_albada solver=gmres
 #   julia --project=examples examples/cooling.jl grid=production T_final=10
 #   julia --project=examples examples/cooling.jl nr=11 dbb=1e-3 solver=gmres restart=60
+#   julia --project=examples examples/cooling.jl checkpoint=cooling checkpoint_dir=run resume=true wall_budget=60 slack=5
 #
 # Values (a generic cooling-plasma case): deuterium at 1e20 m⁻³ from 15 keV to 100 eV over
 # 2 ms, E = 20 E_c at 15 keV (slide-away), B = 5.3 T, 200 momentum cells to p = 2 and
@@ -60,7 +61,9 @@ system = EquationSystem(layout, [Equation(:f, TimeDerivative(), terms...)])
 solver = solver_from_switches()
 
 integrate(system, vec(f0), times[1:min(3, end)]; solver)   # compile
-wall = @elapsed solution = integrate(system, vec(f0), times; solver, save_times)
+description = Dict("example" => "cooling", "initial_state" => "Maxwellian at $T0 eV and $n m^-3",
+                   "delta_b_over_b" => dbb, "major_radius" => MAJOR_RADIUS, "minor_radius" => MINOR_RADIUS)
+wall = @elapsed solution = integrate(system, vec(f0), times; solver, save_times, description, run_options()...)
 report(solution, grid; wall)
 for (k, t) in enumerate(solution.times)
     f = reshape(solution.states[:, k], size(grid))
@@ -70,3 +73,4 @@ for (k, t) in enumerate(solution.times)
     @printf("t = %9.3e s (T = %8.1f eV): %d negative cells, first at momentum cell %d (p = %.3f), min f/max f = %.2e\n",
             t, temperature(t), negative, i_first, mom.p_centers[i_first], minimum(f) / maximum(f))
 end
+finish(solution)

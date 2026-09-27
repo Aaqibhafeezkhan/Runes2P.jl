@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.2"
+const OUTPUT_FORMAT_VERSION = v"0.3"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -658,7 +658,8 @@ end
 
 """
     run_settings(system; solver=NewtonSolver(), times=Float64[], save_times=times,
-                 max_step_halvings=10, description=Dict(), updates=(), checkpoint=nothing)
+                 max_step_halvings=10, description=Dict(), updates=(), checkpoint=nothing,
+                 stop=nothing)
 
 The record of a run, written by [`write_output`](@ref) as the `settings` group. Sections:
 
@@ -677,21 +678,24 @@ The record of a run, written by [`write_output`](@ref) as the `settings` group. 
 - `code`: [`code_version`](@ref), with the commit of Runes2P;
 - `environment`: [`run_environment`](@ref);
 - `checkpoint`: the checkpoint settings, or the type `none`;
+- `stop`: the stop condition, or the type `none`;
 - `hashes`: [`settings_hash`](@ref) of each of the first eight sections, and
-  `setup_hash` of the eight together. `code`, `environment` and `checkpoint` are outside
-  the hashes, so the same setup has the same hash on another machine and commit;
+  `setup_hash` of the eight together. `code`, `environment`, `checkpoint` and `stop` are
+  outside the hashes, so the same setup has the same hash on another machine and commit;
 - `complete`: false when some object of the run has no record of its own (a term defined
   outside the package, a prescribed function that fails at a time point).
 
 [`integrate`](@ref) builds the record at its start and returns it in the solution, with
 the record of the segment added under `segment`: its number, its start time, the number
-of states saved before it, and for a resumed segment the file it resumed from, the commit
-and setup hash of the run that wrote it and the sections whose hash changed.
+of states saved before it, its status (`running`, `stopped` or `finished`) with the time
+reached, the intervals done and the reason of a stop, and for a resumed segment the file
+it resumed from, the commit and setup hash of the run that wrote it and the sections whose
+hash changed.
 """
 function run_settings(system::EquationSystem; solver::NewtonSolver=NewtonSolver(),
                       times::AbstractVector=Float64[], save_times::AbstractVector=times,
                       max_step_halvings::Integer=10, description=SettingsRecord(),
-                      updates=(), checkpoint=nothing,
+                      updates=(), checkpoint=nothing, stop=nothing,
                       max_table_bytes::Integer=MAX_PRESCRIBED_TABLE_BYTES)
     context = DescriptionContext(; times, max_table_bytes)
     record = SettingsRecord()
@@ -711,6 +715,7 @@ function run_settings(system::EquationSystem; solver::NewtonSolver=NewtonSolver(
     record["code"] = code_version()
     record["environment"] = run_environment()
     record["checkpoint"] = checkpoint === nothing ? SettingsRecord("type" => "none") : describe(checkpoint)
+    record["stop"] = stop === nothing ? SettingsRecord("type" => "none") : describe(stop)
     return record
 end
 

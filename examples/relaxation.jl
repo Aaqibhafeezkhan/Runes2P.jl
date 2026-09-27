@@ -34,7 +34,8 @@ solver = solver_from_switches()
 times, save_times = times_from_switches(dt=1e-5, t_end=1e-3)
 
 integrate(system, vec(f0), times[1:min(3, end)]; solver)   # compile
-wall = @elapsed solution = integrate(system, vec(f0), times; solver, save_times)
+description = Dict("example" => "relaxation", "initial_state" => "Maxwellian")
+wall = @elapsed solution = integrate(system, vec(f0), times; solver, save_times, description, run_options()...)
 report(solution, grid; wall)
 
 p_star = number("p_star", 0.0)
@@ -47,3 +48,4 @@ if p_star > 0
         @printf("t = %9.3e s: fraction above p = %.2f: %.4e\n", t, p_star, fraction)
     end
 end
+finish(solution)

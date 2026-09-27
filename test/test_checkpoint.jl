@@ -147,7 +147,12 @@ _checkpoint_directory() = mktempdir()
         @test solution.settings["updates"]["knockon_cutoff"]["type"] == "KnockOnCutoffUpdate"
         @test collect(keys(solution.settings["prescribed"])) == ["table_1"]   # one table for the one function
         @test solution.settings["segment"] ==
-              Dict{String,Any}("index" => 1, "start_time" => 0.0, "resumed" => false, "saved_before" => 0)
+              Dict{String,Any}("index" => 1, "start_time" => 0.0, "resumed" => false, "saved_before" => 0,
+                               "status" => "finished", "end_time" => 8e-4, "intervals" => 8,
+                               "checkpoint_written" => false)
+        @test solution.settings["stop"] == Dict{String,Any}("type" => "none")
+        @test run_status(solution) === :finished
+        @test exit_status(solution) == 0
         @test solution.settings["checkpoint"] == Dict{String,Any}("type" => "none")
         # with a fixed cutoff the run differs: the update changes the result
         fixed = _checkpoint_case()
@@ -316,6 +321,43 @@ _checkpoint_directory() = mktempdir()
         @test fresh.states == whole.states
         @test fresh.settings["segment"]["index"] == 1
         @test fresh.settings["segment"]["resumed"] === false
+    end
+
+    @testset "a segment killed between its output and its checkpoint" begin
+        # The attempt leaves the file of its segment, and the checkpoint names the segment
+        # before. The run submitted again replaces the file.
+        case = _checkpoint_case()
+        whole = integrate(case.system, case.u0, case.times; save_times=case.save_times, updates=(case.update(),))
+        case = _checkpoint_case()
+        checkpoint = CheckpointSettings("attempt"; directory=_checkpoint_directory(), interval=1e6)
+        integrate(case.system, case.u0, case.times[1:5]; save_times=filter(<=(case.times[5]), case.save_times),
+                  updates=(case.update(),), checkpoint)
+        cp(Runes2P.segment_file(checkpoint, 1), Runes2P.segment_file(checkpoint, 2))
+        case = _checkpoint_case()
+        second = @test_logs (:warn, r"changed settings") integrate(
+            case.system, case.u0, case.times; save_times=case.save_times, updates=(case.update(),), checkpoint,
+            resume=true)
+        @test second.settings["segment"]["index"] == 2
+        joined = read_output(checkpoint)
+        @test joined.times == whole.times
+        @test joined.states == whole.states
+        # the same in the first segment of a run, which has no checkpoint yet
+        first_run = CheckpointSettings("first"; directory=_checkpoint_directory(), interval=1e6)
+        mkpath(first_run.directory)
+        cp(Runes2P.segment_file(checkpoint, 1), Runes2P.segment_file(first_run, 1))
+        case = _checkpoint_case()
+        solution = integrate(case.system, case.u0, case.times; save_times=case.save_times, updates=(case.update(),),
+                             checkpoint=first_run, resume=true)
+        @test solution.settings["segment"]["index"] == 1
+        @test read_output(first_run).states == whole.states
+        # without resume = true the file is another run's: a run from its start, and a run
+        # from a stored state given by hand, which would write the second segment
+        case = _checkpoint_case()
+        @test_throws ArgumentError integrate(case.system, case.u0, case.times; checkpoint=first_run)
+        stored = read_checkpoint(Runes2P.previous_checkpoint_file(checkpoint))
+        @test stored.segment == 1
+        @test_throws ArgumentError integrate(case.system, case.u0, case.times; save_times=case.save_times,
+                                             updates=(case.update(),), checkpoint, resume=stored)
     end
 
     @testset "checkpoint interval and segment files" begin
