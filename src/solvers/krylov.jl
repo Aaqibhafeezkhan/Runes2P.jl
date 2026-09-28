@@ -61,6 +61,22 @@ terms the two are the same.
 
 A solve that fails with a preconditioner from an earlier iteration is repeated once with
 a fresh one.
+
+At production sizes with radially coupled radii:
+
+- The block preconditioner leaves out the radial coupling, and the Krylov count grows with
+  it: about 29 per Newton iteration at 20 radii and 59 at 40 under Rechester-Rosenbluth
+  diffusion with `δB/B = 1e-3`, the largest of a step 1.4 times that. `restart_length` has
+  to exceed the count. With the default of 30 the iteration stagnates and the step ends
+  with `:linear_solve_failed` (600 000 and 1 200 000 unknowns, 20 radii), with 200 it
+  converges.
+- `relative_tolerance` stays at or below the `floor_linear_tolerance` of the
+  [`NewtonSolver`](@ref) (1e-8). With 1e-6 the Newton iteration cannot accept a residual
+  at its round-off floor and ends with `:max_iterations`. 1e-8 takes about 19 Krylov
+  iterations per Newton iteration at 20 radii and three Newton iterations per step, 1e-10
+  about 33 and two.
+- The memory is that of the block factors and of the Krylov basis, `restart_length`
+  vectors: 5.7 GB at 1 200 000 unknowns with a restart length of 200.
 """
 Base.@kwdef struct GMRES{P<:BlockPreconditioner} <: LinearSolver
     preconditioner::P = RadiusBlockLU()

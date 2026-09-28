@@ -228,13 +228,16 @@ end
         cutoff = choose_cutoff(mom.p_faces, window.lower, window.upper)
         @test cutoff.inside_window
         rate = growth_rate(cutoff.p_cutoff)
-        # DREAM's fluid growth rate uses the effective critical momentum of Hesslow et al.
-        # 2019, which includes screening and pitch-angle scattering; the kinetic operator
-        # reproduces it to 3% (measured 23.0 against 22.3 s⁻¹ at this resolution, and 23.7,
-        # i.e. 6%, with 160 momentum and 18 pitch cells). The 12 time steps of 6.7 ms are
-        # not converged: the explicit knock-on term gives 23.6, 25.6 and 26.1 s⁻¹ at 12, 48
-        # and 192 steps with exponential fitting, the implicit one 28.1, 26.7 and 26.4, so
-        # the converged kinetic rate is 26.2 s⁻¹, 18% above the fluid formula
+        # The reference is DREAM's fluid growth rate from a run at 5 T, 22.25 s⁻¹
+        # (AVALANCHE_MODE_FLUID, equal to AVALANCHE_MODE_FLUID_HESSLOW in this plasma). Its
+        # effective critical field holds synchrotron and bremsstrahlung losses (1.78 E_c),
+        # and the kinetic run has none. The converged kinetic rate is 26.2 s⁻¹: 0.7% above
+        # CODE with the same operator (Embréus et al. 2018, Fig. 3, 0.915 Γ₀), 8% above
+        # eq. (18) of Rosenbluth and Putvinski and 18% above the reference.
+        # This test reads 23.0 s⁻¹, since its 12
+        # steps of 6.7 ms lower the rate by 9% and central interpolation on this grid by 3%.
+        # The tolerance holds this setting. A kinetic reference at a converged setting
+        # would allow a tighter one.
         @test rate ≈ read(reference["GammaAva"])[case] rtol = 0.15
         # the Rosenbluth-Putvinski estimate at the test-particle critical momentum is 2.5
         # times larger, which is the ambiguity of DREAM #40
