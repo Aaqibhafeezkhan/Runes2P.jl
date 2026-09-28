@@ -48,12 +48,21 @@ const DREAM_KINETIC_DATA = joinpath(@__DIR__, "data", "dream_kinetic_operator.h5
                 # particles leave only through p = 0, equally in both codes
                 @test density(g, f1_runes2p) ≈ density(g, f1) rtol = 1e-12
                 # DREAM's current moment of its own f_hot is the cell-centre pitch rule
-                # (CurrentDensityFromDistributionFunction: e v ξ f Δp Δξ 2π p²); the full
-                # variant's j_hot carries DREAM's hot-region momentum threshold
+                # (CurrentDensityFromDistributionFunction: e v ξ f Δp Δξ 2π p²)
+                j_dream = read(grp["j_hot"])[:, end]
                 if variant == "superthermal_complete_energy"
-                    j_dream = read(grp["j_hot"])[:, end]
                     @test current_density(g, f1; pitch_rule=:cell_center) ≈ j_dream rtol = 1e-12
                     @test !isapprox(current_density(g, f1), j_dream; rtol=1e-3)
+                else
+                    # the full variant: the current of the hot region, above 7 thermal momenta
+                    # of the cold temperature with DREAM's envelope
+                    region = MomentumRegion(ThermalMomentum(read(grp["T_cold"])[:, end]))
+                    @test all(!iszero, j_dream)
+                    @test current_density(g, f1; pitch_rule=:cell_center, region) ≈ j_dream rtol = 1e-12
+                    whole = current_density(g, f1; pitch_rule=:cell_center)
+                    @test !isapprox(whole, j_dream; rtol=1e-3)
+                    fraction = MomentumRegion(region.limit; envelope=:cell_fraction)
+                    @test !isapprox(current_density(g, f1; pitch_rule=:cell_center, region=fraction), j_dream; rtol=1e-6)
                 end
             end
         end
@@ -70,7 +79,10 @@ end
                  joinpath(@__DIR__, "data", "dream_example_avalanche.h5"),
                  joinpath(@__DIR__, "data", "dream_avalanche_kinetic.h5"),
                  joinpath(@__DIR__, "data", "dream_flux_limiters.h5"),
-                 joinpath(@__DIR__, "data", "dream_pmax_boundary.h5"))
+                 joinpath(@__DIR__, "data", "dream_pmax_boundary.h5"),
+                 joinpath(@__DIR__, "data", "dream_two_grids.h5"),
+                 joinpath(@__DIR__, "data", "dream_radial_transport.h5"),
+                 joinpath(@__DIR__, "data", "dream_self_consistent_field.h5"))
         h5open(file) do h5
             attr = attributes(h5)
             @test haskey(attr, "dream_commit")

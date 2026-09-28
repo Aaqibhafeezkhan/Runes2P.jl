@@ -17,7 +17,13 @@ Settings of the Newton iteration of a backward-Euler step.
   causes in one step relative to the unknown's scale (`dt |F|/scale` on differential
   rows, `|F|/scale` on algebraic rows), is at most `residual_tolerance` everywhere. An
   infinite absolute tolerance excludes an unknown from both tests; the
-  merit function of the line search keeps all rows. A stiff step is an exception: when the transient and the
+  merit function of the line search keeps all rows. The unknown of a
+  [`Constraint`](@ref) is a rate: the system fixes the change `dt u` that it causes over
+  the step, and round-off of the constrained quantity divided by `dt` is the accuracy it
+  can reach. Its update test is `|δ| ≤ absolute + relative |u| + relative scale/dt`, with
+  the scale of its equation, which bounds the error of the change over the step as the
+  tolerances bound the other unknowns (this matters for the magnitude of the particle
+  source at steps below 1e-6 s). A stiff step is an exception: when the transient and the
   right-hand side cancel to many digits, round-off holds the residual above
   `residual_tolerance` whatever the iterate, so a converged update is accepted once the
   residual stops decreasing (it grew, or fell by less than 10%, in the last iteration).
@@ -142,6 +148,7 @@ struct NewtonWorkspace{T,S<:EquationSystem,L,C}
     scales::Vector{T}
     absolute::Vector{T}
     relative::Vector{T}
+    rate_tolerance::Vector{T}   # unknowns of constraints: tolerance of the update times the step
     jacobian::SparseMatrixCSC{T,Int}
     matrix::SparseMatrixCSC{T,Int}
     diagonal_positions::Vector{Int}
@@ -202,20 +209,34 @@ function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver=NewtonS
             append!(limit_reference, fill(ref_index, length(range)))
         end
     end
+    rate_tolerance = zeros(T, n)
+    for equation in system.equations
+        equation.kind isa Constraint || continue
+        id = unknown_id(layout, equation.unknown)
+        for range in _unknown_ranges(layout, id)
+            @. rate_tolerance[range] = relative[range] * system.row_scales[range]
+        end
+    end
     jacobian = jacobian_prototype(system)
     matrix = copy(jacobian)
+    # positions of the entries of the mass matrix: (row, the column whose time derivative the
+    # row holds), the diagonal for the rows without one
     diagonal_positions = zeros(Int, n)
-    for j in 1:n, k in nzrange(matrix, j)
-        matrix.rowval[k] == j && (diagonal_positions[j] = k)
+    for i in 1:n
+        column = system.mass_columns[i]
+        for k in nzrange(matrix, column)
+            matrix.rowval[k] == i && (diagonal_positions[i] = k)
+        end
     end
-    all(>(0), diagonal_positions) || error("the Jacobian pattern lacks diagonal entries")
+    all(>(0), diagonal_positions) || error("the Jacobian pattern lacks the entries of the mass matrix")
     fill!(matrix.nzval, zero(T))
     matrix.nzval[diagonal_positions] .= one(T)
     cache = linear_solver_cache(solver.linear_solver, matrix, system, row_weights, scales)
     exact_jacobian = system.stored_jacobian_exact || newton_operator_exact(cache)
     return NewtonWorkspace(system, solver, exact_jacobian, system.linear && exact_jacobian, zeros(T, n),
                            zeros(T, n), zeros(T, n), zeros(T, n),
-                           zeros(T, n), zeros(T, n), row_weights, scales, absolute, relative, jacobian,
+                           zeros(T, n), zeros(T, n), row_weights, scales, absolute, relative, rate_tolerance,
+                           jacobian,
                            matrix, diagonal_positions, limited, limit_tolerance, limit_reference, cache,
                            Float64[], Float64[], Float64[], Ref(NaN), Ref(NaN), Ref(0))
 end
@@ -246,14 +267,14 @@ _merit(ws::NewtonWorkspace, F) = 0.5 * sum(i -> (F[i] * ws.row_weights[i])^2, ea
 function _newton_matrix!(ws::NewtonWorkspace, dt)
     A, J = ws.matrix, ws.jacobian
     mass = ws.system.mass
-    @inbounds for j in axes(A, 2)
-        for k in nzrange(A, j)
-            A.nzval[k] = -J.nzval[k]
-        end
-        A.nzval[ws.diagonal_positions[j]] += mass[j] / dt
-        for k in nzrange(A, j)
-            A.nzval[k] *= ws.row_weights[A.rowval[k]] * ws.scales[j]
-        end
+    @inbounds for k in eachindex(A.nzval)
+        A.nzval[k] = -J.nzval[k]
+    end
+    @inbounds for i in eachindex(mass)
+        A.nzval[ws.diagonal_positions[i]] += mass[i] / dt
+    end
+    @inbounds for j in axes(A, 2), k in nzrange(A, j)
+        A.nzval[k] *= ws.row_weights[A.rowval[k]] * ws.scales[j]
     end
     return A
 end
@@ -340,7 +361,7 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
     empty!(ws.update_norms)
     empty!(ws.step_lengths)
     @inbounds for i in eachindex(ws.row_weights)
-        ws.row_weights[i] = (system.mass[i] == 0 ? one(dt) : dt) / ws.scales[i]
+        ws.row_weights[i] = (system.mass[i] == 0 ? one(dt) : dt) / system.row_scales[i]
     end
     krylov = 0
     updates = 0
@@ -411,7 +432,7 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
         push!(ws.step_lengths, step)
         residual_small = last(ws.residual_norms) <= solver.residual_tolerance
         update_converged = all(eachindex(u)) do i
-            abs(ws.update[i]) <= ws.absolute[i] + ws.relative[i] * abs(u[i])
+            abs(ws.update[i]) <= ws.absolute[i] + ws.relative[i] * abs(u[i]) + ws.rate_tolerance[i] / dt
         end
         # A linear system with the exact matrix and an accurate solve: once the update
         # (the error estimate of the previous iterate) passes, no further iteration can

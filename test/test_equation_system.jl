@@ -376,3 +376,97 @@ end
                                    bulk_momentum=bound)
     @test EquationSystem(layout, [source(:hot_tail_distribution, on_copy)]) isa EquationSystem
 end
+
+@testset "time derivative of another unknown in a row" begin
+    # da/dt = -2 b with b = a, written with two pairings of rows and unknowns: the row of a
+    # holds its own derivative and the row of b the constraint, or the row of b holds the
+    # derivative of a and the row of a the constraint (as Faraday's law in the row of the
+    # field). The systems are the same and give the same states.
+    rad = RadialGrid(uniform_r_faces(3, 1.0))
+    layout = UnknownLayout(rad, [RadialUnknown(:a; scale=2.0), RadialUnknown(:b; scale=5.0),
+                                 ScalarUnknown(:c; scale=3.0), ScalarUnknown(:d; scale=7.0)])
+    own = EquationSystem(layout, [
+        Equation(:a, TimeDerivative(), LinearTerm(:b; coefficient=-2)),
+        Equation(:b, Algebraic(), LinearTerm(:a), LinearTerm(:b; coefficient=-1)),
+        Equation(:c, TimeDerivative(), LinearTerm(:d; coefficient=-3)),
+        Equation(:d, Algebraic(), LinearTerm(:c), LinearTerm(:d; coefficient=-1))])
+    other = EquationSystem(layout, [
+        Equation(:a, Algebraic(), LinearTerm(:b), LinearTerm(:a; coefficient=-1)),
+        Equation(:b, TimeDerivative(:a), LinearTerm(:b; coefficient=-2)),
+        Equation(:c, Algebraic(), LinearTerm(:d), LinearTerm(:c; coefficient=-1); scale=11.0),
+        Equation(:d, TimeDerivative(:c), LinearTerm(:d; coefficient=-3))])
+    @test TimeDerivative() === TimeDerivative(nothing)
+    a, b = unknown_id(layout, :a), unknown_id(layout, :b)
+    c, d = only(unknown_range(layout, unknown_id(layout, :c))), only(unknown_range(layout, unknown_id(layout, :d)))
+
+    # mass matrix: diagonal, or one entry per row off the diagonal
+    @test mass_matrix(own) isa Diagonal
+    M = mass_matrix(other)
+    @test !(M isa Diagonal)
+    @test sum(M) == 4
+    for ir in 1:3
+        @test M[only(unknown_range(layout, b, ir)), only(unknown_range(layout, a, ir))] == 1
+    end
+    @test M[d, c] == 1
+    # a row with the derivative of another unknown takes the scale of that unknown, and an
+    # equation may name its own
+    scales = residual_scales(other)
+    @test scales[only(unknown_range(layout, b, 1))] == 2.0
+    @test scales[only(unknown_range(layout, a, 1))] == 2.0
+    @test scales[d] == 3.0
+    @test scales[c] == 11.0
+    @test residual_scales(own)[only(unknown_range(layout, b, 1))] == 5.0
+
+    u0 = zeros(length(layout))
+    for ir in 1:3
+        unknown_view(u0, layout, :a, ir) .= ir
+        unknown_view(u0, layout, :b, ir) .= ir
+    end
+    u0[c] = u0[d] = 4.0
+    # the residuals hold the same equations in exchanged rows
+    u, F_own, F_other = rand(length(layout)), zeros(length(layout)), zeros(length(layout))
+    residual!(F_own, u, u0, own, 0.0, 0.1)
+    residual!(F_other, u, u0, other, 0.0, 0.1)
+    for ir in 1:3
+        row_a, row_b = only(unknown_range(layout, a, ir)), only(unknown_range(layout, b, ir))
+        @test F_other[row_b] == F_own[row_a]
+        @test F_other[row_a] == -F_own[row_b]
+    end
+    @test F_other[d] == F_own[c] && F_other[c] == -F_own[d]
+
+    times = collect(range(0, 0.5; length=11))
+    for solver in (NewtonSolver(), NewtonSolver(linear_solver=GMRES()))
+        first_pairing = integrate(own, u0, times; solver)
+        second_pairing = integrate(other, u0, times; solver)
+        @test second_pairing.states ≈ first_pairing.states rtol = 1e-13
+        # backward Euler of da/dt = -2a and dc/dt = -3c
+        @test first_pairing.states[only(unknown_range(layout, a, 2)), end] ≈ 2 / (1 + 2 * 0.05)^10 rtol = 1e-12
+        @test second_pairing.states[c, end] ≈ 4 / (1 + 3 * 0.05)^10 rtol = 1e-12
+        @test second_pairing.states[d, end] ≈ second_pairing.states[c, end] rtol = 1e-13
+    end
+
+    record = describe(other)["equations"]
+    @test record["b"]["kind"] == "time_derivative" && record["b"]["time_derivative_of"] == "a"
+    @test record["c"]["scale"] == 11.0
+    @test !haskey(describe(own)["equations"]["a"], "time_derivative_of")
+    @test !haskey(describe(own)["equations"]["a"], "scale")
+
+    # the unknown of the row must be in its terms, the sizes must agree, and the derivative
+    # of an unknown belongs to one row
+    @test_throws "cannot determine it" EquationSystem(layout, [
+        Equation(:a, Algebraic(), LinearTerm(:b), LinearTerm(:a; coefficient=-1)),
+        Equation(:b, TimeDerivative(:a), LinearTerm(:a; coefficient=-2)),
+        Equation(:c, TimeDerivative(), LinearTerm(:d; coefficient=-3)),
+        Equation(:d, Algebraic(), LinearTerm(:c), LinearTerm(:d; coefficient=-1))])
+    @test_throws "the same kind and sizes" EquationSystem(layout, [
+        Equation(:a, Algebraic(), LinearTerm(:b), LinearTerm(:a; coefficient=-1)),
+        Equation(:b, TimeDerivative(:c), LinearTerm(:b; coefficient=-2)),
+        Equation(:c, TimeDerivative(), LinearTerm(:d; coefficient=-3)),
+        Equation(:d, Algebraic(), LinearTerm(:c), LinearTerm(:d; coefficient=-1))])
+    @test_throws "is in the equations of" EquationSystem(layout, [
+        Equation(:a, TimeDerivative(), LinearTerm(:b; coefficient=-1)),
+        Equation(:b, TimeDerivative(:a), LinearTerm(:b; coefficient=-2)),
+        Equation(:c, TimeDerivative(), LinearTerm(:d; coefficient=-3)),
+        Equation(:d, Algebraic(), LinearTerm(:c), LinearTerm(:d; coefficient=-1))])
+    @test_throws ArgumentError Equation(:a, Algebraic(), LinearTerm(:a); scale=0)
+end

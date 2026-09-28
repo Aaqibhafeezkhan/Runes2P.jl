@@ -8,25 +8,60 @@ using SparseMatrixColorings: column_groups
 
 """
     TimeDerivative()
+    TimeDerivative(of)
     Algebraic()
+    Constraint()
 
-Kinds of [`Equation`](@ref): `du/dt = Σ terms` (mass 1) or `0 = Σ terms` (mass 0).
+Kinds of [`Equation`](@ref): `du/dt = Σ terms` or `0 = Σ terms`. `TimeDerivative(of)`
+puts the time derivative of another unknown into the row, `d(of)/dt = Σ terms`, for an
+unknown `of` of the same kind and sizes as the unknown of the equation.
+Faraday's law is of this form: the equation of the electric field is
+`dψ/dt = 2π E`, with the poloidal flux as `of`, and the equation of the flux is Ampère's
+law, which is algebraic. Every algebraic row then holds its own unknown. The unknown of
+an equation with the derivative of another unknown must appear in the terms of that
+equation.
+
+`Algebraic()` is an equation `0 = Σ terms` that holds its unknown. `Constraint()` is one
+that does not: the unknown is fixed through the equations of other unknowns, which hold
+it. The magnitude of the particle source is of this kind: its equation is the density that
+the distribution has to keep, `0 = n(f) − n_cold − n_hot`, and the magnitude stands in the
+kinetic equation (DREAM's `S_particle`). The system then has the index 2
+in that unknown, which backward Euler solves, and the diagonal entry of the row in the
+Jacobian is zero. A constraint names the scale of the quantity it balances
+(`Equation(...; scale)`): its unknown is a rate, whose scale does not fit the row.
 """
-struct TimeDerivative end
+struct TimeDerivative
+    of::Union{Nothing,Symbol}
+end
+TimeDerivative() = TimeDerivative(nothing)
 struct Algebraic end
+struct Constraint end
 
 """
-    Equation(unknown, kind, terms...)
+    Equation(unknown, kind, terms...; scale=nothing)
 
-Equation of the unknown `unknown` (a name in the layout): `TimeDerivative()` or
-`Algebraic()`, with the right-hand side the sum of `terms` ([`EquationTerm`](@ref)s).
+Equation of the unknown `unknown` (a name in the layout): `TimeDerivative()`,
+`TimeDerivative(of)` or `Algebraic()`, with the right-hand side the sum of `terms`
+([`EquationTerm`](@ref)s).
+
+`scale` is the magnitude of the quantity whose rate or balance the row holds, for the
+weights of the residual ([`residual_scales`](@ref)). By default it is the scale of the
+unknown whose time derivative the row holds, and the scale of the unknown of the equation
+for an algebraic row. An algebraic row that balances another quantity than its unknown
+names the scale of that quantity: the row of the poloidal flux holds Ampère's law.
 """
 struct Equation{K,TT<:Tuple}
     unknown::Symbol
     kind::K
     terms::TT
+    scale::Union{Nothing,Float64}
 end
-Equation(unknown::Symbol, kind, terms::EquationTerm...) = Equation(unknown, kind, terms)
+function Equation(unknown::Symbol, kind, terms::Tuple; scale::Union{Nothing,Real}=nothing)
+    scale === nothing || scale > 0 || throw(ArgumentError("the scale of an equation must be positive"))
+    return Equation(unknown, kind, terms, scale === nothing ? nothing : Float64(scale))
+end
+Equation(unknown::Symbol, kind, terms::EquationTerm...; scale::Union{Nothing,Real}=nothing) =
+    Equation(unknown, kind, terms; scale)
 
 """
     Tolerance(absolute, relative)
@@ -94,7 +129,9 @@ struct EquationSystem{T,S<:Tuple,M<:Tuple,X<:Tuple,C<:Tuple,D<:Tuple,F,P,B}
     automatic_positions::Vector{Int}      # its stored entries in the stored Jacobian
     stored_jacobian_exact::Bool
     linear::Bool
-    mass::Vector{T}
+    mass::Vector{T}                       # per row: 1 with a time derivative, 0 without
+    mass_columns::Vector{Int}             # per row: the entry whose time derivative the row holds
+    row_scales::Vector{T}                 # per row: magnitude of the quantity of the row
     pattern::SparseMatrixCSC{Bool,Int}
     sparse_rhs!::F
     preparation::P
@@ -154,18 +191,53 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
 
     sparse_terms, matrix_free_terms, explicit_terms = BoundTerm[], BoundTerm[], BoundTerm[]
     mass = zeros(T, length(layout))
+    mass_columns = collect(1:length(layout))
+    row_scales = T.(unknown_scales(layout))
+    derivative_rows = zeros(Int, count)   # per unknown: the unknown whose row holds its time derivative
     for eq in equations
         row = unknown_id(layout, eq.unknown)
-        eq.kind isa Union{TimeDerivative,Algebraic} ||
+        eq.kind isa Union{TimeDerivative,Algebraic,Constraint} ||
             throw(ArgumentError("unknown equation kind $(eq.kind)"))
+        # explicit terms are evaluated at the previous time level and determine nothing
+        holds_unknown = any(term -> treatment(term) === :implicit && eq.unknown in dependencies(term), eq.terms)
         if eq.kind isa Algebraic
-            # explicit terms are evaluated at the previous time level and determine nothing
-            any(term -> treatment(term) === :implicit && eq.unknown in dependencies(term), eq.terms) ||
+            holds_unknown ||
                 throw(ArgumentError("the algebraic equation of $(eq.unknown) has no implicit term " *
                                     "depending on $(eq.unknown), so it cannot determine it"))
+        elseif eq.kind isa Constraint
+            eq.scale === nothing &&
+                throw(ArgumentError("the equation of $(eq.unknown) is a constraint and needs the scale of the " *
+                                    "quantity it balances (Equation(...; scale)): the scale of its unknown, a " *
+                                    "rate, does not fit the row"))
+            any(other -> other.unknown !== eq.unknown &&
+                         any(term -> treatment(term) === :implicit && eq.unknown in dependencies(term), other.terms),
+                equations) ||
+                throw(ArgumentError("the equation of $(eq.unknown) is a constraint, and no other equation has an " *
+                                    "implicit term depending on $(eq.unknown), so nothing determines it"))
         else
+            of = eq.kind.of === nothing ? row : unknown_id(layout, eq.kind.of)
+            if of != row
+                layout.kinds[of] === layout.kinds[row] && layout.sizes[of, :] == layout.sizes[row, :] ||
+                    throw(ArgumentError("the equation of $(eq.unknown) holds the time derivative of " *
+                                        "$(eq.kind.of), which needs the same kind and sizes"))
+                holds_unknown ||
+                    throw(ArgumentError("the equation of $(eq.unknown) holds the time derivative of " *
+                                        "$(eq.kind.of) and has no implicit term depending on $(eq.unknown), " *
+                                        "so it cannot determine it"))
+            end
+            derivative_rows[of] == 0 ||
+                throw(ArgumentError("the time derivative of $(layout.unknowns[of].name) is in the equations of " *
+                                    "$(layout.unknowns[derivative_rows[of]].name) and of $(eq.unknown)"))
+            derivative_rows[of] = row
+            for (rows_here, columns_here) in zip(_unknown_ranges(layout, row), _unknown_ranges(layout, of))
+                mass[rows_here] .= one(T)
+                mass_columns[rows_here] .= columns_here
+                row_scales[rows_here] .= layout.unknowns[of].scale
+            end
+        end
+        if eq.scale !== nothing
             for range in _unknown_ranges(layout, row)
-                mass[range] .= one(T)
+                row_scales[range] .= eq.scale
             end
         end
         for term in eq.terms
@@ -203,6 +275,8 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
     # terms. The coloring takes the part of the terms with automatic assembly
     n = length(layout)
     entries = Tuple{Int,Int}[(i, i) for i in 1:n]
+    # the entries of the mass matrix off the diagonal
+    append!(entries, (i, mass_columns[i]) for i in 1:n if mass_columns[i] != i)
     for bound in automatic_tuple
         sparsity!(entries, bound.term, layout, bound.row)
     end
@@ -251,7 +325,7 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
     end
     return EquationSystem(layout, collect(Equation, equations), sparse_tuple, matrix_free_tuple,
                           explicit_tuple, correction_tuple, direct_tuple, automatic_jacobian, automatic_positions,
-                          isempty(correction_tuple), linear, mass, pattern,
+                          isempty(correction_tuple), linear, mass, mass_columns, row_scales, pattern,
                           sparse_rhs!, preparation, backend, prototype,
                           time, buffer, zeros(T, n), T(time_scale), Dict{Symbol,Tolerance}(newton_tolerances),
                           Dict{Symbol,Tolerance}(time_step_tolerances))
@@ -289,7 +363,8 @@ end
     residual!(F, u, u_old, system::EquationSystem, t, dt)
 
 Backward-Euler residual `F = M (u - u_old)/dt - rhs(u, t)`, with explicit terms at
-`u_old`. Allocation free.
+`u_old`. `M` has one entry per row with a time derivative, in the column of the unknown
+whose derivative the row holds. Allocation free.
 """
 function residual!(F::AbstractVector, u::AbstractVector, u_old::AbstractVector,
                    system::EquationSystem, t, dt)
@@ -299,8 +374,10 @@ function residual!(F::AbstractVector, u::AbstractVector, u_old::AbstractVector,
     _add_terms!(rhs, system.sparse_terms, u, layout, t)
     _add_terms!(rhs, system.matrix_free_terms, u, layout, t)
     _add_terms!(rhs, system.explicit_terms, u_old, layout, t)
+    mass, columns = system.mass, system.mass_columns
     @inbounds for i in eachindex(F)
-        F[i] = system.mass[i] * (u[i] - u_old[i]) / dt - rhs[i]
+        column = columns[i]
+        F[i] = mass[i] * (u[column] - u_old[column]) / dt - rhs[i]
     end
     return F
 end
@@ -308,9 +385,17 @@ end
 """
     mass_matrix(system)
 
-Diagonal mass matrix `M`: 1 on the rows of differential unknowns, 0 on algebraic ones.
+Mass matrix `M`, constant: 1 in the rows with a time derivative, in the column of the
+unknown whose derivative the row holds, and nothing in the algebraic rows. A `Diagonal`
+when every row holds the derivative of its own unknown, a sparse matrix otherwise
+(`TimeDerivative(of)`).
 """
-mass_matrix(system::EquationSystem) = Diagonal(system.mass)
+function mass_matrix(system::EquationSystem)
+    n = length(system.mass)
+    all(i -> system.mass_columns[i] == i, 1:n) && return Diagonal(system.mass)
+    rows = findall(!iszero, system.mass)
+    return sparse(rows, system.mass_columns[rows], system.mass[rows], n, n)
+end
 
 """
     jacobian_sparsity(system)
@@ -386,15 +471,16 @@ end
 """
     residual_scales(system)
 
-Scale of every row of the residual: `scale/time_scale` for differential rows and `scale`
-for algebraic rows, with `scale` the reference scale of the row's unknown. Dividing the
-residual by these makes all rows of order one. The Newton iteration of
-[`NewtonSolver`](@ref) does not use them: it weights differential rows by `dt/scale`,
-since round-off in `(u - u_old)/dt` at a short step would exceed a tolerance scaled by a
-fixed `time_scale`.
+Scale of every row of the residual: `scale/time_scale` for rows with a time derivative
+and `scale` for algebraic rows. `scale` is the scale of the equation when it names one,
+else the reference scale of the unknown whose time derivative the row holds, else that of
+the row's unknown. Dividing the residual by these makes all rows of order one. The Newton
+iteration of [`NewtonSolver`](@ref) does not use them: it weights differential rows by
+`dt/scale`, since round-off in `(u - u_old)/dt` at a short step would exceed a tolerance
+scaled by a fixed `time_scale`.
 """
 function residual_scales(system::EquationSystem)
-    scales = unknown_scales(system.layout)
+    scales = system.row_scales
     return [system.mass[i] == 0 ? scales[i] : scales[i] / system.time_scale for i in eachindex(scales)]
 end
 

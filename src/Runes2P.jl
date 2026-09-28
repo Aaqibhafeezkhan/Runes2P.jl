@@ -15,6 +15,7 @@ include("grids/momentum.jl")
 include("grids/pitch_overlap.jl")
 include("grids/radial.jl")
 include("grids/kinetic.jl")
+include("grids/momentum_region.jl")
 include("operators/flux_limiters.jl")
 include("operators/advection_diffusion.jl")
 include("operators/kinetic_terms.jl")
@@ -30,8 +31,10 @@ include("system/layout.jl")
 include("system/terms.jl")
 include("system/interface_term.jl")
 include("system/transport_terms.jl")
+include("system/population_terms.jl")
 include("operators/field_particle.jl")
 include("system/equation_system.jl")
+include("system/induction_terms.jl")
 include("solvers/linear_solver.jl")
 include("solvers/newton.jl")
 include("solvers/krylov.jl")
@@ -63,6 +66,7 @@ export parallel_diffusion_frequency, p3_slowing_down_frequency_at_zero
 export mean_excitation_energy, ion_size
 export add_electric_field!, add_slowing_down!, add_pitch_scattering!, add_energy_diffusion!
 export add_synchrotron!, fokker_planck_operator, zero_coefficients!, set_fokker_planck_coefficients!
+export set_unit_field_coefficients!, LayoutRadialValues, radial_values, with_electric_field
 export SparseJacobian, jacobian, jacobian!, operator_matrix, stencil_pattern, sparse_ad_backend
 export is_local, check_stencil_pattern
 export xi_star, moller_cross_section, moller_flux, max_knockon_momentum, moller_total_rate
@@ -81,8 +85,13 @@ export radial_view, kinetic_view, scalar_view, unknown_view, unknown_scales, des
 export kinetic_grid
 export EquationTerm, dependencies, coupling, treatment, sparsity!, rhs!, jacobian_vector_product!
 export jacobian_kind, jacobian_correction_product!, is_linear, jacobian_assembly, add_jacobian!
+export PrescribedValueTerm
+export MomentumRegion, ThermalMomentum, momentum_limit, momentum_envelope, momentum_envelope!, is_time_dependent
+export PoloidalFluxDiffusionTerm, CrossSectionIntegralTerm, cross_section_weights, edge_to_wall_inductance
+export InductionNames, induction_unknowns, induction_equations, initial_poloidal_flux
 export FokkerPlanckTerm, PrescribedFokkerPlanckTerm, KnockOnTerm, LinearTerm, DensityMomentTerm, CurrentMomentTerm, MaxwellianSourceTerm, LayoutKineticArray, kinetic_array
-export Equation, TimeDerivative, Algebraic, EquationSystem, Tolerance, tolerance
+export Equation, TimeDerivative, Algebraic, Constraint, EquationSystem, Tolerance, tolerance
+export ParticleSourceTerm, source_shape, MomentumBoundaryFluxTerm
 export residual!, mass_matrix, jacobian_sparsity, jacobian_prototype, jacobian_operator, jacobian_colors, residual_scales, ode_function
 export LinearSolver, SparseLU, GMRES, RadiusBlockLU, RadiusBlockILU, NewtonSolver, NewtonWorkspace, NewtonResult, newton_solve!, invalidate_jacobian!
 export SolverStatistics, TimeSolution, TimeStepFailure, integrate, write_output

@@ -63,7 +63,8 @@ end
 """
     KnockOnCutoffUpdate(operator, plasma_at; name="knockon_cutoff", placement=:energy_midpoint,
                         no_ceiling_factor=10, per_radius=true, thermal_factor=4,
-                        critical_momentum_at=total_critical_momentum, linked=[])
+                        critical_momentum_at=total_critical_momentum, linked=[],
+                        electric_field=nothing)
 
 Knock-on cutoff that follows the plasma `plasma_at(t)`:
 at the start of every interval the cutoff of each radius of `operator` is set to a face
@@ -91,6 +92,10 @@ The cutoff of the first interval replaces the one the operator was built with, u
 that one is a face the rule keeps. Without the update the cutoff is fixed, as in DREAM
 (`pCutAvalanche`), where a run can change it only between restarts.
 
+`electric_field` names the radial unknown of the electric field when the field is an
+unknown of the system: the runaway threshold then takes the field of the
+state at the start of the interval in place of the field of the prescribed plasma.
+
 `linked` lists further knock-on operators that take the cutoff of `operator` at every
 change. With a hot-tail and a runaway grid `operator` is the pairing
 hot-tail from hot-tail, whose knock-on grid holds the cutoff, and the pairings hot-tail
@@ -107,6 +112,7 @@ struct KnockOnCutoffUpdate{T,F,C} <: IntervalUpdate
     per_radius::Bool
     thermal_factor::Float64
     linked::Vector{KnockOnOperator{T}}
+    electric_field::Union{Nothing,Symbol}
     inside_window::Vector{Bool}
     policy::Vector{Symbol}
     rebuilds::Base.RefValue{Int}
@@ -115,7 +121,8 @@ end
 function KnockOnCutoffUpdate(operator::KnockOnOperator, plasma_at; name::AbstractString="knockon_cutoff",
                              placement::Symbol=:energy_midpoint, no_ceiling_factor::Real=10,
                              per_radius::Bool=true, thermal_factor::Real=4,
-                             critical_momentum_at=total_critical_momentum, linked=KnockOnOperator[])
+                             critical_momentum_at=total_critical_momentum, linked=KnockOnOperator[],
+                             electric_field::Union{Nothing,Symbol}=nothing)
     placement in (:energy_midpoint, :window) ||
         throw(ArgumentError("placement must be :energy_midpoint or :window, not $placement"))
     thermal_factor > 0 || throw(ArgumentError("thermal_factor must be positive"))
@@ -130,7 +137,7 @@ function KnockOnCutoffUpdate(operator::KnockOnOperator, plasma_at; name::Abstrac
     end
     return KnockOnCutoffUpdate(String(name), operator, plasma_at, critical_momentum_at, placement,
                                Float64(no_ceiling_factor), per_radius, Float64(thermal_factor),
-                               linked_operators, fill(true, nr),
+                               linked_operators, electric_field, fill(true, nr),
                                fill(placement === :window ? :window : :no_ceiling, nr), Ref(0))
 end
 
@@ -141,6 +148,10 @@ function apply_update!(update::KnockOnCutoffUpdate, u, layout, t)
     plasma = update.plasma_at(t)
     nr = radial_cell_count(operator.knockon)
     radial_cell_count(plasma) == nr || throw(DimensionMismatch("plasma and knock-on grid radii differ"))
+    if update.electric_field !== nothing
+        field = radial_values(u, layout, unknown_id(layout, update.electric_field))
+        plasma = with_electric_field(plasma, collect(Float64, field))
+    end
     temperatures = Float64.(plasma.cold_electron_temperature)
     thresholds = Float64[update.critical_momentum_at(plasma, ir) for ir in 1:nr]
     if !update.per_radius
@@ -196,7 +207,7 @@ end
 
 settings_fields(::Type{<:KnockOnCutoffUpdate}) =
     (described=(:name, :operator, :plasma_at, :critical_momentum_at, :placement, :no_ceiling_factor,
-                :per_radius, :thermal_factor, :linked),
+                :per_radius, :thermal_factor, :linked, :electric_field),
      derived=(:inside_window, :policy, :rebuilds))
 
 function describe(update::KnockOnCutoffUpdate, context::DescriptionContext)
@@ -209,6 +220,7 @@ function describe(update::KnockOnCutoffUpdate, context::DescriptionContext)
                             "critical_momentum" => _callable_name(update.critical_momentum_at),
                             "plasma" => _callable_name(update.plasma_at),
                             "plasma_table" => prescribed_table!(context, update.plasma_at))
+    update.electric_field === nothing || (record["electric_field"] = String(update.electric_field))
     isempty(update.linked) ||
         (record["linked_operators"] = SettingsRecord("operator_$k" => describe(other, context)
                                                      for (k, other) in enumerate(update.linked)))

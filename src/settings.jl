@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.9"
+const OUTPUT_FORMAT_VERSION = v"0.10"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -332,7 +332,7 @@ settings_fields(::Type{<:AdvectionDiffusion}) =
     (described=(:grid, COEFFICIENT_FIELDS..., :p_flux_at_lower_boundary, OPERATOR_OPTION_FIELDS...,
                 :coefficient_source),
      derived=(:momentum_grids, :radial_overlaps, :jacobian_centers, :jacobian_p_faces, :jacobian_xi_faces,
-              :jacobian_r_faces, :jacobian_over_p2_at_zero))
+              :jacobian_r_faces, :jacobian_over_p2_at_zero, :unit_field_advection_p, :unit_field_advection_xi))
 
 """
     describe(op::AdvectionDiffusion, context=DescriptionContext(); coefficients=true)
@@ -367,6 +367,8 @@ function describe(op::AdvectionDiffusion, context::DescriptionContext=Descriptio
         record["coefficient_source"] = SettingsRecord("plasma" => describe(source.plasma),
                                                       "collision_settings" => describe(source.settings),
                                                       "synchrotron" => source.synchrotron)
+        # the field of the plasma is left out when the field is an unknown of the system
+        get(source, :electric_field, true) || (record["coefficient_source"]["electric_field"] = false)
     end
     return record
 end
@@ -411,13 +413,14 @@ end
 describe(term::EquationTerm) = describe(term, DescriptionContext())
 
 settings_fields(::Type{<:FokkerPlanckTerm}) =
-    (described=(:unknown, :operator, :jacobian),
-     derived=(:stored_operator, :values, :correction, :dual_input, :dual_output))
+    (described=(:unknown, :operator, :jacobian, :electric_field),
+     derived=(:stored_operator, :values, :correction, :dual_input, :dual_output, :field_values, :dual_field))
 
 function describe(term::FokkerPlanckTerm, context::DescriptionContext)
     record = _term_record(term)
     record["unknown"] = String(term.unknown)
     record["jacobian"] = String(term.jacobian)
+    term.electric_field === nothing || (record["electric_field"] = String(term.electric_field))
     record["operator"] = describe(term.operator, context)
     return record
 end
@@ -429,6 +432,7 @@ function describe(term::PrescribedFokkerPlanckTerm, context::DescriptionContext)
     record = _term_record(term)
     record["unknown"] = String(term.inner.unknown)
     record["jacobian"] = String(term.inner.jacobian)
+    term.inner.electric_field === nothing || (record["electric_field"] = String(term.inner.electric_field))
     # the coefficients follow the plasma in time, so the plasma is their record: the
     # function by its name here, its values in a table of the context
     record["operator"] = describe(term.inner.operator, context; coefficients=false)
@@ -448,22 +452,62 @@ function describe(term::KnockOnTerm, context::DescriptionContext)
     return record
 end
 
+function describe(term::PrescribedValueTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["values"] = term.values isa Function ? describe_prescribed_levels(term.values, context) :
+                       _plain(term.values)
+    return record
+end
+
 function describe(term::LinearTerm, context::DescriptionContext)
     record = _term_record(term)
     record["unknown"] = String(term.unknown)
-    record["coefficient"] = term.coefficient
+    record["coefficient"] = _plain(term.coefficient)
     return record
 end
+
+"""
+    describe(region::MomentumRegion, context)
+
+Record of a momentum region: the side, the envelope and the limit. A limit that follows
+the temperature is recorded with its factor and the temperatures at the time points of
+`context`, another function of time with its values at the time points.
+"""
+function describe(region::MomentumRegion, context::DescriptionContext=DescriptionContext())
+    record = SettingsRecord("type" => "MomentumRegion", "side" => String(region.side),
+                            "envelope" => String(region.envelope))
+    region.envelope === :smooth && (record["smooth_width"] = region.smooth_width)
+    record["limit"] = _describe_limit(region.limit, context)
+    return record
+end
+
+_describe_limit(limit::Union{Real,AbstractVector{<:Real}}, context) = _plain(limit)
+_describe_limit(limit, context) = describe_prescribed_levels(limit, context)
+function _describe_limit(limit::ThermalMomentum, context)
+    record = SettingsRecord("type" => "ThermalMomentum", "factor" => limit.factor)
+    record["temperature"] = limit.temperature isa AbstractVector ? _plain(limit.temperature) :
+                            describe_prescribed_levels(t -> _temperatures(limit.temperature, t), context)
+    limit.temperature isa AbstractVector || (record["temperature"]["source"] = _callable_name(limit.temperature))
+    return record
+end
+
+# the region of a moment term in its record
+function _describe_region!(record, envelopes, context)
+    envelopes === nothing || (record["region"] = describe(envelopes.region, context))
+    return record
+end
+
+settings_fields(::Type{<:DensityMomentTerm}) = (described=(:kinetic, :coefficient, :envelopes), derived=())
 
 function describe(term::DensityMomentTerm, context::DescriptionContext)
     record = _term_record(term)
     record["kinetic"] = String(term.kinetic)
     record["coefficient"] = term.coefficient
-    return record
+    return _describe_region!(record, term.envelopes, context)
 end
 
 settings_fields(::Type{<:CurrentMomentTerm}) =
-    (described=(:kinetic, :grid, :coefficient, :pitch_rule), derived=(:pitch_weights,))
+    (described=(:kinetic, :grid, :coefficient, :pitch_rule, :envelopes), derived=(:pitch_weights,))
 
 function describe(term::CurrentMomentTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -471,6 +515,45 @@ function describe(term::CurrentMomentTerm, context::DescriptionContext)
     record["grid"] = grid_name!(context, term.grid)
     record["coefficient"] = term.coefficient
     record["pitch_rule"] = String(term.pitch_rule)
+    return _describe_region!(record, term.envelopes, context)
+end
+
+settings_fields(::Type{<:ParticleSourceTerm}) =
+    (described=(:source, :grid, :temperature, :shape_kind), derived=(:shape, :time))
+
+function describe(term::ParticleSourceTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["source"] = String(term.source)
+    record["grid"] = grid_name!(context, term.grid)
+    record["shape"] = String(term.shape_kind)
+    record["temperature"] = term.temperature isa AbstractVector ? _plain(term.temperature) :
+                            describe_prescribed_levels(t -> _temperatures(term.temperature, t), context)
+    term.temperature isa AbstractVector || (record["temperature"]["source"] = _callable_name(term.temperature))
+    return record
+end
+
+function describe(term::MomentumBoundaryFluxTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["kinetic"] = String(term.kinetic)
+    record["weight"] = String(term.weight)
+    record["coefficient"] = term.coefficient
+    operator = _operator_of(term.source)
+    record["operator"] = describe(operator, context; coefficients=false)
+    return record
+end
+
+function describe(term::PoloidalFluxDiffusionTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["poloidal_flux"] = String(term.poloidal_flux)
+    record["edge_poloidal_flux"] = String(term.edge_poloidal_flux)
+    record["coefficient"] = term.coefficient
+    return record
+end
+
+function describe(term::CrossSectionIntegralTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["unknown"] = String(term.unknown)
+    record["coefficient"] = term.coefficient
     return record
 end
 
@@ -561,7 +644,7 @@ settings_fields(::Type{<:EquationSystem}) =
     (described=(:layout, :equations, :time_scale, :newton_tolerances, :time_step_tolerances),
      derived=(:sparse_terms, :matrix_free_terms, :explicit_terms, :correction_terms, :direct_terms,
               :automatic_jacobian, :automatic_positions, :stored_jacobian_exact,
-              :linear, :mass, :pattern, :sparse_rhs!, :preparation, :backend, :prototype, :time, :buffer,
+              :linear, :mass, :mass_columns, :row_scales, :pattern, :sparse_rhs!, :preparation, :backend, :prototype, :time, :buffer,
               :product))
 
 describe(tolerance::Tolerance) =
@@ -578,9 +661,14 @@ function describe(system::EquationSystem, context::DescriptionContext=Descriptio
     equations = SettingsRecord()
     for equation in system.equations
         terms = SettingsRecord("term_$k" => describe(term, context) for (k, term) in enumerate(equation.terms))
-        equations[String(equation.unknown)] =
-            SettingsRecord("kind" => equation.kind isa TimeDerivative ? "time_derivative" : "algebraic",
-                           "term_count" => length(equation.terms), "terms" => terms)
+        record = SettingsRecord("kind" => equation.kind isa TimeDerivative ? "time_derivative" :
+                                          equation.kind isa Constraint ? "constraint" : "algebraic",
+                                "term_count" => length(equation.terms), "terms" => terms)
+        # the unknown whose time derivative the row holds, when it is another one
+        equation.kind isa TimeDerivative && equation.kind.of !== nothing &&
+            (record["time_derivative_of"] = String(equation.kind.of))
+        equation.scale === nothing || (record["scale"] = equation.scale)
+        equations[String(equation.unknown)] = record
     end
     tolerances(kind) = SettingsRecord(String(u.name) => describe(tolerance(system, u.name; kind))
                                       for u in system.layout.unknowns)

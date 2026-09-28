@@ -66,6 +66,19 @@ end
 radial_cell_count(plasma::PlasmaState) = length(plasma.cold_electron_temperature)
 
 """
+    with_electric_field(plasma, electric_field)
+
+The plasma state with another electric field (one value per radius), e.g. the field of
+the state of a run in place of a prescribed one.
+"""
+function with_electric_field(plasma::PlasmaState, electric_field::AbstractVector)
+    length(electric_field) == radial_cell_count(plasma) ||
+        throw(DimensionMismatch("the electric field needs one value per radius"))
+    return PlasmaState(; plasma.cold_electron_temperature, plasma.cold_electron_density, plasma.ions,
+                       electric_field, plasma.magnetic_field)
+end
+
+"""
     free_electron_density(ions, ir)
 
 `Σ Z0 n_{Z0}` over all ion charge states (DREAM `GetFreeElectronDensityFromQuasiNeutrality`).

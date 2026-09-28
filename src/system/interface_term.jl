@@ -22,7 +22,9 @@ the interface.
 `Aᵖ` and `Dᵖᵖ` of that operator at its last p face, as DREAM's
 `PXiExternalKineticKinetic` does, and the two operators add no flux of their own through
 the face: the lower one has `p_upper_boundary = :interface`, `upper_operator` has
-`p_lower_boundary = :interface`. The cross term `Dᵖᵠ` at the face is not included (none in
+`p_lower_boundary = :interface`. When `lower_term` takes the electric field as an unknown,
+the advection at the face holds the field of the state, and the term
+depends on the field as well. The cross term `Dᵖᵠ` at the face is not included (none in
 DREAM either, and zero for the collision operator).
 
 `pitch_mapping`:
@@ -68,6 +70,12 @@ end
 _operator_of(op::AdvectionDiffusion) = op
 _operator_of(term::FokkerPlanckTerm) = term.operator
 _operator_of(term::PrescribedFokkerPlanckTerm) = term.inner.operator
+
+# the unknown of the electric field of the term that holds the coefficients, if it has one
+_electric_field_of(::AdvectionDiffusion) = nothing
+_electric_field_of(term::FokkerPlanckTerm) = term.electric_field
+_electric_field_of(term::PrescribedFokkerPlanckTerm) = term.inner.electric_field
+_electric_field_of(term::MomentumInterfaceTerm) = _electric_field_of(term.lower_term)
 
 # the operator with its coefficients at the time t
 _operator_at(source, t) = _operator_of(source)
@@ -146,8 +154,11 @@ function _dream_pitch_interpolation(lower_centers::Vector{T}, upper_centers::Vec
     return cells, weights
 end
 
-dependencies(term::MomentumInterfaceTerm) = [term.lower, term.upper]
-is_linear(::MomentumInterfaceTerm) = true
+function dependencies(term::MomentumInterfaceTerm)
+    field = _electric_field_of(term)
+    return field === nothing ? [term.lower, term.upper] : [term.lower, term.upper, field]
+end
+is_linear(term::MomentumInterfaceTerm) = _electric_field_of(term) === nothing
 
 function validate(term::MomentumInterfaceTerm, layout, row)
     lower, upper = unknown_id(layout, term.lower), unknown_id(layout, term.upper)
@@ -171,9 +182,9 @@ end
 
 # Γᵖ through the face between lower pitch cell j and upper pitch cell J (not multiplied by 𝒱')
 Base.@propagate_inbounds function _interface_gamma(term::MomentumInterfaceTerm, op, f_lower, f_upper, j, J, ir,
-                                                   distance, weight_left)
+                                                   distance, weight_left, field=nothing)
     np = size(f_lower, 1)
-    A = op.advection_p[np+1, j, ir]
+    A = _advection_p(op, field, np + 1, j, ir)
     D = op.diffusion_p_p[np+1, j, ir]
     f_left = f_lower[np, j]
     if term.pitch_mapping === :dream
@@ -185,25 +196,25 @@ end
 
 # 𝒱'Γᵖ Δξ through the part of the face in lower pitch cell j, divided by Δξ_j
 Base.@propagate_inbounds function _lower_cell_flux(term::MomentumInterfaceTerm, op, f_lower, f_upper, j, ir,
-                                                   distance, weight_left)
+                                                   distance, weight_left, field=nothing)
     np = size(f_lower, 1)
     V = op.jacobian_p_faces[np+1, j, ir]
     overlap = term.overlaps[ir]
     if term.pitch_mapping === :dream
-        return V * _interface_gamma(term, op, f_lower, f_upper, j, 0, ir, distance, weight_left)
+        return V * _interface_gamma(term, op, f_lower, f_upper, j, 0, ir, distance, weight_left, field)
     end
     flux = zero(promote_type(eltype(f_lower), eltype(f_upper)))
     for s in overlap.left_ranges[j]
         flux += overlap.left_fractions[s] *
                 (V * _interface_gamma(term, op, f_lower, f_upper, j, overlap.right_cells[s], ir, distance,
-                                      weight_left))
+                                      weight_left, field))
     end
     return flux
 end
 
 # the same divided by Δξ_J of upper pitch cell J
 Base.@propagate_inbounds function _upper_cell_flux(term::MomentumInterfaceTerm, op, f_lower, f_upper, J, ir,
-                                                   distance, weight_left)
+                                                   distance, weight_left, field=nothing)
     np = size(f_lower, 1)
     overlap = term.overlaps[ir]
     flux = zero(promote_type(eltype(f_lower), eltype(f_upper)))
@@ -211,7 +222,7 @@ Base.@propagate_inbounds function _upper_cell_flux(term::MomentumInterfaceTerm, 
         j = overlap.left_cells[s]
         V = op.jacobian_p_faces[np+1, j, ir]
         flux += overlap.right_fractions[s] *
-                (V * _interface_gamma(term, op, f_lower, f_upper, j, J, ir, distance, weight_left))
+                (V * _interface_gamma(term, op, f_lower, f_upper, j, J, ir, distance, weight_left, field))
     end
     return flux
 end
@@ -226,6 +237,7 @@ end
 function rhs!(out, term::MomentumInterfaceTerm, u, layout, row, t)
     op = _operator_at(term.lower_term, t)
     lower, upper = unknown_id(layout, term.lower), unknown_id(layout, term.upper)
+    field = _field_values(_electric_field_of(term), u, layout)
     for ir in 1:radial_cell_count(layout)
         f_lower, f_upper = kinetic_view(u, layout, lower, ir), kinetic_view(u, layout, upper, ir)
         target = kinetic_view(out, layout, row, ir)
@@ -236,7 +248,7 @@ function rhs!(out, term::MomentumInterfaceTerm, u, layout, row, t)
             np = momentum_cell_count(m)
             @inbounds for j in 1:pitch_cell_count(m)
                 jacobian[np, j] == 0 && continue
-                flux = _lower_cell_flux(term, op, f_lower, f_upper, j, ir, distance, weight_left)
+                flux = _lower_cell_flux(term, op, f_lower, f_upper, j, ir, distance, weight_left, field)
                 target[np, j] -= flux / (jacobian[np, j] * m.p_widths[np])
             end
         else
@@ -244,7 +256,7 @@ function rhs!(out, term::MomentumInterfaceTerm, u, layout, row, t)
             jacobian = phase_space_jacobian(term.upper_grid, ir)
             @inbounds for J in 1:pitch_cell_count(m)
                 jacobian[1, J] == 0 && continue
-                flux = _upper_cell_flux(term, op, f_lower, f_upper, J, ir, distance, weight_left)
+                flux = _upper_cell_flux(term, op, f_lower, f_upper, J, ir, distance, weight_left, field)
                 target[1, J] += flux / (jacobian[1, J] * m.p_widths[1])
             end
         end
@@ -265,9 +277,17 @@ end
 
 function sparsity!(entries, term::MomentumInterfaceTerm, layout, row)
     lower, upper = unknown_id(layout, term.lower), unknown_id(layout, term.upper)
+    field = _electric_field_of(term)
     for ir in 1:radial_cell_count(layout)
         np = layout.shapes[lower, ir][1]
         overlap = term.overlaps[ir]
+        if field !== nothing
+            # the field of the radius acts on the cells at the face
+            column = first(unknown_range(layout, unknown_id(layout, field), ir))
+            cells = row == lower ? (_kinetic_index(layout, lower, ir, np, j) for j in 1:layout.shapes[lower, ir][2]) :
+                    (_kinetic_index(layout, upper, ir, 1, J) for J in 1:layout.shapes[upper, ir][2])
+            append!(entries, ((r, column) for r in cells))
+        end
         if row == lower
             for j in 1:layout.shapes[lower, ir][2]
                 r = _kinetic_index(layout, lower, ir, np, j)
@@ -310,11 +330,12 @@ function interface_flux(term::MomentumInterfaceTerm, u::AbstractVector, layout::
     op = _operator_at(term.lower_term, t)
     lower, upper = unknown_id(layout, term.lower), unknown_id(layout, term.upper)
     f_lower, f_upper = kinetic_view(u, layout, lower, ir), kinetic_view(u, layout, upper, ir)
+    field = _field_values(_electric_field_of(term), u, layout)
     distance, weight_left = _interface_distance(term, ir)
     m = momentum_grid(term.lower_grid, ir)
     total = zero(eltype(u))
     for j in 1:pitch_cell_count(m)
-        total += m.xi_widths[j] * _lower_cell_flux(term, op, f_lower, f_upper, j, ir, distance, weight_left)
+        total += m.xi_widths[j] * _lower_cell_flux(term, op, f_lower, f_upper, j, ir, distance, weight_left, field)
     end
     return total / term.lower_grid.radial_grid.spatial_jacobian[ir]
 end

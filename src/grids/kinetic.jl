@@ -263,19 +263,22 @@ a distribution stored as a 3D array.
 Base.size(grid::KineticGrid) = (momentum_cell_count(grid), pitch_cell_count(grid), radial_cell_count(grid))
 
 """
-    density(grid, f)
+    density(grid, f; region=nothing, t=0)
 
 Density moment `n(r) = (1/V') ∫ 𝒱' f dp dξ` at each radius, for `f` stored as a 3D array
-(the same cell counts at all radii).
+(the same cell counts at all radii). With `region`, a [`MomentumRegion`](@ref), the moment
+covers that part of the momentum grid, with the limit of the region at the time `t`.
 """
-function density(grid::KineticGrid{T}, f::AbstractArray{S,3}) where {T,S}
+function density(grid::KineticGrid{T}, f::AbstractArray{S,3}; region=nothing, t=0.0) where {T,S}
     size(f) == size(grid) || throw(DimensionMismatch("f must have the grid size"))
     n = zeros(promote_type(T, S), radial_cell_count(grid))
+    envelopes = _momentum_envelopes(region, grid, t)
     for ir in 1:radial_cell_count(grid)
         m = momentum_grid(grid, ir)
         V = phase_space_jacobian(grid, ir)
+        envelope = envelopes === nothing ? nothing : envelopes[ir]
         for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
-            n[ir] += V[i, j] * m.p_widths[i] * m.xi_widths[j] * f[i, j, ir]
+            n[ir] += _envelope_value(envelope, i) * V[i, j] * m.p_widths[i] * m.xi_widths[j] * f[i, j, ir]
         end
     end
     n ./= grid.radial_grid.spatial_jacobian
@@ -328,7 +331,7 @@ function pitch_moment_weights(m::MomentumGrid{T}; pitch_rule::Symbol=:linear) wh
 end
 
 """
-    current_density(grid, f; pitch_rule=:linear)
+    current_density(grid, f; pitch_rule=:linear, region=nothing, t=0)
 
 Current density `j(r) = e c (1/V') Σ_ij 𝒱'_ij Δp_i (p_i/γ_i) w_j f_ij` in A/m² carried by
 the distribution `f` (3D array, the same cell counts at all radii), with the pitch weights `w_j` of
@@ -337,28 +340,35 @@ DREAM: positive when the electrons move towards ξ = 1, the direction in which
 [`add_electric_field!`](@ref) accelerates them for `E > 0`, so `j` and `E` share their
 sign and the electron charge is folded into that convention. `𝒱'` and `p/γ` are taken at
 the cell centre; a pitch-dependent Jacobian (toroidal geometry) would enter the
-pitch weights.
+pitch weights. With `region`, a [`MomentumRegion`](@ref), the moment covers that part of
+the momentum grid, with the limit of the region at the time `t` (DREAM's `j_hot` of the
+fully kinetic mode is the current above 7 thermal momenta).
 """
-function current_density(grid::KineticGrid{T}, f::AbstractArray{S,3}; pitch_rule::Symbol=:linear) where {T,S}
+function current_density(grid::KineticGrid{T}, f::AbstractArray{S,3}; pitch_rule::Symbol=:linear,
+                         region=nothing, t=0.0) where {T,S}
     size(f) == size(grid) || throw(DimensionMismatch("f must have the grid size"))
     j = zeros(promote_type(T, S), radial_cell_count(grid))
+    envelopes = _momentum_envelopes(region, grid, t)
     for ir in 1:radial_cell_count(grid)
         m = momentum_grid(grid, ir)
         w = pitch_moment_weights(m; pitch_rule)
-        j[ir] = _current_moment(m, w, phase_space_jacobian(grid, ir), view(f, :, :, ir)) /
+        envelope = envelopes === nothing ? nothing : envelopes[ir]
+        j[ir] = _current_moment(m, w, phase_space_jacobian(grid, ir), view(f, :, :, ir), envelope) /
                 grid.radial_grid.spatial_jacobian[ir]
     end
     return j
 end
 
-# e c Σ_ij 𝒱'_ij Δp_i (p_i/γ_i) w_j f_ij on one momentum grid (without the 1/V')
-function _current_moment(m::MomentumGrid, w::AbstractVector, jacobian::AbstractMatrix, f::AbstractMatrix)
+# e c Σ_ij 𝒱'_ij Δp_i (p_i/γ_i) w_j f_ij on one momentum grid (without the 1/V'), with the
+# envelope of a momentum region per momentum cell
+function _current_moment(m::MomentumGrid, w::AbstractVector, jacobian::AbstractMatrix, f::AbstractMatrix,
+                         envelope=nothing)
     j = zero(promote_type(eltype(w), eltype(f)))
     @inbounds for k in 1:pitch_cell_count(m)
         column = zero(j)
         for i in 1:momentum_cell_count(m)
             p = m.p_centers[i]
-            column += jacobian[i, k] * m.p_widths[i] * p / sqrt(1 + p^2) * f[i, k]
+            column += _envelope_value(envelope, i) * jacobian[i, k] * m.p_widths[i] * p / sqrt(1 + p^2) * f[i, k]
         end
         j += w[k] * column
     end
