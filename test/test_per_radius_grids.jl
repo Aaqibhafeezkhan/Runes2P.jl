@@ -1,5 +1,5 @@
 # Kinetic grids with a momentum grid per radius: shared detection, accessors,
-# operators that need a shared grid refusing others, and the knock-on operator on
+# operators that need the same cell counts refusing others, and the knock-on operator on
 # different momentum grids at different radii.
 @testset "momentum grid per radius" begin
     rad = RadialGrid(uniform_r_faces(3, 0.6))
@@ -50,16 +50,17 @@
         @test_throws ArgumentError phase_space_jacobian_r_faces(g)
     end
 
-    @testset "operators that need a shared grid refuse others" begin
-        # radial fluxes between different momentum grids need a remap between them
+    @testset "operators that need the same cell counts refuse others" begin
+        # the pitch faces may differ between radii (test_per_radius_pitch_grids.jl), the cell
+        # counts and the p faces may not
         @test_throws ArgumentError AdvectionDiffusion(g)
         plasma = PlasmaState(cold_electron_temperature=fill(100.0, 3),
                              ions=[IonSpecies("D", 1, 1, fill(1e20, 3))],
                              electric_field=fill(1.0, 3), magnetic_field=fill(5.0, 3))
         @test_throws ArgumentError fokker_planck_operator(g, plasma)
         # the message names the reason, not the accessor that failed
-        @test_throws "one momentum grid for all radii" AdvectionDiffusion(g)
-        @test_throws "one momentum grid for all radii" fokker_planck_operator(g, plasma)
+        @test_throws "the same cell counts and the same p faces" AdvectionDiffusion(g)
+        @test_throws "the same cell counts and the same p faces" fokker_planck_operator(g, plasma)
     end
 
     @testset "knock-on operator on different grids" begin

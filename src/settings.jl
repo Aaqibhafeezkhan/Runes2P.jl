@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.7"
+const OUTPUT_FORMAT_VERSION = v"0.8"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -152,7 +152,8 @@ settings_fields(::Type{<:RadialGrid}) =
     (described=(:r_faces,), derived=(:r_centers, :r_widths, :spatial_jacobian, :spatial_jacobian_faces))
 settings_fields(::Type{<:KineticGrid}) =
     (described=(:radial_grid, :momentum_grids, :shared, :jacobian_centers),
-     derived=(:jacobian_p_faces, :jacobian_xi_faces, :jacobian_r_faces, :jacobian_over_p2_at_zero))
+     derived=(:jacobian_p_faces, :jacobian_xi_faces, :jacobian_r_faces, :jacobian_over_p2_at_zero,
+              :same_p_faces, :same_cell_counts, :radial_overlaps))
 
 """
     describe(object)
@@ -330,8 +331,8 @@ const OPERATOR_OPTION_FIELDS = (:p_scheme, :xi_scheme, :r_scheme, :p_lower_bound
 settings_fields(::Type{<:AdvectionDiffusion}) =
     (described=(:grid, COEFFICIENT_FIELDS..., :p_flux_at_lower_boundary, OPERATOR_OPTION_FIELDS...,
                 :coefficient_source),
-     derived=(:momentum, :jacobian_centers, :jacobian_p_faces, :jacobian_xi_faces, :jacobian_r_faces,
-              :jacobian_over_p2_at_zero))
+     derived=(:momentum_grids, :radial_overlaps, :jacobian_centers, :jacobian_p_faces, :jacobian_xi_faces,
+              :jacobian_r_faces, :jacobian_over_p2_at_zero))
 
 """
     describe(op::AdvectionDiffusion, context=DescriptionContext(); coefficients=true)
@@ -485,6 +486,24 @@ function describe(term::MaxwellianSourceTerm, context::DescriptionContext)
     record["rate"] = term.rate
     record["temperature"] = term.temperature
     record["bulk_momentum"] = term.bulk_momentum
+    return record
+end
+
+settings_fields(::Type{<:MomentumInterfaceTerm}) =
+    (described=(:lower, :upper, :lower_term, :lower_grid, :upper_grid, :pitch_mapping, :scheme),
+     derived=(:overlaps, :interpolation_cells, :interpolation_weights))
+
+function describe(term::MomentumInterfaceTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["lower"] = String(term.lower)
+    record["upper"] = String(term.upper)
+    # the coefficients are those of the Fokker-Planck term of the lower unknown, which
+    # holds their record
+    record["coefficients"] = "last p face of the Fokker-Planck operator of $(term.lower)"
+    record["lower_grid"] = grid_name!(context, term.lower_grid)
+    record["upper_grid"] = grid_name!(context, term.upper_grid)
+    record["pitch_mapping"] = String(term.pitch_mapping)
+    record["scheme"] = String(term.scheme)
     return record
 end
 

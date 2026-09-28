@@ -289,7 +289,7 @@ end
         reference = central_difference_jacobian(system2, u2, 0.0)
         @test maximum(abs, Matrix(jacobian_operator(J2, system2, u2, 0.0)) - reference) <
               1e-8 * maximum(abs, reference)
-        # the Fokker-Planck term needs a shared grid
+        # the Fokker-Planck term needs the same cell counts at all radii
         @test_throws ArgumentError AdvectionDiffusion(ragged)
     end
 end

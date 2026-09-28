@@ -63,7 +63,7 @@ end
 """
     KnockOnCutoffUpdate(operator, plasma_at; name="knockon_cutoff", placement=:energy_midpoint,
                         no_ceiling_factor=10, per_radius=true, thermal_factor=4,
-                        critical_momentum_at=total_critical_momentum)
+                        critical_momentum_at=total_critical_momentum, linked=[])
 
 Knock-on cutoff that follows the plasma `plasma_at(t)`:
 at the start of every interval the cutoff of each radius of `operator` is set to a face
@@ -90,6 +90,12 @@ of the knock-on momentum grid. The cutoff per radius is the state of the update.
 The cutoff of the first interval replaces the one the operator was built with, unless
 that one is a face the rule keeps. Without the update the cutoff is fixed, as in DREAM
 (`pCutAvalanche`), where a run can change it only between restarts.
+
+`linked` lists further knock-on operators that take the cutoff of `operator` at every
+change. With a hot-tail and a runaway grid `operator` is the pairing
+hot-tail from hot-tail, whose knock-on grid holds the cutoff, and the pairings hot-tail
+from runaway and runaway from runaway are linked, so that every knock-on above the one
+cutoff is counted once, on one of the two grids.
 """
 struct KnockOnCutoffUpdate{T,F,C} <: IntervalUpdate
     name::String
@@ -100,6 +106,7 @@ struct KnockOnCutoffUpdate{T,F,C} <: IntervalUpdate
     no_ceiling_factor::Float64
     per_radius::Bool
     thermal_factor::Float64
+    linked::Vector{KnockOnOperator{T}}
     inside_window::Vector{Bool}
     policy::Vector{Symbol}
     rebuilds::Base.RefValue{Int}
@@ -108,14 +115,22 @@ end
 function KnockOnCutoffUpdate(operator::KnockOnOperator, plasma_at; name::AbstractString="knockon_cutoff",
                              placement::Symbol=:energy_midpoint, no_ceiling_factor::Real=10,
                              per_radius::Bool=true, thermal_factor::Real=4,
-                             critical_momentum_at=total_critical_momentum)
+                             critical_momentum_at=total_critical_momentum, linked=KnockOnOperator[])
     placement in (:energy_midpoint, :window) ||
         throw(ArgumentError("placement must be :energy_midpoint or :window, not $placement"))
     thermal_factor > 0 || throw(ArgumentError("thermal_factor must be positive"))
     no_ceiling_factor > 1 || throw(ArgumentError("no_ceiling_factor must be above 1"))
     nr = radial_cell_count(operator.knockon)
+    linked_operators = typeof(operator)[other for other in linked]
+    for other in linked_operators
+        radial_cell_count(other.knockon) == nr ||
+            throw(DimensionMismatch("a linked knock-on operator has $(radial_cell_count(other.knockon)) " *
+                                    "radii, the operator of the update $nr"))
+        other === operator && throw(ArgumentError("the operator of the update is linked to itself"))
+    end
     return KnockOnCutoffUpdate(String(name), operator, plasma_at, critical_momentum_at, placement,
-                               Float64(no_ceiling_factor), per_radius, Float64(thermal_factor), fill(true, nr),
+                               Float64(no_ceiling_factor), per_radius, Float64(thermal_factor),
+                               linked_operators, fill(true, nr),
                                fill(placement === :window ? :window : :no_ceiling, nr), Ref(0))
 end
 
@@ -151,9 +166,21 @@ function apply_update!(update::KnockOnCutoffUpdate, u, layout, t)
         cutoffs[ir] = choice.p_cutoff
         update.inside_window[ir] = choice.inside_window
     end
-    cutoffs == operator.p_cutoff && return false
-    update.rebuilds[] += set_cutoff!(operator, cutoffs)
-    return true
+    changed = cutoffs != operator.p_cutoff
+    changed && (update.rebuilds[] += set_cutoff!(operator, cutoffs))
+    changed |= _set_linked_cutoffs!(update, cutoffs)
+    return changed
+end
+
+# the cutoff of the update's operator on every linked operator; whether any changed
+function _set_linked_cutoffs!(update::KnockOnCutoffUpdate, cutoffs)
+    changed = false
+    for other in update.linked
+        cutoffs == other.p_cutoff && continue
+        update.rebuilds[] += set_cutoff!(other, cutoffs)
+        changed = true
+    end
+    return changed
 end
 
 update_state(update::KnockOnCutoffUpdate) = collect(Float64, update.operator.p_cutoff)
@@ -163,24 +190,29 @@ function restore_update!(update::KnockOnCutoffUpdate, state::AbstractVector)
         throw(DimensionMismatch("the stored cutoff of $(update.name) has $(length(state)) radii, " *
                                 "the operator $(length(update.operator.p_cutoff))"))
     update.rebuilds[] += set_cutoff!(update.operator, state)
+    _set_linked_cutoffs!(update, update.operator.p_cutoff)
     return update
 end
 
 settings_fields(::Type{<:KnockOnCutoffUpdate}) =
     (described=(:name, :operator, :plasma_at, :critical_momentum_at, :placement, :no_ceiling_factor,
-                :per_radius, :thermal_factor),
+                :per_radius, :thermal_factor, :linked),
      derived=(:inside_window, :policy, :rebuilds))
 
 function describe(update::KnockOnCutoffUpdate, context::DescriptionContext)
-    return SettingsRecord("type" => "KnockOnCutoffUpdate", "name" => update.name,
-                          "operator" => describe(update.operator, context),
-                          "placement" => String(update.placement),
-                          "no_ceiling_factor" => update.no_ceiling_factor,
-                          "per_radius" => update.per_radius,
-                          "thermal_factor" => update.thermal_factor,
-                          "critical_momentum" => _callable_name(update.critical_momentum_at),
-                          "plasma" => _callable_name(update.plasma_at),
-                          "plasma_table" => prescribed_table!(context, update.plasma_at))
+    record = SettingsRecord("type" => "KnockOnCutoffUpdate", "name" => update.name,
+                            "operator" => describe(update.operator, context),
+                            "placement" => String(update.placement),
+                            "no_ceiling_factor" => update.no_ceiling_factor,
+                            "per_radius" => update.per_radius,
+                            "thermal_factor" => update.thermal_factor,
+                            "critical_momentum" => _callable_name(update.critical_momentum_at),
+                            "plasma" => _callable_name(update.plasma_at),
+                            "plasma_table" => prescribed_table!(context, update.plasma_at))
+    isempty(update.linked) ||
+        (record["linked_operators"] = SettingsRecord("operator_$k" => describe(other, context)
+                                                     for (k, other) in enumerate(update.linked)))
+    return record
 end
 
 # an update without a record of its own

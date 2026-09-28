@@ -10,9 +10,9 @@ Acceleration by the parallel electric field: `Aᵖ = (eE/mc) ξ`,
 """
 function add_electric_field!(op::AdvectionDiffusion, plasma::PlasmaState)
     g = op.grid
-    m = momentum_grid(g)
     np, nxi, nr = size(g)
     for ir in 1:nr
+        m = momentum_grid(g, ir)
         a = Constants.ELEMENTARY_CHARGE * plasma.electric_field[ir] /
             (Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT)
         for j in 1:nxi, k in 1:np+1
@@ -33,9 +33,9 @@ Collisional friction `Aᵖ = -p ν_s(p)` on the p faces, and the particle flux t
 """
 function add_slowing_down!(op::AdvectionDiffusion, collisions::CollisionModel)
     g = op.grid
-    m = momentum_grid(g)
     np, nxi, nr = size(g)
     for ir in 1:nr
+        m = momentum_grid(g, ir)
         for k in 1:np+1
             p = m.p_faces[k]
             A = -p * slowing_down_frequency(collisions, ir, p)
@@ -57,10 +57,10 @@ Pitch-angle scattering `Dᵠᵠ = ν_D(p)(1 - ξ²)/2` on the ξ faces.
 """
 function add_pitch_scattering!(op::AdvectionDiffusion, collisions::CollisionModel)
     g = op.grid
-    m = momentum_grid(g)
     np, nxi, nr = size(g)
     nxi == 1 && return op
     for ir in 1:nr, i in 1:np
+        m = momentum_grid(g, ir)
         nu = deflection_frequency(collisions, ir, m.p_centers[i])
         for k in 1:nxi+1
             op.diffusion_xi_xi[i, k, ir] += nu * (1 - m.xi_faces[k]^2) / 2
@@ -77,9 +77,9 @@ Energy diffusion `Dᵖᵖ = ν_∥(p)` on the p faces (zero unless `mode = :full
 function add_energy_diffusion!(op::AdvectionDiffusion, collisions::CollisionModel)
     collisions.settings.mode === :full || return op
     g = op.grid
-    m = momentum_grid(g)
     np, nxi, nr = size(g)
     for ir in 1:nr, k in 1:np+1
+        m = momentum_grid(g, ir)
         D = parallel_diffusion_frequency(collisions, ir, m.p_faces[k])
         for j in 1:nxi
             op.diffusion_p_p[k, j, ir] += D
@@ -96,11 +96,11 @@ Synchrotron radiation reaction in a homogeneous field `B`:
 """
 function add_synchrotron!(op::AdvectionDiffusion, plasma::PlasmaState)
     g = op.grid
-    m = momentum_grid(g)
     np, nxi, nr = size(g)
     C = Constants.ELEMENTARY_CHARGE^4 /
         (6pi * Constants.VACUUM_PERMITTIVITY * Constants.ELECTRON_MASS^3 * Constants.SPEED_OF_LIGHT^3)
     for ir in 1:nr
+        m = momentum_grid(g, ir)
         prefactor = C * plasma.magnetic_field[ir]^2
         for j in 1:nxi, k in 1:np+1
             p = m.p_faces[k]
@@ -117,7 +117,8 @@ end
 """
     fokker_planck_operator(grid, plasma, settings; synchrotron=false,
                            scheme=:exponential_fitting, p_scheme=scheme, xi_scheme=scheme,
-                           p_upper_boundary=:f_zero, r_boundary=:zero_flux)
+                           p_lower_boundary=:zero_flux, p_upper_boundary=:f_zero,
+                           r_boundary=:zero_flux)
 
 Kinetic operator for the hot electrons: electric field, slowing down, pitch-angle
 scattering, energy diffusion (`:full` mode) and optionally synchrotron losses, with
@@ -138,18 +139,24 @@ compatibility and departures). `:van_albada` (Runes2P) and DREAM's limiters stay
 DREAM comparisons.
 `p_scheme` and `xi_scheme` set the directions separately (DREAM's `adv_interp/p1` and
 `p2`), e.g. `p_scheme = :tcdf` for DREAM's TCDF limiter.
+
+A hot-tail grid with a runaway grid above it takes `p_upper_boundary = :interface`, and
+the operator of the runaway grid `p_lower_boundary = :interface` (a grid with
+`p_min > 0`, [`runaway_grid`](@ref)). The flux between the two is the
+[`MomentumInterfaceTerm`](@ref) of the equation system.
 """
 function fokker_planck_operator(grid::KineticGrid, plasma::PlasmaState,
                                 settings::CollisionSettings=CollisionSettings();
                                 synchrotron::Bool=false, scheme::Symbol=:exponential_fitting,
                                 p_scheme::Symbol=scheme, xi_scheme::Symbol=scheme,
+                                p_lower_boundary::Symbol=:zero_flux,
                                 p_upper_boundary::Symbol=:f_zero, r_boundary::Symbol=:zero_flux)
     # DREAM replaces the electric-field advection by a diffusion term in the reduced
-    # (pitch-averaged) equation; that form is not implemented. A grid without a shared
-    # momentum grid is refused by AdvectionDiffusion below.
-    has_shared_momentum_grid(grid) && pitch_cell_count(grid) == 1 &&
+    # (pitch-averaged) equation; that form is not implemented. A grid with different cell
+    # counts or p faces at different radii is refused by AdvectionDiffusion below.
+    has_same_cell_counts(grid) && pitch_cell_count(grid) == 1 &&
         throw(ArgumentError("the reduced equation (one pitch cell) is not implemented"))
-    op = AdvectionDiffusion(grid; scheme, p_scheme, xi_scheme, p_upper_boundary, r_boundary)
+    op = AdvectionDiffusion(grid; scheme, p_scheme, xi_scheme, p_lower_boundary, p_upper_boundary, r_boundary)
     set_fokker_planck_coefficients!(op, plasma, settings; synchrotron)
     return op
 end

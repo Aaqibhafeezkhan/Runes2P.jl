@@ -27,8 +27,9 @@ end
 
 Sparsity pattern of the local transport operators: the 3×3 `(p, ξ)` neighbourhood
 (including the p-ξ cross terms), the cells up to `p_width` away in p and `xi_width` away
-in ξ along the axes (2 for the four-point schemes), and the two radial neighbours of each
-cell. For an operator, the widths follow its schemes; with `p_upper_boundary =
+in ξ along the axes (2 for the four-point schemes), and the radial neighbours of each
+cell (the cell of the same pitch at the two neighbouring radii, or with different pitch
+grids the cells that overlap it). For an operator, the widths follow its schemes; with `p_upper_boundary =
 :extrapolated_flux` or `:extrapolated_flux_consistent` the last momentum row is
 additionally coupled up to 3 cells away in p along `j` (the extrapolated flux uses the
 last two interior faces), and, for `:extrapolated_flux_consistent` only,
@@ -76,9 +77,8 @@ function stencil_pattern(grid::KineticGrid; p_width::Integer=1, xi_width::Intege
         for d in 2:xi_width, s in (-d, d)
             1 <= j + s <= nxi && (push!(rows, row); push!(columns, index[i, j+s, ir]))
         end
-        for dr in (-1, 1)
-            1 <= ir + dr <= nr || continue
-            push!(rows, row); push!(columns, index[i, j, ir+dr])
+        for dr in (-1, 1), neighbour in radial_neighbour_pitch_cells(grid, ir, j, dr)
+            push!(rows, row); push!(columns, index[i, neighbour, ir+dr])
         end
     end
     return sparse(rows, columns, trues(length(rows)), np * nxi * nr, np * nxi * nr)

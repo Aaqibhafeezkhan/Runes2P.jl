@@ -67,8 +67,8 @@ is_linear(::EquationTerm) = false
 """
     LayoutKineticArray
 
-3D array view `f[i, j, ir]` of a kinetic unknown with a shared momentum grid in a state
-vector, so that operators written for 3D arrays apply to the state directly.
+3D array view `f[i, j, ir]` of a kinetic unknown with the same cell counts at all radii in
+a state vector, so that operators written for 3D arrays apply to the state directly.
 """
 struct LayoutKineticArray{T,V<:AbstractVector{T},O<:AbstractVector{Int}} <: AbstractArray{T,3}
     state::V
@@ -87,12 +87,12 @@ Base.@propagate_inbounds Base.setindex!(a::LayoutKineticArray, x, i::Int, j::Int
     kinetic_array(u, layout, id)
 
 [`LayoutKineticArray`](@ref) of kinetic unknown `id` in state `u`; the unknown's grid must
-have a shared momentum grid.
+have the same cell counts at all radii.
 """
 function kinetic_array(u::AbstractVector, layout::UnknownLayout, id::Integer)
     grid = kinetic_grid(layout, id)
-    has_shared_momentum_grid(grid) ||
-        throw(ArgumentError("$(layout.unknowns[id].name) has different momentum grids at different radii"))
+    has_same_cell_counts(grid) ||
+        throw(ArgumentError("$(layout.unknowns[id].name) has different cell counts at different radii"))
     np, nxi = layout.shapes[id, 1]
     return LayoutKineticArray(u, layout.radius_offsets[id], np, nxi)
 end
@@ -133,8 +133,9 @@ struct JacobianCorrectionTag end
 
 Advection-diffusion (Fokker-Planck) operator applied to the kinetic unknown `unknown`,
 added to the equation of the row unknown (normally the same). Stored sparse, with the
-3×3 `(p, ξ)` stencil, the second neighbours of the four-point schemes and the two radial
-neighbours. Needs a shared momentum grid.
+3×3 `(p, ξ)` stencil, the second neighbours of the four-point schemes and the radial
+neighbours: the cell of the same pitch at each neighbouring radius, or with different
+pitch grids the cells that overlap it. Needs the same cell counts and p faces at all radii.
 
 `jacobian` selects what the stored Jacobian block holds for a flux-limiter scheme (DREAM's
 `ad_jac` setting of `AdvectionInterpolation`). The residual is always the operator's own, so
@@ -264,9 +265,11 @@ function sparsity!(entries, term::FokkerPlanckTerm, layout, row)
         for d in 2:xi_width, s in (-d, d)
             1 <= j + s <= nxi && push!(entries, (r, _kinetic_index(layout, id, ir, i, j + s)))
         end
-        for dr in (-1, 1)
-            1 <= ir + dr <= nr || continue
-            push!(entries, (r, _kinetic_index(layout, id, ir + dr, i, j)))
+        for neighbour in radial_neighbour_pitch_cells(op.grid, ir, j, -1)
+            push!(entries, (r, _kinetic_index(layout, id, ir - 1, i, neighbour)))
+        end
+        for neighbour in radial_neighbour_pitch_cells(op.grid, ir, j, 1)
+            push!(entries, (r, _kinetic_index(layout, id, ir + 1, i, neighbour)))
         end
         # the extrapolated p_max boundary flux couples the last row up to 3 cells in p
         # (:extrapolated_flux's second term has no p-ξ cross contribution,

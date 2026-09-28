@@ -12,6 +12,7 @@ include("physics/plasma.jl")
 include("physics/coulomb_logarithm.jl")
 include("physics/collision_frequencies.jl")
 include("grids/momentum.jl")
+include("grids/pitch_overlap.jl")
 include("grids/radial.jl")
 include("grids/kinetic.jl")
 include("operators/flux_limiters.jl")
@@ -26,6 +27,7 @@ include("physics/runaway_rates.jl")
 include("system/jacobian.jl")
 include("system/layout.jl")
 include("system/terms.jl")
+include("system/interface_term.jl")
 include("operators/field_particle.jl")
 include("system/equation_system.jl")
 include("solvers/linear_solver.jl")
@@ -39,6 +41,10 @@ include("solvers/time_stepping.jl")
 
 export MomentumGrid, uniform_p_faces, biuniform_p_faces, tanh_p_faces, uniform_xi_faces
 export biuniform_theta_xi_faces
+export PitchOverlap, overlap_cell_count, has_identical_grids, remap_to_right!, remap_to_left!
+export has_same_cell_counts, has_same_p_faces, radial_face_overlap, radial_face_pitch_cell_count
+export radial_neighbour_pitch_cells, runaway_grid
+export MomentumInterfaceTerm, interface_flux
 export RadialGrid, uniform_r_faces
 export KineticGrid, cylindrical_grid, density, current_density, pitch_moment_weights, total_particles, has_shared_momentum_grid, momentum_grid
 export phase_space_jacobian, phase_space_jacobian_p_faces, phase_space_jacobian_xi_faces
