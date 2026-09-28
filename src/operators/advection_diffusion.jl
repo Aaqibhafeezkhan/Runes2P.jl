@@ -66,7 +66,15 @@ Boundary conditions:
   grid of a kinetic unknown above, and the [`MomentumInterfaceTerm`](@ref) carries the flux.
   The ghost cells of the four-point schemes beyond an interface hold zero, as beyond any
   other boundary in p, so the last interior face on each side sees the other grid as empty.
-- `r = a` (`r_boundary`): `:zero_flux`, or `:absorbing` (`f = 0` on the wall face).
+- `r = a` (`r_boundary`): `:zero_flux`, or `:absorbing` (`f = 0` on the edge face: the
+  diffusive flux is `Dʳʳ f_N` over the distance from the last cell centre to the face), or
+  `:absorbing_dream`, DREAM's `BC_F_0` of its transport terms, with the distance between
+  the last two cell centres, which places `f = 0` half a cell outside the edge (1 with one
+  radius, as in DREAM). On a uniform grid the edge flux of `:absorbing` is twice that of
+  `:absorbing_dream`. The lowest decay rate of a uniform `Dʳʳ` in a cylinder converges at
+  second order with `:absorbing` and at first order with DREAM's form: 0.997 and 0.911 of
+  the exact rate at 11 radii. The advective part is the upwind
+  outflow in all of them.
 
 Schemes (`scheme`), for the advection and diffusion along each direction between two cell
 centres; the cross terms `Dᵖᵠ`, `Dᵠᵖ` are always central:
@@ -95,9 +103,14 @@ centres; the cross terms `Dᵖᵠ`, `Dᵠᵖ` are always central:
   upwind at p_max as DREAM's `BC_F_0`).
   With fewer than three cells in a direction the face value is central, as in DREAM.
 
-The scheme can differ per direction (`p_scheme`, `xi_scheme`, `r_scheme`; `scheme` sets
-all three). Four-point schemes are not available in r, which has no radial transport
-yet.
+The scheme can differ per direction (`p_scheme`, `xi_scheme`, `r_scheme`). `scheme` sets
+`p_scheme` and `xi_scheme`, and `r_scheme` when it is a two-point scheme. With a four-point
+`scheme` the radial scheme is `:central` unless `r_scheme` names one.
+
+A four-point scheme in r gives the face value of the radial advection.
+The radial diffusion is central. Ghost cells as in DREAM: mirrored at the axis, zero beyond
+the edge of the plasma. The flux through the edge is the upwind outflow. It needs one pitch
+grid at all radii, and with fewer than three radii the face value is central.
 """
 struct AdvectionDiffusion{T<:AbstractFloat}
     grid::KineticGrid{T}
@@ -148,8 +161,8 @@ function AdvectionDiffusion(grid::KineticGrid{T}; scheme::Symbol=:upwind, p_sche
         s in (:upwind, :central, :exponential_fitting) || is_four_point_scheme(s) ||
             throw(ArgumentError("unknown scheme $s"))
     end
-    r_scheme in (:upwind, :central, :exponential_fitting) ||
-        throw(ArgumentError("scheme $r_scheme is not available in r (four-point schemes need radial transport)"))
+    r_scheme in (:upwind, :central, :exponential_fitting) || is_four_point_scheme(r_scheme) ||
+        throw(ArgumentError("unknown scheme $r_scheme"))
     p_lower_boundary in (:zero_flux, :prescribed, :interface) ||
         throw(ArgumentError("unknown lower p boundary condition $p_lower_boundary"))
     p_upper_boundary in (:outflow, :f_zero, :constant_flux, :extrapolated_flux,
@@ -160,6 +173,9 @@ function AdvectionDiffusion(grid::KineticGrid{T}; scheme::Symbol=:upwind, p_sche
                             "radii (the pitch faces may differ between radii)"))
     grid.radial_overlaps === nothing &&
         throw(ArgumentError("AdvectionDiffusion needs pitch grids that cover the same interval at all radii"))
+    is_four_point_scheme(r_scheme) && !all(has_identical_grids, grid.radial_overlaps) &&
+        throw(ArgumentError("the four-point scheme $r_scheme in r needs one pitch grid at all radii " *
+                            "(issue #72); the pitch faces of this grid differ between radii"))
     np, nxi, nr = size(grid)
     face_cells = radial_face_pitch_cell_count(grid)
     if p_upper_boundary === :constant_flux && np < 2
@@ -180,7 +196,7 @@ function AdvectionDiffusion(grid::KineticGrid{T}; scheme::Symbol=:upwind, p_sche
     if p_lower_boundary === :interface && momentum_grid(grid, 1).p_faces[1] == 0
         throw(ArgumentError("an interface at the lower p boundary needs p_min > 0"))
     end
-    r_boundary in (:zero_flux, :absorbing) ||
+    r_boundary in (:zero_flux, :absorbing, :absorbing_dream) ||
         throw(ArgumentError("unknown radial boundary condition $r_boundary"))
     on_p_faces() = zeros(T, np + 1, nxi, nr)
     on_xi_faces() = zeros(T, np, nxi + 1, nr)
@@ -226,6 +242,9 @@ function with_scheme(op::AdvectionDiffusion{T}, scheme::Symbol; p_scheme::Symbol
                                  op.jacobian_centers, op.jacobian_p_faces, op.jacobian_xi_faces, op.jacobian_r_faces,
                                  op.jacobian_over_p2_at_zero, op.coefficient_source)
 end
+
+# the scheme of a direction with too few cells for a four-point scheme: central, as in DREAM
+@inline _two_point_scheme(scheme) = is_four_point_scheme(scheme) ? :central : scheme
 
 @inline function _face_value(scheme, advection, f_left, f_right, weight_left)
     if scheme === :upwind
@@ -306,6 +325,22 @@ Base.@propagate_inbounds function _xi_four_point_face(op::AdvectionDiffusion, f,
     end
     return _frozen_face_value(op.xi_scheme, faces[k], x_d, x_u, x_uu, value(state, j_d), value(state, j_u),
                               value(state, j_uu), value(f, j_d), value(f, j_u), value(f, j_uu))
+end
+
+# Four-point face value on r face `k` for pitch grids that are the same on both sides,
+# mirrored at the axis and zero beyond the edge (DREAM AD_BC_MIRRORED and AD_BC_DIRICHLET)
+Base.@propagate_inbounds function _r_four_point_face(op::AdvectionDiffusion, f, state, A, i, j, k)
+    rg = op.grid.radial_grid
+    nr = radial_cell_count(rg)
+    r_u, r_uu, r_d = A > 0 ? (k - 1, k - 2, k) : (k, k + 1, k - 1)
+    centers, faces = rg.r_centers, rg.r_faces
+    value(g, ir) = ir < 1 ? g[i, j, 1-ir] : (ir > nr ? zero(eltype(g)) : g[i, j, ir])
+    x_d, x_u, x_uu = _ghost_center(centers, faces, r_d), _ghost_center(centers, faces, r_u), _ghost_center(centers, faces, r_uu)
+    if state === nothing || !is_nonlinear_scheme(op.r_scheme)
+        return _four_point_face_value(op.r_scheme, faces[k], x_d, x_u, x_uu, value(f, r_d), value(f, r_u), value(f, r_uu))
+    end
+    return _frozen_face_value(op.r_scheme, faces[k], x_d, x_u, x_uu, value(state, r_d), value(state, r_u),
+                              value(state, r_uu), value(f, r_d), value(f, r_u), value(f, r_uu))
 end
 
 # Γᵖ (not multiplied by 𝒱') through interior p face `k` (2 <= k <= momentum cell count),
@@ -433,7 +468,7 @@ end
 # radius `ir` (k - 1 or k), multiplied by 𝒱': the sum over the overlap cells of the pitch
 # cell, each with its share of the cell. Pitch cell `j` itself with one pitch grid on both
 # sides.
-Base.@propagate_inbounds function _r_flux(op::AdvectionDiffusion, f, i, j, ir, k)
+Base.@propagate_inbounds function _r_flux(op::AdvectionDiffusion, f, i, j, ir, k, state=nothing)
     rg = op.grid.radial_grid
     nr = radial_cell_count(rg)
     T = eltype(f)
@@ -441,11 +476,13 @@ Base.@propagate_inbounds function _r_flux(op::AdvectionDiffusion, f, i, j, ir, k
     if k == nr + 1
         V = op.jacobian_r_faces[i, j, k]
         (V == 0 || op.r_boundary === :zero_flux) && return zero(T)
-        # absorbing wall, f = 0 on the face
+        # absorbing edge: f = 0 on the face, or half a cell outside it (DREAM)
         A = op.advection_r[i, j, k]
         D = op.diffusion_r_r[i, j, k]
         f_left = f[i, j, nr]
-        F = (A > 0 ? A * f_left : zero(T)) + D * f_left / (rg.r_faces[k] - rg.r_centers[nr])
+        distance = op.r_boundary === :absorbing ? rg.r_faces[k] - rg.r_centers[nr] :
+                   nr > 1 ? rg.r_centers[nr] - rg.r_centers[nr-1] : one(eltype(rg.r_centers))
+        F = (A > 0 ? A * f_left : zero(T)) + D * f_left / distance
         return V * F
     end
     distance = rg.r_centers[k] - rg.r_centers[k-1]
@@ -454,8 +491,13 @@ Base.@propagate_inbounds function _r_flux(op::AdvectionDiffusion, f, i, j, ir, k
     if overlap.identical
         V = op.jacobian_r_faces[i, j, k]
         V == 0 && return zero(T)
-        F = _face_flux(op.r_scheme, op.advection_r[i, j, k], op.diffusion_r_r[i, j, k], f[i, j, k-1],
-                       f[i, j, k], distance, weight_left)
+        if is_four_point_scheme(op.r_scheme) && nr >= 3
+            A = op.advection_r[i, j, k]
+            face_value = A == 0 ? zero(T) : _r_four_point_face(op, f, state, A, i, j, k)
+            return V * (A * face_value - op.diffusion_r_r[i, j, k] * (f[i, j, k] - f[i, j, k-1]) / distance)
+        end
+        F = _face_flux(_two_point_scheme(op.r_scheme), op.advection_r[i, j, k], op.diffusion_r_r[i, j, k],
+                       f[i, j, k-1], f[i, j, k], distance, weight_left)
         return V * F
     end
     total = zero(T)
@@ -515,7 +557,7 @@ Operator contribution to all momentum cells at radius index `ir`. Writes only to
         V == 0 && continue
         divergence = (_p_flux(op, f, i + 1, j, ir, state) - _p_flux(op, f, i, j, ir, state)) / m.p_widths[i] +
                      (_xi_flux(op, f, i, j + 1, ir, state) - _xi_flux(op, f, i, j, ir, state)) / m.xi_widths[j] +
-                     (_r_flux(op, f, i, j, ir, ir + 1) - _r_flux(op, f, i, j, ir, ir)) / rg.r_widths[ir]
+                     (_r_flux(op, f, i, j, ir, ir + 1, state) - _r_flux(op, f, i, j, ir, ir, state)) / rg.r_widths[ir]
         df[i, j, ir] -= scale * divergence / V
     end
     return df

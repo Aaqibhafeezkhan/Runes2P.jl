@@ -1,6 +1,8 @@
 # Equation terms. A term adds its contribution to the right-hand side of the equation of
 # one unknown (the row unknown, given by its id `row`) in the system M du/dt = rhs(u, t).
 
+using SparseArrays: nzrange, rowvals, nonzeros
+
 """
     EquationTerm
 
@@ -18,7 +20,12 @@ Supertype of the terms of an [`Equation`](@ref). A term implements
 - `jacobian_vector_product!(out, term, u, v, layout, row, t)` for `:matrix_free` terms:
   add `(∂ rhs_term / ∂u) v` to `out`;
 
-and optionally `treatment(term)` (`:implicit` by default; `:explicit` terms are evaluated
+A `:sparse` term whose row holds many unknowns (a moment of a distribution, the loss
+through the edge) declares [`jacobian_assembly`](@ref)`(term) === :direct` and adds its
+Jacobian entries itself with [`add_jacobian!`](@ref), so that the coloring of the AD
+Jacobian does not see its rows.
+
+A term may also define `treatment(term)` (`:implicit` by default; `:explicit` terms are evaluated
 at the previous time level and contribute nothing to the Jacobian),
 `validate(term, layout, row)` (checks against the layout, run when the system is built),
 [`is_linear`](@ref)`(term)` (`false` by default: whether the term is linear in the state,
@@ -63,6 +70,40 @@ terms.
 jacobian_correction_product!(out, ::EquationTerm, u, v, layout, row, t) = out
 
 is_linear(::EquationTerm) = false
+
+"""
+    jacobian_assembly(term)
+
+How the stored Jacobian block of a `:sparse` term is filled: `:automatic` (default) by
+colored forward-mode AD of `rhs!`, or `:direct` by the term's own [`add_jacobian!`](@ref).
+
+The colored AD needs one pass of the sparse terms per color, and two columns that share a
+row need different colors. A row that holds every cell of a radius (the density or current
+moment of a distribution, the loss through the edge) would therefore take one color per
+cell. Such terms assemble their block directly, and the coloring sees the other terms
+alone. A direct term is tested against the AD of its `rhs!`.
+"""
+jacobian_assembly(::EquationTerm) = :automatic
+
+"""
+    add_jacobian!(J, term, u, layout, row, t)
+
+Add the entries `∂ rhs_term / ∂u` of a term with [`jacobian_assembly`](@ref)`(term) ===
+:direct` to the stored matrix `J` at the state `u` and the time `t`. The entries lie in
+the pattern of `sparsity!`. Allocation free.
+"""
+function add_jacobian! end
+
+# add `value` to the stored entry (row, column) of J
+@inline function _add_entry!(J::SparseMatrixCSC, row::Integer, column::Integer, value)
+    range = nzrange(J, column)
+    rows = rowvals(J)
+    k = searchsortedfirst(rows, row, first(range), last(range), Base.Order.Forward)
+    (k <= last(range) && rows[k] == row) ||
+        throw(ArgumentError("the entry ($row, $column) is not in the pattern of the stored Jacobian"))
+    nonzeros(J)[k] += value
+    return J
+end
 
 """
     LayoutKineticArray
@@ -252,6 +293,7 @@ function sparsity!(entries, term::FokkerPlanckTerm, layout, row)
     np, nxi, nr = size(op.grid)
     p_width = stencil_half_width(op.p_scheme)
     xi_width = stencil_half_width(op.xi_scheme)
+    r_width = stencil_half_width(op.r_scheme)
     for ir in 1:nr, j in 1:nxi, i in 1:np
         r = _kinetic_index(layout, row, ir, i, j)
         for dj in -1:1, di in -1:1
@@ -270,6 +312,9 @@ function sparsity!(entries, term::FokkerPlanckTerm, layout, row)
         end
         for neighbour in radial_neighbour_pitch_cells(op.grid, ir, j, 1)
             push!(entries, (r, _kinetic_index(layout, id, ir + 1, i, neighbour)))
+        end
+        for d in 2:r_width, s in (-d, d)
+            1 <= ir + s <= nr && push!(entries, (r, _kinetic_index(layout, id, ir + s, i, j)))
         end
         # the extrapolated p_max boundary flux couples the last row up to 3 cells in p
         # (:extrapolated_flux's second term has no p-ξ cross contribution,
@@ -545,6 +590,24 @@ function _add_density_moment!(out, term::DensityMomentTerm, grid::KineticGrid, u
     return out
 end
 
+jacobian_assembly(::DensityMomentTerm) = :direct
+
+function add_jacobian!(J, term::DensityMomentTerm, u, layout, row, t)
+    id = unknown_id(layout, term.kinetic)
+    grid = kinetic_grid(layout, id)
+    for ir in 1:radial_cell_count(layout)
+        m = momentum_grid(grid, ir)
+        jacobian = phase_space_jacobian(grid, ir)
+        r = first(unknown_range(layout, row, ir))
+        factor = term.coefficient / grid.radial_grid.spatial_jacobian[ir]
+        @inbounds for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
+            _add_entry!(J, r, _kinetic_index(layout, id, ir, i, j),
+                        factor * jacobian[i, j] * m.p_widths[i] * m.xi_widths[j])
+        end
+    end
+    return J
+end
+
 function sparsity!(entries, term::DensityMomentTerm, layout, row)
     id = unknown_id(layout, term.kinetic)
     for ir in 1:radial_cell_count(layout)
@@ -602,6 +665,27 @@ function rhs!(out, term::CurrentMomentTerm, u, layout, row, t)
         out[first(unknown_range(layout, row, ir))] += term.coefficient * j / grid.radial_grid.spatial_jacobian[ir]
     end
     return out
+end
+
+jacobian_assembly(::CurrentMomentTerm) = :direct
+
+function add_jacobian!(J, term::CurrentMomentTerm, u, layout, row, t)
+    id = unknown_id(layout, term.kinetic)
+    grid = kinetic_grid(layout, id)
+    charge = Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT
+    for ir in 1:radial_cell_count(layout)
+        m = momentum_grid(grid, ir)
+        jacobian = phase_space_jacobian(grid, ir)
+        weights = term.pitch_weights[ir]
+        r = first(unknown_range(layout, row, ir))
+        factor = term.coefficient * charge / grid.radial_grid.spatial_jacobian[ir]
+        @inbounds for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
+            p = m.p_centers[i]
+            _add_entry!(J, r, _kinetic_index(layout, id, ir, i, j),
+                        factor * weights[j] * jacobian[i, j] * m.p_widths[i] * p / sqrt(1 + p^2))
+        end
+    end
+    return J
 end
 
 sparsity!(entries, term::CurrentMomentTerm, layout, row) =

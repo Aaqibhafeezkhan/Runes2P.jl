@@ -222,6 +222,11 @@ function _integrate(system::EquationSystem{T}, u0::AbstractVector, times::Abstra
     all(s -> first(times) <= s <= last(times), save_times) ||
         throw(ArgumentError("save_times must lie inside [times[1], times[end]]"))
     updates = _checked_updates(updates)
+    for update in updates, t in forced_time_points(update)
+        first(times) < t < last(times) && !any(point -> isapprox(point, t; rtol=1e-12), times) &&
+            throw(ArgumentError("the update $(update_name(update)) changes at t = $t, which is not a time " *
+                                "point of the run"))
+    end
     checkpoint === nothing || _require_hdf5(write_checkpoint, "writing checkpoints")
 
     settings = run_settings(system; solver, times, save_times, max_step_halvings, description, updates,

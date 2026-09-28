@@ -18,6 +18,7 @@ include("grids/kinetic.jl")
 include("operators/flux_limiters.jl")
 include("operators/advection_diffusion.jl")
 include("operators/kinetic_terms.jl")
+include("operators/radial_transport.jl")
 include("operators/knockon/kinematics.jl")
 include("operators/knockon/energy_kernel.jl")
 include("operators/knockon/pitch_kernel.jl")
@@ -28,6 +29,7 @@ include("system/jacobian.jl")
 include("system/layout.jl")
 include("system/terms.jl")
 include("system/interface_term.jl")
+include("system/transport_terms.jl")
 include("operators/field_particle.jl")
 include("system/equation_system.jl")
 include("solvers/linear_solver.jl")
@@ -35,6 +37,7 @@ include("solvers/newton.jl")
 include("solvers/krylov.jl")
 include("settings.jl")
 include("solvers/interval_updates.jl")
+include("solvers/transport_update.jl")
 include("solvers/checkpoint.jl")
 include("solvers/progress_log.jl")
 include("solvers/time_stepping.jl")
@@ -45,6 +48,8 @@ export PitchOverlap, overlap_cell_count, has_identical_grids, remap_to_right!, r
 export has_same_cell_counts, has_same_p_faces, radial_face_overlap, radial_face_pitch_cell_count
 export radial_neighbour_pitch_cells, runaway_grid
 export MomentumInterfaceTerm, interface_flux
+export add_rechester_rosenbluth_diffusion!, radial_face_values, radial_particle_flux, radial_particle_content
+export RadialEdgeLossTerm, LossRateTerm, PiecewiseConstant, RechesterRosenbluthUpdate, forced_time_points
 export RadialGrid, uniform_r_faces
 export KineticGrid, cylindrical_grid, density, current_density, pitch_moment_weights, total_particles, has_shared_momentum_grid, momentum_grid
 export phase_space_jacobian, phase_space_jacobian_p_faces, phase_space_jacobian_xi_faces
@@ -75,7 +80,7 @@ export unknown_id, unknown_names, unknown, unknown_range, radius_block_range, sc
 export radial_view, kinetic_view, scalar_view, unknown_view, unknown_scales, describe, copy_unknowns!
 export kinetic_grid
 export EquationTerm, dependencies, coupling, treatment, sparsity!, rhs!, jacobian_vector_product!
-export jacobian_kind, jacobian_correction_product!, is_linear
+export jacobian_kind, jacobian_correction_product!, is_linear, jacobian_assembly, add_jacobian!
 export FokkerPlanckTerm, PrescribedFokkerPlanckTerm, KnockOnTerm, LinearTerm, DensityMomentTerm, CurrentMomentTerm, MaxwellianSourceTerm, LayoutKineticArray, kinetic_array
 export Equation, TimeDerivative, Algebraic, EquationSystem, Tolerance, tolerance
 export residual!, mass_matrix, jacobian_sparsity, jacobian_prototype, jacobian_operator, jacobian_colors, residual_scales, ode_function

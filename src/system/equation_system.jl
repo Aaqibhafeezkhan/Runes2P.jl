@@ -3,7 +3,7 @@
 # matrix-free products for the `:matrix_free` terms.
 
 using LinearAlgebra: Diagonal
-using SparseArrays: nnz
+using SparseArrays: nnz, findnz, nonzeros, nzrange, rowvals
 using SparseMatrixColorings: column_groups
 
 """
@@ -56,8 +56,10 @@ term's own checks), and that every algebraic unknown appears in its own equation
 implicit term depends on it; the numerical regularity of the algebraic block is not
 checked). The terms are split into three groups:
 
-- implicit `:sparse` terms, whose Jacobian is stored ([`jacobian!`](@ref), colored AD over
-  these terms alone);
+- implicit `:sparse` terms, whose Jacobian is stored ([`jacobian!`](@ref)): by colored AD
+  over the terms with automatic assembly, and by their own entries for the terms with
+  [`jacobian_assembly`](@ref)`(term) === :direct` (`direct_terms`), whose rows the coloring
+  does not see;
 - implicit `:matrix_free` terms, which enter the Jacobian only through
   [`jacobian_operator`](@ref);
 - explicit terms, evaluated at the previous time level in [`residual!`](@ref) and absent
@@ -80,13 +82,16 @@ time `initial_time`, for the structure of the stored Jacobian. Set `initial_time
 start of the run when a term is defined only on the run's time interval (the `plasma_at`
 of a [`PrescribedFokkerPlanckTerm`](@ref)).
 """
-struct EquationSystem{T,S<:Tuple,M<:Tuple,X<:Tuple,C<:Tuple,F,P,B}
+struct EquationSystem{T,S<:Tuple,M<:Tuple,X<:Tuple,C<:Tuple,D<:Tuple,F,P,B}
     layout::UnknownLayout{T}
     equations::Vector{Equation}
     sparse_terms::S
     matrix_free_terms::M
     explicit_terms::X
     correction_terms::C
+    direct_terms::D                       # the sparse terms that assemble their own block
+    automatic_jacobian::SparseMatrixCSC{T,Int}  # the AD part, with the pattern of the coloring
+    automatic_positions::Vector{Int}      # its stored entries in the stored Jacobian
     stored_jacobian_exact::Bool
     linear::Bool
     mass::Vector{T}
@@ -116,6 +121,13 @@ end
     bound = first(terms)
     jacobian_vector_product!(out, bound.term, u, v, layout, bound.row, t)
     return _add_products!(out, Base.tail(terms), u, v, layout, t)
+end
+
+@inline _add_jacobians!(J, ::Tuple{}, u, layout, t) = J
+@inline function _add_jacobians!(J, terms::Tuple, u, layout, t)
+    bound = first(terms)
+    add_jacobian!(J, bound.term, u, layout, bound.row, t)
+    return _add_jacobians!(J, Base.tail(terms), u, layout, t)
 end
 
 @inline _add_corrections!(out, ::Tuple{}, u, v, layout, t) = out
@@ -178,35 +190,81 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
     correction_tuple = Tuple(bound for bound in sparse_terms if jacobian_kind(bound.term) === :approximate)
     linear = all(bound -> is_linear(bound.term), sparse_terms) && all(bound -> is_linear(bound.term), matrix_free_terms)
 
-    # structural pattern of the stored Jacobian: the diagonal (for M/Δt) and the sparse terms
+    for bound in sparse_terms
+        jacobian_assembly(bound.term) in (:automatic, :direct) ||
+            throw(ArgumentError("unknown Jacobian assembly $(jacobian_assembly(bound.term)) of $(typeof(bound.term))"))
+        jacobian_assembly(bound.term) === :direct && jacobian_kind(bound.term) === :approximate &&
+            throw(ArgumentError("$(typeof(bound.term)) assembles its block itself, so the block is exact"))
+    end
+    automatic_tuple = Tuple(bound for bound in sparse_terms if jacobian_assembly(bound.term) === :automatic)
+    direct_tuple = Tuple(bound for bound in sparse_terms if jacobian_assembly(bound.term) === :direct)
+
+    # structural pattern of the stored Jacobian: the diagonal (for M/Δt) and the sparse
+    # terms. The coloring takes the part of the terms with automatic assembly
     n = length(layout)
     entries = Tuple{Int,Int}[(i, i) for i in 1:n]
-    for bound in sparse_terms
+    for bound in automatic_tuple
         sparsity!(entries, bound.term, layout, bound.row)
     end
-    pattern = sparse(first.(entries), last.(entries), trues(length(entries)), n, n, (a, b) -> a | b)
+    as_pattern(list) = sparse(first.(list), last.(list), trues(length(list)), n, n, (a, b) -> a | b)
+    automatic_pattern = as_pattern(entries)
+    for bound in direct_tuple
+        sparsity!(entries, bound.term, layout, bound.row)
+    end
+    pattern = as_pattern(entries)
 
     time = Ref(T(initial_time))
-    # residual of the stored part alone: the coloring must not see matrix-free terms, whose
-    # entries outside the pattern would be folded onto entries inside it
-    sparse_rhs! = let terms = sparse_tuple, layout = layout, time = time
+    # residual of the part that AD differentiates: the coloring must not see matrix-free
+    # terms, whose entries outside the pattern would be folded onto entries inside it
+    sparse_rhs! = let terms = automatic_tuple, layout = layout, time = time
         (du, u) -> (fill!(du, zero(eltype(du))); _add_terms!(du, terms, u, layout, time[]); nothing)
     end
-    backend = sparse_ad_backend(pattern=pattern)
+    backend = sparse_ad_backend(pattern=automatic_pattern)
     x0 = zeros(T, n)
     buffer = zeros(T, n)
     preparation = DI.prepare_jacobian(sparse_rhs!, buffer, backend, x0)
-    prototype = DI.jacobian(sparse_rhs!, buffer, preparation, backend, x0)
+    automatic_jacobian = DI.jacobian(sparse_rhs!, buffer, preparation, backend, x0)
     # the prototype is evaluated at u = 0 and t = initial_time, where some derivatives
     # vanish; it must still carry the whole pattern, or jacobian! at other states would
     # miss entries
-    nnz(prototype) == nnz(pattern) ||
-        error("the Jacobian prototype lost structural entries ($(nnz(prototype)) of $(nnz(pattern)))")
+    nnz(automatic_jacobian) == nnz(automatic_pattern) ||
+        error("the Jacobian prototype lost structural entries ($(nnz(automatic_jacobian)) of " *
+              "$(nnz(automatic_pattern)))")
+    if isempty(direct_tuple)
+        prototype = automatic_jacobian
+        automatic_positions = Int[]
+    else
+        # the stored matrix holds both parts; the entries of the AD part are copied to their
+        # positions in it
+        rows, columns, _ = findnz(pattern)
+        prototype = sparse(rows, columns, zeros(T, length(rows)), n, n)
+        automatic_positions = zeros(Int, nnz(automatic_jacobian))
+        automatic_rows = rowvals(automatic_jacobian)
+        stored_rows = rowvals(prototype)
+        for column in 1:n, k in nzrange(automatic_jacobian, column)
+            range = nzrange(prototype, column)
+            automatic_positions[k] = searchsortedfirst(stored_rows, automatic_rows[k], first(range), last(range),
+                                                       Base.Order.Forward)
+        end
+        _merge_jacobian!(prototype, automatic_jacobian, automatic_positions)
+        _add_jacobians!(prototype, direct_tuple, x0, layout, T(initial_time))
+    end
     return EquationSystem(layout, collect(Equation, equations), sparse_tuple, matrix_free_tuple,
-                          explicit_tuple, correction_tuple, isempty(correction_tuple), linear, mass, pattern,
+                          explicit_tuple, correction_tuple, direct_tuple, automatic_jacobian, automatic_positions,
+                          isempty(correction_tuple), linear, mass, pattern,
                           sparse_rhs!, preparation, backend, prototype,
                           time, buffer, zeros(T, n), T(time_scale), Dict{Symbol,Tolerance}(newton_tolerances),
                           Dict{Symbol,Tolerance}(time_step_tolerances))
+end
+
+# the entries of the AD part at their positions in the stored matrix, zero elsewhere
+function _merge_jacobian!(J::SparseMatrixCSC, automatic::SparseMatrixCSC, positions::Vector{Int})
+    stored, values = nonzeros(J), nonzeros(automatic)
+    fill!(stored, zero(eltype(stored)))
+    @inbounds for k in eachindex(positions)
+        stored[positions[k]] = values[k]
+    end
+    return J
 end
 
 _unknown_ranges(layout, id) = layout.kinds[id] === :scalar ? (unknown_range(layout, id),) :
@@ -268,7 +326,8 @@ jacobian_prototype(system::EquationSystem) = copy(system.prototype)
     jacobian_colors(system)
 
 Number of colors of the stored Jacobian's column coloring: the number of directional
-derivatives (dual-number passes over the sparse terms) one [`jacobian!`](@ref) costs.
+derivatives (dual-number passes over the sparse terms) one [`jacobian!`](@ref) costs. The
+terms that assemble their own block do not count.
 """
 jacobian_colors(system::EquationSystem) = length(column_groups(system.preparation))
 
@@ -276,13 +335,21 @@ jacobian_colors(system::EquationSystem) = length(column_groups(system.preparatio
     jacobian!(J, system::EquationSystem, u, t)
 
 Values of the stored Jacobian `∂rhs/∂u` of the implicit `:sparse` terms at `(u, t)`, into
-`J` (from [`jacobian_prototype`](@ref)), by colored forward-mode AD; for terms with an
+`J` (from [`jacobian_prototype`](@ref)), by colored forward-mode AD and by the entries of
+the terms that assemble their own block ([`jacobian_assembly`](@ref)); for terms with an
 approximate Jacobian ([`jacobian_kind`](@ref)) their stored block, not the derivative.
 Matrix-free and explicit terms are not included.
 """
 function jacobian!(J::SparseMatrixCSC, system::EquationSystem, u::AbstractVector, t)
     system.time[] = t
-    DI.jacobian!(system.sparse_rhs!, system.buffer, J, system.preparation, system.backend, u)
+    if isempty(system.direct_terms)
+        DI.jacobian!(system.sparse_rhs!, system.buffer, J, system.preparation, system.backend, u)
+        return J
+    end
+    automatic = system.automatic_jacobian
+    DI.jacobian!(system.sparse_rhs!, system.buffer, automatic, system.preparation, system.backend, u)
+    _merge_jacobian!(J, automatic, system.automatic_positions)
+    _add_jacobians!(J, system.direct_terms, u, system.layout, t)
     return J
 end
 

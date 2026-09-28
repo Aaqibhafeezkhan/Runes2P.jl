@@ -22,12 +22,13 @@ function sparse_ad_backend(; pattern=nothing)
 end
 
 """
-    stencil_pattern(grid; p_width=1, xi_width=1)
+    stencil_pattern(grid; p_width=1, xi_width=1, r_width=1)
     stencil_pattern(op::AdvectionDiffusion)
 
 Sparsity pattern of the local transport operators: the 3×3 `(p, ξ)` neighbourhood
 (including the p-ξ cross terms), the cells up to `p_width` away in p and `xi_width` away
-in ξ along the axes (2 for the four-point schemes), and the radial neighbours of each
+in ξ along the axes (2 for the four-point schemes), the cells up to `r_width` radii away,
+and the radial neighbours of each
 cell (the cell of the same pitch at the two neighbouring radii, or with different pitch
 grids the cells that overlap it). For an operator, the widths follow its schemes; with `p_upper_boundary =
 :extrapolated_flux` or `:extrapolated_flux_consistent` the last momentum row is
@@ -37,7 +38,8 @@ diagonally to `(np - 2, j ± 1)` through its second term's p-ξ cross contributi
 (`:extrapolated_flux`'s second term has none).
 """
 function stencil_pattern(op::AdvectionDiffusion)
-    pattern = stencil_pattern(op.grid; p_width=stencil_half_width(op.p_scheme), xi_width=stencil_half_width(op.xi_scheme))
+    pattern = stencil_pattern(op.grid; p_width=stencil_half_width(op.p_scheme), xi_width=stencil_half_width(op.xi_scheme),
+                              r_width=stencil_half_width(op.r_scheme))
     op.p_upper_boundary in (:extrapolated_flux, :extrapolated_flux_consistent) || return pattern
     np, nxi, nr = size(op.grid)
     index = LinearIndices((np, nxi, nr))
@@ -58,7 +60,7 @@ function stencil_pattern(op::AdvectionDiffusion)
     return pattern .| extra
 end
 
-function stencil_pattern(grid::KineticGrid; p_width::Integer=1, xi_width::Integer=1)
+function stencil_pattern(grid::KineticGrid; p_width::Integer=1, xi_width::Integer=1, r_width::Integer=1)
     np, nxi, nr = size(grid)
     index = LinearIndices((np, nxi, nr))
     rows = Int[]
@@ -79,6 +81,10 @@ function stencil_pattern(grid::KineticGrid; p_width::Integer=1, xi_width::Intege
         end
         for dr in (-1, 1), neighbour in radial_neighbour_pitch_cells(grid, ir, j, dr)
             push!(rows, row); push!(columns, index[i, neighbour, ir+dr])
+        end
+        # the second radial neighbours of the four-point schemes, which need one pitch grid
+        for d in 2:r_width, s in (-d, d)
+            1 <= ir + s <= nr && (push!(rows, row); push!(columns, index[i, j, ir+s]))
         end
     end
     return sparse(rows, columns, trues(length(rows)), np * nxi * nr, np * nxi * nr)
@@ -174,7 +180,8 @@ schemes, whose face values depend on f. For an [`EquationTerm`](@ref): whether t
 is linear in the state up to a constant (`false` by default; terms opt in), which lets
 [`NewtonSolver`](@ref) accept a step of a linear system on the update test alone.
 """
-is_linear(op::AdvectionDiffusion) = !(is_nonlinear_scheme(op.p_scheme) || is_nonlinear_scheme(op.xi_scheme))
+is_linear(op::AdvectionDiffusion) = !(is_nonlinear_scheme(op.p_scheme) || is_nonlinear_scheme(op.xi_scheme) ||
+                                      is_nonlinear_scheme(op.r_scheme))
 
 """
     operator_matrix(op; backend=sparse_ad_backend(pattern=stencil_pattern(op)), check_local=true)

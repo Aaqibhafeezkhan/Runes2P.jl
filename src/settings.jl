@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.8"
+const OUTPUT_FORMAT_VERSION = v"0.9"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -489,6 +489,23 @@ function describe(term::MaxwellianSourceTerm, context::DescriptionContext)
     return record
 end
 
+function describe(term::RadialEdgeLossTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["kinetic"] = String(term.kinetic)
+    record["coefficient"] = term.coefficient
+    # the coefficients belong to the Fokker-Planck term of the radial transport, or to an
+    # update of the run, which hold their record
+    record["operator"] = describe(term.operator, context; coefficients=false)
+    return record
+end
+
+function describe(term::LossRateTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["unknown"] = String(term.unknown)
+    record["rate"] = _plain(term.rate)
+    return record
+end
+
 settings_fields(::Type{<:MomentumInterfaceTerm}) =
     (described=(:lower, :upper, :lower_term, :lower_grid, :upper_grid, :pitch_mapping, :scheme),
      derived=(:overlaps, :interpolation_cells, :interpolation_weights))
@@ -542,7 +559,8 @@ end
 
 settings_fields(::Type{<:EquationSystem}) =
     (described=(:layout, :equations, :time_scale, :newton_tolerances, :time_step_tolerances),
-     derived=(:sparse_terms, :matrix_free_terms, :explicit_terms, :correction_terms, :stored_jacobian_exact,
+     derived=(:sparse_terms, :matrix_free_terms, :explicit_terms, :correction_terms, :direct_terms,
+              :automatic_jacobian, :automatic_positions, :stored_jacobian_exact,
               :linear, :mass, :pattern, :sparse_rhs!, :preparation, :backend, :prototype, :time, :buffer,
               :product))
 

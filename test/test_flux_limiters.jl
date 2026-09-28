@@ -91,7 +91,9 @@ end
     @testset "refusals" begin
         op = fokker_planck_operator(g, plasma, CollisionSettings(mode=:full); scheme=:tcdf)
         @test_throws ArgumentError operator_matrix(op)
-        @test_throws ArgumentError AdvectionDiffusion(g; scheme=:central, r_scheme=:tcdf)
+        # four-point schemes in r are tested in test_radial_transport.jl
+        @test AdvectionDiffusion(g; scheme=:central, r_scheme=:tcdf).r_scheme === :tcdf
+        @test_throws ArgumentError AdvectionDiffusion(g; scheme=:central, r_scheme=:superbee)
         @test_throws ArgumentError AdvectionDiffusion(g; scheme=:superbee)
         # a scheme per direction; the radial default of a four-point scheme is central
         mixed = AdvectionDiffusion(g; scheme=:tcdf, xi_scheme=:central)

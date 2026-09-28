@@ -58,9 +58,11 @@ const DREAM_TWO_GRIDS_DATA = joinpath(@__DIR__, "data", "dream_two_grids.h5")
                                               runaway_operator; pitch_mapping=:dream)
             hot_terms = EquationTerm[hot_term, interface]
             runaway_terms = EquationTerm[FokkerPlanckTerm(:runaway_distribution, runaway_operator), interface]
-            if variant == "boltzmann"
+            # without avalanche the knock-on terms stay in the system with a target density
+            # of zero, so that both variants are one type of system and compile once
+            let
                 kernel = (dream_compatible=true, primary_pitch_points=1, table_size=80)
-                target = n_tot[:, 1]
+                target = variant == "boltzmann" ? n_tot[:, 1] : zeros(nr)
                 push!(hot_terms,
                       KnockOnTerm(:hot_tail_distribution, KnockOnOperator(hot, hot, p_cut; kernel...);
                                   target_density=target, treatment=:explicit),
