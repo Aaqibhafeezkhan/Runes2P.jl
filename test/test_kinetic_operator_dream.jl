@@ -68,6 +68,7 @@ end
                  joinpath(@__DIR__, "data", "dream_runaway_rates.h5"), DREAM_DREICER_KINETIC_DATA,
                  joinpath(@__DIR__, "data", "dream_example_runaway.h5"),
                  joinpath(@__DIR__, "data", "dream_example_avalanche.h5"),
+                 joinpath(@__DIR__, "data", "dream_avalanche_kinetic.h5"),
                  joinpath(@__DIR__, "data", "dream_flux_limiters.h5"),
                  joinpath(@__DIR__, "data", "dream_pmax_boundary.h5"))
         h5open(file) do h5

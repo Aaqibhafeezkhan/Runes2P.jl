@@ -1,16 +1,16 @@
 # Time-dependent physics of the kinetic operator: the Dreicer runaway rate
 # against DREAM's kinetic solver and against the
 # published references (Connor-Hastie and DREAM's neural network of Hesslow et al., both
-# as DREAM computes them), and the avalanche growth rate against
-# DREAM's fluid formula, including its independence of the knock-on cutoff inside its
-# window.
+# as DREAM computes them), and the avalanche growth rate against the
+# kinetic rate of the literature (Embréus et al. 2018) and DREAM's fluid formula, including
+# its independence of the knock-on cutoff inside its window.
 using HDF5
 
 const DREAM_DREICER_KINETIC_DATA = joinpath(@__DIR__, "data", "dream_dreicer_kinetic.h5")
 
 # one radius, deuterium only, complete screening and a constant Coulomb logarithm, the
 # configuration the fluid formulas assume
-function runaway_case(temperature, density, field, momentum_grid_)
+function runaway_case(temperature, density, field, momentum_grid_; scheme=:central)
     rad = RadialGrid(uniform_r_faces(1, 0.5))
     g = cylindrical_grid(momentum_grid_, rad)
     plasma = PlasmaState(cold_electron_temperature=[temperature], cold_electron_density=[density],
@@ -21,7 +21,7 @@ function runaway_case(temperature, density, field, momentum_grid_)
     # Exponential fitting, first order at the high cell Péclet numbers of the tail, puts
     # the rate at E/E_c = 10 at 0.75 of the network on this grid, against centred's 0.58;
     # under refinement the two approach each other (0.655 and 0.645 at 440 momentum cells).
-    return g, plasma, fokker_planck_operator(g, plasma, settings; scheme=:central)
+    return g, plasma, fokker_planck_operator(g, plasma, settings; scheme)
 end
 
 function maxwellian_state(layout, g, density, temperature)
@@ -181,7 +181,7 @@ end
         @test runaway.spread > 1.1
     end
 
-    @testset "avalanche growth rate against DREAM's fluid formula" begin
+    @testset "avalanche growth rate against the kinetic rate of the literature" begin
         # A seed of runaways at p = 2 multiplies by knock-on collisions. The momentum grid
         # reaches p = 100 so that the seed stays on it for many e-foldings: with p_max = 5
         # the seed leaves through the boundary in 3 ms, far below the e-folding time of
@@ -191,11 +191,14 @@ end
                          eachindex(over_critical))
         field = reference_fields[case]
         mom = MomentumGrid(biuniform_p_faces(120, 60, 0.0, 0.6, 100.0), uniform_xi_faces(14))
-        g, _, op = runaway_case(temperature, density, field, mom)
+        # exponential fitting: central interpolation is 3.4% low on this grid and goes negative
+        g, _, op = runaway_case(temperature, density, field, mom; scheme=:exponential_fitting)
         critical = critical_momentum(field, read(reference["Ecfree"])[case])
         window = cutoff_window(thermal_momentum(temperature), critical)
         @test window.lower < window.upper
-        times = collect(range(0, 0.08; length=13))
+        # 192 steps of 0.42 ms: the explicit knock-on term is 0.5% from its limit in the time step
+        times = collect(range(0, 0.08; length=193))
+        third = (length(times) - 1) ÷ 3
 
         function growth_rate(p_cutoff)
             knockon = KnockOnOperator(g, g, p_cutoff)
@@ -222,35 +225,43 @@ end
             lost = cumsum([0.0; [(outflux[k] + outflux[k+1]) / 2 * (times[k+1] - times[k])
                                  for k in 1:length(times)-1]])
             counts = [runaways(states[k]) + lost[k] for k in eachindex(times)]
-            return log(counts[end] / counts[end-4]) / (times[end] - times[end-4])
+            return log(counts[end] / counts[end-third]) / (times[end] - times[end-third])
         end
 
         cutoff = choose_cutoff(mom.p_faces, window.lower, window.upper)
         @test cutoff.inside_window
         rate = growth_rate(cutoff.p_cutoff)
-        # The reference is DREAM's fluid growth rate from a run at 5 T, 22.25 s⁻¹
-        # (AVALANCHE_MODE_FLUID, equal to AVALANCHE_MODE_FLUID_HESSLOW in this plasma). Its
-        # effective critical field holds synchrotron and bremsstrahlung losses (1.78 E_c),
-        # and the kinetic run has none. The converged kinetic rate is 26.2 s⁻¹: 0.7% above
-        # CODE with the same operator (Embréus et al. 2018, Fig. 3, 0.915 Γ₀), 8% above
-        # eq. (18) of Rosenbluth and Putvinski and 18% above the reference.
-        # This test reads 23.0 s⁻¹, since its 12
-        # steps of 6.7 ms lower the rate by 9% and central interpolation on this grid by 3%.
-        # The tolerance holds this setting. A kinetic reference at a converged setting
-        # would allow a tighter one.
-        @test rate ≈ read(reference["GammaAva"])[case] rtol = 0.15
-        # the Rosenbluth-Putvinski estimate at the test-particle critical momentum is 2.5
-        # times larger, which is the ambiguity of DREAM #40
+        # Independent reference: CODE with the field-particle Boltzmann operator in the same
+        # plasma, Embréus, Stahl, Fülöp 2018, Fig. 3: Γ = 0.915 Γ₀ at E/E_c = 20, read from
+        # the curve of the figure to 0.002, with Γ₀ = (E/E_c - 1)/(2 lnΛ τ_c) the rate without
+        # pitch-angle scattering. Γ₀ = 28.42 s⁻¹ here, so the reference is 26.0 s⁻¹. The
+        # rate of Runes2P converged in the grid and the time step is 26.2 ± 0.1 s⁻¹, and this
+        # setting reads 26.1.
+        gamma_0 = (over_critical[case] - 1) * 2pi * Constants.CLASSICAL_ELECTRON_RADIUS^2 *
+                  Constants.SPEED_OF_LIGHT * density
+        @test gamma_0 ≈ 28.42 rtol = 1e-3
+        @test rate ≈ 0.915 * gamma_0 rtol = 0.02
+        # The fluid formulas are lower. DREAM's value (AVALANCHE_MODE_FLUID at 5 T, equal
+        # to AVALANCHE_MODE_FLUID_HESSLOW in this plasma) is 22.25 s⁻¹: its effective
+        # critical field holds synchrotron and bremsstrahlung losses (1.78 E_c), which the
+        # kinetic run does not have, and its form 1/√(5 + Z) lies 4.6% below eq. (18) of
+        # Rosenbluth and Putvinski, which lies 8% below the kinetic rate. The ratio of the
+        # kinetic rate of this setting to DREAM's value is 1.17.
+        @test 1.15 < rate / read(reference["GammaAva"])[case] < 1.19
+        # the Rosenbluth-Putvinski estimate at the test-particle critical momentum is twice
+        # the kinetic rate and more, which is the ambiguity of DREAM #40
         @test avalanche_growth_rate(density, critical) > 2 * rate
 
         @testset "growth rate independent of the cutoff inside the window" begin
             # Embréus et al. 2018, Fig. 2: inside the cutoff window the knock-on
             # cutoff only moves the boundary between the operator and the bulk, so the
-            # growth rate must not depend on it (measured within 4%)
+            # growth rate must not depend on it. Measured: the rates at the cutoffs 0.08,
+            # 0.14 and 0.22 differ by 2e-6 of their value (4% at the 12 steps of the
+            # earlier test).
             faces = filter(p -> window.lower < p < window.upper, mom.p_faces)
             @test length(faces) >= 3
             rates = [growth_rate(p) for p in (first(faces), faces[length(faces)÷2], last(faces))]
-            @test maximum(rates) / minimum(rates) < 1.15
+            @test maximum(rates) / minimum(rates) < 1 + 1e-4
         end
     end
     close(h5)
