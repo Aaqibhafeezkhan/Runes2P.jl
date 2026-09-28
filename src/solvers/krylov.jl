@@ -62,6 +62,12 @@ terms the two are the same.
 A solve that fails with a preconditioner from an earlier iteration is repeated once with
 a fresh one.
 
+`low_rank_update` adds the low-rank Jacobians of implicit matrix-free terms
+([`low_rank_jacobian`](@ref), the field-particle term) to the blocks
+they lie in by a Woodbury update: `k` block solves per factorization and O(n k) work per
+application for rank `k`. Without it the preconditioner leaves those terms out, as it
+leaves out the knock-on term.
+
 At production sizes with radially coupled radii:
 
 - The block preconditioner leaves out the radial coupling, and the Krylov count grows with
@@ -86,6 +92,7 @@ Base.@kwdef struct GMRES{P<:BlockPreconditioner} <: LinearSolver
     preconditioner_refresh::Symbol = :every_iteration
     refresh_iterations::Int = 10
     operator::Symbol = :exact
+    low_rank_update::Bool = true
 end
 
 requires_stored_jacobian(::GMRES) = false
@@ -132,6 +139,7 @@ struct BlockFactors{T,F}
     factorizations::Vector{F}
     input::Vector{Vector{T}}
     output::Vector{Vector{T}}
+    low_rank::Vector{Union{Nothing,LowRankCorrection{T}}}   # per block: Woodbury update
 end
 
 function _preconditioner_blocks(layout::UnknownLayout)
@@ -171,7 +179,8 @@ function BlockFactors(preconditioner::BlockPreconditioner, matrix::SparseMatrixC
     matrices, positions = first.(extracted), last.(extracted)
     factorizations = [_factorize(preconditioner, block) for block in matrices]
     return BlockFactors(ranges, matrices, positions, factorizations,
-                        [zeros(T, length(r)) for r in ranges], [zeros(T, length(r)) for r in ranges])
+                        [zeros(T, length(r)) for r in ranges], [zeros(T, length(r)) for r in ranges],
+                        Union{Nothing,LowRankCorrection{T}}[nothing for _ in ranges])
 end
 
 _refactorize!(factors::BlockFactors, ::RadiusBlockLU, k) =
@@ -184,15 +193,25 @@ function _refactorize!(factors::BlockFactors, p::RadiusBlockILU, k)
     return all(isfinite, factorization.L.nzval) && all(isfinite, factorization.U.nzval)
 end
 
-# copy the current values of `matrix` into the blocks and factorize them; false when a
-# block is singular
-function factorize!(factors::BlockFactors, preconditioner::BlockPreconditioner, matrix::SparseMatrixCSC)
+# copy the current values of `matrix` into the blocks and factorize them, with the Woodbury
+# update of `low_rank.blocks` (row weights and scales `low_rank.row_weights`,
+# `low_rank.scales`) inside each block; false when a block
+# or a capacitance matrix is singular
+function factorize!(factors::BlockFactors{T}, preconditioner::BlockPreconditioner, matrix::SparseMatrixCSC,
+                    low_rank=nothing) where {T}
     for k in eachindex(factors.matrices)
         block, positions = factors.matrices[k], factors.positions[k]
         @inbounds for m in eachindex(positions)
             block.nzval[m] = matrix.nzval[positions[m]]
         end
         _refactorize!(factors, preconditioner, k) || return false
+        factors.low_rank[k] = nothing
+        low_rank === nothing && continue
+        scaled = _scaled_low_rank(low_rank.blocks, factors.ranges[k], low_rank.row_weights, low_rank.scales, T)
+        scaled === nothing && continue
+        factorization = factors.factorizations[k]
+        factors.low_rank[k] = _low_rank_correction(scaled..., (y, x) -> ldiv!(y, factorization, x))
+        factors.low_rank[k] === nothing && return false
     end
     return true
 end
@@ -202,6 +221,7 @@ function LinearAlgebra.ldiv!(y::AbstractVector, factors::BlockFactors, x::Abstra
         range, input, output = factors.ranges[k], factors.input[k], factors.output[k]
         copyto!(input, 1, x, first(range), length(range))
         ldiv!(output, factors.factorizations[k], input)
+        factors.low_rank[k] === nothing || _apply_low_rank_correction!(output, factors.low_rank[k])
         copyto!(y, first(range), output, 1, length(range))
     end
     return y
@@ -257,7 +277,10 @@ end
 function _factorize!(cache::GMRESCache, matrix, dt)
     cache.updates += 1
     started = time_ns()
-    cache.factorized = factorize!(cache.factors, cache.solver.preconditioner, matrix)
+    op = cache.operator
+    low_rank = cache.solver.low_rank_update && !isempty(op.system.matrix_free_terms) ?
+               (; blocks=_low_rank_blocks(op.system, op.state, op.time), op.row_weights, op.scales) : nothing
+    cache.factorized = factorize!(cache.factors, cache.solver.preconditioner, matrix, low_rank)
     cache.factorization_seconds += (time_ns() - started) / 1e9
     cache.factorized_dt = dt
     return cache.factorized

@@ -26,6 +26,7 @@ include("physics/runaway_rates.jl")
 include("system/jacobian.jl")
 include("system/layout.jl")
 include("system/terms.jl")
+include("operators/field_particle.jl")
 include("system/equation_system.jl")
 include("solvers/linear_solver.jl")
 include("solvers/newton.jl")
@@ -59,6 +60,8 @@ export pitch_kernel_column!, pitch_kernel_column_split!, pitch_kernel_matrix!
 export KnockOnOperator, KnockOnKernels, knockon_linear_operator, set_cutoff!, energy_kernel, pitch_kernel
 export knockon_kernels, momentum_at_xi_star
 export apply_at_radius!
+export electron_electron_operator, FieldParticleOperator, FieldParticleTerm, set_field_particle_coefficients!
+export parallel_momentum, LowRankBlock, low_rank_jacobian, has_low_rank_jacobian
 export thermal_momentum, critical_field, critical_momentum, cutoff_window, choose_cutoff
 export dreicer_field, thermal_collision_time, connor_hastie_rate, avalanche_growth_rate
 export ScalarUnknown, RadialUnknown, KineticUnknown, LowerLimit, UnknownLayout

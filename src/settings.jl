@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.6"
+const OUTPUT_FORMAT_VERSION = v"0.7"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -485,6 +485,36 @@ function describe(term::MaxwellianSourceTerm, context::DescriptionContext)
     record["rate"] = term.rate
     record["temperature"] = term.temperature
     record["bulk_momentum"] = term.bulk_momentum
+    return record
+end
+
+settings_fields(::Type{<:FieldParticleOperator}) =
+    (described=(:grid, :modes, :scheme, :pitch_rule, :coefficient_source),
+     derived=(:momentum_weights, :loss_functionals, :restoring_shapes))
+
+"""
+    describe(op::FieldParticleOperator, context=DescriptionContext())
+
+Record of the field-particle operator: the grid, the number of modes, the
+scheme of its electron-electron operator, the pitch rule of the momentum weights, and the
+plasma and the collision settings it was built from. The functionals and the shapes
+follow from them.
+"""
+function describe(op::FieldParticleOperator, context::DescriptionContext=DescriptionContext())
+    record = SettingsRecord("type" => "FieldParticleOperator", "grid" => grid_name!(context, op.grid),
+                            "modes" => op.modes, "scheme" => String(op.scheme), "pitch_rule" => String(op.pitch_rule))
+    source = op.coefficient_source[]
+    if source !== nothing
+        record["coefficient_source"] = SettingsRecord("plasma" => describe(source.plasma),
+                                                      "collision_settings" => describe(source.settings))
+    end
+    return record
+end
+
+function describe(term::FieldParticleTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["unknown"] = String(term.unknown)
+    record["operator"] = describe(term.operator, context)
     return record
 end
 

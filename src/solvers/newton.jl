@@ -172,8 +172,10 @@ function invalidate_jacobian!(ws::NewtonWorkspace)
 end
 
 function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver=NewtonSolver()) where {T}
-    if requires_stored_jacobian(solver.linear_solver) && !isempty(system.matrix_free_terms)
-        names = [typeof(bound.term).name.name for bound in system.matrix_free_terms]
+    # matrix-free terms with a low-rank Jacobian enter a direct solve by a Woodbury update
+    full_rank = [bound for bound in system.matrix_free_terms if !has_low_rank_jacobian(bound.term)]
+    if requires_stored_jacobian(solver.linear_solver) && !isempty(full_rank)
+        names = [typeof(bound.term).name.name for bound in full_rank]
         throw(ArgumentError("$(typeof(solver.linear_solver)) needs every implicit term in the stored " *
                             "Jacobian, but the system has implicit matrix-free terms ($(join(names, ", "))); " *
                             "treat them explicitly or use the Newton-Krylov solver GMRES"))
