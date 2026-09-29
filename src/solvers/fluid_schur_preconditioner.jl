@@ -4,9 +4,9 @@
 # transport of the distributions.
 
 """
-    FluidSchurLU(; radial_lines=true)
+    FluidSchurLU(; radial_lines=:auto)
 
-Preconditioner for [`GMRES`](@ref) on systems whose radii are coupled through the fluid
+The default preconditioner of [`GMRES`](@ref), for systems whose radii are coupled through the fluid
 unknowns (Ampère's law, the plasma current and the other scalars) and through the radial
 transport of the distributions. [`RadiusBlockLU`](@ref) leaves both
 couplings out, and its Krylov count grows with the number of radii.
@@ -20,14 +20,17 @@ couplings out, and its Krylov count grows with the number of radii.
   exactly. The columns `A_kf,r` (the electric field, the magnitude of the particle source)
   are few per radius. This stage is the exact inverse of the stored matrix without the
   kinetic couplings between radii.
-- `radial_lines = true` adds the tridiagonal systems along the radii of each kinetic cell:
-  the diagonal of the stored matrix and the couplings of the cell to the same cell at the
-  two neighbouring radii. The application is symmetric, lines, Schur stage, lines, each
-  stage on the residual of the ones before: one block solve, two line solves and two
-  products with the stored matrix and the low-rank terms of the blocks. The lines need one
-  pitch grid for all radii (the same restriction as the four-point schemes in r).
-  Without stored kinetic couplings between radii (no radial transport) the lines
-  are left out.
+- The radial lines are the tridiagonal systems along the radii of each kinetic cell: the
+  diagonal of the stored matrix and the couplings of the cell to the same cell at the two
+  neighbouring radii. The application is symmetric, lines, Schur stage, lines, each stage
+  on the residual of the ones before: one block solve, two line solves and two products
+  with the stored matrix and the low-rank terms of the blocks. The lines need one pitch
+  grid for all radii (the same restriction as the four-point schemes in r).
+  Without stored kinetic couplings between radii (no radial transport) they are left out.
+  `radial_lines = :auto` (default) takes them where every kinetic unknown has one pitch
+  grid at all radii and leaves them out otherwise, with a warning: the fluid coupling stays
+  exact, and the radial transport of the distributions is left to the Krylov iteration.
+  `true` refuses a grid whose pitch faces differ between radii, `false` never takes them.
 
 The preconditioner is a fixed linear map for each linear solve. With
 `preconditioner_refresh = :on_demand` the factors can be older than the stored matrix,
@@ -42,9 +45,21 @@ radial diffusion at a coupling typical of a disruption run (`D Δt/Δr² ≈ 5`)
 application takes 5 iterations at 12 and 24 radii, against 49 and 55.
 """
 struct FluidSchurLU <: BlockPreconditioner
-    radial_lines::Bool
+    radial_lines::Union{Bool,Symbol}
 end
-FluidSchurLU(; radial_lines::Bool=true) = FluidSchurLU(radial_lines)
+
+function FluidSchurLU(; radial_lines::Union{Bool,Symbol}=:auto)
+    radial_lines isa Bool || radial_lines === :auto ||
+        throw(ArgumentError("radial_lines is true, false or :auto, got $radial_lines"))
+    return FluidSchurLU(radial_lines)
+end
+
+# whether every kinetic unknown has one pitch grid at all radii, as the lines need
+_one_pitch_grid(layout::UnknownLayout) =
+    all(layout.kinds[id] !== :kinetic ||
+        (all(==(layout.sizes[id, 1]), layout.sizes[id, :]) && unknown.grid.radial_overlaps !== nothing &&
+         all(has_identical_grids, unknown.grid.radial_overlaps))
+        for (id, unknown) in enumerate(layout.unknowns))
 
 # the tridiagonal systems along the radii of the kinetic cells
 struct RadialLines{T}
@@ -110,7 +125,8 @@ function _radial_lines(layout::UnknownLayout, matrix::SparseMatrixCSC{T}) where 
     lines = Vector{Vector{Int}}()
     for (id, unknown) in enumerate(layout.unknowns)
         layout.kinds[id] === :kinetic || continue
-        all(==(layout.sizes[id, 1]), layout.sizes[id, :]) && all(has_identical_grids, unknown.grid.radial_overlaps) ||
+        all(==(layout.sizes[id, 1]), layout.sizes[id, :]) && unknown.grid.radial_overlaps !== nothing &&
+            all(has_identical_grids, unknown.grid.radial_overlaps) ||
             throw(ArgumentError("the radial lines of FluidSchurLU need one pitch grid for all radii (issue #72): " *
                                 "$(unknown.name) has pitch grids that differ between radii"))
         for q in 1:layout.sizes[id, 1]
@@ -176,7 +192,12 @@ function preconditioner_factors(p::FluidSchurLU, matrix::SparseMatrixCSC{T}, lay
         kf[ir] = [(row, lookup[position], k) for (row, position, k) in kf[ir]]
     end
     nf = length(fluid)
-    lines = p.radial_lines && nr > 1 ? _radial_lines(layout, matrix) : nothing
+    with_lines = nr > 1 && (p.radial_lines === true || (p.radial_lines === :auto && _one_pitch_grid(layout)))
+    if p.radial_lines === :auto && !with_lines && nr > 1
+        @warn "FluidSchurLU without radial lines: the pitch grids differ between radii (issue #72). The fluid " *
+              "coupling stays exact, the radial transport of the distributions is left to the Krylov iteration" maxlog = 1
+    end
+    lines = with_lines ? _radial_lines(layout, matrix) : nothing
     # without kinetic couplings between radii the lines would be a diagonal step
     lines !== nothing && all(==(0), lines.lower) && all(==(0), lines.upper) && (lines = nothing)
     return FluidSchurFactors(matrix, kinetic_ranges, fluid, blocks, block_positions, factorizations,

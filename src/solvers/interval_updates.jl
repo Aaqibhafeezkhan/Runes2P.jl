@@ -233,6 +233,14 @@ describe(update::IntervalUpdate, context::DescriptionContext) =
                    "reason" => "no describe method")
 
 # the updates of a run as a tuple, with unique names
+"""
+    check_update(update, system)
+
+Refuse an update that does not fit the equation system of the run, before the first step.
+Nothing by default.
+"""
+check_update(update::IntervalUpdate, system) = nothing
+
 function _checked_updates(updates)
     list = updates isa IntervalUpdate ? (updates,) : Tuple(updates)
     all(update -> update isa IntervalUpdate, list) ||

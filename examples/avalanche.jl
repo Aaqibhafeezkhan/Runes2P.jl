@@ -6,8 +6,9 @@
 # grid to p = 30 split at p = 0.7 (40 of 200 cells below), 29 pitch cells with geometric
 # growth, knock-on cutoff p = 0.1, time step 2 ms. The seed is a Maxwell-Jüttner
 # distribution at 100 keV with 1 m⁻³. Switches beside those of common.jl:
-# `treatment=explicit|implicit` (the knock-on term at the previous time level, as DREAM,
-# or in the Jacobian, which needs `solver=gmres`), `cutoff=`, `np=`, `np_low=`, `nxi=`,
+# `treatment=explicit_primary|explicit|implicit` (the primary distribution at the previous
+# time level, as DREAM and the default; the whole term there; or the term in the Jacobian,
+# which needs `solver=gmres`), `cutoff=`, `np=`, `np_low=`, `nxi=`,
 # `e_over_ec=`. The report gives the density growth rate per second over the run.
 #
 #   julia --project=examples examples/avalanche.jl
@@ -47,7 +48,7 @@ op = fokker_planck_operator(grid, plasma, settings; schemes...)
 
 cutoff = number("cutoff", 0.1)
 knockon = KnockOnOperator(grid, grid, cutoff)
-treatment = symbol("treatment", :explicit)
+treatment = symbol("treatment", :explicit_primary)
 layout = UnknownLayout(grid.radial_grid, [KineticUnknown(:f, grid; scale=1.0)])
 system = EquationSystem(layout, [Equation(:f, TimeDerivative(), FokkerPlanckTerm(:f, op; jacobian=jacobian_switch()),
                                           KnockOnTerm(:f, knockon; target_density=fill(total_electron_density, nr), treatment))])

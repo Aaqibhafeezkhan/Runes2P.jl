@@ -153,6 +153,13 @@ end
     return _add_terms!(out, Base.tail(terms), u, layout, t)
 end
 
+@inline _prepare_terms!(::Tuple{}, u_old, layout, t) = nothing
+@inline function _prepare_terms!(terms::Tuple, u_old, layout, t)
+    bound = first(terms)
+    prepare_step!(bound.term, u_old, layout, bound.row, t)
+    return _prepare_terms!(Base.tail(terms), u_old, layout, t)
+end
+
 @inline _add_products!(out, ::Tuple{}, u, v, layout, t) = out
 @inline function _add_products!(out, terms::Tuple, u, v, layout, t)
     bound = first(terms)
@@ -354,6 +361,8 @@ a general integrator).
 function rhs!(du::AbstractVector, u::AbstractVector, system::EquationSystem, t)
     fill!(du, zero(eltype(du)))
     layout = system.layout
+    # the ODE form has no previous time level: a lagged part takes the state itself
+    _prepare_terms!(system.sparse_terms, u, layout, t)
     _add_terms!(du, system.sparse_terms, u, layout, t)
     _add_terms!(du, system.matrix_free_terms, u, layout, t)
     _add_terms!(du, system.explicit_terms, u, layout, t)
@@ -372,6 +381,7 @@ function residual!(F::AbstractVector, u::AbstractVector, u_old::AbstractVector,
     rhs = system.buffer
     fill!(rhs, zero(eltype(rhs)))
     layout = system.layout
+    _prepare_terms!(system.sparse_terms, u_old, layout, t)
     _add_terms!(rhs, system.sparse_terms, u, layout, t)
     _add_terms!(rhs, system.matrix_free_terms, u, layout, t)
     _add_terms!(rhs, system.explicit_terms, u_old, layout, t)

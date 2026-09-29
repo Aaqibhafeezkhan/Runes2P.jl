@@ -35,6 +35,12 @@ electric_field = false)` or from a plasma without a field, knows its plasma
 
 - For a flux limiter, the operator is that with the limiter frozen at the Maxwellian, which
   is linear in `f`.
+- The flux boundaries at `p_max` (`:constant_flux`, DREAM's default `BC_PHI_CONST`, and the
+  extrapolated fluxes) leave the last momentum cell without a net flux in the steady state,
+  so the bordered systems are singular with them. The response takes `f = 0` beyond `p_max`
+  in their place. The distribution at `p_max` of a conductivity run is far below
+  that of the bulk: DREAM's steady current on a production grid is the same with
+  `BC_F_0` and `BC_PHI_CONST` to 1.1e-12.
 - `pitch_rule` is that of the current moment ([`current_density`](@ref)).
 - `density` is the density of the equilibrium per radius, the electrons that carry the
   current. It differs from the cold density of the collision coefficients in the limit of
@@ -59,6 +65,11 @@ function kinetic_conductivity(operator::AdvectionDiffusion{T}; pitch_rule::Symbo
         throw(ArgumentError("the operator holds radial transport: the linear response is that of the operator in " *
                             "momentum space, radius by radius"))
     any(!iszero, operator.unit_field_advection_p) || set_unit_field_coefficients!(operator)
+    # DREAM's flux boundaries at p_max give the last momentum cell no net flux in the steady
+    # state, which makes the bordered systems singular: f = 0 beyond p_max in
+    # their place, with the coefficient arrays shared
+    operator.p_upper_boundary in (:constant_flux, :extrapolated_flux, :extrapolated_flux_consistent) &&
+        (operator = _with_upper_boundary(operator, :f_zero))
     grid = operator.grid
     np, nxi, nr = size(grid)
     cells = np * nxi * nr
@@ -120,6 +131,16 @@ function kinetic_conductivity(operator::AdvectionDiffusion{T}; pitch_rule::Symbo
     response = factors \ vcat(-vec(ForwardDiff.partials.(driven, 1)), zeros(T, nr))
     return current_density(grid, reshape(response[1:cells], np, nxi, nr); pitch_rule)
 end
+
+# the operator with another boundary condition at p_max, sharing every coefficient array
+_with_upper_boundary(op::AdvectionDiffusion{T}, boundary::Symbol) where {T} =
+    AdvectionDiffusion{T}(op.grid, op.advection_p, op.diffusion_p_p, op.diffusion_p_xi, op.advection_xi,
+                          op.diffusion_xi_xi, op.diffusion_xi_p, op.advection_r, op.diffusion_r_r,
+                          op.unit_field_advection_p, op.unit_field_advection_xi, op.p_flux_at_lower_boundary,
+                          op.advection_p_times_p2_at_zero, op.p_scheme, op.xi_scheme, op.r_scheme,
+                          op.p_lower_boundary, boundary, op.r_boundary, op.momentum_grids, op.radial_overlaps,
+                          op.jacobian_centers, op.jacobian_p_faces, op.jacobian_xi_faces, op.jacobian_r_faces,
+                          op.jacobian_over_p2_at_zero, op.coefficient_source)
 
 function _scale_to_density!(f, grid::KineticGrid, target)
     n = Runes2P.density(grid, f)
@@ -187,7 +208,10 @@ end
 _plasma_at(plasma::PlasmaState, t) = plasma
 _plasma_at(plasma_at, t) = plasma_at(t)
 
-is_time_dependent(model::ConductivityModel) = !(model.plasma isa PlasmaState)
+# an operator rebuilt from a plasma of its own follows the time with a constant plasma of
+# the model
+is_time_dependent(model::ConductivityModel) =
+    !(model.plasma isa PlasmaState) || model.operator isa PrescribedFokkerPlanckTerm
 
 function (model::ConductivityModel)(t)
     plasma = _plasma_at(model.plasma, t)

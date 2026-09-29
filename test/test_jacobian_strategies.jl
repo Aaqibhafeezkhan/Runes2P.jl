@@ -168,7 +168,9 @@ _strategies_plasma(temperature=100.0; density=1e20, field=5.0, nr=1) =
         # the knock-on term is linear with a prescribed target density, bilinear with an unknown
         knockon = KnockOnOperator(g, g, 0.3)
         @test is_linear(KnockOnTerm(:f, knockon; target_density=[1e20]))
-        @test !is_linear(KnockOnTerm(:f, knockon; target_density=:n))
+        @test !is_linear(KnockOnTerm(:f, knockon; target_density=:n, treatment=:implicit))
+        # DREAM's form, the default: the target density times a source fixed for the step
+        @test is_linear(KnockOnTerm(:f, knockon; target_density=:n))
         @test is_linear(LinearTerm(:f)) && is_linear(DensityMomentTerm(:f))
     end
 end

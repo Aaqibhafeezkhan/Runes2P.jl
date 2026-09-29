@@ -94,6 +94,19 @@ function apply_update!(update::RechesterRosenbluthUpdate, u, layout, t)
     return true
 end
 
+# The rebuild of a prescribed term clears every coefficient of its operator, the radial ones
+# too, and the update writes them only when the level changes: on a shared operator the
+# transport would be gone without an error.
+function check_update(update::RechesterRosenbluthUpdate, system)
+    for equation in system.equations, term in equation.terms
+        term isa PrescribedFokkerPlanckTerm && term.inner.operator === update.operator &&
+            throw(ArgumentError("the update $(update.name) sets the radial transport of the operator of the " *
+                                "prescribed term of $(equation.unknown), whose rebuild clears it. Give the " *
+                                "radial transport an operator and a FokkerPlanckTerm of its own."))
+    end
+    return nothing
+end
+
 update_state(update::RechesterRosenbluthUpdate) = copy(update.delta_b_over_b)
 
 function restore_update!(update::RechesterRosenbluthUpdate, state::AbstractVector)

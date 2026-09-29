@@ -26,7 +26,8 @@ Jacobian entries itself with [`add_jacobian!`](@ref), so that the coloring of th
 Jacobian does not see its rows.
 
 A term may also define `treatment(term)` (`:implicit` by default; `:explicit` terms are evaluated
-at the previous time level and contribute nothing to the Jacobian),
+at the previous time level and contribute nothing to the Jacobian), [`prepare_step!`](@ref)
+(a part of an implicit term lagged to the previous time level),
 `validate(term, layout, row)` (checks against the layout, run when the system is built),
 [`is_linear`](@ref)`(term)` (`false` by default: whether the term is linear in the state,
 up to a constant, which lets a linear system accept a Newton step on the update test alone)
@@ -84,6 +85,16 @@ cell. Such terms assemble their block directly, and the coloring sees the other 
 alone. A direct term is tested against the AD of its `rhs!`.
 """
 jacobian_assembly(::EquationTerm) = :automatic
+
+"""
+    prepare_step!(term, u_old, layout, row, t)
+
+Called with the state at the start of the step before every evaluation of the residual
+([`residual!`](@ref)), and with the state itself in the ODE form ([`rhs!`](@ref)). A term
+with a part lagged to the previous time level inside an implicit term (the knock-on term
+with `treatment = :explicit_primary`) evaluates that part here. Nothing by default.
+"""
+prepare_step!(::EquationTerm, u_old, layout, row, t) = nothing
 
 """
     add_jacobian!(J, term, u, layout, row, t)
@@ -505,36 +516,70 @@ function jacobian_correction_product!(out, term::PrescribedFokkerPlanckTerm, u, 
 end
 
 """
-    KnockOnTerm(primary, operator::KnockOnOperator; target_density, treatment=:implicit)
+    KnockOnTerm(primary, operator::KnockOnOperator; target_density, treatment=:explicit_primary)
 
 Knock-on source produced by the kinetic unknown `primary` on the kinetic row unknown
 (`operator` maps the primary grid to the row unknown's grid, per radius, see
 [`apply_at_radius!`](@ref)). `target_density` is the target (total electron) density:
-the name of a radial unknown, or a vector with one value per radius. Matrix-free, since
-it couples all cells of a radius; `:explicit` treatment evaluates it at the previous time
-level, as DREAM does. Works with different momentum grids at different radii.
+the name of a radial unknown, or a vector with one value per radius. Works with different
+momentum grids at different radii.
+
+`treatment`:
+
+- `:explicit_primary` (default, DREAM's Boltzmann operator `MollerBoltzmannOperator`): the
+  primary distribution at the previous time level, the target density at the new one. The
+  term is then the target density times a source fixed for the step, evaluated once per
+  residual from the state at the start of the step ([`prepare_step!`](@ref)), and its
+  Jacobian is the column of the target density at each radius. With a prescribed target
+  density it is the same as `:explicit`.
+- `:explicit`: the whole term at the previous time level, target density included.
+- `:implicit`: the whole term at the new time level, matrix-free, since it couples all cells
+  of a radius. Every Krylov iteration of [`GMRES`](@ref) applies the operator once, and the
+  direct solver does not take it.
+
+The explicit forms are the cheaper step. The implicit form is the more accurate one per
+step: on DREAM's avalanche example the implicit term reaches the accuracy of
+the explicit one at about four times the step (+8.6 % at 8 ms against −8.7 % at 2 ms in the
+density at 0.2 s). Then its step cost 3.6 times the explicit one, which cancelled the gain.
+With [`FluidSchurLU`](@ref) it costs 1.86 times (production grid, 20 radii), so
+where the avalanche growth limits the time step, the implicit term with a longer step can
+reach the same accuracy at a lower cost. The time-step control
+is the place to choose between them. The explicit default follows DREAM.
 """
 struct KnockOnTerm{T,D} <: EquationTerm
     primary::Symbol
     operator::KnockOnOperator{T}
     target_density::D
     treatment::Symbol
+    lagged::Vector{Matrix{T}}              # :explicit_primary: the source per unit target density, per radius
+    prepared::Base.RefValue{Bool}
 end
 
-function KnockOnTerm(primary::Symbol, operator::KnockOnOperator; target_density,
-                     treatment::Symbol=:implicit)
-    treatment in (:implicit, :explicit) || throw(ArgumentError("unknown treatment $treatment"))
+function KnockOnTerm(primary::Symbol, operator::KnockOnOperator{T}; target_density,
+                     treatment::Symbol=:explicit_primary) where {T}
+    treatment in (:implicit, :explicit, :explicit_primary) || throw(ArgumentError("unknown treatment $treatment"))
     target_density isa Union{Symbol,AbstractVector} ||
         throw(ArgumentError("target_density must be an unknown name or a vector"))
-    return KnockOnTerm(primary, operator, target_density, treatment)
+    grid = operator.knockon
+    lagged = treatment === :explicit_primary && target_density isa Symbol ?
+             [zeros(T, momentum_cell_count(grid, ir), pitch_cell_count(grid, ir)) for ir in 1:radial_cell_count(grid)] :
+             Matrix{T}[]
+    return KnockOnTerm(primary, operator, target_density, treatment, lagged, Ref(false))
 end
 
+# the primary lagged and the target density an unknown: the term is the target density
+# times a source fixed for the step
+_lagged_primary(term::KnockOnTerm) = term.treatment === :explicit_primary && term.target_density isa Symbol
+
 # linear in the primary with a prescribed target density; bilinear when it is an unknown
-is_linear(term::KnockOnTerm) = !(term.target_density isa Symbol)
+is_linear(term::KnockOnTerm) = _lagged_primary(term) || !(term.target_density isa Symbol)
 dependencies(term::KnockOnTerm) =
+    _lagged_primary(term) ? [term.target_density] :
     term.target_density isa Symbol ? [term.primary, term.target_density] : [term.primary]
-coupling(::KnockOnTerm) = :matrix_free
-treatment(term::KnockOnTerm) = term.treatment
+coupling(term::KnockOnTerm) = _lagged_primary(term) ? :sparse : :matrix_free
+jacobian_assembly(term::KnockOnTerm) = _lagged_primary(term) ? :direct : :automatic
+treatment(term::KnockOnTerm) =
+    term.treatment === :explicit_primary ? (term.target_density isa Symbol ? :implicit : :explicit) : term.treatment
 
 function validate(term::KnockOnTerm, layout, row)
     primary = unknown_id(layout, term.primary)
@@ -564,13 +609,63 @@ _target_density(term::KnockOnTerm{T,Symbol}, u, layout, ir) where {T} =
     radial_view(u, layout, unknown_id(layout, term.target_density), ir)[1]
 _target_density(term::KnockOnTerm, u, layout, ir) = term.target_density[ir]
 
+function prepare_step!(term::KnockOnTerm, u_old, layout, row, t)
+    _lagged_primary(term) || return nothing
+    primary = unknown_id(layout, term.primary)
+    for ir in 1:radial_cell_count(layout)
+        source = term.lagged[ir]
+        fill!(source, zero(eltype(source)))
+        apply_at_radius!(source, term.operator, kinetic_view(u_old, layout, primary, ir), one(eltype(source)), ir)
+    end
+    term.prepared[] = true
+    return nothing
+end
+
 function rhs!(out, term::KnockOnTerm, u, layout, row, t)
+    if _lagged_primary(term)
+        term.prepared[] ||
+            throw(ArgumentError("the knock-on source of the previous time level is not set: it is set by residual! " *
+                                "and by the right-hand side of the system (prepare_step!)"))
+        density = unknown_id(layout, term.target_density)
+        for ir in 1:radial_cell_count(layout)
+            added = kinetic_view(out, layout, row, ir)
+            source = term.lagged[ir]
+            n = radial_view(u, layout, density, ir)[1]
+            @inbounds for k in eachindex(source)
+                added[k] += n * source[k]
+            end
+        end
+        return out
+    end
     primary = unknown_id(layout, term.primary)
     for ir in 1:radial_cell_count(layout)
         apply_at_radius!(kinetic_view(out, layout, row, ir), term.operator,
                          kinetic_view(u, layout, primary, ir), _target_density(term, u, layout, ir), ir)
     end
     return out
+end
+
+# :explicit_primary: the column of the target density at each radius
+# (zero before the first residual!: the constructor of the system fills its prototype here)
+function add_jacobian!(J, term::KnockOnTerm, u, layout, row, t)
+    density = unknown_id(layout, term.target_density)
+    for ir in 1:radial_cell_count(layout)
+        column = first(unknown_range(layout, density, ir))
+        source = term.lagged[ir]
+        for (k, r) in enumerate(unknown_range(layout, row, ir))
+            _add_entry!(J, r, column, source[k])
+        end
+    end
+    return J
+end
+
+function sparsity!(entries, term::KnockOnTerm, layout, row)
+    density = unknown_id(layout, term.target_density)
+    for ir in 1:radial_cell_count(layout)
+        column = first(unknown_range(layout, density, ir))
+        append!(entries, ((r, column) for r in unknown_range(layout, row, ir)))
+    end
+    return entries
 end
 
 # C is linear in f and in the target density: J v = C(v_f; n) + C(f; v_n)

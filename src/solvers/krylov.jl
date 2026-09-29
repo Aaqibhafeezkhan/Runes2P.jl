@@ -27,15 +27,15 @@ end
 RadiusBlockILU(; drop_tolerance::Real=1e-4) = RadiusBlockILU(Float64(drop_tolerance))
 
 """
-    GMRES(; preconditioner=RadiusBlockLU(), relative_tolerance=1e-10, max_iterations=200,
+    GMRES(; preconditioner=FluidSchurLU(), relative_tolerance=1e-10, max_iterations=200,
           restart_length=30, preconditioner_refresh=:every_iteration, refresh_iterations=10,
           operator=:exact)
 
 Newton-Krylov linear solver: restarted GMRES (Krylov.jl) on the scaled Newton operator
 `W (M/dt - J) S`, where `J` is the stored Jacobian plus the implicit matrix-free terms,
-right preconditioned by `preconditioner` (a [`RadiusBlockLU`](@ref) or
-[`RadiusBlockILU`](@ref) of the stored matrix, or [`FluidSchurLU`](@ref), which holds the
-couplings between the radii). With right preconditioning the residual
+right preconditioned by `preconditioner`: [`FluidSchurLU`](@ref) by default, which holds the
+couplings between the radii, or a [`RadiusBlockLU`](@ref) or
+[`RadiusBlockILU`](@ref) of the stored matrix. With right preconditioning the residual
 GMRES minimizes is the true residual of the scaled system; a solve succeeds when
 `‖b - A x‖ ≤ relative_tolerance ‖b‖` within `max_iterations` iterations, and otherwise
 the Newton iteration fails with `:linear_solve_failed`.
@@ -89,7 +89,7 @@ At production sizes with radially coupled radii:
   vectors: 5.7 GB at 1 200 000 unknowns with a restart length of 200.
 """
 Base.@kwdef struct GMRES{P<:BlockPreconditioner} <: LinearSolver
-    preconditioner::P = RadiusBlockLU()
+    preconditioner::P = FluidSchurLU()
     relative_tolerance::Float64 = 1e-10
     max_iterations::Int = 200
     restart_length::Int = 30
@@ -262,6 +262,11 @@ function linear_solver_cache(solver::GMRES, matrix::SparseMatrixCSC{T}, system::
     solver.preconditioner_refresh in (:every_iteration, :every_step, :on_demand) ||
         throw(ArgumentError("unknown preconditioner_refresh $(solver.preconditioner_refresh)"))
     solver.operator in (:exact, :stored) || throw(ArgumentError("operator must be :exact or :stored"))
+    # the row of a constraint has no entry in the column of its unknown, and in the radius
+    # block the incomplete factorization meets that zero pivot before any row fills it
+    solver.preconditioner isa RadiusBlockILU && any(eq -> eq.kind isa Constraint, system.equations) &&
+        throw(ArgumentError("RadiusBlockILU cannot factorize the radius blocks of a system with a Constraint " *
+                            "equation (issue #103). Take FluidSchurLU or RadiusBlockLU."))
     n = size(matrix, 1)
     operator = NewtonOperator(matrix, system, row_weights, scales, zeros(T, n), zeros(T, n), zeros(T, n),
                               solver.operator === :exact, zero(T))

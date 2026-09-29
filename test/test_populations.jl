@@ -252,7 +252,8 @@ end
         # grids produce nothing above the runaway grid
         @test all(ir -> all(==(0), energy_kernel(runaway_from_runaway, ir).rates_above_grid), 1:2)
         @test all(ir -> all(==(0), energy_kernel(hot_from_hot, ir).rates_above_grid), 1:2)
-        knockon(primary, operator) = KnockOnTerm(primary, operator; target_density=fill(bulk_density, 2))
+        knockon(primary, operator) = KnockOnTerm(primary, operator; target_density=fill(bulk_density, 2),
+                                                 treatment=:implicit)
         region = MomentumRegion(ThermalMomentum(fill(temperature, 2)))
         source = ParticleSourceTerm(:particle_source, hot, fill(temperature, 2))
         free_electron_density = fill(bulk_density, 2)

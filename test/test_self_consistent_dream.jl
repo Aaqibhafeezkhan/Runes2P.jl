@@ -4,9 +4,12 @@
 # equations, Faraday's and Ampère's law with the wall, the currents and densities as moments
 # with the threshold of the hot region, and the particle source with its magnitude as an
 # unknown. DREAM's mode throughout: the cell-centre pitch rule of the moments, the flux
-# between the grids with DREAM's pitch mapping, centred interpolation. The second variant
-# has DREAM's corrected conductivity. Both variants are one type of system:
-# the term of the correction has the coefficient zero in the first.
+# between the grids with DREAM's pitch mapping, centred interpolation. The variant
+# "implicit_source" has the particle source and the wall at 1.1 minor radii, and
+# "corrected_conductivity" the same with DREAM's corrected conductivity: one
+# type of system, the term of the correction has the coefficient zero in the first. The
+# variant "no_source" has no particle source, the wall at the edge of the plasma and no loop
+# voltage.
 using HDF5
 
 const DREAM_SELF_CONSISTENT_DATA = joinpath(@__DIR__, "data", "dream_self_consistent_field.h5")
@@ -36,9 +39,12 @@ const DREAM_SELF_CONSISTENT_DATA = joinpath(@__DIR__, "data", "dream_self_consis
             return maximum(abs(a[k] - b[k]) / abs(a[k]) for k in eachindex(a) if abs(a[k]) > cut)
         end
 
-        @testset "$variant" for variant in ("implicit_source", "corrected_conductivity")
+        @testset "$variant" for variant in ("implicit_source", "corrected_conductivity", "no_source")
             grp = h5[variant]
             corrected = variant == "corrected_conductivity"
+            with_source = variant != "no_source"
+            # DREAM's PARTICLE_SOURCE_ZERO = 1, PARTICLE_SOURCE_IMPLICIT = 2
+            @test read(attributes(grp)["particle_source"]) == (with_source ? 2 : 1)
             @test read(attributes(grp)["corrected_conductivity"]) == Int(corrected)
             times = read(grp["t"])
             saved = read(grp["saved_steps"]) .+ 1
@@ -103,8 +109,8 @@ const DREAM_SELF_CONSISTENT_DATA = joinpath(@__DIR__, "data", "dream_self_consis
                 RadialUnknown(:hot_electron_density; scale=1e11),
                 RadialUnknown(:runaway_density; scale=1e15),
                 RadialUnknown(:runaway_density_above_grid; scale=1e10),
-                RadialUnknown(:cold_electron_density; scale=1e19),
-                RadialUnknown(:particle_source; scale=1e20),
+                RadialUnknown(:cold_electron_density; scale=1e19)],
+                with_source ? [RadialUnknown(:particle_source; scale=1e20)] : RadialUnknown[], [
                 KineticUnknown(:hot_tail_distribution, hot; scale=1e24),
                 KineticUnknown(:runaway_distribution, runaway; scale=1e13)])
             layout = UnknownLayout(radial, unknowns)
@@ -128,11 +134,13 @@ const DREAM_SELF_CONSISTENT_DATA = joinpath(@__DIR__, "data", "dream_self_consis
                          MomentumBoundaryFluxTerm(:runaway_distribution, runaway_term)),
                 Equation(:cold_electron_density, Algebraic(), PrescribedValueTerm(cold_density),
                          minus(:cold_electron_density)),
-                Equation(:particle_source, Constraint(), DensityMomentTerm(:hot_tail_distribution),
-                         minus(:cold_electron_density), minus(:hot_electron_density); scale=1e19),
-                Equation(:hot_tail_distribution, TimeDerivative(), hot_term, interface,
-                         ParticleSourceTerm(:particle_source, hot, temperature)),
-                Equation(:runaway_distribution, TimeDerivative(), runaway_term, interface)])
+                Equation(:runaway_distribution, TimeDerivative(), runaway_term, interface)],
+                with_source ? [
+                    Equation(:particle_source, Constraint(), DensityMomentTerm(:hot_tail_distribution),
+                             minus(:cold_electron_density), minus(:hot_electron_density); scale=1e19),
+                    Equation(:hot_tail_distribution, TimeDerivative(), hot_term, interface,
+                             ParticleSourceTerm(:particle_source, hot, temperature))] :
+                [Equation(:hot_tail_distribution, TimeDerivative(), hot_term, interface)])
             system = EquationSystem(layout, equations)
             hot_id, runaway_id = unknown_id(layout, :hot_tail_distribution), unknown_id(layout, :runaway_distribution)
             u0 = zeros(length(layout))
@@ -173,9 +181,11 @@ const DREAM_SELF_CONSISTENT_DATA = joinpath(@__DIR__, "data", "dream_self_consis
                                maximum(abs(solution.states[position, m] - data[name][m]) / largest
                                        for m in 2:length(times))
             end
-            source = read(grp["S_particle"])
-            errors[:particle_source] = maximum(abs(value(:particle_source, ir, m) - source[ir, m])
-                                               for ir in 1:nr, m in 2:length(times)) / maximum(abs, source)
+            if with_source
+                source = read(grp["S_particle"])
+                errors[:particle_source] = maximum(abs(value(:particle_source, ir, m) - source[ir, m])
+                                                   for ir in 1:nr, m in 2:length(times)) / maximum(abs, source)
+            end
             # observed largest differences, relative to the largest value of DREAM: 2e-13 in the
             # field, 1e-14 in the flux, 1e-13 in the currents and the hot density, 2e-15 in the
             # runaway density, and 9e-8 in the magnitude of the source, which follows from the
@@ -211,7 +221,7 @@ const DREAM_SELF_CONSISTENT_DATA = joinpath(@__DIR__, "data", "dream_self_consis
             # that which holds the current against the friction on the drifting Maxwellian of
             # the start (1.85, 2.02 and 1.81 V/m). It falls to 1.10, 1.21 and 1.11 V/m in the
             # first step of the run, as the distribution takes the shape of the ohmic one.
-            if !corrected
+            if variant == "implicit_source"
                 short = map((1e-5, 1e-9, 1e-11)) do dt
                     states = map((NewtonSolver(residual_tolerance=1e-12),
                                   NewtonSolver(linear_solver=GMRES(), residual_tolerance=1e-12))) do solver

@@ -25,6 +25,10 @@ Rev. Lett. 40, 38, 1978), added to `op.diffusion_r_r`:
 
     Dʳʳ = π q R₀ (δB/B)² |v_∥|,    v_∥ = c p ξ / γ.
 
+The form with `v_∥` and the factor π is that of Papp et al. (arXiv:1504.05074, section 2)
+and, with `q = 1`, of Berger et al. (arXiv:2208.02117, section 2), the second from the DREAM
+group.
+
 `delta_b_over_b` and the safety factor `q` are numbers or have one value per radial face
 (radii + 1, as DREAM's `dBB` on its radial flux grid), `major_radius` is `R₀` in metres.
 The pitch of the coefficient is that of the pitch cells of the radial face

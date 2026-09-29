@@ -185,6 +185,36 @@ distribution(layout, grid, u) = reshape(u[1:end-1], size(grid))
         end
     end
 
+    @testset "manufactured solution with a coefficient that varies in r" begin
+        # f = cos(π r/2a) with D = D₀ (1 + r²/a²) solves (1/r)(r D f')' = S.
+        # The steady solution of the discrete operator with the exact S converges at second
+        # order with Runes2P's edge on a uniform grid and on one refined towards the edge, at
+        # first order with DREAM's distance on the uniform grid, and at second order with it
+        # on the refined grid, where the edge cell is of order h².
+        a, D0 = 1.3, 0.7
+        coefficient(r) = D0 * (1 + (r / a)^2)
+        exact(r) = cos(pi * r / (2a))
+        k = pi / (2a)
+        source(r) = -coefficient(r) * k^2 * cos(k * r) - (coefficient(r) / r + 2D0 * r / a^2) * k * sin(k * r)
+        function solution_error(cells, refined, r_boundary)
+            faces = refined ? a .* sin.(pi / 2 .* (0:cells) ./ cells) : uniform_r_faces(cells, a)
+            g = cylindrical_grid(MomentumGrid(uniform_p_faces(1, 0.5, 1.5), uniform_xi_faces(2)), RadialGrid(faces))
+            op = AdvectionDiffusion(g; scheme=:central, r_boundary)
+            for (ir, r) in enumerate(g.radial_grid.r_faces)
+                op.diffusion_r_r[:, :, ir] .= coefficient(r)
+            end
+            centers = g.radial_grid.r_centers
+            u = operator_matrix(op) \ vec([source(r) for _ in 1:1, _ in 1:2, r in centers])
+            return maximum(abs.(u .- vec([exact(r) for _ in 1:1, _ in 1:2, r in centers])))
+        end
+        order(args...) = log2(solution_error(20, args...) / solution_error(40, args...))
+        @test 1.95 < order(false, :absorbing) < 2.05
+        @test 1.95 < order(true, :absorbing) < 2.05
+        @test 0.95 < order(false, :absorbing_dream) < 1.05
+        @test 1.95 < order(true, :absorbing_dream) < 2.05
+        @test solution_error(40, false, :absorbing) < 3e-5
+    end
+
     @testset "particle budget and survival of a uniform profile" begin
         minor_radius, diffusion = 1.0, 2.0
         grid = cylindrical_grid(MomentumGrid(uniform_p_faces(2, 0.0, 1.0), uniform_xi_faces(2)),
@@ -295,6 +325,17 @@ distribution(layout, grid, u) = reshape(u[1:end-1], size(grid))
         @test Runes2P.update_state(run.update) == fill(1e-3, 7)
         @test Runes2P.apply_update!(run.update, u0, run.layout, 1e-3) === true
         @test run.radial.diffusion_r_r ≈ 1e-4 .* expected.diffusion_r_r rtol = 1e-13
+
+        # the operator of a prescribed term is rebuilt, which clears its radial coefficients:
+        # the update refuses it
+        let shared = AdvectionDiffusion(grid; scheme=:central, r_boundary=:absorbing)
+            bulk = PlasmaState(; cold_electron_temperature=fill(100.0, 6), ions=[IonSpecies("D", 1, 1, fill(1e19, 6))],
+                               electric_field=zeros(6), magnetic_field=fill(5.0, 6))
+            layout = UnknownLayout(grid.radial_grid, [KineticUnknown(:f, grid)])
+            system = EquationSystem(layout, [Equation(:f, TimeDerivative(), PrescribedFokkerPlanckTerm(:f, shared, t -> bulk))])
+            update = RechesterRosenbluthUpdate(shared, history; major_radius)
+            @test_throws "rebuild clears it" integrate(system, vec(f0), times; updates=(update,))
+        end
 
         run = case(history)
         whole = integrate(run.system, u0, times; updates=(run.update,))

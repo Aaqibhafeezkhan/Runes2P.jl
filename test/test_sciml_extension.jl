@@ -19,7 +19,7 @@ using SciMLBase: SciMLBase
     with_knockon = EquationSystem(layout, [Equation(:hot_tail_distribution, TimeDerivative(),
                                                     FokkerPlanckTerm(:hot_tail_distribution, fp),
                                                     KnockOnTerm(:hot_tail_distribution, knockon;
-                                                                target_density=[1e20, 1e20])),
+                                                                target_density=[1e20, 1e20], treatment=:implicit)),
                                            density_equation])
     u = [1e16 * (1 + 0.1 * sin(k)) for k in 1:length(layout)]
     v = [cos(0.3k) for k in 1:length(layout)] .* unknown_scales(layout)

@@ -83,10 +83,12 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(mode=:full, screening=:complete,
         @test test_particle_conductivity_fraction(16) ≈ 0.9214 atol = 1e-4
     end
 
-    function discrete(; Z=1, T=10.0, cells=160, pitch_cells=4, scheme=:central, cold_fraction=1.0, kwargs...)
+    function discrete(; Z=1, T=10.0, cells=160, pitch_cells=4, scheme=:central, cold_fraction=1.0,
+                      p_upper_boundary=:f_zero, kwargs...)
         grid = conductivity_grid(; cells, pitch_cells, T)
         plasma = conductivity_plasma(; Z, T, cold_fraction)
-        operator = fokker_planck_operator(grid, plasma, CONDUCTIVITY_SETTINGS; scheme, electric_field=false)
+        operator = fokker_planck_operator(grid, plasma, CONDUCTIVITY_SETTINGS; scheme, p_upper_boundary,
+                                          electric_field=false)
         return only(kinetic_conductivity(operator; density=get(kwargs, :density, [1e20]),
                                          pitch_rule=get(kwargs, :pitch_rule, :linear)))
     end
@@ -110,6 +112,18 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(mode=:full, screening=:complete,
         @test discrete(; scheme=:exponential_fitting) ≈ values[1] rtol = 2e-3
         @test discrete(; scheme=:tcdf) ≈ values[1] rtol = 2e-2
         @test discrete(; pitch_cells=8) ≈ values[1] rtol = 1e-6
+        # DREAM's flux boundaries at p_max make the bordered systems singular: the response
+        # takes f = 0 beyond p_max in their place, and the operator of the run
+        # keeps its own boundary
+        for boundary in (:constant_flux, :extrapolated_flux, :extrapolated_flux_consistent)
+            @test discrete(; p_upper_boundary=boundary) ≈ values[1] rtol = 1e-14
+        end
+        @test discrete(; scheme=:exponential_fitting, p_upper_boundary=:constant_flux) ≈
+              discrete(; scheme=:exponential_fitting) rtol = 1e-14
+        constant_flux = fokker_planck_operator(conductivity_grid(), conductivity_plasma(), CONDUCTIVITY_SETTINGS;
+                                               p_upper_boundary=:constant_flux, electric_field=false)
+        kinetic_conductivity(constant_flux; density=[1e20])
+        @test constant_flux.p_upper_boundary === :constant_flux
         @test discrete(; pitch_rule=:cell_center) / values[1] ≈ 1.5 * sum(abs2, [-0.75, -0.25, 0.25, 0.75]) * 0.5 rtol = 1e-8
         # the equilibrium is that of the operator: the collision term of the run vanishes on it
         grid = conductivity_grid()
@@ -146,6 +160,19 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(mode=:full, screening=:complete,
         @test_throws ArgumentError ConductivityModel(plasma; kinetic=:fit)
         @test_throws ArgumentError ConductivityModel(plasma; kinetic=:discrete_operator)
         @test_throws ArgumentError ConductivityModel(plasma; kinetic=:dream_fit, operator=AdvectionDiffusion(conductivity_grid()))
+        # a constant plasma of the model with an operator that is rebuilt in time: the
+        # conductivity of the discrete operator follows the operator
+        let grid = conductivity_grid(; cells=40, T=10.0), single = conductivity_plasma(; T=10.0)
+            bulk(t) = conductivity_plasma(; T=10.0 * exp(-t))
+            prescribed = PrescribedFokkerPlanckTerm(:f, AdvectionDiffusion(grid), bulk; settings=CONDUCTIVITY_SETTINGS)
+            model = ConductivityModel(single; kinetic=:discrete_operator, operator=prescribed)
+            @test Runes2P.is_time_dependent(model)
+            # the operator of the term as its rebuild makes it at t = 0.5
+            later = set_fokker_planck_coefficients!(AdvectionDiffusion(grid), bulk(0.5), CONDUCTIVITY_SETTINGS)
+            @test model(0.5) ≈ [braams_karney_conductivity(single, 1)] .- kinetic_conductivity(later) rtol = 1e-12
+            term = ConductivityTerm(:electric_field, model)
+            @test copy(conductivity_at(term, 0.5)) != conductivity_at(term, 0.0)
+        end
 
         layout = UnknownLayout(radial, [RadialUnknown(:electric_field), RadialUnknown(:ohmic_current_density; scale=1e4),
                                         ScalarUnknown(:plasma_current)])

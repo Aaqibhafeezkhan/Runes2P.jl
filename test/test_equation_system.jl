@@ -213,6 +213,50 @@ end
         Je = jacobian_prototype(explicit)
         jacobian!(Je, explicit, u, 0.0)
         @test Matrix(jacobian_operator(Je, explicit, u, 0.0)) == Matrix(Je)
+
+        # DREAM's form, the default: the primary at the previous time level, the target
+        # density at the new one
+        lagged = EquationSystem(layout, equations(:explicit_primary))
+        Fl = zeros(length(u))
+        residual!(Fl, u, u_old, lagged, 0.0, dt)
+        knock_mixed = zeros(size(g))
+        apply!(knock_mixed, knockon, f_old, [radial_view(u, layout, ntot_id, ir)[1] for ir in 1:2])
+        for ir in 1:2
+            expected = (kinetic_view(u, layout, f_id, ir) .- kinetic_view(u_old, layout, f_id, ir)) ./ dt .-
+                       fp_new[:, :, ir] .- knock_mixed[:, :, ir]
+            @test kinetic_view(Fl, layout, f_id, ir) ≈ expected rtol = 1e-12
+        end
+        # its stored block is the column of the target density at each radius, against a
+        # finite difference of the residual at a fixed previous state, and no block in f
+        Jl = jacobian_prototype(lagged)
+        jacobian!(Jl, lagged, u, 0.0)
+        f_rows = reduce(vcat, [collect(unknown_range(layout, f_id, ir)) for ir in 1:2])
+        for ir in 1:2
+            column = first(unknown_range(layout, ntot_id, ir))
+            h = 1e-4 * u[column]
+            shifted = copy(u)
+            shifted[column] += h
+            Fh = zeros(length(u))
+            residual!(Fh, shifted, u_old, lagged, 0.0, dt)
+            @test Jl[f_rows, column] ≈ -(Fh[f_rows] .- Fl[f_rows]) ./ h rtol = 1e-8
+        end
+        @test Jl[f_rows, f_rows] == Je[f_rows, f_rows]
+        @test Matrix(jacobian_operator(Jl, lagged, u, 0.0)) == Matrix(Jl)
+        @test is_linear(KnockOnTerm(:hot_tail_distribution, knockon; target_density=:total_electron_density))
+        # with a prescribed target density it is the explicit form
+        prescribed = KnockOnTerm(:hot_tail_distribution, knockon; target_density=[1e20, 2e20])
+        @test Runes2P.treatment(prescribed) === :explicit && coupling(prescribed) === :matrix_free
+        # the source is set by the residual and by the right-hand side of the system
+        @test_throws "not set" rhs!(zeros(length(u)), KnockOnTerm(:hot_tail_distribution, knockon;
+                                                                  target_density=:total_electron_density),
+                                    u, layout, f_id, 0.0)
+        # the direct solver takes it: one step against GMRES
+        steps = [integrate(lagged, u_old, [0.0, dt]; solver).states[:, end]
+                 for solver in (NewtonSolver(), NewtonSolver(linear_solver=GMRES()))]
+        @test steps[1] ≈ steps[2] rtol = 1e-8
+        residual!(Fl, u, u_old, lagged, 0.0, dt)
+        @test (@allocated residual!(Fl, u, u_old, lagged, 0.0, dt)) == 0
+
         residual!(F, u, u_old, system, 0.0, dt)
         @test (@allocated residual!(F, u, u_old, system, 0.0, dt)) == 0
         rhs!(du, u, system, 0.0)
@@ -265,7 +309,7 @@ end
                                       RadialUnknown(:hot_electron_density; scale=1e16)])
         system2 = EquationSystem(layout2, [
             Equation(:hot_tail_distribution, TimeDerivative(),
-                     KnockOnTerm(:hot_tail_distribution, op; target_density=[1e20, 2e20]),
+                     KnockOnTerm(:hot_tail_distribution, op; target_density=[1e20, 2e20], treatment=:implicit),
                      LinearTerm(:hot_tail_distribution; coefficient=-10.0)),
             Equation(:hot_electron_density, Algebraic(), DensityMomentTerm(:hot_tail_distribution),
                      LinearTerm(:hot_electron_density; coefficient=-1))])

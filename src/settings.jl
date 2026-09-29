@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.12"
+const OUTPUT_FORMAT_VERSION = v"0.13"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -445,6 +445,8 @@ end
 
 function describe(term::KnockOnTerm, context::DescriptionContext)
     record = _term_record(term)
+    # the treatment asked for; `treatment` above is where the system places the term
+    record["knock_on_treatment"] = String(term.treatment)
     record["primary"] = String(term.primary)
     record["target_density"] = term.target_density isa Symbol ? String(term.target_density) :
                                _plain(term.target_density)

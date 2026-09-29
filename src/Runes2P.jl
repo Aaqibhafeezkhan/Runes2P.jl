@@ -87,7 +87,7 @@ export unknown_id, unknown_names, unknown, unknown_range, radius_block_range, sc
 export radial_view, kinetic_view, scalar_view, unknown_view, unknown_scales, describe, copy_unknowns!
 export kinetic_grid
 export EquationTerm, dependencies, coupling, treatment, sparsity!, rhs!, jacobian_vector_product!
-export jacobian_kind, jacobian_correction_product!, is_linear, jacobian_assembly, add_jacobian!
+export jacobian_kind, jacobian_correction_product!, is_linear, jacobian_assembly, add_jacobian!, prepare_step!
 export PrescribedValueTerm
 export MomentumRegion, ThermalMomentum, momentum_limit, momentum_envelope, momentum_envelope!, is_time_dependent
 export PoloidalFluxDiffusionTerm, CrossSectionIntegralTerm, cross_section_weights, edge_to_wall_inductance

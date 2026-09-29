@@ -22,9 +22,14 @@ const SCHUR_TEST_GMRES = Base.require(Runes2P, :Krylov).gmres
     minus(name) = LinearTerm(name; coefficient=-1)
     collision_time = thermal_collision_time(ne, T, thermal_coulomb_logarithm(T, ne))
 
-    function coupled_system(delta_b_over_b)
+    function coupled_system(delta_b_over_b; field_particle=false)
         kinetic_terms = Any[FokkerPlanckTerm(:hot_tail_distribution, operator; electric_field=:electric_field),
                             ParticleSourceTerm(:particle_source, grid, fill(T, radii))]
+        # the momentum-conserving field-particle term replaces the conductivity correction
+        field_particle &&
+            push!(kinetic_terms, FieldParticleTerm(:hot_tail_distribution, FieldParticleOperator(grid, plasma, settings)))
+        current_terms = field_particle ? () :
+                        (ConductivityTerm(:electric_field, ConductivityModel(plasma; kinetic=:discrete_operator, operator)),)
         if delta_b_over_b > 0
             radial_operator = AdvectionDiffusion(grid; scheme=:central, r_boundary=:absorbing)
             add_rechester_rosenbluth_diffusion!(radial_operator, delta_b_over_b; major_radius=1.0)
@@ -35,8 +40,7 @@ const SCHUR_TEST_GMRES = Base.require(Runes2P, :Krylov).gmres
                          KineticUnknown(:hot_tail_distribution, grid; scale=1e20)])
         equations = vcat(induction_equations(radial; wall_radius=0.3, current_density_scale=1e4), [
             Equation(:total_current_density, Algebraic(), CurrentMomentTerm(:hot_tail_distribution, grid),
-                     ConductivityTerm(:electric_field, ConductivityModel(plasma; kinetic=:discrete_operator, operator)),
-                     minus(:total_current_density)),
+                     current_terms..., minus(:total_current_density)),
             Equation(:particle_source, Constraint(), DensityMomentTerm(:hot_tail_distribution),
                      PrescribedValueTerm(-ne); scale=ne),
             Equation(:hot_tail_distribution, TimeDerivative(), kinetic_terms...)])
@@ -133,19 +137,56 @@ const SCHUR_TEST_GMRES = Base.require(Runes2P, :Krylov).gmres
         end
     end
 
+    # the low-rank terms of the blocks in the residuals between the stages and
+    # in the columns of the Schur stage, with the fluid block and the lines both present
+    @testset "with the field-particle term" begin
+        system, layout, u0 = coupled_system(3e-4; field_particle=true)
+        dt = 10 * collision_time
+        times = collect(range(0, 20 * dt; length=6))
+        direct = integrate(system, u0, times; solver=NewtonSolver(linear_solver=SparseLU()))
+        @test all(direct.statistics.accepted)
+        for preconditioner in (FluidSchurLU(), FluidSchurLU(; radial_lines=false))
+            krylov = integrate(system, u0, times; solver=NewtonSolver(linear_solver=GMRES(; preconditioner)))
+            @test all(krylov.statistics.accepted)
+            @test krylov.states[:, end] ≈ direct.states[:, end] rtol = 1e-7
+            @test sum(krylov.statistics.krylov_iterations) <= 20 * sum(krylov.statistics.newton_iterations)
+        end
+        # the incomplete factorization meets the zero pivot of the constraint row
+        @test_throws "RadiusBlockILU" integrate(system, u0, times;
+                                                solver=NewtonSolver(linear_solver=GMRES(; preconditioner=RadiusBlockILU())))
+    end
+
     @testset "checks and record" begin
         system, layout, u0 = coupled_system(0.0)
         A = newton_matrix(system, u0, 1e-6)
         # pitch grids that differ between radii: the Schur stage works, the lines are refused
+        # when asked for, and the default leaves them out with a warning
         grids = [MomentumGrid(uniform_p_faces(24, 0.0, 7 * sqrt(2theta)), ir == 1 ? uniform_xi_faces(4) :
                                                                          biuniform_theta_xi_faces(4, 3, 0.9))
                  for ir in 1:radii]
         other = cylindrical_grid(grids, radial)
         other_layout = UnknownLayout(radial, [RadialUnknown(:electric_field), KineticUnknown(:hot_tail_distribution, other)])
         other_matrix = sparse(1.0IdentityMatrix, length(other_layout), length(other_layout))
-        @test_throws "one pitch grid" Runes2P.preconditioner_factors(FluidSchurLU(), other_matrix, other_layout)
+        @test_throws "one pitch grid" Runes2P.preconditioner_factors(FluidSchurLU(; radial_lines=true), other_matrix,
+                                                                  other_layout)
+        # pitch grids over different intervals have no overlaps at all
+        apart = cylindrical_grid([MomentumGrid(uniform_p_faces(24, 0.0, 7 * sqrt(2theta)),
+                                               collect(range(-1.0, ir == 1 ? 1.0 : 0.9; length=5))) for ir in 1:radii],
+                                 radial)
+        apart_layout = UnknownLayout(radial, [RadialUnknown(:electric_field), KineticUnknown(:hot_tail_distribution, apart)])
+        @test_throws "one pitch grid" Runes2P.preconditioner_factors(FluidSchurLU(; radial_lines=true),
+                                                                  sparse(1.0IdentityMatrix, length(apart_layout),
+                                                                         length(apart_layout)), apart_layout)
         @test Runes2P.preconditioner_factors(FluidSchurLU(; radial_lines=false), other_matrix, other_layout) isa
               Runes2P.FluidSchurFactors
+        fallback = @test_logs (:warn, r"without radial lines") Runes2P.preconditioner_factors(FluidSchurLU(), other_matrix,
+                                                                                         other_layout)
+        @test fallback.lines === nothing
+        transported, transported_layout, transported_u0 = coupled_system(1e-3)
+        @test Runes2P.preconditioner_factors(FluidSchurLU(), newton_matrix(transported, transported_u0, 1e-6),
+                                          transported_layout).lines !== nothing
+        @test_throws "true, false or :auto" FluidSchurLU(; radial_lines=:always)
+        @test GMRES().preconditioner == FluidSchurLU(; radial_lines=:auto)
         # a kinetic row that couples to a radial unknown of another radius
         coupled = copy(A)
         row = first(unknown_range(layout, unknown_id(layout, :hot_tail_distribution), 1))
