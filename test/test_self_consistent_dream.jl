@@ -4,7 +4,9 @@
 # equations, Faraday's and Ampère's law with the wall, the currents and densities as moments
 # with the threshold of the hot region, and the particle source with its magnitude as an
 # unknown. DREAM's mode throughout: the cell-centre pitch rule of the moments, the flux
-# between the grids with DREAM's pitch mapping, centred interpolation.
+# between the grids with DREAM's pitch mapping, centred interpolation. The second variant
+# has DREAM's corrected conductivity. Both variants are one type of system:
+# the term of the correction has the coefficient zero in the first.
 using HDF5
 
 const DREAM_SELF_CONSISTENT_DATA = joinpath(@__DIR__, "data", "dream_self_consistent_field.h5")
@@ -34,8 +36,10 @@ const DREAM_SELF_CONSISTENT_DATA = joinpath(@__DIR__, "data", "dream_self_consis
             return maximum(abs(a[k] - b[k]) / abs(a[k]) for k in eachindex(a) if abs(a[k]) > cut)
         end
 
-        let variant = "implicit_source"
+        @testset "$variant" for variant in ("implicit_source", "corrected_conductivity")
             grp = h5[variant]
+            corrected = variant == "corrected_conductivity"
+            @test read(attributes(grp)["corrected_conductivity"]) == Int(corrected)
             times = read(grp["t"])
             saved = read(grp["saved_steps"]) .+ 1
             f_hot = read(grp["f_hot"])   # (np, nξ, nr, saved steps)
@@ -61,14 +65,25 @@ const DREAM_SELF_CONSISTENT_DATA = joinpath(@__DIR__, "data", "dream_self_consis
             region = MomentumRegion(ThermalMomentum(temperature))
             moment(f, grid; kwargs...) = current_density(grid, f; pitch_rule=:cell_center, kwargs...)
             @test moment(f_hot[:, :, :, 1], hot; region) ≈ data[:hot_electron_current_density][:, 1] rtol = 1e-11
-            @test moment(f_hot[:, :, :, 1], hot) .- moment(f_hot[:, :, :, 1], hot; region) ≈
-                  data[:ohmic_current_density][:, 1] rtol = 1e-11
             @test moment(f_re[:, :, :, 1], runaway) ≈ data[:runaway_current_density][:, 1] rtol = 1e-11
             @test density(hot, f_hot[:, :, :, 1]; region) ≈ data[:hot_electron_density][:, 1] rtol = 1e-11
             @test density(runaway, f_re[:, :, :, 1]) ≈ data[:runaway_density][:, 1] rtol = 1e-11
 
             plasma = PlasmaState(cold_electron_temperature=temperature, cold_electron_density=cold_density,
                                  ions=ions, electric_field=zeros(nr), magnetic_field=fill(read(h5["B"]), nr))
+            # DREAM's conductivity of Sauter and Redl is that of Braams and Karney in a cylinder
+            conductivity = read(grp["conductivity"])   # (nr, nt)
+            # (Z_eff = 1 and n_cold = n_free in this case: the check covers the table, the
+            # interpolation, the Coulomb logarithm and the constants, test_conductivity.jl the
+            # effective charge)
+            expected_conductivity = [braams_karney_conductivity(plasma, ir) for ir in 1:nr]
+            @test all(isapprox(conductivity[:, m], expected_conductivity; rtol=1e-12) for m in axes(conductivity, 2))
+            correction = ConductivityTerm(:electric_field, ConductivityModel(plasma; kinetic=:dream_fit);
+                                          coefficient=corrected ? 1 : 0)
+            # the ohmic current of the start holds the correction with the field of the start
+            @test moment(f_hot[:, :, :, 1], hot) .- moment(f_hot[:, :, :, 1], hot; region) .+
+                  (corrected ? conductivity_at(correction, 0.0) .* data[:electric_field][:, 1] : zeros(nr)) ≈
+                  data[:ohmic_current_density][:, 1] rtol = 1e-11
             hot_operator = fokker_planck_operator(hot, plasma, settings; synchrotron=true, scheme=:central,
                                                   p_upper_boundary=:interface, electric_field=false)
             # DREAM's default at the p_max of the runaway grid: BC_PHI_CONST
@@ -100,7 +115,7 @@ const DREAM_SELF_CONSISTENT_DATA = joinpath(@__DIR__, "data", "dream_self_consis
                 # DREAM's ohmic current of the fully kinetic mode without the corrected
                 # conductivity: the current of all momenta minus the hot current
                 Equation(:ohmic_current_density, Algebraic(), current(:hot_tail_distribution, hot),
-                         minus(:hot_electron_current_density), minus(:ohmic_current_density)),
+                         minus(:hot_electron_current_density), correction, minus(:ohmic_current_density)),
                 Equation(:hot_electron_current_density, Algebraic(), current(:hot_tail_distribution, hot; region),
                          minus(:hot_electron_current_density)),
                 Equation(:runaway_current_density, Algebraic(), current(:runaway_distribution, runaway),
@@ -172,6 +187,10 @@ const DREAM_SELF_CONSISTENT_DATA = joinpath(@__DIR__, "data", "dream_self_consis
             end
             @test sum(solution.statistics.newton_iterations) <= 4 * (length(times) - 1)
             @test jacobian_colors(system) <= 21
+            # observed with the corrected conductivity: 1.1e-13 of the field, 1.6e-12 of f_hot and
+            # f_re, 1.9e-15 of the plasma current, 5.8e-8 of the source. The correction raises
+            # the plasma current at the end from 138 kA to 198 kA and lowers the field at the
+            # axis from 1.10 to 0.89 V/m
             # the field changes during the run, and nothing leaves the runaway grid
             field = data[:electric_field]
             @test maximum(abs.(field[:, end] .- field[:, 2]) ./ abs.(field[:, 2])) > 0.02
@@ -192,7 +211,7 @@ const DREAM_SELF_CONSISTENT_DATA = joinpath(@__DIR__, "data", "dream_self_consis
             # that which holds the current against the friction on the drifting Maxwellian of
             # the start (1.85, 2.02 and 1.81 V/m). It falls to 1.10, 1.21 and 1.11 V/m in the
             # first step of the run, as the distribution takes the shape of the ohmic one.
-            let
+            if !corrected
                 short = map((1e-5, 1e-9, 1e-11)) do dt
                     states = map((NewtonSolver(residual_tolerance=1e-12),
                                   NewtonSolver(linear_solver=GMRES(), residual_tolerance=1e-12))) do solver

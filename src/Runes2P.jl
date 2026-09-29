@@ -10,6 +10,7 @@ include("physics/constants.jl")
 include("physics/atomic_data.jl")
 include("physics/plasma.jl")
 include("physics/coulomb_logarithm.jl")
+include("physics/conductivity.jl")
 include("physics/collision_frequencies.jl")
 include("grids/momentum.jl")
 include("grids/pitch_overlap.jl")
@@ -33,6 +34,7 @@ include("system/interface_term.jl")
 include("system/transport_terms.jl")
 include("system/population_terms.jl")
 include("operators/field_particle.jl")
+include("system/conductivity_terms.jl")
 include("system/equation_system.jl")
 include("system/induction_terms.jl")
 include("solvers/linear_solver.jl")
@@ -92,6 +94,8 @@ export InductionNames, induction_unknowns, induction_equations, initial_poloidal
 export FokkerPlanckTerm, PrescribedFokkerPlanckTerm, KnockOnTerm, LinearTerm, DensityMomentTerm, CurrentMomentTerm, MaxwellianSourceTerm, LayoutKineticArray, kinetic_array
 export Equation, TimeDerivative, Algebraic, Constraint, EquationSystem, Tolerance, tolerance
 export ParticleSourceTerm, source_shape, MomentumBoundaryFluxTerm
+export normalized_conductivity, effective_charge, braams_karney_conductivity, test_particle_conductivity_fraction
+export kinetic_conductivity, ConductivityModel, ConductivityTerm, conductivity_at
 export residual!, mass_matrix, jacobian_sparsity, jacobian_prototype, jacobian_operator, jacobian_colors, residual_scales, ode_function
 export LinearSolver, SparseLU, GMRES, RadiusBlockLU, RadiusBlockILU, NewtonSolver, NewtonWorkspace, NewtonResult, newton_solve!, invalidate_jacobian!
 export SolverStatistics, TimeSolution, TimeStepFailure, integrate, write_output

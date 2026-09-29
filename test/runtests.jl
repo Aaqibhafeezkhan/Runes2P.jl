@@ -36,6 +36,7 @@ end
     timed_include("test_momentum_region.jl")
     timed_include("test_induction.jl")
     timed_include("test_populations.jl")
+    timed_include("test_conductivity.jl")
     timed_include("test_momentum_interface.jl")
     timed_include("test_prescribed_fokker_planck.jl")
     timed_include("test_jacobian_strategies.jl")

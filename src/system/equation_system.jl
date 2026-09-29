@@ -189,6 +189,7 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
     missing_equations = [layout.unknowns[id].name for id in 1:count if rows[id] == 0]
     isempty(missing_equations) || throw(ArgumentError("no equation for $(join(missing_equations, ", "))"))
 
+    _check_conductivity_correction(equations)
     sparse_terms, matrix_free_terms, explicit_terms = BoundTerm[], BoundTerm[], BoundTerm[]
     mass = zeros(T, length(layout))
     mass_columns = collect(1:length(layout))

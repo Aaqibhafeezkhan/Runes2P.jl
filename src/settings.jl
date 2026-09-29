@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.10"
+const OUTPUT_FORMAT_VERSION = v"0.11"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -539,6 +539,42 @@ function describe(term::MomentumBoundaryFluxTerm, context::DescriptionContext)
     record["coefficient"] = term.coefficient
     operator = _operator_of(term.source)
     record["operator"] = describe(operator, context; coefficients=false)
+    return record
+end
+
+settings_fields(::Type{<:ConductivityTerm}) =
+    (described=(:electric_field, :model, :coefficient), derived=(:values, :time))
+
+"""
+    describe(model::ConductivityModel, context)
+
+Record of a conductivity model: the reference, what is subtracted for the kinetic
+operator, and the conductivity per radius at the time points of `context` (at the first
+one for a plasma that is constant in time).
+"""
+function describe(model::ConductivityModel, context::DescriptionContext=DescriptionContext())
+    record = SettingsRecord("type" => "ConductivityModel", "reference" => String(model.reference),
+                            "kinetic" => String(model.kinetic))
+    if model.kinetic === :discrete_operator
+        record["pitch_rule"] = String(model.pitch_rule)
+        record["operator"] = describe(_operator_of(model.operator), context; coefficients=false)
+    end
+    if model.plasma isa PlasmaState
+        record["plasma"] = describe(model.plasma)
+        record["conductivity"] = _plain(model(0.0))
+    else
+        record["plasma"] = _callable_name(model.plasma)
+        record["plasma_table"] = prescribed_table!(context, model.plasma)
+        record["conductivity"] = describe_prescribed_levels(model, context)
+    end
+    return record
+end
+
+function describe(term::ConductivityTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["electric_field"] = String(term.electric_field)
+    record["coefficient"] = term.coefficient
+    record["model"] = describe(term.model, context)
     return record
 end
 
