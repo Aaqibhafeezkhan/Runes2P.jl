@@ -158,6 +158,10 @@ const SPITZER_HARM = Dict(1 => 0.5816, 2 => 0.6833, 4 => 0.7849, 16 => 0.9225)
         @test sigma_plain ≈ sigma rtol = 1e-8
         # the Woodbury update takes the term into the preconditioner
         @test sum(stats.krylov_iterations) < sum(stats_plain.krylov_iterations)
+        # the same inside the kinetic blocks of FluidSchurLU
+        sigma_schur, stats_schur = run_to_steady_state(E, GMRES(; preconditioner=FluidSchurLU()))
+        @test sigma_schur ≈ sigma rtol = 1e-8
+        @test sum(stats_schur.krylov_iterations) <= sum(stats.krylov_iterations)
         sigma_double, _ = run_to_steady_state(2E, GMRES())
         @test sigma_double ≈ sigma rtol = 1e-4
     end

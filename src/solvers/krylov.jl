@@ -34,7 +34,8 @@ RadiusBlockILU(; drop_tolerance::Real=1e-4) = RadiusBlockILU(Float64(drop_tolera
 Newton-Krylov linear solver: restarted GMRES (Krylov.jl) on the scaled Newton operator
 `W (M/dt - J) S`, where `J` is the stored Jacobian plus the implicit matrix-free terms,
 right preconditioned by `preconditioner` (a [`RadiusBlockLU`](@ref) or
-[`RadiusBlockILU`](@ref) of the stored matrix). With right preconditioning the residual
+[`RadiusBlockILU`](@ref) of the stored matrix, or [`FluidSchurLU`](@ref), which holds the
+couplings between the radii). With right preconditioning the residual
 GMRES minimizes is the true residual of the scaled system; a solve succeeds when
 `‖b - A x‖ ≤ relative_tolerance ‖b‖` within `max_iterations` iterations, and otherwise
 the Newton iteration fails with `:linear_solve_failed`.
@@ -70,12 +71,15 @@ leaves out the knock-on term.
 
 At production sizes with radially coupled radii:
 
-- The block preconditioner leaves out the radial coupling, and the Krylov count grows with
-  it: about 29 per Newton iteration at 20 radii and 59 at 40 under Rechester-Rosenbluth
-  diffusion with `δB/B = 1e-3`, the largest of a step 1.4 times that. `restart_length` has
-  to exceed the count. With the default of 30 the iteration stagnates and the step ends
-  with `:linear_solve_failed` (600 000 and 1 200 000 unknowns, 20 radii), with 200 it
-  converges.
+- `RadiusBlockLU` leaves out the radial coupling, and the Krylov count grows with it: about
+  29 per Newton iteration at 20 radii and 59 at 40 under Rechester-Rosenbluth diffusion
+  with `δB/B = 1e-3`, the largest of a step 1.4 times that. `restart_length` has to exceed
+  the count. With the default of 30 the iteration stagnates and the step ends with
+  `:linear_solve_failed` (600 000 and 1 200 000 unknowns, 20 radii), with 200 it converges.
+- [`FluidSchurLU`](@ref) holds the radial coupling by line solves and the fluid unknowns
+  exactly: 8.4, 12.1 and 18.5 per Newton iteration at 11, 20 and 40 radii on the
+  production grid, the largest of a step 12, 18 and 28, within the default restart length
+  of 30; the count still grows slowly with the number of radii.
 - `relative_tolerance` stays at or below the `floor_linear_tolerance` of the
   [`NewtonSolver`](@ref) (1e-8). With 1e-6 the Newton iteration cannot accept a residual
   at its round-off floor and ends with `:max_iterations`. 1e-8 takes about 19 Krylov
@@ -173,6 +177,10 @@ end
 _factorize(::RadiusBlockLU, block) = lu(block; check=false)
 _factorize(p::RadiusBlockILU, block) = ilu(block; τ=p.drop_tolerance)
 
+# the factors of a preconditioner for the stored matrix
+preconditioner_factors(preconditioner::BlockPreconditioner, matrix::SparseMatrixCSC, layout) =
+    BlockFactors(preconditioner, matrix, layout)
+
 function BlockFactors(preconditioner::BlockPreconditioner, matrix::SparseMatrixCSC{T}, layout) where {T}
     ranges = _preconditioner_blocks(layout)
     extracted = [_extract_block(matrix, range) for range in ranges]
@@ -227,7 +235,7 @@ function LinearAlgebra.ldiv!(y::AbstractVector, factors::BlockFactors, x::Abstra
     return y
 end
 
-mutable struct GMRESCache{T,O<:NewtonOperator{T},F<:BlockFactors{T},W,P}
+mutable struct GMRESCache{T,O<:NewtonOperator{T},F,W,P}
     const solver::GMRES{P}
     const operator::O
     const factors::F
@@ -257,7 +265,7 @@ function linear_solver_cache(solver::GMRES, matrix::SparseMatrixCSC{T}, system::
     n = size(matrix, 1)
     operator = NewtonOperator(matrix, system, row_weights, scales, zeros(T, n), zeros(T, n), zeros(T, n),
                               solver.operator === :exact, zero(T))
-    factors = BlockFactors(solver.preconditioner, matrix, system.layout)
+    factors = preconditioner_factors(solver.preconditioner, matrix, system.layout)
     workspace = GmresWorkspace(n, n, Vector{T}; memory=solver.restart_length)
     return GMRESCache(solver, operator, factors, workspace, 0, 0, false, NaN, 0, 0.0, false)
 end

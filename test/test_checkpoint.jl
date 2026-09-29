@@ -305,7 +305,10 @@ _checkpoint_directory() = mktempdir()
                    ("GMRES, every step",
                     NewtonSolver(linear_solver=GMRES(preconditioner_refresh=:every_step)), :implicit, true),
                    ("GMRES, on demand",
-                    NewtonSolver(linear_solver=GMRES(preconditioner_refresh=:on_demand)), :implicit, false)]
+                    NewtonSolver(linear_solver=GMRES(preconditioner_refresh=:on_demand)), :implicit, false),
+                   ("GMRES with FluidSchurLU, every iteration",
+                    NewtonSolver(linear_solver=GMRES(preconditioner=FluidSchurLU(),
+                                                     preconditioner_refresh=:every_iteration)), :implicit, true)]
         @testset "$name" for (name, solver, treatment, exact) in solvers
             case = _checkpoint_case(; treatment)
             whole = integrate(case.system, case.u0, case.times; solver, save_times=case.save_times,

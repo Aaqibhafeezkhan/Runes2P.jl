@@ -40,6 +40,7 @@ include("system/induction_terms.jl")
 include("solvers/linear_solver.jl")
 include("solvers/newton.jl")
 include("solvers/krylov.jl")
+include("solvers/fluid_schur_preconditioner.jl")
 include("settings.jl")
 include("solvers/interval_updates.jl")
 include("solvers/transport_update.jl")
@@ -97,6 +98,7 @@ export ParticleSourceTerm, source_shape, MomentumBoundaryFluxTerm
 export normalized_conductivity, effective_charge, braams_karney_conductivity, test_particle_conductivity_fraction
 export kinetic_conductivity, ConductivityModel, ConductivityTerm, conductivity_at
 export residual!, mass_matrix, jacobian_sparsity, jacobian_prototype, jacobian_operator, jacobian_colors, residual_scales, ode_function
+export FluidSchurLU
 export LinearSolver, SparseLU, GMRES, RadiusBlockLU, RadiusBlockILU, NewtonSolver, NewtonWorkspace, NewtonResult, newton_solve!, invalidate_jacobian!
 export SolverStatistics, TimeSolution, TimeStepFailure, integrate, write_output
 export OUTPUT_FORMAT_VERSION, DescriptionContext, run_settings, read_settings, settings_hash, settings_fields
