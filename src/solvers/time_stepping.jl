@@ -1,6 +1,8 @@
-# Backward-Euler time stepping: steps between the time points of any
-# array, a failed Newton solve retried with shorter steps, saved states at their own
-# times, and solver statistics per attempted step with their own time array (DREAM #296).
+# Backward-Euler time stepping: steps whose length a stepper
+# sets, every time point of the run the end of a step, a failed Newton solve retried with
+# shorter steps, saved states at their own times, updates, checkpoints and the stop after
+# accepted steps, and solver statistics per attempted step with their own time array
+# (DREAM #296).
 
 """
     SolverStatistics
@@ -115,8 +117,8 @@ TimeSolution(layout::UnknownLayout, times::Vector, states::Matrix, statistics::S
 """
     TimeStepFailure
 
-Thrown by [`integrate`](@ref) when a step still fails after the allowed number of
-halvings; holds the `time` and `time_step` of the last attempt, its Newton `status` and
+Thrown by [`integrate`](@ref) when a step still fails after the retries the stepper
+allows; holds the `time` and `time_step` of the last attempt, its Newton `status` and
 the statistics up to the failure.
 """
 struct TimeStepFailure <: Exception
@@ -128,7 +130,128 @@ end
 
 Base.showerror(io::IO, e::TimeStepFailure) =
     print(io, "TimeStepFailure: the step to t = $(e.time) failed with status :$(e.status) ",
-          "after halving the time step to $(e.time_step)")
+          "at the time step $(e.time_step)")
+
+# ---------------------------------------------------------------------------------------
+# time steppers: what sets the length of the next step and what a
+# stepper carries from step to step, which goes into the checkpoint so that a resumed
+# run repeats the uninterrupted one
+
+"""
+    TimeStepper
+
+Supertype of the steppers of [`integrate`](@ref), which set the length of every step:
+[`FixedSteps`](@ref). The state a stepper carries between steps (its step length, the
+count of its failures) is recorded in every checkpoint and restored by a resume.
+"""
+abstract type TimeStepper end
+
+"""
+    FixedSteps(; max_halvings=10)
+
+The stepper of DREAM's constant time stepper: each interval between two time points of
+the run is one step. When a step fails, it is retried with half the time step, up to
+`max_halvings` times; the shorter steps continue to the end of the interval, whose end
+point is always hit exactly, and the next interval starts again with its full length. A
+step that still fails throws [`TimeStepFailure`](@ref).
+"""
+struct FixedSteps <: TimeStepper
+    max_halvings::Int
+end
+function FixedSteps(; max_halvings::Integer=10)
+    max_halvings >= 0 || throw(ArgumentError("max_halvings must not be negative"))
+    return FixedSteps(Int(max_halvings))
+end
+
+describe(stepper::TimeStepper) = _describe_fields(stepper)
+
+# the state of FixedSteps: the step length of the interval, halved on failure
+mutable struct FixedStepState
+    dt::Float64
+    halvings::Int
+end
+
+# the length of the interval of `times` that holds the time t (its end when t is a time
+# point), zero at the last time point
+function _interval_length(times, t)
+    k = searchsortedlast(times, t)
+    return k >= length(times) ? 0.0 : Float64(times[k+1] - times[k])
+end
+
+"""
+    stepper_state(stepper, times, t, record)
+
+The state of `stepper` at the time `t` of the run with the time points `times`: restored
+from the `record` of a checkpoint written by the same kind of stepper, fresh otherwise.
+"""
+function stepper_state(stepper::FixedSteps, times, t, record::AbstractDict)
+    # inside an interval the stored length and halvings continue it; at a time point the
+    # interval that starts there sets the length, whatever the time points of the segment
+    # that wrote the record were
+    get(record, "type", "") == "FixedSteps" && t ∉ times &&
+        return FixedStepState(Float64(record["dt"]), Int(record["halvings"]))
+    return FixedStepState(_interval_length(times, t), 0)
+end
+
+"Record of the state of a stepper, stored in the checkpoint."
+stepper_record(state::FixedStepState) =
+    SettingsRecord("type" => "FixedSteps", "dt" => state.dt, "halvings" => state.halvings)
+
+"The length of the next step the stepper asks for; the run caps it at the next time point."
+step_length(::FixedSteps, state::FixedStepState, t) = state.dt
+
+# after a failed step of length h: whether the stepper retries, with its new length
+function step_failed!(stepper::FixedSteps, state::FixedStepState, h)
+    state.halvings += 1
+    state.halvings > stepper.max_halvings && return false
+    state.dt = h / 2
+    return true
+end
+
+# after an accepted step to t_next; at a time point the next interval starts with its
+# full length
+function step_accepted!(::FixedSteps, state::FixedStepState, times, t_next, at_time_point)
+    if at_time_point
+        state.dt = _interval_length(times, t_next)
+        state.halvings = 0
+    end
+    return nothing
+end
+
+# the message of a failed step for the log and the exception
+_failure_text(stepper::FixedSteps, state::FixedStepState) = "after $(stepper.max_halvings) halvings"
+_retry_text(::FixedSteps, state::FixedStepState) = "is retried with half the time step"
+
+# ---------------------------------------------------------------------------------------
+# run options
+
+"""
+    RunOptions(; solver=NewtonSolver(), stepper=FixedSteps(), save_times=nothing,
+               updates=(), checkpoint=nothing, resume=false, stop=nothing, log=nothing,
+               description=Dict())
+
+The options of a run of [`integrate`](@ref), which takes them as keywords or as one
+record. `save_times = nothing` saves at the time points. The others are described with
+[`integrate`](@ref).
+"""
+Base.@kwdef struct RunOptions{S<:NewtonSolver,P<:TimeStepper,U,C<:Union{Nothing,CheckpointSettings},R,
+                              X<:Union{Nothing,StopCondition},L<:Union{Nothing,ProgressLog},D}
+    solver::S = NewtonSolver()
+    stepper::P = FixedSteps()
+    save_times::Union{Nothing,AbstractVector} = nothing
+    updates::U = ()
+    checkpoint::C = nothing
+    resume::R = false
+    stop::X = nothing
+    log::L = nothing
+    description::D = Dict{String,Any}()
+end
+
+# the record of a run with these options
+run_settings(system::EquationSystem, times::AbstractVector, options::RunOptions) =
+    run_settings(system; options.solver, options.stepper, times,
+                 save_times=options.save_times === nothing ? times : options.save_times, options.description,
+                 options.updates, options.checkpoint, options.stop, options.log)
 
 # the part of a run's saved states a segment holds: columns 1:count of the arrays
 function _segment_solution(layout, save_times, first_save, count, saved, stats, settings, updates, saved_updates)
@@ -140,17 +263,19 @@ function _segment_solution(layout, save_times, first_save, count, saved, stats, 
 end
 
 """
-    integrate(system, u0, times; solver=NewtonSolver(), save_times=times, max_step_halvings=10,
+    integrate(system, u0, times; solver=NewtonSolver(), stepper=FixedSteps(), save_times=times,
               description=Dict(), updates=(), checkpoint=nothing, resume=false, stop=nothing,
               log=nothing)
+    integrate(system, u0, times, options::RunOptions)
 
 Backward-Euler integration of `system` from the state `u0` at `times[1]` through the
 time points `times` (any increasing array, e.g. nonuniform or matching the restarts of
-another run, DREAM #502). Each interval is one step, solved by [`newton_solve!`](@ref)
-with explicit terms at the previous time level. When a step fails, it is retried with
-half the time step, up to `max_step_halvings` times; the shorter steps continue to the
-end of the interval, whose end point is always hit exactly, and the next interval starts
-again with its full length. A step that still fails throws [`TimeStepFailure`](@ref).
+another run, DREAM #502). The `stepper` ([`TimeStepper`](@ref)) sets the length of every
+step, and every time point is the end of a step: with [`FixedSteps`](@ref), the default,
+each interval between two time points is one step, retried with half the time step when
+it fails (`max_step_halvings = n` is a shorthand for `stepper = FixedSteps(max_halvings=n)`).
+Each step is solved by [`newton_solve!`](@ref) with explicit terms at the previous time
+level. A step that still fails throws [`TimeStepFailure`](@ref).
 
 States are saved at `save_times` (increasing, inside `[times[1], times[end]]`),
 independently of the steps (DREAM #81, #93): a save time that falls between the ends of a
@@ -160,32 +285,36 @@ Returns a [`TimeSolution`](@ref).
 The solution carries the record of the run's settings ([`run_settings`](@ref)), taken
 before the first step and before a stored state is restored, so it describes the setup
 as the script built it and is the same in every segment of a run. It holds the grids, the
-layout, every term, the solver, the time points, the code version with the commit of
-Runes2P, and `description`, a dictionary of plain values the caller adds (a run name, the
-origin of the initial state).
+layout, every term, the solver, the stepper, the time points, the code version with the
+commit of Runes2P, and `description`, a dictionary of plain values the caller adds (a run
+name, the origin of the initial state).
 
-`updates` are [`IntervalUpdate`](@ref)s, applied at every time point of `times` before
-the interval that starts there (the knock-on cutoff that follows the plasma,
-[`KnockOnCutoffUpdate`](@ref)).
+`updates` are [`IntervalUpdate`](@ref)s, applied at the start of the run and after every
+accepted step, before the step that follows (the knock-on cutoff that follows the plasma,
+[`KnockOnCutoffUpdate`](@ref)). An update that reports a changed setup discards the
+stored Jacobian.
 
-`checkpoint` ([`CheckpointSettings`](@ref)) writes checkpoints at time points of `times`
-and the output of the segment with each of them; it needs HDF5 loaded.
+`checkpoint` ([`CheckpointSettings`](@ref)) writes checkpoints after accepted steps and
+the output of the segment with each of them; it needs HDF5 loaded. A checkpoint holds
+the state of the stepper, so the resumed run repeats the uninterrupted one.
 
 `resume` continues a run from a stored state: `true` takes the last checkpoint of
 `checkpoint` when there is one and starts from `u0` otherwise, so the same script serves
 every segment of a run; a file name takes the checkpoint or the last saved state of an
 output file; a [`StoredState`](@ref) is what [`read_checkpoint`](@ref) and
-[`read_state`](@ref) return. The stored time must be one of `times`, equal to the last
-bit, and the run continues from there; a script that builds its time points the same way
-in every segment gets the same numbers. The unknowns are matched by name: those in the stored state replace
-the values of `u0`, on the same grids, and an unknown the stored state does not have
-keeps its value of `u0`. The updates are set back to their stored states. The settings
-may differ from those of the run that stored the state (tolerances, the solver, later
-time points, terms); the record names the sections that changed (`segment` in the
-settings) and a warning lists them.
+[`read_state`](@ref) return. The stored time must lie inside the time points of the run;
+a state from an output file, or from a checkpoint without the record of the stepper, must
+be at one of them, equal to the last bit, so that the stepper can start there. The run
+continues from the stored time; a script that builds its time points the same way in
+every segment gets the same numbers. The unknowns are matched by name: those in the
+stored state replace the values of `u0`, on the same grids, and an unknown the stored
+state does not have keeps its value of `u0`. The updates are set back to their stored
+states. The settings may differ from those of the run that stored the state (tolerances,
+the solver, later time points, terms); the record names the sections that changed
+(`segment` in the settings) and a warning lists them.
 
-`stop` ([`StopCondition`](@ref)) ends the segment at a requested time point before the
-last one, when the wall time left does not cover another interval or a stop file
+`stop` ([`StopCondition`](@ref)) ends the segment after an accepted step before the
+last time point, when the wall time left does not cover another step or a stop file
 appears. The segment writes its checkpoint and returns what it has saved;
 [`run_status`](@ref) of the solution is then `:stopped`, and [`exit_status`](@ref) is the
 exit status for the script.
@@ -195,52 +324,60 @@ milestones of the simulated time, after a silence and on demand, and the events 
 run when they happen. The warnings of the run are written to it.
 """
 function integrate(system::EquationSystem, u0::AbstractVector, times::AbstractVector;
-                   log::Union{Nothing,ProgressLog}=nothing, options...)
-    log === nothing && return _integrate(system, u0, times; log, options...)
+                   max_step_halvings::Union{Nothing,Integer}=nothing, options...)
+    if max_step_halvings !== nothing
+        haskey(options, :stepper) && throw(ArgumentError("give max_step_halvings or stepper, not both"))
+        return integrate(system, u0, times, RunOptions(; stepper=FixedSteps(; max_halvings=max_step_halvings), options...))
+    end
+    return integrate(system, u0, times, RunOptions(; options...))
+end
+
+function integrate(system::EquationSystem, u0::AbstractVector, times::AbstractVector, options::RunOptions)
+    log = options.log
+    log === nothing && return _integrate(system, u0, times, options)
     # the log takes the warnings of the run, and the report of Julia on SIGUSR1 while it runs
     report = Profile.peek_report[]
     try
-        return Logging.with_logger(() -> _integrate(system, u0, times; log, options...), log)
+        return Logging.with_logger(() -> _integrate(system, u0, times, options), log)
     finally
         Profile.peek_report[] = report
     end
 end
 
-function _integrate(system::EquationSystem{T}, u0::AbstractVector, times::AbstractVector;
-                    solver::NewtonSolver=NewtonSolver(), save_times::AbstractVector=times,
-                    max_step_halvings::Integer=10, description=Dict{String,Any}(),
-                    updates=(), checkpoint::Union{Nothing,CheckpointSettings}=nothing, resume=false,
-                    stop::Union{Nothing,StopCondition}=nothing,
-                    log::Union{Nothing,ProgressLog}=nothing) where {T}
-    layout = system.layout
-    n = length(layout)
-    length(u0) == n || throw(DimensionMismatch("u0 does not match the layout"))
+# checks of the arguments of a run that do not need the stored state
+function _check_run(system::EquationSystem, u0, times, save_times, options::RunOptions)
+    length(u0) == length(system.layout) || throw(DimensionMismatch("u0 does not match the layout"))
     isempty(times) && throw(ArgumentError("times is empty"))
     all(k -> times[k+1] > times[k], 1:length(times)-1) ||
         throw(ArgumentError("times must be strictly increasing"))
     issorted(save_times) || throw(ArgumentError("save_times must be increasing"))
     all(s -> first(times) <= s <= last(times), save_times) ||
         throw(ArgumentError("save_times must lie inside [times[1], times[end]]"))
-    updates = _checked_updates(updates)
+    updates = _checked_updates(options.updates)
     foreach(update -> check_update(update, system), updates)
     for update in updates, t in forced_time_points(update)
         first(times) < t < last(times) && !any(point -> isapprox(point, t; rtol=1e-12), times) &&
             throw(ArgumentError("the update $(update_name(update)) changes at t = $t, which is not a time " *
                                 "point of the run"))
     end
-    checkpoint === nothing || _require_hdf5(write_checkpoint, "writing checkpoints")
+    options.checkpoint === nothing || _require_hdf5(write_checkpoint, "writing checkpoints")
+    return updates
+end
 
-    settings = run_settings(system; solver, times, save_times, max_step_halvings, description, updates,
-                            checkpoint, stop, log)
-    stored = _resume_state(resume, checkpoint)
-    u_old = Vector{T}(u0)
-    first_interval, first_save, segment = 1, 1, 1
-    summary_before = SettingsRecord()
+# the start of a segment: the time and the states it starts from, restored from the
+# stored state when there is one, and the record of the segment
+function _start_segment!(u_old, layout, times, save_times, updates, settings, stored, options::RunOptions)
+    T = eltype(u_old)
+    t = T(first(times))
+    first_save, segment = 1, 1
+    summary_before, stepper_before = SettingsRecord(), SettingsRecord()
     if stored !== nothing
-        found = findfirst(==(stored.time), times)
-        found === nothing &&
-            throw(ArgumentError("the stored time $(stored.time) of $(stored.source) is not one of the time points"))
-        first_interval = found
+        first(times) <= stored.time <= last(times) ||
+            throw(ArgumentError("the stored time $(stored.time) of $(stored.source) lies outside the time points"))
+        isempty(stored.stepper) && stored.time ∉ times &&
+            throw(ArgumentError("the stored time $(stored.time) of $(stored.source) is not one of the time points, " *
+                                "which a state without the record of the stepper must be"))
+        t = T(stored.time)
         copy_unknowns!(u_old, layout, stored.state, stored.layout)
         for update in updates
             state = get(stored.update_states, update_name(update), nothing)
@@ -250,161 +387,226 @@ function _integrate(system::EquationSystem{T}, u0::AbstractVector, times::Abstra
         first_save = searchsortedlast(save_times, stored.time) + 1
         segment = stored.segment + 1
         summary_before = stored.summary
+        stepper_before = stored.stepper
     end
-    settings["segment"] = _segment_record(segment, stored, settings, times[first_interval],
-                                          stored === nothing ? 0 : stored.saved_count)
+    settings["segment"] = _segment_record(segment, stored, settings, t, stored === nothing ? 0 : stored.saved_count)
+    checkpoint = options.checkpoint
     if checkpoint !== nothing
         mkpath(checkpoint.directory)
         file = segment_file(checkpoint, segment)
         # With resume = true the run owns its name: a file with the number of this segment
         # is what an attempt of it left that was killed between its output and its
         # checkpoint, and is replaced. Any other run must not replace a segment file.
-        isfile(file) && !checkpoint.overwrite && resume !== true &&
+        isfile(file) && !checkpoint.overwrite && options.resume !== true &&
             throw(ArgumentError("the segment file $file exists; continue the run with resume = true, choose " *
                                 "another name or set overwrite = true in the checkpoint settings"))
     end
     if stored !== nothing && settings["segment"]["settings_changed"]
         @warn "resuming $(stored.source) with changed settings" sections = settings["segment"]["changed_sections"]
     end
+    return (; t, first_save, segment, summary_before, stepper_before)
+end
+
+# The state of a running segment: the states and the times, what it has saved, its
+# statistics and its record, and the wall-time bookkeeping of the checkpoints and the
+# stop. The loop of `_run_steps!` and the helpers below act on it.
+mutable struct RunState{T,L<:UnknownLayout,U,W<:NewtonWorkspace,S,P}
+    const layout::L
+    const times::Vector{T}
+    const save_times::Vector{T}
+    const first_save::Int
+    const updates::U
+    const saved::Matrix{T}
+    const saved_updates::Vector{Matrix{Float64}}
+    const stats::SolverStatistics
+    const settings::Dict{String,Any}
+    const segment::Int
+    const summary_before::Dict{String,Any}
+    const u_old::Vector{T}
+    const u::Vector{T}
+    const ws::W
+    const stepper::S
+    const stepper_state::P
+    t::T
+    next_save::Int
+    next_point::Int       # index of the first time point above t
+    steps::Int            # accepted steps of the segment
+    started_run::Float64
+    last_checkpoint::Float64
+    longest_step::Float64
+    longest_write::Float64
+end
+
+function _save!(run::RunState, values)
+    column = run.next_save - run.first_save + 1
+    run.saved[:, column] .= values
+    for (k, update) in enumerate(run.updates)
+        run.saved_updates[k][:, column] .= update_state(update)
+    end
+    run.next_save += 1
+    return nothing
+end
+
+# the updates at the state u_old at the time t; one that changed the setup discards the
+# stored Jacobian
+function _apply_updates!(run::RunState)
+    changed = false
+    for update in run.updates
+        changed |= apply_update!(update, run.u_old, run.layout, run.t) === true
+    end
+    changed && invalidate_jacobian!(run.ws)
+    return nothing
+end
+
+_segment_solution(run::RunState) =
+    _segment_solution(run.layout, run.save_times, run.first_save, run.next_save - run.first_save, run.saved,
+                      run.stats, run.settings, run.updates, run.saved_updates)
+
+function _update_segment!(run::RunState, status; reason=nothing, checkpoint_written=false)
+    record = run.settings["segment"]
+    record["status"] = status
+    record["end_time"] = Float64(run.t)
+    record["steps"] = run.steps
+    reason === nothing || (record["stop_reason"] = reason)
+    checkpoint_written && (record["checkpoint_written"] = true)
+    return nothing
+end
+
+function _write_checkpoint!(run::RunState, checkpoint::CheckpointSettings, log, status, reason)
+    started_write = time()
+    _update_segment!(run, status; reason, checkpoint_written=true)
+    # the output first: a checkpoint then never names states its segment file lacks
+    write_output(segment_file(checkpoint, run.segment), _segment_solution(run); atomic=true)
+    write_checkpoint(checkpoint,
+                     StoredState(Float64(run.t), copy(run.u_old), run.layout,
+                                 Dict{String,Vector{Float64}}(update_name(update) => update_state(update)
+                                                              for update in run.updates),
+                                 run.settings, run.segment, run.next_save - 1,
+                                 _run_summary(run.summary_before, run.stats, time() - run.started_run),
+                                 stepper_record(run.stepper_state), checkpoint_file(checkpoint)))
+    run.last_checkpoint = time()
+    run.longest_write = max(run.longest_write, run.last_checkpoint - started_write)
+    log_event!(log, "checkpoint", Logging.Info,
+               "written at t = $(run.t) s in $(round(run.last_checkpoint - started_write; digits=2)) s: " *
+               checkpoint_file(checkpoint))
+    return nothing
+end
+
+function _integrate(system::EquationSystem{T}, u0::AbstractVector, times::AbstractVector,
+                    options::RunOptions) where {T}
+    layout = system.layout
+    save_times = options.save_times === nothing ? times : options.save_times
+    updates = _check_run(system, u0, times, save_times, options)
+    settings = run_settings(system, times, options)
+    stored = _resume_state(options.resume, options.checkpoint)
+    u_old = Vector{T}(u0)
+    start = _start_segment!(u_old, layout, times, save_times, updates, settings, stored, options)
+    stop, log, checkpoint = options.stop, options.log, options.checkpoint
 
     # a stop file of an earlier segment is not a request to this one
     stop === nothing || isempty(stop.stop_file) || rm(stop.stop_file; force=true)
-    segment_record = settings["segment"]
-    function update_segment!(status, time, intervals; reason=nothing, checkpoint_written=false)
-        segment_record["status"] = status
-        segment_record["end_time"] = Float64(time)
-        segment_record["intervals"] = intervals
-        reason === nothing || (segment_record["stop_reason"] = reason)
-        checkpoint_written && (segment_record["checkpoint_written"] = true)
-        return nothing
-    end
-
-    ws = NewtonWorkspace(system, solver)
-    stats = SolverStatistics()
-    save_count = length(save_times) - first_save + 1
-    saved = Matrix{T}(undef, n, save_count)
-    saved_updates = [Matrix{Float64}(undef, length(update_state(update)), save_count) for update in updates]
-    u = copy(u_old)
-    next_save = first_save
-    function save!(values)
-        column = next_save - first_save + 1
-        saved[:, column] .= values
-        for (k, update) in enumerate(updates)
-            saved_updates[k][:, column] .= update_state(update)
-        end
-        next_save += 1
-        return nothing
-    end
-    # an update may change coefficients, so a stored Jacobian is not kept across it
-    function apply_updates!(t)
-        foreach(update -> apply_update!(update, u_old, layout, t), updates)
-        isempty(updates) || invalidate_jacobian!(ws)
-        return nothing
-    end
-    segment_solution() = _segment_solution(layout, save_times, first_save, next_save - first_save, saved, stats,
-                                           settings, updates, saved_updates)
-
+    save_count = length(save_times) - start.first_save + 1
+    state = stepper_state(options.stepper, times, start.t, start.stepper_before)
+    saved_updates = Matrix{Float64}[Matrix{Float64}(undef, length(update_state(update)), save_count)
+                                    for update in updates]
     started_run = time()
-    last_checkpoint = started_run
-    longest_interval, longest_write = 0.0, 0.0
-    apply_updates!(T(times[first_interval]))
+    run = RunState(layout, collect(T, times), collect(T, save_times), start.first_save, updates,
+                   Matrix{T}(undef, length(layout), save_count), saved_updates,
+                   SolverStatistics(), settings, start.segment, start.summary_before, u_old, copy(u_old),
+                   NewtonWorkspace(system, options.solver), options.stepper, state,
+                   start.t, start.first_save, searchsortedlast(times, start.t) + 1, 0,
+                   started_run, started_run, 0.0, 0.0)
+    _apply_updates!(run)
     # the state at the first time point is saved by a run that starts there
-    while stored === nothing && next_save <= length(save_times) && save_times[next_save] == first(times)
-        save!(u_old)
+    while stored === nothing && run.next_save <= length(save_times) && save_times[run.next_save] == first(times)
+        _save!(run, u_old)
     end
-    start_log!(log, settings, u_old, layout, T(times[first_interval]), times, first_interval - 1, stats)
-    finish(reason, t, intervals) = write_entry(log, reason, u_old, layout, t, times, intervals, stats)
+    start_log!(log, settings, u_old, layout, run.t, times, run.next_point - 2, run.stats)
+    return _run_steps!(run, options)
+end
 
-    for interval in first_interval:length(times)-1
-        t, t_end = T(times[interval]), T(times[interval+1])
-        interval > first_interval && apply_updates!(t)
-        started_interval = time()
-        dt = t_end - t
-        halvings = 0
-        while t < t_end
-            # the last step of the interval lands exactly on its end
-            t_next = t_end - t <= dt * (1 + 1e-10) ? t_end : t + dt
-            h = t_next - t
-            copyto!(u, u_old)
-            started = time_ns()
-            result = newton_solve!(u, u_old, ws, t_next, h)
-            _record!(stats, t_next, h, result, ws, (time_ns() - started) / 1e9)
-            if result.status !== :converged
-                halvings += 1
-                if halvings > max_step_halvings
-                    log_event!(log, "run failed", Logging.Error,
-                               "the step to t = $t_next s with the time step $h s failed with the status " *
-                               "$(result.status) after $max_step_halvings halvings")
-                    finish("segment end, failed", t, interval - 1)
-                    throw(TimeStepFailure(t_next, h, result.status, stats))
-                end
-                log_event!(log, "step failed", Logging.Warn,
-                           "the step to t = $t_next s with the time step $h s ended with the status " *
-                           "$(result.status) and is retried with half the time step")
-                report_step!(log, u_old, layout, t, times, interval - 1, stats)
-                dt = h / 2
-                continue
+# the entry of the log at the end of the segment
+_finish(run::RunState, log, reason) =
+    write_entry(log, reason, run.u_old, run.layout, run.t, run.times, run.next_point - 2, run.stats)
+
+function _run_steps!(run::RunState{T}, options::RunOptions) where {T}
+    times, layout, stats, ws = run.times, run.layout, run.stats, run.ws
+    u_old, u = run.u_old, run.u
+    stepper, state = run.stepper, run.stepper_state
+    stop, log, checkpoint = options.stop, options.log, options.checkpoint
+    while run.t < last(times)
+        t, ceiling = run.t, times[run.next_point]
+        dt = step_length(stepper, state, t)
+        # the last step before a time point lands exactly on it
+        t_next = ceiling - t <= dt * (1 + 1e-10) ? ceiling : t + dt
+        h = t_next - t
+        copyto!(u, u_old)
+        started = time_ns()
+        result = newton_solve!(u, u_old, ws, t_next, h)
+        _record!(stats, t_next, h, result, ws, (time_ns() - started) / 1e9)
+        if result.status !== :converged
+            if !step_failed!(stepper, state, h)
+                log_event!(log, "run failed", Logging.Error,
+                           "the step to t = $t_next s with the time step $h s failed with the status " *
+                           "$(result.status) " * _failure_text(stepper, state))
+                _finish(run, log, "segment end, failed")
+                throw(TimeStepFailure(t_next, h, result.status, stats))
             end
-            if log !== nothing
-                result.residual_floor && !result.linear_step &&
-                    log_event!(log, "residual floor", Logging.Info,
-                               "the step to t = $t_next s was accepted with the residual $(result.residual_norm) " *
-                               "above the tolerance, where it had stopped decreasing")
-                negative = _negative_cells(u, layout)
-                negative > 0 && log_event!(log, "negative values", Logging.Warn,
-                                           "$negative negative cells of the kinetic unknowns after the step to " *
-                                           "t = $t_next s")
-            end
-            while next_save <= length(save_times) && save_times[next_save] <= t_next
-                s = save_times[next_save]
-                if s == t_next
-                    save!(u)
-                else
-                    fraction = (s - t) / h
-                    save!((1 - fraction) .* u_old .+ fraction .* u)
-                end
-            end
-            copyto!(u_old, u)
-            t = t_next
-            t < t_end && report_step!(log, u_old, layout, t, times, interval - 1, stats)
+            log_event!(log, "step failed", Logging.Warn,
+                       "the step to t = $t_next s with the time step $h s ended with the status " *
+                       "$(result.status) and " * _retry_text(stepper, state))
+            report_step!(log, u_old, layout, t, times, run.next_point - 2, stats)
+            continue
         end
-        longest_interval = max(longest_interval, time() - started_interval)
-        last_interval = interval == length(times) - 1
+        if log !== nothing
+            result.residual_floor && !result.linear_step &&
+                log_event!(log, "residual floor", Logging.Info,
+                           "the step to t = $t_next s was accepted with the residual $(result.residual_norm) " *
+                           "above the tolerance, where it had stopped decreasing")
+            negative = _negative_cells(u, layout)
+            negative > 0 && log_event!(log, "negative values", Logging.Warn,
+                                       "$negative negative cells of the kinetic unknowns after the step to " *
+                                       "t = $t_next s")
+        end
+        while run.next_save <= length(run.save_times) && run.save_times[run.next_save] <= t_next
+            s = run.save_times[run.next_save]
+            if s == t_next
+                _save!(run, u)
+            else
+                fraction = (s - t) / h
+                _save!(run, (1 - fraction) .* u_old .+ fraction .* u)
+            end
+        end
+        copyto!(u_old, u)
+        run.t = t_next
+        run.steps += 1
+        at_time_point = t_next == ceiling
+        at_time_point && (run.next_point += 1)
+        step_accepted!(stepper, state, times, t_next, at_time_point)
+        run.longest_step = max(run.longest_step, (time_ns() - started) / 1e9)
+
+        last_step = run.t >= last(times)
         # the last time point is the end of the run, not a stop
-        reason = last_interval ? nothing : stop_reason(stop, longest_interval, longest_write)
-        status = last_interval ? "finished" : reason === nothing ? "running" : "stopped"
-        intervals = interval - first_interval + 1
-        if checkpoint !== nothing
-            if last_interval || reason !== nothing || time() - last_checkpoint >= checkpoint.interval
-                started_write = time()
-                update_segment!(status, t_end, intervals; reason, checkpoint_written=true)
-                # the output first: a checkpoint then never names states its segment file lacks
-                write_output(segment_file(checkpoint, segment), segment_solution(); atomic=true)
-                write_checkpoint(checkpoint,
-                                 StoredState(Float64(t_end), copy(u_old), layout,
-                                             Dict{String,Vector{Float64}}(update_name(update) => update_state(update)
-                                                                          for update in updates),
-                                             settings, segment, next_save - 1,
-                                             _run_summary(summary_before, stats, time() - started_run),
-                                             checkpoint_file(checkpoint)))
-                last_checkpoint = time()
-                longest_write = max(longest_write, last_checkpoint - started_write)
-                log_event!(log, "checkpoint", Logging.Info,
-                           "written at t = $t_end s in $(round(last_checkpoint - started_write; digits=2)) s: " *
-                           checkpoint_file(checkpoint))
-            end
+        reason = last_step ? nothing : stop_reason(stop, run.longest_step, run.longest_write)
+        status = last_step ? "finished" : reason === nothing ? "running" : "stopped"
+        if checkpoint !== nothing &&
+           (last_step || reason !== nothing || time() - run.last_checkpoint >= checkpoint.interval)
+            _write_checkpoint!(run, checkpoint, log, status, reason)
         end
-        update_segment!(status, t_end, intervals; reason)
+        _update_segment!(run, status; reason)
         if reason !== nothing
-            log_event!(log, "stop", Logging.Warn, "the segment stops at t = $t_end s: $reason")
-            finish("segment end, stopped: $reason", t_end, interval)
-            return segment_solution()
+            log_event!(log, "stop", Logging.Warn, "the segment stops at t = $(run.t) s: $reason")
+            _finish(run, log, "segment end, stopped: $reason")
+            return _segment_solution(run)
         end
-        last_interval || report_progress!(log, u_old, layout, t_end, times, interval, stats)
+        last_step && break
+        # the setup for the next step follows the accepted state
+        _apply_updates!(run)
+        report_progress!(log, u_old, layout, run.t, times, run.next_point - 2, stats)
     end
-    update_segment!("finished", times[end], length(times) - first_interval)
-    finish("segment end, finished", T(times[end]), length(times) - 1)
-    return segment_solution()
+    _update_segment!(run, "finished")
+    _finish(run, log, "segment end, finished")
+    return _segment_solution(run)
 end
 
 """

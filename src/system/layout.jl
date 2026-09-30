@@ -310,40 +310,6 @@ function unknown_scales(layout::UnknownLayout)
 end
 
 """
-    describe(layout)
-
-Plain description of the layout (names, kinds, sizes per radius, grids, order), written
-to output and restart files. [`copy_unknowns!`](@ref) matches unknowns by name, so files
-stay readable when the internal order changes.
-"""
-function describe(layout::UnknownLayout)
-    entries = map(layout.unknowns) do u
-        id = layout.ids[u.name]
-        entry = Dict{String,Any}("name" => String(u.name), "scale" => u.scale)
-        if u isa ScalarUnknown
-            entry["kind"] = "scalar"
-        elseif u isa RadialUnknown
-            entry["kind"] = "radial"
-            entry["components"] = u.components
-        else
-            entry["kind"] = "kinetic"
-            nr = radial_cell_count(layout)
-            entry["p_faces"] = [momentum_grid(u.grid, ir).p_faces for ir in 1:nr]
-            entry["xi_faces"] = [momentum_grid(u.grid, ir).xi_faces for ir in 1:nr]
-        end
-        entry["sizes"] = u isa ScalarUnknown ? [1] : layout.sizes[id, :]
-        if u.lower_limit !== nothing
-            entry["lower_limit_tolerance"] = u.lower_limit.tolerance
-            u.lower_limit.reference === nothing ||
-                (entry["lower_limit_reference"] = String(u.lower_limit.reference))
-        end
-        entry
-    end
-    return Dict{String,Any}("layout_version" => 1, "order" => "radius_blocks_scalars_$(layout.scalars)",
-                            "r_faces" => layout.radial_grid.r_faces, "unknowns" => entries)
-end
-
-"""
     copy_unknowns!(u_to, layout_to, u_from, layout_from)
 
 Copy the values of every unknown present in both layouts, matched by name; the sizes must

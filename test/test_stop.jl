@@ -73,7 +73,7 @@ Runes2P.restore_update!(update::RequestStop, state) = update
             segments += 1
             record = solution.settings["segment"]
             @test record["index"] == segments
-            @test record["intervals"] == 1
+            @test record["steps"] == 1
             @test record["end_time"] == case.times[segments+1]
             @test record["checkpoint_written"] === true
             @test read_checkpoint(checkpoint).time == case.times[segments+1]
@@ -106,7 +106,7 @@ Runes2P.restore_update!(update::RequestStop, state) = update
         solution = integrate(case.system, case.u0, case.times; save_times=case.save_times, updates=(case.update(),),
                              checkpoint, resume=true, stop=StopCondition(wall_budget=1e6, slack=0))
         @test run_status(solution) === :finished
-        @test solution.settings["segment"]["intervals"] == 8
+        @test solution.settings["segment"]["steps"] == 8
         @test solution.states == whole.states
         @test !isfile(Runes2P.previous_checkpoint_file(checkpoint))
     end
@@ -129,7 +129,7 @@ Runes2P.restore_update!(update::RequestStop, state) = update
         @test run_status(first_segment) === :stopped
         @test first_segment.settings["segment"]["stop_reason"] == "stop file"
         @test first_segment.settings["segment"]["end_time"] == case.times[5]
-        @test first_segment.settings["segment"]["intervals"] == 4
+        @test first_segment.settings["segment"]["steps"] == 4
         @test first_segment.times == filter(<=(case.times[5]), case.save_times)
         @test exit_status(first_segment) == 85
         @test read_checkpoint(checkpoint).time == case.times[5]

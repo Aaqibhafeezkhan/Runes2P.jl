@@ -4,12 +4,16 @@ using LinearAlgebra: Diagonal
 
 include("example_cases.jl")
 
-# Time of every test file, printed at the end of the suite. It holds the
-# compilation of what the file is the first to use.
+# Time of every test file, printed as the file ends (the log of a suite job
+# shows how far the run is and which file hangs) and as a table at the end of the suite.
+# It holds the compilation of what the file is the first to use.
 const FILE_TIMES = Pair{String,Float64}[]
 function timed_include(file)
     elapsed = @elapsed Base.include(@__MODULE__, joinpath(@__DIR__, file))
     push!(FILE_TIMES, file => elapsed)
+    total = sum(last, FILE_TIMES)
+    println("== ", file, ": ", round(elapsed; digits=1), " s, ", round(total / 60; digits=1), " minutes so far")
+    flush(stdout)
     return nothing
 end
 

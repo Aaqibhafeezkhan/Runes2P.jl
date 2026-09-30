@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.13"
+const OUTPUT_FORMAT_VERSION = v"0.14"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -212,6 +212,25 @@ settings_fields(::Type{<:UnknownLayout}) =
      derived=(:ids, :kinds, :offsets, :radius_offsets, :sizes, :shapes, :kinetic_grids, :scalar_offsets,
               :radius_blocks, :scalar_block, :length))
 
+"""
+    describe(layout)
+    describe(layout, context::DescriptionContext)
+
+Plain record of the layout: the order of the unknowns and per unknown its kind, scale,
+position, sizes per radius, components, grid and lower limit. With a `context` the grids
+are named in it (the `layout` section of the settings, next to their `grids` section).
+Without one, the record holds the records of its grids under `grids` and is
+self-contained: it is the root group `layout` of the output and checkpoint files, which
+a resume reads to match the unknowns by name ([`copy_unknowns!`](@ref)) and to rebuild
+the grids (`layout_version` 2; version 1 held the faces per unknown).
+"""
+function describe(layout::UnknownLayout)
+    context = DescriptionContext()
+    record = describe(layout, context)
+    record["grids"] = describe(context)
+    return record
+end
+
 function describe(layout::UnknownLayout, context::DescriptionContext)
     unknowns = SettingsRecord()
     for (id, u) in enumerate(layout.unknowns)
@@ -226,7 +245,7 @@ function describe(layout::UnknownLayout, context::DescriptionContext)
         end
         unknowns[String(u.name)] = entry
     end
-    return SettingsRecord("type" => "UnknownLayout", "layout_version" => 1,
+    return SettingsRecord("type" => "UnknownLayout", "layout_version" => 2,
                           "scalars" => String(layout.scalars),
                           "order" => String[String(u.name) for u in layout.unknowns],
                           "r_faces" => _plain(layout.radial_grid.r_faces),
@@ -853,18 +872,19 @@ _has_undescribed(record::AbstractDict) =
     get(record, "described", true) === false || any(_has_undescribed, values(record))
 _has_undescribed(value) = false
 
-function _describe_time(times, save_times, max_step_halvings)
+function _describe_time(times, save_times, stepper)
     record = SettingsRecord("time_count" => length(times), "save_count" => length(save_times),
-                            "max_step_halvings" => Int(max_step_halvings))
+                            "stepper" => describe(stepper))
     isempty(times) || (record["times"] = collect(Float64, times))
     isempty(save_times) || (record["save_times"] = collect(Float64, save_times))
     return record
 end
 
 """
-    run_settings(system; solver=NewtonSolver(), times=Float64[], save_times=times,
-                 max_step_halvings=10, description=Dict(), updates=(), checkpoint=nothing,
+    run_settings(system; solver=NewtonSolver(), stepper=FixedSteps(), times=Float64[],
+                 save_times=times, description=Dict(), updates=(), checkpoint=nothing,
                  stop=nothing, log=nothing)
+    run_settings(system, times, options::RunOptions)
 
 The record of a run, written by [`write_output`](@ref) as the `settings` group. Sections:
 
@@ -877,7 +897,8 @@ The record of a run, written by [`write_output`](@ref) as the `settings` group. 
   are a section of their own so that the hash of `system` does not change with the time
   points;
 - `solver`: the Newton and linear solver settings;
-- `time`: the time points, the save times and the number of step halvings allowed;
+- `time`: the time points, the save times and the stepper ([`TimeStepper`](@ref);
+  `max_step_halvings = n` stands for `stepper = FixedSteps(max_halvings=n)`);
 - `run`: `description`, what the caller adds (a name, the origin of the initial state,
   the parameters a hand-built coefficient came from), as plain values;
 - `code`: [`code_version`](@ref), with the commit of Runes2P;
@@ -901,9 +922,15 @@ hash changed.
 """
 function run_settings(system::EquationSystem; solver::NewtonSolver=NewtonSolver(),
                       times::AbstractVector=Float64[], save_times::AbstractVector=times,
-                      max_step_halvings::Integer=10, description=SettingsRecord(),
+                      stepper=nothing, max_step_halvings::Union{Nothing,Integer}=nothing,
+                      description=SettingsRecord(),
                       updates=(), checkpoint=nothing, stop=nothing, log=nothing,
                       max_table_bytes::Integer=MAX_PRESCRIBED_TABLE_BYTES)
+    if max_step_halvings !== nothing
+        stepper === nothing || throw(ArgumentError("give max_step_halvings or stepper, not both"))
+        stepper = FixedSteps(; max_halvings=max_step_halvings)
+    end
+    stepper === nothing && (stepper = FixedSteps())
     context = DescriptionContext(; times, max_table_bytes)
     record = SettingsRecord()
     record["layout"] = describe(system.layout, context)
@@ -914,7 +941,7 @@ function run_settings(system::EquationSystem; solver::NewtonSolver=NewtonSolver(
     record["grids"] = describe(context)
     record["prescribed"] = describe_tables(context)
     record["solver"] = describe(solver)
-    record["time"] = _describe_time(times, save_times, max_step_halvings)
+    record["time"] = _describe_time(times, save_times, stepper)
     record["run"] = _plain(description)
     record["complete"] = !_has_undescribed(record)
     record["hashes"] = SettingsRecord(section => settings_hash(record[section]) for section in SETUP_SECTIONS)

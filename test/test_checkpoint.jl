@@ -245,8 +245,8 @@ _checkpoint_directory() = mktempdir()
         @test collect(keys(solution.settings["prescribed"])) == ["table_1"]   # one table for the one function
         @test solution.settings["segment"] ==
               Dict{String,Any}("index" => 1, "start_time" => 0.0, "resumed" => false, "saved_before" => 0,
-                               "status" => "finished", "end_time" => 8e-4, "intervals" => 8,
-                               "checkpoint_written" => false)
+                               "status" => "finished", "end_time" => 8e-4, "steps" => 8,
+                               "checkpoint_written" => false, "attempts_before" => 0)
         @test solution.settings["stop"] == Dict{String,Any}("type" => "none")
         @test run_status(solution) === :finished
         @test exit_status(solution) == 0
@@ -333,6 +333,9 @@ _checkpoint_directory() = mktempdir()
             @test stored.update_states["knockon_cutoff"] == first_segment.update_states["knockon_cutoff"][:, end]
             @test stored.summary["accepted_steps"] == stop - 1
             @test stored.summary["newton_iterations"] == sum(first_segment.statistics.newton_iterations)
+            # at the last time point of the segment no interval follows: the record says so,
+            # and the resumed run takes the length of its own interval
+            @test stored.stepper == Dict{String,Any}("type" => "FixedSteps", "dt" => 0.0, "halvings" => 0)
             @test unknown_names(stored.layout) == unknown_names(case.layout)
             @test read_checkpoint(Runes2P.previous_checkpoint_file(checkpoint)).time == case.times[stop-1]
 
@@ -523,6 +526,54 @@ _checkpoint_directory() = mktempdir()
         rm(file)
     end
 
+    @testset "a checkpoint inside an interval" begin
+        # A step that fails is retried with halved steps, and a checkpoint after one of
+        # them holds the stepper's state: the resumed run finishes the interval with the
+        # same steps as the uninterrupted one (test_time_stepping.jl, the same case).
+        k = 4.0
+        times = [0.0, 0.24, 0.26]
+        system = single_unknown_system(TimeDerivative(), SquareRootDecayTerm(:x, k))
+        whole = integrate(system, [0.2], times; save_times=[0.0, 0.1, 0.24, 0.26])
+        @test whole.statistics.time_step ≈ [0.24, 0.12, 0.12, 0.02]
+        checkpoint = CheckpointSettings("halved"; directory=_checkpoint_directory(), interval=0)
+        # a budget spent at once: the segment stops after its first accepted step, inside
+        # the first interval
+        first_segment = integrate(system, [0.2], times; save_times=[0.0, 0.1, 0.24, 0.26], checkpoint,
+                                  stop=StopCondition(wall_budget=1e-9, slack=0))
+        @test run_status(first_segment) === :stopped
+        @test first_segment.settings["segment"]["end_time"] == 0.12
+        @test first_segment.settings["segment"]["steps"] == 1
+        @test first_segment.times == [0.0, 0.1]
+        stored = read_checkpoint(checkpoint)
+        @test stored.time == 0.12
+        @test stored.stepper == Dict{String,Any}("type" => "FixedSteps", "dt" => 0.12, "halvings" => 1)
+        @test stored.summary["attempted_steps"] == 2
+        second_segment = @test_logs integrate(system, [0.2], times; save_times=[0.0, 0.1, 0.24, 0.26], checkpoint,
+                                              resume=true)
+        @test run_status(second_segment) === :finished
+        @test second_segment.times == [0.24, 0.26]
+        @test second_segment.states == whole.states[:, 3:4]
+        @test second_segment.statistics.time_step == whole.statistics.time_step[3:4]
+        @test second_segment.statistics.time == whole.statistics.time[3:4]
+        joined = read_output(checkpoint)
+        @test joined.states == whole.states
+        @test joined.times == whole.times
+        @test _same_statistics(joined.statistics, whole.statistics)
+        # a state without the record of the stepper resumes at a time point only
+        without = StoredState(stored.time, stored.state, stored.layout, stored.update_states, stored.settings,
+                              stored.segment, stored.saved_count, stored.summary, Dict{String,Any}(), stored.source)
+        @test_throws ArgumentError integrate(system, [0.2], times; resume=without)
+        at_point = StoredState(0.24, whole.states[:, 3], stored.layout, stored.update_states, stored.settings,
+                               stored.segment, 3, stored.summary, Dict{String,Any}(), stored.source)
+        last_step = @test_logs integrate(system, [0.2], times; save_times=[0.0, 0.1, 0.24, 0.26], resume=at_point)
+        @test last_step.states == whole.states[:, 4:4]
+        @test last_step.statistics.time_step == whole.statistics.time_step[4:4]
+        # a stored time outside the time points is refused
+        outside = StoredState(0.5, stored.state, stored.layout, stored.update_states, stored.settings,
+                              stored.segment, stored.saved_count, stored.summary, stored.stepper, stored.source)
+        @test_throws ArgumentError integrate(system, [0.2], times; resume=outside)
+    end
+
     @testset "checkpoints before the first saved state" begin
         # Many time points and few saved states, the pattern of a production run: a
         # checkpoint comes before the segment has saved anything, in a run from its start
@@ -587,6 +638,16 @@ _checkpoint_directory() = mktempdir()
         @test resumed.update_states["knockon_cutoff"] == whole.update_states["knockon_cutoff"][:, 5:end]
         @test resumed.settings["segment"]["index"] == 2
         @test resumed.settings["segment"]["saved_before"] == 4
+        # a state from an output file has no count of the attempts before it: the join
+        # of the two outputs falls back on the time and keeps every state once
+        @test !haskey(resumed.settings["segment"], "attempts_before")
+        resumed_file = tempname() * ".h5"
+        write_output(resumed_file, resumed)
+        joined = read_output(file, resumed_file)
+        @test joined.times == whole.times
+        @test joined.states == whole.states
+        @test _same_statistics(joined.statistics, whole.statistics)
+        rm(resumed_file)
 
         # the last saved state by default, by file name
         @test read_state(file).time == last(case.times)

@@ -49,11 +49,16 @@ Settings of the Newton iteration of a backward-Euler step.
   solve bounds the residual and not the error: accepting the first solve alone loses
   its refinement on ill-conditioned steps (1e-6 observed). A step shortened by a lower
   limit or the line search is not accepted this way.
-- The stored Jacobian of such a system does not depend on the state, only on the
-  coefficients, which are functions of the time. With `reuse_linear_matrix` it is
-  assembled once per time level and kept for the later iterations of the step, and the
-  Newton matrix and its factorization are kept while the time step is the same as well.
-  An interval update of the time stepper discards them
+- The stored Jacobian of such a system does not depend on the Newton iterate, only on
+  the coefficients, which are functions of the time, and on the state at the start of
+  the step (the column of a lagged knock-on term, [`KnockOnTerm`](@ref) with
+  `:explicit_primary`). With `reuse_linear_matrix` it is assembled once per step and
+  kept, with the Newton matrix and its factorization, for the later iterations of the
+  step and for a step repeated to the same end time from the same start. The
+  key is the end time and the length of the step, which identify the start state for
+  every sequence of steps [`integrate`](@ref) produces: the step doubling of a step
+  controller solves to one end time from two start states with two step lengths. An
+  update of the setup by the time stepper discards them
   ([`invalidate_jacobian!`](@ref)). `reuse_linear_matrix = false` assembles and factorizes
   in every iteration, as DREAM does.
 - Lower limits ([`LowerLimit`](@ref), declared on the unknowns) shorten the whole step so
@@ -128,10 +133,11 @@ the fields `residual_norms`, `update_norms` and `step_lengths`. `exact_jacobian`
 whether the Newton matrix is the exact Jacobian (no term with an approximate stored
 block, or a linear solver whose operator restores it, [`GMRES`](@ref)`(operator=:exact)`),
 and `linear` whether the system is linear in the state and the matrix exact, so the first
-iteration solves a step and the second confirms it. For such a system `assembled_time` is
-the time level of the stored Jacobian and `matrix_step` the time step of the Newton
-matrix (`NaN`: none kept, see [`invalidate_jacobian!`](@ref)); `jacobian_assemblies`
-counts the assemblies of the stored Jacobian since the workspace was made.
+iteration solves a step and the second confirms it. For such a system `assembled_time`
+and `assembled_step` are the end time and the length of the step whose stored Jacobian
+and Newton matrix are kept (`NaN`: none kept, see [`invalidate_jacobian!`](@ref));
+`jacobian_assemblies` counts the assemblies of the stored Jacobian since the workspace
+was made.
 """
 struct NewtonWorkspace{T,S<:EquationSystem,L,C}
     system::S
@@ -160,7 +166,7 @@ struct NewtonWorkspace{T,S<:EquationSystem,L,C}
     update_norms::Vector{Float64}
     step_lengths::Vector{Float64}
     assembled_time::Base.RefValue{Float64}
-    matrix_step::Base.RefValue{Float64}
+    assembled_step::Base.RefValue{Float64}
     jacobian_assemblies::Base.RefValue{Int}
 end
 
@@ -168,13 +174,13 @@ end
     invalidate_jacobian!(workspace::NewtonWorkspace)
 
 Discard the stored Jacobian and the Newton matrix that a system linear in the state keeps
-between the iterations of a time level ([`NewtonSolver`](@ref), `reuse_linear_matrix`).
+between the iterations of a step ([`NewtonSolver`](@ref), `reuse_linear_matrix`).
 To be called when coefficients of the system were changed by hand at an unchanged time.
-The time stepper calls it after the interval updates.
+The time stepper calls it after an update that changed the setup.
 """
 function invalidate_jacobian!(ws::NewtonWorkspace)
     ws.assembled_time[] = NaN
-    ws.matrix_step[] = NaN
+    ws.assembled_step[] = NaN
     return ws
 end
 
@@ -380,10 +386,11 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
     initial = _residual_norm(ws, ws.residual)
     reuse = ws.linear && solver.reuse_linear_matrix
     for iteration in 1:solver.max_iterations
-        # the stored Jacobian of a system linear in the state changes with the time level
-        # alone, the Newton matrix with the time level and the time step
-        same_jacobian = reuse && ws.assembled_time[] == t
-        if !same_jacobian
+        # the stored Jacobian of a system linear in the state changes with the step alone
+        # (its end time and, through the start state, its length), and so does the Newton
+        # matrix
+        same_matrix = reuse && ws.assembled_time[] == t && ws.assembled_step[] == dt
+        if !same_matrix
             invalidate_jacobian!(ws)
             started = time_ns()
             try
@@ -395,12 +402,11 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
             jacobian_seconds += (time_ns() - started) / 1e9
             ws.jacobian_assemblies[] += 1
             all(isfinite, ws.jacobian.nzval) || return result(:non_finite_jacobian, iteration - 1, initial)
-            reuse && (ws.assembled_time[] = t)
-        end
-        same_matrix = same_jacobian && ws.matrix_step[] == dt
-        if !same_matrix
             _newton_matrix!(ws, dt)
-            reuse && (ws.matrix_step[] = dt)
+            if reuse
+                ws.assembled_time[] = t
+                ws.assembled_step[] = dt
+            end
         end
         matrix_unchanged!(ws.cache, same_matrix)
         @. ws.scaled_rhs = -ws.row_weights * ws.residual

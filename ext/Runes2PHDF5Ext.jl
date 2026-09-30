@@ -127,15 +127,29 @@ function _read_states(group, layout::UnknownLayout{T}, indices::AbstractUnitRang
     return states
 end
 
-# the layout of a file, rebuilt from its record for matching unknowns by name and
-# comparing grids. The geometry is taken as cylindrical: the file has the faces, and the
-# Jacobians of the rebuilt grids are not used.
+# the kinetic grid of a record of `describe(grid::KineticGrid)`. The geometry is taken
+# as cylindrical: the file has the faces, and the Jacobians of the rebuilt grids are not
+# used
+function _read_kinetic_grid(record, radial::RadialGrid)
+    nr = radial_cell_count(radial)
+    momentum(entry) = MomentumGrid(read(entry["p_faces"]), read(entry["xi_faces"]))
+    haskey(record, "momentum_grid") && return cylindrical_grid(momentum(record["momentum_grid"]), radial)
+    grids = [momentum(record["momentum_grids"]["radius_$ir"]) for ir in 1:nr]
+    return cylindrical_grid(grids, radial)
+end
+
+# the layout of a file, rebuilt from its root group `layout` for matching unknowns by
+# name and comparing grids: version 2 is the settings record
+# with the grids inline, version 1 (before format 0.14) held the faces per unknown and
+# the order as one string
 function _read_layout(group)
     radial = RadialGrid(read(group["r_faces"]))
     nr = radial_cell_count(radial)
-    scalars = endswith(read(group["order"]), "first") ? :first : :last
+    version = haskey(group, "layout_version") ? Int(read(group["layout_version"])) : 1
+    scalars = version == 1 ? (endswith(read(group["order"]), "first") ? :first : :last) : Symbol(read(group["scalars"]))
     entries = group["unknowns"]
-    unknowns = map(read(entries["order"])) do name
+    order = version == 1 ? read(entries["order"]) : read(group["order"])
+    unknowns = map(order) do name
         entry = entries[name]
         kind, scale = read(entry["kind"]), read(entry["scale"])
         limit = if haskey(entry, "lower_limit_tolerance")
@@ -148,10 +162,13 @@ function _read_layout(group)
             ScalarUnknown(Symbol(name); scale, nonnegative=limit)
         elseif kind == "radial"
             RadialUnknown(Symbol(name); components=read(entry["components"]), scale, nonnegative=limit)
-        else
+        elseif version == 1
             grids = [MomentumGrid(read(entry["p_faces"][string(ir)]), read(entry["xi_faces"][string(ir)]))
                      for ir in 1:nr]
             KineticUnknown(Symbol(name), cylindrical_grid(grids, radial); scale, nonnegative=limit)
+        else
+            grid = _read_kinetic_grid(group["grids"][read(entry["grid"])], radial)
+            KineticUnknown(Symbol(name), grid; scale, nonnegative=limit)
         end
     end
     return UnknownLayout(radial, unknowns; scalars)
@@ -189,9 +206,14 @@ function _append_statistics!(all::SolverStatistics, part::SolverStatistics)
     return all
 end
 
+# the statistics of the first `count` attempted steps
+_statistics_first(stats::SolverStatistics, count::Integer) =
+    _statistics_of(stats, 1:min(count, length(stats.time)))
+
 # the statistics of the attempted steps that end at or before `time`
-function _statistics_until(stats::SolverStatistics, time::Real)
-    attempts = findall(<=(time), stats.time)
+_statistics_until(stats::SolverStatistics, time::Real) = _statistics_of(stats, findall(<=(time), stats.time))
+
+function _statistics_of(stats::SolverStatistics, attempts::AbstractVector{<:Integer})
     length(attempts) == length(stats.time) && return stats
     kept = Set(attempts)
     iterations = findall(in(kept), stats.iteration_attempt)
@@ -282,6 +304,7 @@ function Runes2P.write_checkpoint(filename::AbstractString, stored::StoredState;
             group["segment"] = stored.segment
             group["saved_count"] = stored.saved_count
             _write_record(group, "summary", stored.summary)
+            _write_record(group, "stepper", stored.stepper)
             updates = create_group(group, "update_states")
             for (name, state) in stored.update_states
                 updates[name] = state
@@ -313,10 +336,13 @@ function Runes2P.read_state(filename::AbstractString; time_index::Union{Nothing,
                 throw(ArgumentError("$filename is a checkpoint, which holds one state"))
             group = file["checkpoint"]
             state = vec(_read_states(file["unknowns"], layout, 1:1))
+            # a checkpoint of a format before 0.14 has no record of the stepper: its time
+            # is a time point of the run, where a stepper starts fresh
+            stepper = haskey(group, "stepper") ? _read_record(group["stepper"]) : Dict{String,Any}()
             return StoredState(Float64(read(group["time"])), state, layout,
                                _read_update_states(group["update_states"], nothing), settings,
                                Int(read(group["segment"])), Int(read(group["saved_count"])),
-                               _read_record(group["summary"]), String(filename))
+                               _read_record(group["summary"]), stepper, String(filename))
         end
         index = time_index === nothing ? length(times) : Int(time_index)
         1 <= index <= length(times) ||
@@ -326,7 +352,8 @@ function Runes2P.read_state(filename::AbstractString; time_index::Union{Nothing,
                   Dict{String,Vector{Float64}}()
         return StoredState(Float64(times[index]), vec(_read_states(file["unknowns"], layout, index:index)), layout,
                            updates, settings, Int(get(segment, "index", 1)),
-                           Int(get(segment, "saved_before", 0)) + index, Dict{String,Any}(), String(filename))
+                           Int(get(segment, "saved_before", 0)) + index, Dict{String,Any}(), Dict{String,Any}(),
+                           String(filename))
     end
 end
 
@@ -367,6 +394,10 @@ end
 
 _start_time(solution::TimeSolution) = Float64(get(get(solution.settings, "segment", Dict{String,Any}()),
                                                   "start_time", -Inf))
+function _attempts_before(solution::TimeSolution)
+    value = get(get(solution.settings, "segment", Dict{String,Any}()), "attempts_before", nothing)
+    return value === nothing ? nothing : Int(value)
+end
 
 function Runes2P.read_output(filenames::AbstractString...)
     isempty(filenames) && throw(ArgumentError("no output file given"))
@@ -385,9 +416,17 @@ function Runes2P.read_output(filenames::AbstractString...)
             length(part.layout) == length(first_part.layout) ||
             throw(ArgumentError("$(filenames[k]) has another layout than $(first(filenames)); " *
                                 "read the segments of a run whose unknowns changed one by one"))
-        # what a segment did after the start of the following one is repeated by it
+        # what a segment did after the start of the following one is repeated by it: the
+        # statistics are cut by the count of attempts the following segment resumed
+        # from (a failed attempt is recorded at the time it aimed at), by the time before
+        # format 0.14
         limit = k < length(parts) ? _start_time(parts[k+1]) : Inf
-        _append_statistics!(statistics, _statistics_until(part.statistics, limit))
+        before, after = _attempts_before(part), k < length(parts) ? _attempts_before(parts[k+1]) : nothing
+        if before !== nothing && after !== nothing
+            _append_statistics!(statistics, _statistics_first(part.statistics, after - before))
+        else
+            _append_statistics!(statistics, _statistics_until(part.statistics, limit))
+        end
         kept = findall(<=(limit), part.times)
         isempty(kept) && continue
         Set(keys(part.update_states)) == names ||

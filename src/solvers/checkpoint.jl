@@ -73,8 +73,10 @@ file's layout record, for matching the unknowns by name), the states of the inte
 updates by name, the settings record of the run that wrote it, the number of the segment
 that wrote it, the number of states the run had saved up to the time (`saved_count`), a
 `summary` of the run so far (attempted and accepted steps, Newton and Krylov iterations,
-wall time) and the file it came from. [`read_checkpoint`](@ref) and
-[`read_state`](@ref) return one.
+wall time), the record of the time `stepper` at the time (its step length and what it
+carries between steps, [`FixedSteps`](@ref); empty for a state read from an output file,
+whose time is then a time point of the run) and the file it came from.
+[`read_checkpoint`](@ref) and [`read_state`](@ref) return one.
 """
 struct StoredState{T}
     time::Float64
@@ -85,6 +87,7 @@ struct StoredState{T}
     segment::Int
     saved_count::Int
     summary::Dict{String,Any}
+    stepper::Dict{String,Any}
     source::String
 end
 
@@ -205,12 +208,21 @@ function changed_sections(before::AbstractDict, now::AbstractDict)
 end
 
 # record of the segment in the settings of a run: outside the setup hash. The status, the
-# time reached and the number of intervals done follow the run (`_update_segment!`).
+# time reached and the number of accepted steps follow the run (`_update_segment!`).
 function _segment_record(segment::Integer, stored, settings::AbstractDict, start_time::Real, saved_before::Integer)
     record = SettingsRecord("index" => Int(segment), "start_time" => Float64(start_time),
                             "resumed" => stored !== nothing, "saved_before" => Int(saved_before),
-                            "status" => "running", "end_time" => Float64(start_time), "intervals" => 0,
+                            "status" => "running", "end_time" => Float64(start_time), "steps" => 0,
                             "checkpoint_written" => false)
+    # the attempted steps of the run before the segment, by which read_output cuts the
+    # statistics of the segment before at the checkpoint (a failed attempt is recorded at
+    # the time it aimed at, which may lie beyond the checkpoint); a state from an output
+    # file has no count, and the join then falls back on the time
+    if stored === nothing
+        record["attempts_before"] = 0
+    elseif haskey(stored.summary, "attempted_steps")
+        record["attempts_before"] = Int(stored.summary["attempted_steps"])
+    end
     stored === nothing && return record
     record["resumed_from"] = stored.source
     record["resumed_from_segment"] = stored.segment
@@ -226,20 +238,19 @@ end
 
 # Clean stop of a segment. Julia exits
 # on SIGTERM without running user code, so a run cannot react to the signal at the time
-# limit. It stops by itself instead, at a requested time point, when the wall time left
-# does not cover another interval or when a stop file appears, which the batch script
+# limit. It stops by itself instead, after an accepted step, when the wall time left
+# does not cover another step or when a stop file appears, which the batch script
 # creates on the warning signal of the batch system.
 
 """
     StopCondition(; end_time=nothing, wall_budget=nothing, stop_file=nothing, slack=300)
 
-When a segment stops before the last time point. [`integrate`](@ref) asks at every
-requested time point, never inside an interval, so an interval with halved steps is
-finished first. It stops when
+When a segment stops before the last time point. [`integrate`](@ref) asks after every
+accepted step (formerly at the time points only). It stops when
 
-- the wall time left until `end_time` is less than the margin: the longest interval of
-  the segment so far, plus the longest write of a checkpoint with its output so far, plus
-  `slack` seconds (the rule of SCR: interval, write time and a slack; the default slack
+- the wall time left until `end_time` is less than the margin: the longest accepted step
+  of the segment so far, plus the longest write of a checkpoint with its output so far,
+  plus `slack` seconds (the rule of SCR: step, write time and a slack; the default slack
   is the margin of GS2, 300 s);
 - the file `stop_file` exists.
 
@@ -249,7 +260,7 @@ further settings. `wall_budget` gives the end as seconds from now. With both, th
 end counts.
 
 A stop file left by an earlier segment is removed when the segment starts. A segment
-always completes one interval before it stops, so that every segment of a run makes
+always completes one step before it stops, so that every segment of a run makes
 progress.
 """
 struct StopCondition
@@ -279,18 +290,18 @@ describe(stop::StopCondition) =
                    "slack" => stop.slack)
 
 """
-    stop_reason(stop, longest_interval, longest_write; now=time())
+    stop_reason(stop, longest_step, longest_write; now=time())
 
 Why the segment stops now, `"stop file"` or `"wall time"`, or `nothing` when it goes on.
-`longest_interval` and `longest_write` are the wall times in seconds of the longest
-interval and of the longest checkpoint write of the segment so far.
+`longest_step` and `longest_write` are the wall times in seconds of the longest
+accepted step and of the longest checkpoint write of the segment so far.
 """
-function stop_reason(stop::StopCondition, longest_interval::Real, longest_write::Real; now::Real=time())
+function stop_reason(stop::StopCondition, longest_step::Real, longest_write::Real; now::Real=time())
     isempty(stop.stop_file) || !isfile(stop.stop_file) || return "stop file"
-    now + longest_interval + longest_write + stop.slack >= stop.end_time && return "wall time"
+    now + longest_step + longest_write + stop.slack >= stop.end_time && return "wall time"
     return nothing
 end
-stop_reason(::Nothing, longest_interval, longest_write; now=time()) = nothing
+stop_reason(::Nothing, longest_step, longest_write; now=time()) = nothing
 
 "Exit status of a script whose run finished."
 const EXIT_FINISHED = 0

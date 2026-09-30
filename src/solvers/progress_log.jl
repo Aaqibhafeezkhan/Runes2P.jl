@@ -275,8 +275,9 @@ function write_header(log::ProgressLog, settings::AbstractDict)
         println(io, "  ", length(times), " time points from t = ", _number(first(times)), " to ", _number(last(times)),
                 " s, intervals from ", _number(minimum(intervals)), " to ", _number(maximum(intervals)), " s")
     end
-    println(io, "  ", get(time_record, "save_count", 0), " save times, at most ",
-            get(time_record, "max_step_halvings", "?"), " halvings of a step")
+    stepper = get(time_record, "stepper", SettingsRecord())
+    println(io, "  ", get(time_record, "save_count", 0), " save times, stepper ", get(stepper, "type", "unknown"),
+            isempty(_in_line(stepper)) ? "" : " with " * _in_line(stepper))
     for name in ("checkpoint", "stop", "log")
         record = _record(settings, name)
         get(record, "type", "none") == "none" && continue
@@ -422,7 +423,7 @@ function write_entry(log::ProgressLog, reason::AbstractString, u::AbstractVector
     estimate = intervals_done > 0 ? remaining * (now - log.last_entry) / intervals_done : NaN
     println(io, "  wall    ", _duration(now - log.started), " since the start of the segment, ",
             _duration(now - log.last_entry), " since the last entry, estimate for the ", remaining,
-            " intervals left: ", remaining == 0 ? "none" : _duration(estimate))
+            " time points left: ", remaining == 0 ? "none" : _duration(estimate))
     println(io, "  memory  ", _bytes(Sys.maxrss()), " at most resident, ", _bytes(Base.gc_live_bytes()), " live in Julia")
     hidden = [(kind, count) for (kind, count) in log.event_counts if count > 0]
     if !isempty(hidden)
@@ -484,7 +485,7 @@ end
 """
     report_progress!(log, u, layout, t, times, interval, stats)
 
-Called by [`integrate`](@ref) at every requested time point: writes the entry of a
+Called by [`integrate`](@ref) after every accepted step: writes the entry of a
 milestone passed, of a request by signal or of the silence guard, whichever applies.
 """
 function report_progress!(log::ProgressLog, u, layout, t, times, interval, stats)
@@ -509,9 +510,9 @@ report_progress!(::Nothing, u, layout, t, times, interval, stats) = nothing
 """
     report_step!(log, u, layout, t, stats)
 
-Called by [`integrate`](@ref) after every attempted step inside an interval: the guard
-and the request by signal are served between the time points as well, with the state of
-the last accepted step, so that a long interval with many halved steps is not silent.
+Called by [`integrate`](@ref) after every failed step: the guard and the request by
+signal are served with the state of the last accepted step, so that a stretch of failed
+steps is not silent.
 """
 function report_step!(log::ProgressLog, u, layout, t, times, interval, stats)
     log.on_signal && yield()      # the task that receives the signal runs here

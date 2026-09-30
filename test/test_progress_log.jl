@@ -113,7 +113,7 @@ _count(pattern, text) = length(collect(eachmatch(pattern, text)))
                        "milestones = 102 values from 0.0001 to 1, first 0.0001, last 1, on_signal = false, " *
                        "state = true", text)
         @test occursin("9 time points from t = 0 to 0.0008 s, intervals from 0.0001 to 0.0001 s", text)
-        @test occursin("7 save times, at most 10 halvings of a step", text)
+        @test occursin("7 save times, stepper FixedSteps with max_halvings = 10", text)
         @test occursin("f: kinetic on grid_1, scale 1e+20, 128 entries", text)
         @test occursin("hot_density: radial, scale 1e+20, 2 entries", text)
         @test occursin("grid_1: cylindrical geometry, 2 radii from r = 0 to 1 m, 16 momentum cells from p = 0 to 1.2 " *
@@ -142,8 +142,8 @@ _count(pattern, text) = length(collect(eachmatch(pattern, text)))
         @test occursin("steps   none since the last entry", text)       # the entry of the start
         @test occursin(r"solver  Newton iterations \d+\.\d\d per step, Krylov iterations 0\.00 per Newton iteration", text)
         @test occursin(r"cost    \d+\.\d (ms|s) per step: Jacobian \d+ %, residual \d+ %, factorization \d+ %", text)
-        @test occursin(r"wall    .* since the start of the segment, .* since the last entry, estimate for the 7 intervals left", text)
-        @test occursin("estimate for the 0 intervals left: none", text)
+        @test occursin(r"wall    .* since the start of the segment, .* since the last entry, estimate for the 7 time points left", text)
+        @test occursin("estimate for the 0 time points left: none", text)
         @test occursin(r"memory  .* at most resident, .* live in Julia", text)
 
         # the state, set off from the solver block
@@ -280,8 +280,10 @@ _count(pattern, text) = length(collect(eachmatch(pattern, text)))
         log = ProgressLog(io=io, on_signal=false, milestones=[1.0], request_file=request)
         integrate(case.system, case.u0, case.times; updates=(case.update(), RequestStop(request, case.times[4])), log)
         entries = _progress_lines(String(take!(io)))
-        @test count(entry -> occursin("(on demand)", entry), entries) == 4    # asked at the time points 4 to 8
-        @test occursin("time point 5 of 9  (on demand)", entries[2])
+        # asked at the time points 4 to 8 by the update, which runs after the accepted step
+        # and before the report of that step, so each request is served at its own time point
+        @test count(entry -> occursin("(on demand)", entry), entries) == 5
+        @test occursin("time point 4 of 9  (on demand)", entries[2])
         rm(request; force=true)
 
         # by the report of Julia on SIGUSR1, which the log replaces during the run only
@@ -291,7 +293,7 @@ _count(pattern, text) = length(collect(eachmatch(pattern, text)))
         integrate(case.system, case.u0, case.times; updates=(case.update(), AskForEntry(case.times[3])), log)
         entries = _progress_lines(String(take!(io)))
         @test length(entries) == 3
-        @test occursin("time point 4 of 9  (on demand)", entries[2])
+        @test occursin("time point 3 of 9  (on demand)", entries[2])
         @test Profile.peek_report[] === before
         # also after a run that failed
         system = single_unknown_system(TimeDerivative(), SquareRootDecayTerm(:x, 4.0))

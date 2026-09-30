@@ -1,7 +1,8 @@
 # The stored Jacobian and the factorization of a system that is linear in the state are
-# kept between the Newton iterations of a time level: the first iteration
-# solves the step, the second confirms it with the same matrix. The results are those of
-# a solver that assembles and factorizes in every iteration, bit for bit.
+# kept between the Newton iterations of a step: the first iteration solves
+# the step, the second confirms it with the same matrix. The results are those of a
+# solver that assembles and factorizes in every iteration, bit for bit. The key of the
+# reuse is the end time and the length of the step, which identify the start state.
 
 function reuse_case(scheme; radii=1)
     mom = MomentumGrid(biuniform_p_faces(24, 10, 0.0, 0.2, 1.5), uniform_xi_faces(6))
@@ -48,21 +49,30 @@ end
         @test v_kept == v_fresh
         @test v_kept != u_kept
 
-        # the same time level with another time step: the Jacobian stays, the matrix and its
-        # factorization are new
+        # the same end time with another time step is a step from another start state
+        # (step doubling): the Jacobian, the matrix and its factorization are new
         w_kept, w_fresh = copy(u_kept), copy(u_fresh)
         newton_solve!(w_kept, u_kept, kept, 2dt, dt / 2)
         newton_solve!(w_fresh, u_fresh, fresh, 2dt, dt / 2)
-        @test kept.jacobian_assemblies[] == 2
+        @test kept.jacobian_assemblies[] == 3
         @test kept.cache.factorizations == 3
         @test w_kept == w_fresh
         @test w_kept != v_kept
+        @test (kept.assembled_time[], kept.assembled_step[]) == (2dt, dt / 2)
+
+        # the same step again from the same start: kept
+        y = copy(u_kept)
+        newton_solve!(y, u_kept, kept, 2dt, dt / 2)
+        @test kept.jacobian_assemblies[] == 3
+        @test kept.cache.factorizations == 3
+        @test y == w_kept
 
         # discarded by hand
         invalidate_jacobian!(kept)
+        @test isnan(kept.assembled_time[]) && isnan(kept.assembled_step[])
         x = copy(u_kept)
         newton_solve!(x, u_kept, kept, 2dt, dt / 2)
-        @test kept.jacobian_assemblies[] == 3
+        @test kept.jacobian_assemblies[] == 4
         @test kept.cache.factorizations == 4
         @test x == w_kept
     end

@@ -141,7 +141,7 @@ square_root_step(u0, k, dt) = ((-k * dt + sqrt((k * dt)^2 + 4u0)) / 2)^2
         result = newton_solve!(u, u_old, NewtonWorkspace(system), 1.0, 1.0)
         @test result.status === :below_lower_limit
         @test -0.1 <= unknown_view(u, layout, :x, 1)[1] < -0.0999
-        @test describe(layout)["unknowns"][1]["lower_limit_reference"] == "n"
+        @test describe(layout)["unknowns"]["x"]["lower_limit_reference"] == "n"
         # checks on declaration
         @test_throws ArgumentError LowerLimit(tolerance=-1.0)
         rad = RadialGrid(uniform_r_faces(1, 0.5))
@@ -254,6 +254,30 @@ square_root_step(u0, k, dt) = ((-k * dt + sqrt((k * dt)^2 + 4u0)) / 2)^2
         expected = foldl((u, h) -> square_root_step(u, k, h), stats.time_step[2:end]; init=0.2)
         @test solution.states[1, end] ≈ expected rtol = 1e-12
         @test_throws TimeStepFailure integrate(system, [0.2], times; max_step_halvings=0)
+        @test_throws TimeStepFailure integrate(system, [0.2], times; stepper=FixedSteps(max_halvings=0))
+        @test_throws ArgumentError integrate(system, [0.2], times; max_step_halvings=0, stepper=FixedSteps())
+        @test_throws ArgumentError FixedSteps(max_halvings=-1)
+    end
+
+    @testset "run options" begin
+        # the keyword form and the record give the same run and the same record
+        k = 3.0
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k); nr=2)
+        times = [0.0, 0.01, 0.05, 0.2]
+        options = RunOptions(save_times=[0.0, 0.03, 0.2], description=Dict("name" => "options"))
+        by_record = integrate(system, [1.0, 2.0], times, options)
+        by_keywords = integrate(system, [1.0, 2.0], times; save_times=[0.0, 0.03, 0.2],
+                                description=Dict("name" => "options"))
+        @test by_record.states == by_keywords.states
+        @test by_record.times == by_keywords.times == [0.0, 0.03, 0.2]
+        @test by_record.settings["setup_hash"] == by_keywords.settings["setup_hash"]
+        @test by_record.settings["time"]["stepper"] == Dict{String,Any}("type" => "FixedSteps", "max_halvings" => 10)
+        @test by_record.settings["segment"]["steps"] == 3
+        @test run_settings(system, times, options) == run_settings(system; times, save_times=[0.0, 0.03, 0.2],
+                                                                   description=Dict("name" => "options"))
+        @test RunOptions().stepper == FixedSteps()
+        @test RunOptions().save_times === nothing
+        @test describe(FixedSteps(max_halvings=3)) == Dict{String,Any}("type" => "FixedSteps", "max_halvings" => 3)
     end
 
     @testset "HDF5 output" begin
@@ -281,8 +305,10 @@ square_root_step(u0, k, dt) = ((-k * dt + sqrt((k * dt)^2 + 4u0)) / 2)^2
             @test size(n) == (2, 2, 3)
             @test n[:, 1, 2] == unknown_view(solution.states[:, 2], layout, :ion_densities, 1)
             @test read(h5["unknowns/plasma_current"]) == solution.states[end, :]
-            @test read(h5["layout/unknowns/order"]) == ["plasma_current", "ion_densities", "hot_tail_distribution"]
-            @test read(h5["layout/unknowns/hot_tail_distribution/p_faces/2"]) == mom.p_faces
+            @test read(h5["layout/order"]) == ["plasma_current", "ion_densities", "hot_tail_distribution"]
+            @test read(h5["layout/layout_version"]) == 2
+            grid_name = read(h5["layout/unknowns/hot_tail_distribution/grid"])
+            @test read(h5["layout/grids/$grid_name/momentum_grid/p_faces"]) == mom.p_faces
             @test read(h5["layout/unknowns/ion_densities/lower_limit_tolerance"]) == 0.0
             @test read(h5["solver_statistics/time"]) == [0.1, 0.2]
             @test read(h5["solver_statistics/status"]) == ["converged", "converged"]

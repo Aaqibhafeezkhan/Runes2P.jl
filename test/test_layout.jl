@@ -97,15 +97,22 @@ using ForwardDiff: Dual
         @test scales[unknown_range(layout, f_hot, 2)] == fill(1e18, 10)
         @test scales[unknown_range(layout, Ip)] == [1e6]
         @test scales[unknown_range(layout, f_re, 1)] == fill(1.0, 4)
+        # one record for the root group of the files and the settings: the settings form
+        # with the grids inline
         d = describe(layout)
-        @test d["layout_version"] == 1
-        entries = Dict(e["name"] => e for e in d["unknowns"])
+        @test d["layout_version"] == 2
+        entries = d["unknowns"]
         @test entries["hot_tail_distribution"]["kind"] == "kinetic"
         @test entries["hot_tail_distribution"]["sizes"] == [12, 10, 12]
-        @test entries["hot_tail_distribution"]["p_faces"][2] == m2.p_faces
+        grid = d["grids"][entries["hot_tail_distribution"]["grid"]]
+        @test grid["momentum_grids"]["radius_2"]["p_faces"] == m2.p_faces
         @test entries["ion_densities"]["components"] == 3
         @test entries["wall_current"]["kind"] == "scalar"
         @test d["r_faces"] == rad.r_faces
+        context = DescriptionContext()
+        without_grids = describe(layout, context)
+        @test without_grids == delete!(copy(d), "grids")
+        @test describe(context) == d["grids"]
     end
 
     @testset "code does not depend on the order" begin
