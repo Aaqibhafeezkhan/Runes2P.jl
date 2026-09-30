@@ -47,6 +47,7 @@ end
     timed_include("test_jacobian_strategies.jl")
     timed_include("test_sciml_extension.jl")
     timed_include("test_time_stepping.jl")
+    timed_include("test_step_doubling.jl")
     timed_include("test_settings.jl")
     timed_include("test_checkpoint.jl")
     timed_include("test_stop.jl")

@@ -12,7 +12,12 @@ time array (DREAM #296):
 
 - `time`, `time_step`: end time and length of the attempted step;
 - `accepted`, `status`: whether the step was accepted, and the [`NewtonResult`](@ref)
-  status;
+  status; a step that converged and was not accepted was rejected by the stepper on its
+  error estimate, or was a half step of a step doubling;
+- `kind`: `:step` for a step of the run (accepted, failed or rejected), `:half_step` for
+  the two half steps of a step doubling ([`StepDoubling`](@ref));
+- `error`: the error estimate of the step relative to its tolerance (accepted at most 1),
+  `NaN` where the stepper made none;
 - `newton_iterations`, `krylov_iterations`, `preconditioner_updates` (factorizations of
   the Krylov preconditioner);
 - `initial_residual_norm`, `residual_norm`, `update_norm`: scaled norms before the first
@@ -59,16 +64,22 @@ struct SolverStatistics
     iteration_residual_norm::Vector{Float64}
     iteration_update_norm::Vector{Float64}
     iteration_step_length::Vector{Float64}
+    kind::Vector{Symbol}
+    error::Vector{Float64}
 end
 SolverStatistics() = SolverStatistics(Float64[], Float64[], Bool[], Symbol[], Int[], Int[], Int[], Float64[],
                                       Float64[], Float64[], Float64[], Float64[], Bool[], Bool[], Float64[],
-                                      Float64[], Float64[], Float64[], Float64[], Int[], Float64[], Float64[], Float64[])
+                                      Float64[], Float64[], Float64[], Float64[], Int[], Float64[], Float64[], Float64[],
+                                      Symbol[], Float64[])
 
-function _record!(stats::SolverStatistics, t, dt, result::NewtonResult, ws::NewtonWorkspace, wall)
+function _record!(stats::SolverStatistics, t, dt, result::NewtonResult, ws::NewtonWorkspace, wall;
+                  kind::Symbol=:step, accepted::Bool=result.status === :converged, error::Real=NaN)
     push!(stats.time, t)
     push!(stats.time_step, dt)
-    push!(stats.accepted, result.status === :converged)
+    push!(stats.accepted, accepted)
     push!(stats.status, result.status)
+    push!(stats.kind, kind)
+    push!(stats.error, Float64(error))
     push!(stats.newton_iterations, result.iterations)
     push!(stats.krylov_iterations, result.krylov_iterations)
     push!(stats.preconditioner_updates, result.preconditioner_updates)
@@ -133,18 +144,67 @@ Base.showerror(io::IO, e::TimeStepFailure) =
           "at the time step $(e.time_step)")
 
 # ---------------------------------------------------------------------------------------
-# time steppers: what sets the length of the next step and what a
-# stepper carries from step to step, which goes into the checkpoint so that a resumed
-# run repeats the uninterrupted one
+# time steppers: what sets the length of the next step and
+# what a stepper carries from step to step, which goes into the checkpoint so that a
+# resumed run repeats the uninterrupted one. A stepper implements
+#
+# - `stepper_state(stepper, system, times, t, record)`: its state at the time t, fresh or
+#   restored from the record of a checkpoint;
+# - `stepper_record(state)`: the record of its state for the checkpoint;
+# - `ceilings(stepper, times, save_times)`: the times every step must end on;
+# - `advance!(stepper, state, run, options, ceiling)`: one attempt to advance the run from
+#   its time to at most `ceiling`, with its own solves and their statistics; `(t_next, h)`
+#   with the accepted state in `run.u`, or `nothing` when the attempt failed or was
+#   rejected and the stepper retries with another length (it throws when it gives up).
 
 """
     TimeStepper
 
 Supertype of the steppers of [`integrate`](@ref), which set the length of every step:
-[`FixedSteps`](@ref). The state a stepper carries between steps (its step length, the
-count of its failures) is recorded in every checkpoint and restored by a resume.
+[`FixedSteps`](@ref) and [`StepDoubling`](@ref). The state a stepper carries between
+steps (its step length, its counts) is recorded in every checkpoint and restored by a
+resume.
 """
 abstract type TimeStepper end
+
+describe(stepper::TimeStepper) = _describe_fields(stepper)
+
+# the time points of the run are the ceilings of every stepper
+ceilings(::TimeStepper, times, save_times) = collect(Float64, times)
+
+# the end of a step of the length the stepper asks for: the last step before a ceiling
+# lands exactly on it
+_step_end(t, dt, ceiling) = ceiling - t <= dt * (1 + 1e-10) ? ceiling : t + dt
+
+# one solve from the state `from` to the time t_next, into `to`, recorded in the
+# statistics; `to` holds the last iterate on failure
+function _solve_step!(run, from, to, t_next, h; kind::Symbol=:step)
+    copyto!(to, from)
+    started = time_ns()
+    result = newton_solve!(to, from, run.ws, t_next, h)
+    # a half step is never a step of the run
+    _record!(run.stats, t_next, h, result, run.ws, (time_ns() - started) / 1e9; kind,
+             accepted=kind === :step && result.status === :converged)
+    return result
+end
+
+# a failed solve that the stepper gives up on
+function _give_up(run, options, t_next, h, result, how)
+    log = options.log
+    log_event!(log, "run failed", Logging.Error,
+               "the step to t = $t_next s with the time step $h s failed with the status $(result.status) $how")
+    _finish(run, log, "segment end, failed")
+    throw(TimeStepFailure(t_next, h, result.status, run.stats))
+end
+
+# a failed solve that the stepper retries
+function _retry_after_failure(run, options, t_next, h, result, how)
+    log = options.log
+    log_event!(log, "step failed", Logging.Warn,
+               "the step to t = $t_next s with the time step $h s ended with the status $(result.status) and $how")
+    report_step!(log, run.u_old, run.layout, run.t, run.times, run.next_point - 2, run.stats)
+    return nothing
+end
 
 """
     FixedSteps(; max_halvings=10)
@@ -163,8 +223,6 @@ function FixedSteps(; max_halvings::Integer=10)
     return FixedSteps(Int(max_halvings))
 end
 
-describe(stepper::TimeStepper) = _describe_fields(stepper)
-
 # the state of FixedSteps: the step length of the interval, halved on failure
 mutable struct FixedStepState
     dt::Float64
@@ -179,12 +237,13 @@ function _interval_length(times, t)
 end
 
 """
-    stepper_state(stepper, times, t, record)
+    stepper_state(stepper, system, times, t, record)
 
-The state of `stepper` at the time `t` of the run with the time points `times`: restored
-from the `record` of a checkpoint written by the same kind of stepper, fresh otherwise.
+The state of `stepper` at the time `t` of the run of `system` with the time points
+`times`: restored from the `record` of a checkpoint written by the same kind of stepper,
+fresh otherwise.
 """
-function stepper_state(stepper::FixedSteps, times, t, record::AbstractDict)
+function stepper_state(stepper::FixedSteps, system, times, t, record::AbstractDict)
     # inside an interval the stored length and halvings continue it; at a time point the
     # interval that starts there sets the length, whatever the time points of the segment
     # that wrote the record were
@@ -197,30 +256,202 @@ end
 stepper_record(state::FixedStepState) =
     SettingsRecord("type" => "FixedSteps", "dt" => state.dt, "halvings" => state.halvings)
 
-"The length of the next step the stepper asks for; the run caps it at the next time point."
-step_length(::FixedSteps, state::FixedStepState, t) = state.dt
-
-# after a failed step of length h: whether the stepper retries, with its new length
-function step_failed!(stepper::FixedSteps, state::FixedStepState, h)
-    state.halvings += 1
-    state.halvings > stepper.max_halvings && return false
-    state.dt = h / 2
-    return true
-end
-
-# after an accepted step to t_next; at a time point the next interval starts with its
-# full length
-function step_accepted!(::FixedSteps, state::FixedStepState, times, t_next, at_time_point)
-    if at_time_point
-        state.dt = _interval_length(times, t_next)
+function advance!(stepper::FixedSteps, state::FixedStepState, run, options, ceiling)
+    t = run.t
+    t_next = _step_end(t, state.dt, ceiling)
+    h = t_next - t
+    result = _solve_step!(run, run.u_old, run.u, t_next, h)
+    if result.status !== :converged
+        state.halvings += 1
+        state.halvings > stepper.max_halvings &&
+            _give_up(run, options, t_next, h, result, "after $(stepper.max_halvings) halvings")
+        state.dt = h / 2
+        return _retry_after_failure(run, options, t_next, h, result, "is retried with half the time step")
+    end
+    # at a time point the next interval starts with its full length
+    if t_next == run.times[run.next_point]
+        state.dt = _interval_length(run.times, t_next)
         state.halvings = 0
     end
-    return nothing
+    return (t_next, h)
 end
 
-# the message of a failed step for the log and the exception
-_failure_text(stepper::FixedSteps, state::FixedStepState) = "after $(stepper.max_halvings) halvings"
-_retry_text(::FixedSteps, state::FixedStepState) = "is retried with half the time step"
+"""
+    StepDoubling(; initial_step=nothing, relative_tolerance=1e-2, check_every=0, safety=0.95,
+                 exponent=1.0, max_failures=5, failure_factor=0.2)
+
+DREAM's adaptive time stepper (`TYPE_ADAPTIVE`, `TimeStepperAdaptive.cpp`), the
+compatibility option of the step control. A checked step is solved three
+times: two steps of half the length and one of the full length from the same state, so
+the error estimate costs two solves per step of progress. The error of an unknown is the
+2-norm of the difference between the full step and the two half steps over the 2-norm of
+the full step, `‖u_full - u_half‖ / (absolute + relative ‖u_full‖)`, taken over every
+entry of the unknown at every radius; the error of the step is the largest over the
+unknowns. The step is accepted when it is at most 1, and its solution is that of the
+full step, as in DREAM. The next step is `safety · h / error^exponent` in either case,
+without a cap on its growth (DREAM: safety 0.95, exponent 1.0; its stabiliser, exponent
+0.7 with a memory of the last error, is compiled out). `check_every` steps between two
+checked steps are taken at the current length without a check (DREAM's `checkevery`).
+
+The tolerances are the [`Tolerance`](@ref)s the system holds for the time-step error
+(`time_step_tolerances` of [`EquationSystem`](@ref)); an unknown without one gets
+`relative_tolerance` and no absolute tolerance (DREAM's default absolute tolerance is
+zero for every unknown but the runaway density and current, which get 1e-10 and
+`e c 1e-10`). An unknown with both tolerances zero is left out of the check. A step whose
+solve fails is retried with `failure_factor` times its length, at most `max_failures`
+times in a row (DREAM's `STEP_REDUCTION_AT_EXCEPTION` and `MAX_STEPS_WITH_EXCEPTION`);
+in a step between checks DREAM ends the run instead, Runes2P retries there too.
+DREAM's step update reads the tolerances of the wrong unknowns when a prescribed unknown
+precedes others; Runes2P uses one set of tolerances for the acceptance and the
+next step.
+
+The first step has the length `initial_step` (`nothing`: the first interval of the time
+points). Every step ends at or before the next time point of the run; a save time
+between two steps gets the interpolation of their end states, as with [`FixedSteps`](@ref)
+(DREAM saves every accepted step and has no save times). A step shortened by a time
+point sets the next length from its own error, as a step to `tmax` does in DREAM.
+"""
+struct StepDoubling <: TimeStepper
+    initial_step::Float64      # NaN: the first interval of the time points
+    relative_tolerance::Float64
+    check_every::Int
+    safety::Float64
+    exponent::Float64
+    max_failures::Int
+    failure_factor::Float64
+end
+function StepDoubling(; initial_step::Union{Nothing,Real}=nothing, relative_tolerance::Real=1e-2,
+                      check_every::Integer=0, safety::Real=0.95, exponent::Real=1.0, max_failures::Integer=5,
+                      failure_factor::Real=0.2)
+    initial_step === nothing || initial_step > 0 || throw(ArgumentError("the initial step must be positive"))
+    relative_tolerance > 0 || throw(ArgumentError("the relative tolerance must be positive"))
+    check_every >= 0 || throw(ArgumentError("check_every must not be negative"))
+    0 < safety <= 1 || throw(ArgumentError("the safety factor must lie in (0, 1]"))
+    exponent > 0 || throw(ArgumentError("the exponent must be positive"))
+    max_failures >= 0 || throw(ArgumentError("max_failures must not be negative"))
+    0 < failure_factor < 1 || throw(ArgumentError("the failure factor must lie in (0, 1)"))
+    return StepDoubling(initial_step === nothing ? NaN : Float64(initial_step), Float64(relative_tolerance),
+                        Int(check_every), Float64(safety), Float64(exponent), Int(max_failures),
+                        Float64(failure_factor))
+end
+
+# the state of StepDoubling: the step length, the steps taken since the last check, the
+# failures in a row, the tolerances per unknown, the buffers of the half steps and the
+# errors per unknown of the last check
+mutable struct StepDoublingState{T}
+    dt::Float64
+    steps_since_check::Int
+    failures::Int
+    const absolute::Vector{Float64}   # per unknown of the layout
+    const relative::Vector{Float64}
+    const half::Vector{T}             # the state after the first half step
+    const doubled::Vector{T}          # the state after the two half steps
+    const errors::Vector{Float64}     # per unknown, NaN before the first check
+end
+
+function stepper_state(stepper::StepDoubling, system::EquationSystem{T}, times, t, record::AbstractDict) where {T}
+    layout = system.layout
+    absolute, relative = Float64[], Float64[]
+    for u in layout.unknowns
+        tolerance = get(system.time_step_tolerances, u.name, nothing)
+        push!(absolute, tolerance === nothing ? 0.0 : tolerance.absolute)
+        push!(relative, tolerance === nothing ? stepper.relative_tolerance : tolerance.relative)
+    end
+    n = length(layout)
+    if get(record, "type", "") == "StepDoubling"
+        return StepDoublingState{T}(Float64(record["dt"]), Int(record["steps_since_check"]), Int(record["failures"]),
+                                    absolute, relative, zeros(T, n), zeros(T, n), fill(NaN, length(layout.unknowns)))
+    end
+    dt = isnan(stepper.initial_step) ? _interval_length(times, t) : stepper.initial_step
+    # the first check comes with the first step, as in DREAM
+    return StepDoublingState{T}(dt, stepper.check_every, 0, absolute, relative, zeros(T, n), zeros(T, n),
+                                fill(NaN, length(layout.unknowns)))
+end
+
+stepper_record(state::StepDoublingState) =
+    SettingsRecord("type" => "StepDoubling", "dt" => state.dt, "steps_since_check" => state.steps_since_check,
+                   "failures" => state.failures)
+
+# the error per unknown of the full step `full` against the two half steps `doubled`,
+# and the largest of them; an unknown with zero tolerances is left out (NaN)
+function _doubling_errors!(state::StepDoublingState, layout, full, doubled)
+    largest = 0.0
+    for id in eachindex(layout.unknowns)
+        absolute, relative = state.absolute[id], state.relative[id]
+        if absolute == 0 && relative == 0
+            state.errors[id] = NaN
+            continue
+        end
+        norm_full = norm_difference = 0.0
+        for range in _unknown_ranges(layout, id), i in range
+            norm_full += full[i]^2
+            norm_difference += (full[i] - doubled[i])^2
+        end
+        scale = absolute + relative * sqrt(norm_full)
+        # a scale of zero is an unknown at zero, which is no error (DREAM skips it)
+        error = scale == 0 ? 0.0 : sqrt(norm_difference) / scale
+        isfinite(error) || (error = Inf)
+        state.errors[id] = error
+        largest = max(largest, error)
+    end
+    return largest
+end
+
+# a failed solve of the doubling: the step length shrinks by the failure factor
+function _doubling_failure!(stepper::StepDoubling, state::StepDoublingState, run, options, t_next, h, result)
+    state.failures += 1
+    state.failures > stepper.max_failures &&
+        _give_up(run, options, t_next, h, result, "after $(stepper.max_failures) failures in a row")
+    state.dt = stepper.failure_factor * state.dt
+    return _retry_after_failure(run, options, t_next, h, result,
+                                "is retried with $(stepper.failure_factor) times the time step")
+end
+
+function advance!(stepper::StepDoubling, state::StepDoublingState, run, options, ceiling)
+    t, u_old, u = run.t, run.u_old, run.u
+    t_next = _step_end(t, state.dt, ceiling)
+    h = t_next - t
+    if state.steps_since_check < stepper.check_every
+        # a step without a check, at the current length
+        result = _solve_step!(run, u_old, u, t_next, h)
+        result.status === :converged || return _doubling_failure!(stepper, state, run, options, t_next, h, result)
+        state.steps_since_check += 1
+        state.failures = 0
+        return (t_next, h)
+    end
+    # the two half steps, then the full step from the same state
+    t_half = t + h / 2
+    result = _solve_step!(run, u_old, state.half, t_half, t_half - t; kind=:half_step)
+    result.status === :converged ||
+        return _doubling_failure!(stepper, state, run, options, t_half, t_half - t, result)
+    result = _solve_step!(run, state.half, state.doubled, t_next, t_next - t_half; kind=:half_step)
+    result.status === :converged ||
+        return _doubling_failure!(stepper, state, run, options, t_next, t_next - t_half, result)
+    copyto!(u, u_old)
+    started = time_ns()
+    result = newton_solve!(u, u_old, run.ws, t_next, h)
+    wall = (time_ns() - started) / 1e9
+    if result.status !== :converged
+        _record!(run.stats, t_next, h, result, run.ws, wall)
+        return _doubling_failure!(stepper, state, run, options, t_next, h, result)
+    end
+    error = _doubling_errors!(state, run.layout, u, state.doubled)
+    accepted = error <= 1
+    _record!(run.stats, t_next, h, result, run.ws, wall; accepted, error)
+    # DREAM: dt = safety dt / error^exponent, from the step just measured
+    state.dt = error == 0 ? Inf : stepper.safety * h / error^stepper.exponent
+    state.steps_since_check = 0
+    state.failures = 0
+    if !accepted
+        log = options.log
+        log_event!(log, "step rejected", Logging.Info,
+                   "the step to t = $t_next s with the time step $h s has the error $error of its tolerance " *
+                   "and is retried with the time step $(state.dt) s")
+        report_step!(log, u_old, run.layout, t, run.times, run.next_point - 2, run.stats)
+        return nothing
+    end
+    return (t_next, h)
+end
 
 # ---------------------------------------------------------------------------------------
 # run options
@@ -427,9 +658,11 @@ mutable struct RunState{T,L<:UnknownLayout,U,W<:NewtonWorkspace,S,P}
     const ws::W
     const stepper::S
     const stepper_state::P
+    const ceilings::Vector{T}   # the times every step ends on: the time points, and the save times of an adaptive stepper
     t::T
     next_save::Int
     next_point::Int       # index of the first time point above t
+    next_ceiling::Int     # index of the first ceiling above t
     steps::Int            # accepted steps of the segment
     started_run::Float64
     last_checkpoint::Float64
@@ -506,16 +739,17 @@ function _integrate(system::EquationSystem{T}, u0::AbstractVector, times::Abstra
     # a stop file of an earlier segment is not a request to this one
     stop === nothing || isempty(stop.stop_file) || rm(stop.stop_file; force=true)
     save_count = length(save_times) - start.first_save + 1
-    state = stepper_state(options.stepper, times, start.t, start.stepper_before)
+    state = stepper_state(options.stepper, system, times, start.t, start.stepper_before)
+    step_ceilings = collect(T, ceilings(options.stepper, times, save_times))
     saved_updates = Matrix{Float64}[Matrix{Float64}(undef, length(update_state(update)), save_count)
                                     for update in updates]
     started_run = time()
     run = RunState(layout, collect(T, times), collect(T, save_times), start.first_save, updates,
                    Matrix{T}(undef, length(layout), save_count), saved_updates,
                    SolverStatistics(), settings, start.segment, start.summary_before, u_old, copy(u_old),
-                   NewtonWorkspace(system, options.solver), options.stepper, state,
-                   start.t, start.first_save, searchsortedlast(times, start.t) + 1, 0,
-                   started_run, started_run, 0.0, 0.0)
+                   NewtonWorkspace(system, options.solver), options.stepper, state, step_ceilings,
+                   start.t, start.first_save, searchsortedlast(times, start.t) + 1,
+                   searchsortedlast(step_ceilings, start.t) + 1, 0, started_run, started_run, 0.0, 0.0)
     _apply_updates!(run)
     # the state at the first time point is saved by a run that starts there
     while stored === nothing && run.next_save <= length(save_times) && save_times[run.next_save] == first(times)
@@ -530,39 +764,21 @@ _finish(run::RunState, log, reason) =
     write_entry(log, reason, run.u_old, run.layout, run.t, run.times, run.next_point - 2, run.stats)
 
 function _run_steps!(run::RunState{T}, options::RunOptions) where {T}
-    times, layout, stats, ws = run.times, run.layout, run.stats, run.ws
+    times, layout, stats = run.times, run.layout, run.stats
     u_old, u = run.u_old, run.u
-    stepper, state = run.stepper, run.stepper_state
     stop, log, checkpoint = options.stop, options.log, options.checkpoint
     while run.t < last(times)
-        t, ceiling = run.t, times[run.next_point]
-        dt = step_length(stepper, state, t)
-        # the last step before a time point lands exactly on it
-        t_next = ceiling - t <= dt * (1 + 1e-10) ? ceiling : t + dt
-        h = t_next - t
-        copyto!(u, u_old)
+        t = run.t
         started = time_ns()
-        result = newton_solve!(u, u_old, ws, t_next, h)
-        _record!(stats, t_next, h, result, ws, (time_ns() - started) / 1e9)
-        if result.status !== :converged
-            if !step_failed!(stepper, state, h)
-                log_event!(log, "run failed", Logging.Error,
-                           "the step to t = $t_next s with the time step $h s failed with the status " *
-                           "$(result.status) " * _failure_text(stepper, state))
-                _finish(run, log, "segment end, failed")
-                throw(TimeStepFailure(t_next, h, result.status, stats))
-            end
-            log_event!(log, "step failed", Logging.Warn,
-                       "the step to t = $t_next s with the time step $h s ended with the status " *
-                       "$(result.status) and " * _retry_text(stepper, state))
-            report_step!(log, u_old, layout, t, times, run.next_point - 2, stats)
-            continue
-        end
+        advanced = advance!(run.stepper, run.stepper_state, run, options, run.ceilings[run.next_ceiling])
+        advanced === nothing && continue      # a failed or rejected attempt, retried by the stepper
+        t_next, h = advanced
+        last_record = length(stats.time)      # the accepted step is the last one recorded
         if log !== nothing
-            result.residual_floor && !result.linear_step &&
+            stats.accepted_at_residual_floor[last_record] && !stats.accepted_as_linear[last_record] &&
                 log_event!(log, "residual floor", Logging.Info,
-                           "the step to t = $t_next s was accepted with the residual $(result.residual_norm) " *
-                           "above the tolerance, where it had stopped decreasing")
+                           "the step to t = $t_next s was accepted with the residual " *
+                           "$(stats.residual_norm[last_record]) above the tolerance, where it had stopped decreasing")
             negative = _negative_cells(u, layout)
             negative > 0 && log_event!(log, "negative values", Logging.Warn,
                                        "$negative negative cells of the kinetic unknowns after the step to " *
@@ -580,9 +796,8 @@ function _run_steps!(run::RunState{T}, options::RunOptions) where {T}
         copyto!(u_old, u)
         run.t = t_next
         run.steps += 1
-        at_time_point = t_next == ceiling
-        at_time_point && (run.next_point += 1)
-        step_accepted!(stepper, state, times, t_next, at_time_point)
+        t_next == run.ceilings[run.next_ceiling] && (run.next_ceiling += 1)
+        t_next == times[run.next_point] && (run.next_point += 1)
         run.longest_step = max(run.longest_step, (time_ns() - started) / 1e9)
 
         last_step = run.t >= last(times)

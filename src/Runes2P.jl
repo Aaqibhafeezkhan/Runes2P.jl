@@ -101,7 +101,7 @@ export residual!, mass_matrix, jacobian_sparsity, jacobian_prototype, jacobian_o
 export FluidSchurLU
 export LinearSolver, SparseLU, GMRES, RadiusBlockLU, RadiusBlockILU, NewtonSolver, NewtonWorkspace, NewtonResult, newton_solve!, invalidate_jacobian!
 export SolverStatistics, TimeSolution, TimeStepFailure, integrate, write_output
-export RunOptions, TimeStepper, FixedSteps
+export RunOptions, TimeStepper, FixedSteps, StepDoubling
 export OUTPUT_FORMAT_VERSION, DescriptionContext, run_settings, read_settings, settings_hash, settings_fields
 export code_version, run_environment, describe_prescribed_plasma, resolved_pitch_options
 export IntervalUpdate, KnockOnCutoffUpdate, free_critical_momentum, total_critical_momentum
