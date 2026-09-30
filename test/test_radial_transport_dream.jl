@@ -18,7 +18,7 @@ const DREAM_RADIAL_TRANSPORT_DATA = joinpath(@__DIR__, "data", "dream_radial_tra
         ions = [IonSpecies(names[k], Zs[k], Z0s[k], n[:, k]) for k in eachindex(Zs)]
         plasma = PlasmaState(cold_electron_temperature=read(h5["T_cold"]), cold_electron_density=read(h5["n_cold"]),
                              ions=ions, electric_field=read(h5["E"]), magnetic_field=fill(read(h5["B"]), nr))
-        settings = CollisionSettings(ion_size_table=:dream)
+        settings = CollisionSettings(ion_size_table=:dream, screening_window=:dream)
         level, major_radius = read(h5["delta_b_over_b"]), read(h5["major_radius"])
 
         function difference(a, b)

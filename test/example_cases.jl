@@ -52,7 +52,8 @@ function avalanche_example(; momentum_cells::Integer=200, pitch_cells::Integer=2
                          ions=[IonSpecies("D", 1, deuterium), IonSpecies("Ar", 18, argon)],
                          electric_field=fill(field, nr), magnetic_field=fill(1e-6, nr))
     settings = CollisionSettings(mode=:superthermal, screening=:partial,
-                                 coulomb_logarithm=:energy_dependent, ion_size_table=:dream)
+                                 coulomb_logarithm=:energy_dependent, ion_size_table=:dream,
+                                 screening_window=:dream)
     fokker_planck = fokker_planck_operator(g, plasma, settings; scheme)
     function initial_state(layout, id; density=1.0, temperature=1e5)
         theta = temperature / Constants.ELECTRON_REST_ENERGY

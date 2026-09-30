@@ -161,7 +161,7 @@ Base.showerror(io::IO, e::TimeStepFailure) =
     TimeStepper
 
 Supertype of the steppers of [`integrate`](@ref), which set the length of every step:
-[`FixedSteps`](@ref) and [`StepDoubling`](@ref). The state a stepper carries between
+[`FixedSteps`](@ref), [`StepDoubling`](@ref) and [`StepController`](@ref). The state a stepper carries between
 steps (its step length, its counts) is recorded in every checkpoint and restored by a
 resume.
 """
@@ -202,7 +202,8 @@ function _retry_after_failure(run, options, t_next, h, result, how)
     log = options.log
     log_event!(log, "step failed", Logging.Warn,
                "the step to t = $t_next s with the time step $h s ended with the status $(result.status) and $how")
-    report_step!(log, run.u_old, run.layout, run.t, run.times, run.next_point - 2, run.stats)
+    report_step!(log, run.u_old, run.layout, run.t, run.times, run.next_point - 2, run.stats;
+                 errors=stepper_errors(run.stepper_state))
     return nothing
 end
 
@@ -251,6 +252,9 @@ function stepper_state(stepper::FixedSteps, system, times, t, record::AbstractDi
         return FixedStepState(Float64(record["dt"]), Int(record["halvings"]))
     return FixedStepState(_interval_length(times, t), 0)
 end
+
+"The error estimate per unknown of the last accepted step, for the log; `nothing` without one."
+stepper_errors(state) = nothing
 
 "Record of the state of a stepper, stored in the checkpoint."
 stepper_record(state::FixedStepState) =
@@ -368,6 +372,8 @@ function stepper_state(stepper::StepDoubling, system::EquationSystem{T}, times, 
                                 fill(NaN, length(layout.unknowns)))
 end
 
+stepper_errors(state::StepDoublingState) = state.errors
+
 stepper_record(state::StepDoublingState) =
     SettingsRecord("type" => "StepDoubling", "dt" => state.dt, "steps_since_check" => state.steps_since_check,
                    "failures" => state.failures)
@@ -447,9 +453,264 @@ function advance!(stepper::StepDoubling, state::StepDoublingState, run, options,
         log_event!(log, "step rejected", Logging.Info,
                    "the step to t = $t_next s with the time step $h s has the error $error of its tolerance " *
                    "and is retried with the time step $(state.dt) s")
-        report_step!(log, u_old, run.layout, t, run.times, run.next_point - 2, run.stats)
+        report_step!(log, u_old, run.layout, t, run.times, run.next_point - 2, run.stats;
+                     errors=stepper_errors(state))
         return nothing
     end
+    return (t_next, h)
+end
+
+"""
+    StepController(; initial_step=nothing, relative_tolerance=1e-2, max_growth=2.0, min_shrink=0.2,
+                   safety=0.9, gains=(0.35, 0.2), max_failures=5, failure_factor=0.2,
+                   max_rejections=20)
+
+The two `gains` are the fields `gain_error` and `gain_memory` of the record.
+
+The step controller of Runes2P: an error estimate of the backward-Euler step without an
+extra solve, tolerances per unknown with a floor, and a PI filter on the step length with a
+cap on its growth. It is the adaptive stepper of this package; DREAM's
+[`StepDoubling`](@ref) is the compatibility option.
+
+The error estimate is the difference between the solution of the step and its predictor,
+the linear extrapolation through the two last accepted states. Two backward-Euler states
+satisfy `u_n - u_{n-1} = h_old f(u_n)`, so the extrapolation `u_n + (h / h_old) (u_n -
+u_{n-1})` is the forward-Euler predictor `u_n + h f(u_n)` with the derivative of the last
+step, whatever `h_old` is, and the implicit solution differs from it by `h (f(u_{n+1}) -
+f(u_n)) = h² u''`, twice the local error `h² u'' / 2` of the step. The estimate is half
+the difference and costs one vector operation. The first step of a run has no history:
+it is solved as one step doubling ([`StepDoubling`](@ref), twice the cost of that step
+alone), whose difference `u_full - u_half` is half the local error.
+
+The error of an unknown is the root mean square over its entries of the local error
+over `absolute + relative |u|`, with the [`Tolerance`](@ref) the system holds for the
+time-step error (`time_step_tolerances` of [`EquationSystem`](@ref)); an unknown without
+one gets `relative_tolerance` and the absolute tolerance `relative_tolerance` times its
+scale, a floor that keeps entries near zero (the tail of a distribution, a density before
+its source acts) from holding the step. An unknown with both tolerances zero is left out.
+The error of the step is the largest over the unknowns; the step is accepted when it is
+at most 1.
+
+The next step follows the PI filter of Gustafsson and Söderlind (Hairer and Wanner,
+Solving ODEs II, section IV.2), for a local error of second order in the step:
+`h_new = h · safety · error^(-gains[1]) · error_old^(gains[2])`, with the factor kept
+between `min_shrink` and `max_growth`. The default gains are the elementary 0.7 and 0.4
+over the order 2 (DREAM's stabiliser has them on the order 1). A rejected step is
+repeated with `h · max(min_shrink, safety · error^(-1/2))` and keeps the memory of the
+filter; more than `max_rejections` rejections in a row end the run with
+[`TimeStepFailure`](@ref) (a settings error, such as a `min_shrink` near 1 with a step
+whose error does not fall). A step whose solve fails is retried with `failure_factor`
+times its length, at most `max_failures` times in a row.
+
+The first step has the length `initial_step` (`nothing`: the first interval of the time
+points). Every step ends at or before the next time point and the next save time, so
+every saved state is a computed one. The state of the controller (the step length, the
+memory of the filter, the last accepted state and its step) is in every checkpoint, and
+a resumed run repeats the uninterrupted one. A run resumed onto another layout (an
+unknown added or removed) keeps the step length and starts with a doubling, since the
+stored state of the predictor does not fit; the count of rejections in a row starts at
+zero in every segment.
+"""
+struct StepController <: TimeStepper
+    initial_step::Float64      # NaN: the first interval of the time points
+    relative_tolerance::Float64
+    max_growth::Float64
+    min_shrink::Float64
+    safety::Float64
+    gain_error::Float64      # the exponent of the error of the step in the filter
+    gain_memory::Float64     # the exponent of the error of the step before
+    max_failures::Int
+    failure_factor::Float64
+    max_rejections::Int
+end
+function StepController(; initial_step::Union{Nothing,Real}=nothing, relative_tolerance::Real=1e-2,
+                        max_growth::Real=2.0, min_shrink::Real=0.2, safety::Real=0.9, gains=(0.35, 0.2),
+                        max_failures::Integer=5, failure_factor::Real=0.2, max_rejections::Integer=20)
+    initial_step === nothing || initial_step > 0 || throw(ArgumentError("the initial step must be positive"))
+    relative_tolerance > 0 || throw(ArgumentError("the relative tolerance must be positive"))
+    max_growth > 1 || throw(ArgumentError("max_growth must exceed 1"))
+    0 < min_shrink < 1 || throw(ArgumentError("min_shrink must lie in (0, 1)"))
+    0 < safety <= 1 || throw(ArgumentError("the safety factor must lie in (0, 1]"))
+    length(gains) == 2 && gains[1] > 0 && gains[2] >= 0 ||
+        throw(ArgumentError("gains are two numbers, the first positive, the second not negative"))
+    max_failures >= 0 || throw(ArgumentError("max_failures must not be negative"))
+    0 < failure_factor < 1 || throw(ArgumentError("the failure factor must lie in (0, 1)"))
+    max_rejections >= 1 || throw(ArgumentError("max_rejections must be at least 1"))
+    return StepController(initial_step === nothing ? NaN : Float64(initial_step), Float64(relative_tolerance),
+                          Float64(max_growth), Float64(min_shrink), Float64(safety),
+                          Float64(gains[1]), Float64(gains[2]), Int(max_failures), Float64(failure_factor),
+                          Int(max_rejections))
+end
+
+# the state of StepController: the step length, the last accepted state and its step
+# (NaN before the first accepted step), the error of the last accepted step for the
+# filter, the failures in a row, the tolerances per unknown, the buffers and the errors
+# per unknown of the last estimate
+mutable struct StepControllerState{T}
+    dt::Float64
+    previous_step::Float64
+    error_old::Float64
+    failures::Int
+    rejections::Int                   # in a row
+    const previous::Vector{T}         # the accepted state before u_old
+    const absolute::Vector{Float64}   # per unknown of the layout
+    const relative::Vector{Float64}
+    const half::Vector{T}             # the buffers of the doubling of the first step
+    const doubled::Vector{T}
+    const errors::Vector{Float64}     # per unknown, NaN before the first estimate
+end
+
+function stepper_state(stepper::StepController, system::EquationSystem{T}, times, t, record::AbstractDict) where {T}
+    layout = system.layout
+    absolute, relative = Float64[], Float64[]
+    for u in layout.unknowns
+        tolerance = get(system.time_step_tolerances, u.name, nothing)
+        push!(absolute, tolerance === nothing ? stepper.relative_tolerance * u.scale : tolerance.absolute)
+        push!(relative, tolerance === nothing ? stepper.relative_tolerance : tolerance.relative)
+    end
+    n = length(layout)
+    count = length(layout.unknowns)
+    if get(record, "type", "") == "StepController"
+        previous = haskey(record, "previous_state") ? Vector{T}(record["previous_state"]) : T[]
+        if length(previous) == n
+            return StepControllerState{T}(Float64(record["dt"]), Float64(record["previous_step"]),
+                                          Float64(record["error_old"]), Int(record["failures"]), 0, previous,
+                                          absolute, relative, zeros(T, n), zeros(T, n), fill(NaN, count))
+        end
+        # the run resumes onto another layout (an unknown added or removed): the stored
+        # state of the predictor does not fit, so the controller starts with its stored
+        # step and a doubling for the first estimate
+        isempty(previous) ||
+            @warn "the layout of the run differs from the stored state of the step controller ($(length(previous)) " *
+                  "entries against $n): the history of the predictor is dropped, the first step is a doubling"
+        return StepControllerState{T}(Float64(record["dt"]), NaN, 1.0, 0, 0, zeros(T, n), absolute, relative,
+                                      zeros(T, n), zeros(T, n), fill(NaN, count))
+    end
+    dt = isnan(stepper.initial_step) ? _interval_length(times, t) : stepper.initial_step
+    return StepControllerState{T}(dt, NaN, 1.0, 0, 0, zeros(T, n), absolute, relative, zeros(T, n), zeros(T, n),
+                                  fill(NaN, count))
+end
+
+function stepper_record(state::StepControllerState)
+    record = SettingsRecord("type" => "StepController", "dt" => state.dt, "previous_step" => state.previous_step,
+                            "error_old" => state.error_old, "failures" => state.failures)
+    isnan(state.previous_step) || (record["previous_state"] = collect(Float64, state.previous))
+    return record
+end
+
+ceilings(::StepController, times, save_times) = sort!(unique!(collect(Float64, vcat(times, save_times))))
+
+stepper_errors(state::StepControllerState) = state.errors
+
+# the error per unknown of the local error estimate `factor (a - b)`, the root mean
+# square over the entries of the unknown of the estimate over its tolerance at the
+# state `u`, and the largest of them; an unknown with zero tolerances is left out (NaN)
+function _controller_errors!(state::StepControllerState, layout, u, a, b, factor)
+    largest = 0.0
+    for id in eachindex(layout.unknowns)
+        absolute, relative = state.absolute[id], state.relative[id]
+        if absolute == 0 && relative == 0
+            state.errors[id] = NaN
+            continue
+        end
+        sum_squares, count = 0.0, 0
+        for range in _unknown_ranges(layout, id), i in range
+            scale = absolute + relative * abs(u[i])
+            scale == 0 && continue
+            sum_squares += (factor * (a[i] - b[i]) / scale)^2
+            count += 1
+        end
+        error = count == 0 ? 0.0 : sqrt(sum_squares / count)
+        isfinite(error) || (error = Inf)
+        state.errors[id] = error
+        largest = max(largest, error)
+    end
+    return largest
+end
+
+function _controller_failure!(stepper::StepController, state::StepControllerState, run, options, t_next, h, result)
+    state.failures += 1
+    state.failures > stepper.max_failures &&
+        _give_up(run, options, t_next, h, result, "after $(stepper.max_failures) failures in a row")
+    state.dt = stepper.failure_factor * state.dt
+    return _retry_after_failure(run, options, t_next, h, result,
+                                "is retried with $(stepper.failure_factor) times the time step")
+end
+
+# the solve of the step from u_old to u over h with its error estimate: by the predictor
+# through the last accepted state, or by a doubling when there is none. `nothing` after
+# a failed solve, which the controller has handled.
+function _controller_estimate!(stepper::StepController, state::StepControllerState, run, options, t_next, h)
+    u_old, u = run.u_old, run.u
+    if isnan(state.previous_step)
+        t = run.t
+        t_half = t + h / 2
+        result = _solve_step!(run, u_old, state.half, t_half, t_half - t; kind=:half_step)
+        result.status === :converged ||
+            return _controller_failure!(stepper, state, run, options, t_half, t_half - t, result)
+        result = _solve_step!(run, state.half, state.doubled, t_next, t_next - t_half; kind=:half_step)
+        result.status === :converged ||
+            return _controller_failure!(stepper, state, run, options, t_next, t_next - t_half, result)
+    end
+    copyto!(u, u_old)
+    started = time_ns()
+    result = newton_solve!(u, u_old, run.ws, t_next, h)
+    wall = (time_ns() - started) / 1e9
+    if result.status !== :converged
+        _record!(run.stats, t_next, h, result, run.ws, wall)
+        return _controller_failure!(stepper, state, run, options, t_next, h, result)
+    end
+    if isnan(state.previous_step)
+        # the doubling difference is half the local error of the full step
+        error = _controller_errors!(state, run.layout, u, u, state.doubled, 2.0)
+    else
+        # the extrapolation through the two last backward-Euler states is the forward-Euler
+        # predictor with the derivative of the last step; the implicit solution differs
+        # from it by h² u'', twice the local error
+        ratio = h / state.previous_step
+        @. state.half = u_old + ratio * (u_old - state.previous)
+        error = _controller_errors!(state, run.layout, u, u, state.half, 0.5)
+    end
+    return (error, result, wall)
+end
+
+function advance!(stepper::StepController, state::StepControllerState, run, options, ceiling)
+    t, u_old, u = run.t, run.u_old, run.u
+    t_next = _step_end(t, state.dt, ceiling)
+    h = t_next - t
+    estimate = _controller_estimate!(stepper, state, run, options, t_next, h)
+    estimate === nothing && return nothing
+    error, result, wall = estimate
+    accepted = error <= 1
+    _record!(run.stats, t_next, h, result, run.ws, wall; accepted, error)
+    state.failures = 0
+    if !accepted
+        state.rejections += 1
+        state.rejections > stepper.max_rejections &&
+            _give_up(run, options, t_next, h, NewtonResult(:rejected, result.iterations, result.initial_residual_norm,
+                                                          result.residual_norm, result.update_norm,
+                                                          result.convergence_order, result.smallest_step_length,
+                                                          result.krylov_iterations, result.preconditioner_updates,
+                                                          false, false, 0.0, 0.0, 0.0, 0.0),
+                     "with the error $error of its tolerance, after $(stepper.max_rejections) rejections in a row")
+        # the elementary rule, from the measured step; the filter keeps its memory
+        state.dt = h * max(stepper.min_shrink, stepper.safety * error^(-0.5))
+        log = options.log
+        log_event!(log, "step rejected", Logging.Info,
+                   "the step to t = $t_next s with the time step $h s has the error $error of its tolerance " *
+                   "and is retried with the time step $(state.dt) s")
+        report_step!(log, u_old, run.layout, t, run.times, run.next_point - 2, run.stats;
+                     errors=stepper_errors(state))
+        return nothing
+    end
+    state.rejections = 0
+    # the PI filter on the measured step, its growth capped; a zero error grows by the cap
+    factor = error == 0 ? stepper.max_growth :
+             stepper.safety * error^(-stepper.gain_error) * state.error_old^stepper.gain_memory
+    state.dt = h * clamp(factor, stepper.min_shrink, stepper.max_growth)
+    state.error_old = max(error, 1e-10)
+    copyto!(state.previous, u_old)
+    state.previous_step = h
     return (t_next, h)
 end
 
@@ -761,7 +1022,8 @@ end
 
 # the entry of the log at the end of the segment
 _finish(run::RunState, log, reason) =
-    write_entry(log, reason, run.u_old, run.layout, run.t, run.times, run.next_point - 2, run.stats)
+    write_entry(log, reason, run.u_old, run.layout, run.t, run.times, run.next_point - 2, run.stats;
+                errors=stepper_errors(run.stepper_state))
 
 function _run_steps!(run::RunState{T}, options::RunOptions) where {T}
     times, layout, stats = run.times, run.layout, run.stats
@@ -817,7 +1079,8 @@ function _run_steps!(run::RunState{T}, options::RunOptions) where {T}
         last_step && break
         # the setup for the next step follows the accepted state
         _apply_updates!(run)
-        report_progress!(log, u_old, layout, run.t, times, run.next_point - 2, stats)
+        report_progress!(log, u_old, layout, run.t, times, run.next_point - 2, stats;
+                         errors=stepper_errors(run.stepper_state))
     end
     _update_segment!(run, "finished")
     _finish(run, log, "segment end, finished")

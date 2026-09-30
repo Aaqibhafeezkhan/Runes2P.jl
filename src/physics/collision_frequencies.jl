@@ -23,6 +23,16 @@ Defaults are those of DREAM's `CollisionHandler`.
 - `ion_size_table`: `:hesslow` uses Table 1 of Hesslow et al. 2018 as intended;
   `:dream` reproduces DREAM's lookup, whose charge list has one argon entry too few
   (affects Ar¹⁷⁺, Xe³⁺, Xe¹⁷⁺, W³⁺ and W⁶⁰⁺).
+- `screening_window`: momenta where partial screening applies. With
+  `:excitation_energy` the bound-electron parts of charge state `j` (the Bethe term of
+  `ν_s`, the `g_j(p)` of `ν_D`) are weighted by a smooth step in the kinetic energy
+  `(γ - 1) mₑc²`, 0 below `screening_window_start · I_j` and 1 above
+  `screening_window_end · I_j`, with `I_j` the mean excitation energy. Below the window
+  the frequencies are those of complete screening. The Born basis of Hesslow et al. holds
+  only for fast electrons, and the default factors 1 and 4 place the window of Ar⁺ and
+  Ar²⁺ at p ≈ 0.03 to 0.06 (Hesslow et al. PRL 2017 and JPP 2019). `:dream` applies
+  partial screening at all momenta, as DREAM does. The weight depends only on `p` and
+  `I_j`, so it holds unchanged when the densities become unknowns.
 """
 Base.@kwdef struct CollisionSettings
     mode::Symbol = :full
@@ -30,7 +40,11 @@ Base.@kwdef struct CollisionSettings
     coulomb_logarithm::Symbol = :thermal
     screened_diffusion::Symbol = :maxwellian
     ion_size_table::Symbol = :hesslow
-    function CollisionSettings(mode, screening, coulomb_logarithm, screened_diffusion, ion_size_table)
+    screening_window::Symbol = :excitation_energy
+    screening_window_start::Float64 = 1.0
+    screening_window_end::Float64 = 4.0
+    function CollisionSettings(mode, screening, coulomb_logarithm, screened_diffusion, ion_size_table,
+                               screening_window, screening_window_start, screening_window_end)
         mode in (:superthermal, :full, :ultra_relativistic) ||
             throw(ArgumentError("unknown collision frequency mode $mode"))
         screening in (:complete, :none, :partial) ||
@@ -41,7 +55,13 @@ Base.@kwdef struct CollisionSettings
             throw(ArgumentError("unknown screened diffusion mode $screened_diffusion"))
         ion_size_table in (:hesslow, :dream) ||
             throw(ArgumentError("unknown ion size table $ion_size_table"))
-        return new(mode, screening, coulomb_logarithm, screened_diffusion, ion_size_table)
+        screening_window in (:excitation_energy, :dream) ||
+            throw(ArgumentError("unknown screening window $screening_window"))
+        0 <= screening_window_start < screening_window_end ||
+            throw(ArgumentError("the screening window needs 0 ≤ start < end, got " *
+                                "$screening_window_start and $screening_window_end"))
+        return new(mode, screening, coulomb_logarithm, screened_diffusion, ion_size_table,
+                   screening_window, screening_window_start, screening_window_end)
     end
 end
 
@@ -238,6 +258,18 @@ function _bound_electron_stopping(model::CollisionModel, state::ChargeState, p)
     end
 end
 
+# Weight of the bound-electron parts of charge state `state` at momentum `p`: a cubic
+# smooth step in the kinetic energy between the two factors of the mean excitation energy
+# (CollisionSettings, `screening_window`). Exactly 0 below and exactly 1 above the window.
+function _screening_weight(settings::CollisionSettings, state::ChargeState, p)
+    settings.screening_window === :dream && return one(p)
+    kinetic_energy = p^2 / (sqrt(1 + p^2) + 1)
+    lower = settings.screening_window_start * state.mean_excitation_energy
+    upper = settings.screening_window_end * state.mean_excitation_energy
+    s = clamp((kinetic_energy - lower) / (upper - lower), zero(p), one(p))
+    return s^2 * (3 - 2s)
+end
+
 # Bound-electron contribution to pitch-angle scattering (Hesslow et al. eq. 2.25).
 function _bound_electron_scattering(state::ChargeState, p)
     bound = state.nuclear_charge - state.charge
@@ -261,7 +293,9 @@ function slowing_down_frequency(model::CollisionModel, ir, p)
          _thermal_slowing_down_factor(model, ir, p) * _target_electron_density(model, ir)
     if model.settings.screening === :partial
         for state in model.charge_states
-            nu += _bound_electron_stopping(model, state, p) * _charge_state_density(model, state, ir)
+            state.charge == state.nuclear_charge && continue
+            nu += _screening_weight(model.settings, state, p) * _bound_electron_stopping(model, state, p) *
+                  _charge_state_density(model, state, ir)
         end
     end
     return prefactor * nu
@@ -288,7 +322,9 @@ function deflection_frequency(model::CollisionModel, ir, p)
     end
     if model.settings.screening === :partial
         for state in model.charge_states
-            nu += _bound_electron_scattering(state, p) * _charge_state_density(model, state, ir)
+            state.charge == state.nuclear_charge && continue
+            nu += _screening_weight(model.settings, state, p) * _bound_electron_scattering(state, p) *
+                  _charge_state_density(model, state, ir)
         end
     end
     return prefactor * nu
@@ -333,7 +369,9 @@ function p3_slowing_down_frequency_at_zero(model::CollisionModel, ir)
          _thermal_slowing_down_factor(model, ir, z) * _target_electron_density(model, ir)
     if model.settings.screening === :partial
         for state in model.charge_states
-            nu += _bound_electron_stopping(model, state, z) * _charge_state_density(model, state, ir)
+            state.charge == state.nuclear_charge && continue
+            nu += _screening_weight(model.settings, state, z) * _bound_electron_stopping(model, state, z) *
+                  _charge_state_density(model, state, ir)
         end
     end
     return COLLISION_PREFACTOR * nu

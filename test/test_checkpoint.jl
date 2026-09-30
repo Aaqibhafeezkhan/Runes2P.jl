@@ -686,6 +686,23 @@ _checkpoint_directory() = mktempdir()
         integrate(case.system, case.u0, case.times[1:5]; checkpoint)
         stored = read_checkpoint(checkpoint)
 
+        # the step controller keeps its step on the new layout and drops the predictor's
+        # history, since the stored state does not fit
+        controller = StepController(initial_step=5e-5, relative_tolerance=1e-2)
+        controlled = CheckpointSettings("kinetic-controlled"; directory, interval=0)
+        integrate(case.system, case.u0, case.times[1:3]; checkpoint=controlled, stepper=controller)
+        stored_controlled = read_checkpoint(controlled)
+        @test stored_controlled.stepper["type"] == "StepController"
+        @test length(stored_controlled.stepper["previous_state"]) == length(case.layout)
+        extended_for_controller = _checkpoint_case(; with_density=true)
+        resumed_controlled = @test_logs (:warn, r"changed settings") (:warn, r"history of the predictor is dropped") integrate(
+            extended_for_controller.system, extended_for_controller.u0, extended_for_controller.times[3:5];
+            resume=stored_controlled, stepper=controller)
+        stats = resumed_controlled.statistics
+        @test stats.kind[1:3] == [:half_step, :half_step, :step]      # the doubling of a fresh start
+        @test stats.time_step[3] ≈ stored_controlled.stepper["dt"] || stats.time_step[3] < stored_controlled.stepper["dt"]
+        @test run_status(resumed_controlled) === :finished
+
         # an unknown the stored state does not have starts from the setup's initial state
         extended = _checkpoint_case(; with_density=true)
         u0 = copy(extended.u0)

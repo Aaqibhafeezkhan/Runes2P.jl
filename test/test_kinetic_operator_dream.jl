@@ -20,7 +20,7 @@ const DREAM_KINETIC_DATA = joinpath(@__DIR__, "data", "dream_kinetic_operator.h5
         ions = [IonSpecies(names[k], Zs[k], Z0s[k], n[:, k]) for k in eachindex(Zs)]
         dt = read(h5["dt"])
         variants = (
-            "full_partial_thermal" => (CollisionSettings(ion_size_table=:dream), 1e-9),
+            "full_partial_thermal" => (CollisionSettings(ion_size_table=:dream, screening_window=:dream), 1e-9),
             "superthermal_complete_energy" => (CollisionSettings(mode=:superthermal,
                 screening=:complete, coulomb_logarithm=:energy_dependent), 1e-12),
         )

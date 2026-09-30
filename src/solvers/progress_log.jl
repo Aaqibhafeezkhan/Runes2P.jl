@@ -345,21 +345,26 @@ function _kinetic_moments(u::AbstractVector, layout::UnknownLayout, id::Integer)
     return (; densities, currents, total_current, negative, smallest, largest)
 end
 
-function _write_state(io::IO, u::AbstractVector, layout::UnknownLayout)
+# the state per unknown, with the error estimate of the last accepted step per unknown
+# when the stepper has one (`errors`, NaN for an unknown without a check)
+function _write_state(io::IO, u::AbstractVector, layout::UnknownLayout, errors=nothing)
     for (id, unknown) in enumerate(layout.unknowns)
         name, kind = String(unknown.name), layout.kinds[id]
+        error_text = errors === nothing || isnan(errors[id]) ? "" :
+                     ", error estimate " * _number(errors[id]) * " of the tolerance"
         if kind === :kinetic
             moments = _kinetic_moments(u, layout, id)
             println(io, "    ", name, ": density [m^-3] ", _values(moments.densities))
             println(io, "    ", " "^length(name), "  current density [A/m^2] ", _values(moments.currents),
                     ", total current [A] ", _number(moments.total_current))
             println(io, "    ", " "^length(name), "  negative cells ", moments.negative,
-                    moments.negative == 0 ? "" : " (smallest value $(_number(moments.smallest)), largest $(_number(moments.largest)))")
+                    moments.negative == 0 ? "" : " (smallest value $(_number(moments.smallest)), largest $(_number(moments.largest)))",
+                    error_text)
         elseif kind === :radial
             values = [radial_view(u, layout, id, ir)[c] for c in 1:unknown.components, ir in 1:radial_cell_count(layout)]
-            println(io, "    ", name, ": ", unknown.components == 1 ? _values(vec(values)) : _values(values))
+            println(io, "    ", name, ": ", unknown.components == 1 ? _values(vec(values)) : _values(values), error_text)
         else
-            println(io, "    ", name, ": ", _number(only(scalar_view(u, layout, id))))
+            println(io, "    ", name, ": ", _number(only(scalar_view(u, layout, id))), error_text)
         end
     end
     return nothing
@@ -379,14 +384,15 @@ end
 # entries
 
 """
-    write_entry(log, reason, u, layout, t, times, interval, stats)
+    write_entry(log, reason, u, layout, t, times, interval, stats; errors=nothing)
 
 A progress entry: `reason` says why it is written (`milestone`, `silence`, `segment
 start`, `segment end`, `on demand`), `u` is the state at the time `t`, `interval` the
-number of intervals of `times` done, `stats` the statistics of the segment.
+number of intervals of `times` done, `stats` the statistics of the segment, `errors` the
+error estimate per unknown of the last accepted step when the stepper has one.
 """
 function write_entry(log::ProgressLog, reason::AbstractString, u::AbstractVector, layout::UnknownLayout, t::Real,
-                     times::AbstractVector, interval::Integer, stats)
+                     times::AbstractVector, interval::Integer, stats; errors=nothing)
     io = log.io
     now = time()
     span = last(times) - first(times)
@@ -402,8 +408,13 @@ function write_entry(log::ProgressLog, reason::AbstractString, u::AbstractVector
         wall = sum(@view stats.wall_time[attempts])
         accepted_steps = findall(@view stats.accepted[attempts])
         time_step = isempty(accepted_steps) ? NaN : stats.time_step[attempts[last(accepted_steps)]]
+        # an attempt that did not converge failed; one that converged and was not accepted
+        # was rejected by the stepper on its error, or was a half step of a doubling
+        failed = count(s -> s !== :converged, @view stats.status[attempts])
+        half = count(==(:half_step), @view stats.kind[attempts])
+        rejected = length(attempts) - accepted - failed - half
         println(io, "  steps   ", accepted, " accepted of ", length(attempts), " attempted since the last entry (",
-                length(attempts) - accepted, " failed and halved, ",
+                failed, " failed, ", rejected, " rejected, ", half, " half steps, ",
                 count(@view stats.accepted_at_residual_floor[attempts]), " at the residual floor, ",
                 count(@view stats.accepted_as_linear[attempts]), " as a linear system), last time step ",
                 _number(time_step), " s")
@@ -434,7 +445,7 @@ function write_entry(log::ProgressLog, reason::AbstractString, u::AbstractVector
     if log.state
         println(io)
         println(io, "  ", SECTION, " state at t = ", @sprintf("%.6e", t), " s ", SECTION)
-        _write_state(io, u, layout)
+        _write_state(io, u, layout, errors)
         println(io)
     end
     flush(io)
@@ -445,7 +456,7 @@ function write_entry(log::ProgressLog, reason::AbstractString, u::AbstractVector
     log.entries += 1
     return nothing
 end
-write_entry(::Nothing, reason, u, layout, t, times, interval, stats) = nothing
+write_entry(::Nothing, reason, u, layout, t, times, interval, stats; errors=nothing) = nothing
 
 """
     start_log!(log, settings, u, layout, t, times, interval, stats)
@@ -483,12 +494,12 @@ function _requested!(log::ProgressLog)
 end
 
 """
-    report_progress!(log, u, layout, t, times, interval, stats)
+    report_progress!(log, u, layout, t, times, interval, stats; errors=nothing)
 
 Called by [`integrate`](@ref) after every accepted step: writes the entry of a
 milestone passed, of a request by signal or of the silence guard, whichever applies.
 """
-function report_progress!(log::ProgressLog, u, layout, t, times, interval, stats)
+function report_progress!(log::ProgressLog, u, layout, t, times, interval, stats; errors=nothing)
     log.on_signal && yield()      # the task that receives the signal runs here
     span = last(times) - first(times)
     fraction = span > 0 ? (t - first(times)) / span : 1.0
@@ -502,19 +513,19 @@ function report_progress!(log::ProgressLog, u, layout, t, times, interval, stats
         log.guard_index = min(log.guard_index + 1, length(log.guard_seconds))
         reason = "silence"
     end
-    reason === nothing || write_entry(log, reason, u, layout, t, times, interval, stats)
+    reason === nothing || write_entry(log, reason, u, layout, t, times, interval, stats; errors)
     return nothing
 end
-report_progress!(::Nothing, u, layout, t, times, interval, stats) = nothing
+report_progress!(::Nothing, u, layout, t, times, interval, stats; errors=nothing) = nothing
 
 """
-    report_step!(log, u, layout, t, stats)
+    report_step!(log, u, layout, t, times, interval, stats; errors=nothing)
 
-Called by [`integrate`](@ref) after every failed step: the guard and the request by
-signal are served with the state of the last accepted step, so that a stretch of failed
-steps is not silent.
+Called by [`integrate`](@ref) after every failed or rejected step: the guard and the
+request by signal are served with the state of the last accepted step, so that a
+stretch of failed steps is not silent.
 """
-function report_step!(log::ProgressLog, u, layout, t, times, interval, stats)
+function report_step!(log::ProgressLog, u, layout, t, times, interval, stats; errors=nothing)
     log.on_signal && yield()      # the task that receives the signal runs here
     reason = nothing
     if _requested!(log)
@@ -523,7 +534,7 @@ function report_step!(log::ProgressLog, u, layout, t, times, interval, stats)
         log.guard_index = min(log.guard_index + 1, length(log.guard_seconds))
         reason = "silence"
     end
-    reason === nothing || write_entry(log, reason, u, layout, t, times, interval, stats)
+    reason === nothing || write_entry(log, reason, u, layout, t, times, interval, stats; errors)
     return nothing
 end
-report_step!(::Nothing, u, layout, t, times, interval, stats) = nothing
+report_step!(::Nothing, u, layout, t, times, interval, stats; errors=nothing) = nothing

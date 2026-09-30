@@ -1,0 +1,235 @@
+# The step controller of Runes2P: the error estimate from the predictor
+# against the exact local error of backward Euler on a linear decay, the doubling of the
+# first step, the PI filter with its growth cap, rejections, the tolerances with their
+# floor, a stiff relaxation whose step grows to the ceiling, the failure path, the record
+# and the resume. The helpers are those of test_time_stepping.jl and test_step_doubling.jl.
+using HDF5
+
+# the exact local error of one backward-Euler step of du/dt = -k u from u: the step
+# against the exact solution over h
+_local_error(u, k, h) = u / (1 + k * h) - u * exp(-k * h)
+
+@testset "step controller" begin
+    @testset "settings" begin
+        stepper = StepController()
+        @test isnan(stepper.initial_step)
+        @test (stepper.relative_tolerance, stepper.max_growth, stepper.min_shrink, stepper.safety) == (1e-2, 2.0, 0.2, 0.9)
+        @test (stepper.gain_error, stepper.gain_memory) == (0.35, 0.2)
+        @test (stepper.max_failures, stepper.failure_factor, stepper.max_rejections) == (5, 0.2, 20)
+        @test_throws ArgumentError StepController(initial_step=0)
+        @test_throws ArgumentError StepController(max_rejections=0)
+        @test_throws ArgumentError StepController(relative_tolerance=0)
+        @test_throws ArgumentError StepController(max_growth=1)
+        @test_throws ArgumentError StepController(min_shrink=1)
+        @test_throws ArgumentError StepController(safety=0)
+        @test_throws ArgumentError StepController(gains=(0, 0.2))
+        @test_throws ArgumentError StepController(gains=(0.5,))
+        @test_throws ArgumentError StepController(max_failures=-1)
+        @test_throws ArgumentError StepController(failure_factor=1)
+        record = describe(StepController(initial_step=1e-3, gains=(0.5, 0.1)))
+        @test record["type"] == "StepController"
+        @test record["initial_step"] == 1e-3
+        @test (record["gain_error"], record["gain_memory"]) == (0.5, 0.1)
+        @test record["max_growth"] == 2.0
+    end
+
+    @testset "the estimate is the local error of backward Euler" begin
+        # du/dt = -k u with u(0) = 1: the first step is checked by a doubling, the second
+        # by the predictor. Both estimates converge to the exact local error of their
+        # step as the step shrinks, with a misfit of first order in the step.
+        k, rel = 3.0, 1e-3
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k))
+        function estimates(h)
+            # two steps of the length h, then the run ends: the second step is estimated
+            # by the predictor through the first
+            # the second step keeps the length of the first: the factor of the filter is
+            # pinned to 1 (within the tolerance of the landing on the end of the run)
+            stepper = StepController(initial_step=h, relative_tolerance=rel, max_growth=1 + 1e-12,
+                                     min_shrink=1 - 1e-12)
+            solution = integrate(system, [1.0], [0.0, 2h]; stepper)
+            stats = solution.statistics
+            steps = findall(==(:step), stats.kind)
+            @test length(steps) == 2 && all(stats.accepted[steps])
+            @test stats.kind[1:3] == [:half_step, :half_step, :step]
+            u1 = 1 / (1 + k * h)
+            # the error columns hold the estimate over the tolerance: absolute rel × scale
+            # (the scale is 1) plus rel |u|
+            first = stats.error[steps[1]] * (rel + rel * u1)
+            second = stats.error[steps[2]] * (rel + rel * u1 / (1 + k * h))
+            return first, second
+        end
+        exact_first(h) = abs(_local_error(1.0, k, h))
+        exact_second(h) = abs(_local_error(1 / (1 + k * h), k, h))
+        # steps whose errors lie under the tolerance, so no step is rejected (a rejected
+        # step with the shrink pinned to 1 would repeat without end, which max_rejections
+        # ends)
+        ratios = map((0.01, 0.005, 0.0025)) do h
+            first, second = estimates(h)
+            (first / exact_first(h), second / exact_second(h))
+        end
+        for (first, second) in ratios
+            @test 0.8 < first < 1.2
+            @test 0.8 < second < 1.2
+        end
+        # the misfit of the predictor's estimate falls with h
+        misfits = [abs(second - 1) for (_, second) in ratios]
+        @test misfits[2] < 0.6 * misfits[1]
+        @test misfits[3] < 0.6 * misfits[2]
+    end
+
+    @testset "a stiff relaxation: the step grows to the ceiling under the tolerance" begin
+        # du/dt = -k (u - 1) from u = 0 with k = 1e4: the layer is resolved with short
+        # steps, then the step grows by the cap of 2 per step to the end
+        k = 1e4
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k), ConstantSourceTerm(k))
+        stepper = StepController(initial_step=1e-5, relative_tolerance=1e-2)
+        solution = integrate(system, [0.0], [0.0, 1.0]; stepper, save_times=[0.0, 1.0])
+        stats = solution.statistics
+        accepted = findall(stats.accepted)
+        steps = stats.time_step[accepted]
+        @test 10 <= length(accepted) <= 40
+        @test all(stats.error[accepted] .<= 1)
+        # the growth is capped at the factor 2 and reaches it in the plateau
+        growth = steps[2:end] ./ steps[1:end-1]
+        @test all(growth .<= 2 * (1 + 1e-12))
+        @test count(g -> g > 1.9, growth) >= 5
+        @test last(stats.time) == 1.0
+        @test solution.states[1, end] ≈ 1.0 atol = 1e-6
+        # against the fixed steps of the same count the controller keeps the error small
+        exact(t) = 1 - exp(-k * t)
+        for (m, t) in enumerate(stats.time[accepted])
+            @test abs(solution.states[1, end] - exact(1.0)) < 1e-2 || m < length(accepted)
+        end
+    end
+
+    @testset "rejections and the growth cap" begin
+        # a large first step is rejected, the retry shrinks it by the elementary rule
+        # with the floor min_shrink
+        k = 3.0
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k))
+        stepper = StepController(initial_step=2.0, relative_tolerance=1e-4)
+        solution = integrate(system, [1.0], [0.0, 3.0]; stepper)
+        stats = solution.statistics
+        @test stats.kind[1:3] == [:half_step, :half_step, :step]
+        @test !stats.accepted[3]
+        @test stats.error[3] > 1
+        @test all(==(:converged), stats.status)
+        shrink = max(0.2, 0.9 * stats.error[3]^(-0.5))
+        @test stats.kind[4:6] == [:half_step, :half_step, :step]  # the doubling again, from the same state
+        @test stats.time_step[4:6] ≈ [shrink, shrink, 2 * shrink]
+        accepted = findall(stats.accepted)
+        steps = stats.time_step[accepted]
+        growth = steps[2:end-1] ./ steps[1:end-2]                  # the last step is cut by the end of the run
+        @test all(growth .<= 2 * (1 + 1e-12))
+        @test all(growth .>= 0.2 * (1 - 1e-12))
+        @test solution.states[1, end] ≈ foldl((u, h) -> u / (1 + k * h), steps; init=1.0) rtol = 1e-12
+    end
+
+    @testset "tolerances and the floor" begin
+        k, h0 = 3.0, 0.02
+        rad = RadialGrid(uniform_r_faces(1, 0.5))
+        layout = UnknownLayout(rad, [RadialUnknown(:x; scale=100.0), RadialUnknown(:y)])
+        equations = [Equation(:x, TimeDerivative(), LinearTerm(:x; coefficient=-k)),
+                     Equation(:y, TimeDerivative(), LinearTerm(:y; coefficient=-k))]
+        # the default floor is relative × scale: x at 1e-3 of its scale lies under the floor
+        # and does not hold the step, y at its scale does
+        system = EquationSystem(layout, equations)
+        solution = integrate(system, [0.1, 1.0], [0.0, 0.1]; stepper=StepController(initial_step=h0))
+        stats = solution.statistics
+        first = findfirst(==(:step), stats.kind)
+        u_full, u_half = 0.1 / (1 + k * h0), 0.1 / (1 + k * h0 / 2)^2
+        error_x = 2 * abs(u_full - u_half) / (1e-2 * 100 + 1e-2 * u_full)
+        error_y = 2 * abs(10u_full - 10u_half) / (1e-2 + 1e-2 * 10u_full)
+        @test error_x < error_y
+        @test stats.error[first] ≈ error_y
+        # a tolerance of the system replaces the default, and zero tolerances leave an
+        # unknown out
+        system = EquationSystem(layout, equations; time_step_tolerances=Dict(:x => Tolerance(0.0, 1e-2),
+                                                                             :y => Tolerance(0.0, 0.0)))
+        solution = integrate(system, [0.1, 1.0], [0.0, 0.1]; stepper=StepController(initial_step=h0))
+        stats = solution.statistics
+        first = findfirst(==(:step), stats.kind)
+        @test stats.error[first] ≈ 2 * abs(u_full - u_half) / (1e-2 * u_full)
+    end
+
+    @testset "a failed solve shrinks the step by the failure factor" begin
+        # the bounded growth of test_step_doubling.jl: the half steps of 0.95 pass, the
+        # full step overshoots the bound and fails, the retry has 0.2 times the length
+        k = 1.0
+        system = single_unknown_system(TimeDerivative(), BoundedGrowthTerm(:x, k, 10.0))
+        solution = integrate(system, [1.0], [0.0, 1.0]; stepper=StepController(initial_step=0.95))
+        stats = solution.statistics
+        @test stats.kind[1:3] == [:half_step, :half_step, :step]
+        @test stats.status[1:3] == [:converged, :converged, :domain_error]
+        @test !any(stats.accepted[1:3])
+        @test stats.time_step[1:3] ≈ [0.475, 0.475, 0.95]
+        @test stats.kind[4:6] == [:half_step, :half_step, :step]
+        @test stats.time_step[4:6] ≈ [0.095, 0.095, 0.19]
+        @test all(==(:converged), stats.status[4:6])
+        @test stats.accepted[6] == (stats.error[6] <= 1)
+        @test solution.states[1, end] ≈ foldl((u, h) -> _growth_step(u, k, h), stats.time_step[stats.accepted];
+                                              init=1.0) rtol = 1e-12
+        @test_throws TimeStepFailure integrate(system, [1.0], [0.0, 1.0];
+                                               stepper=StepController(initial_step=0.95, max_failures=0))
+        # rejections in a row beyond the cap end the run: a shrink factor pinned to 1
+        # repeats a rejected step
+        k = 3.0
+        decay = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k))
+        pinned = StepController(initial_step=0.5, relative_tolerance=1e-4, min_shrink=1 - 1e-12, max_rejections=3)
+        @test_throws TimeStepFailure integrate(decay, [1.0], [0.0, 1.0]; stepper=pinned)
+        failure = try
+            integrate(decay, [1.0], [0.0, 1.0]; stepper=pinned)
+        catch err
+            err
+        end
+        @test failure.status === :rejected
+        @test length(failure.statistics.time) == 3 * 4      # four doublings, the last one over the cap
+    end
+
+    @testset "record and resume" begin
+        k = 3.0
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k); nr=2)
+        times = [0.0, 1.0]
+        save_times = [0.0, 0.4, 1.0]
+        stepper = StepController(initial_step=0.01, relative_tolerance=1e-3)
+        whole = integrate(system, [1.0, 2.0], times; save_times, stepper)
+        @test count(whole.statistics.accepted) > 8
+        @test whole.settings["time"]["stepper"]["type"] == "StepController"
+        # a segment stopped after its second accepted step (the first is the doubling),
+        # resumed from the checkpoint: the predictor has its history back
+        checkpoint = CheckpointSettings("controller"; directory=mktempdir(), interval=0)
+        first_segment = integrate(system, [1.0, 2.0], times; save_times, stepper, checkpoint,
+                                  stop=StopCondition(wall_budget=1e-9, slack=0))
+        @test first_segment.settings["segment"]["steps"] == 1
+        stored = read_checkpoint(checkpoint)
+        @test stored.stepper["type"] == "StepController"
+        @test stored.stepper["previous_step"] == whole.statistics.time_step[3]
+        @test stored.stepper["previous_state"] == [1.0, 2.0]
+        @test stored.stepper["failures"] == 0
+        second_segment = @test_logs integrate(system, [1.0, 2.0], times; save_times, stepper, checkpoint, resume=true)
+        @test run_status(second_segment) === :finished
+        @test second_segment.states == whole.states[:, 2:end]
+        rows = length(first_segment.statistics.time)
+        @test second_segment.statistics.time == whole.statistics.time[rows+1:end]
+        @test second_segment.statistics.time_step == whole.statistics.time_step[rows+1:end]
+        @test isequal(second_segment.statistics.error, whole.statistics.error[rows+1:end])
+        # no doubling in the resumed segment: the history came from the checkpoint
+        @test all(==(:step), second_segment.statistics.kind)
+        joined = read_output(checkpoint)
+        @test joined.states == whole.states
+        @test isequal(joined.statistics.error, whole.statistics.error)
+        # a stored state of another layout is refused
+        other = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k); nr=3)
+        @test_throws DimensionMismatch integrate(other, [1.0, 2.0, 3.0], times; save_times, stepper, resume=stored)
+    end
+
+    @testset "the errors per unknown in the log" begin
+        k = 3.0
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k); nr=2)
+        io = IOBuffer()
+        log = ProgressLog(io=io, on_signal=false)
+        integrate(system, [1.0, 2.0], [0.0, 0.5]; stepper=StepController(initial_step=0.01), log)
+        text = String(take!(io))
+        @test occursin(r"x: .*error estimate [0-9.e+-]+ of the tolerance", text)
+    end
+end

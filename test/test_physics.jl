@@ -98,6 +98,55 @@ end
         end
     end
 
+    @testset "partial screening window (issue #97)" begin
+        # Window edges in momentum: kinetic energy I_j and 4 I_j. That gives
+        # p ≈ 0.029 to 0.059 for Ar⁺ and 0.032 to 0.063 for Ar²⁺.
+        momentum_at(energy) = sqrt((1 + energy / Constants.ELECTRON_REST_ENERGY)^2 - 1)
+        for (charge, lower, upper) in ((1, 0.029, 0.059), (2, 0.032, 0.063))
+            excitation = mean_excitation_energy(18, charge)
+            @test round(momentum_at(excitation); digits=3) == lower
+            @test round(momentum_at(4excitation); digits=3) == upper
+        end
+        # Argon in Ar⁺ to Ar³⁺ and Ar¹⁶⁺ next to deuterium
+        densities = zeros(19, 1)
+        densities[2:4, 1] .= 1e18
+        densities[17, 1] = 1e18
+        ions = [IonSpecies("D", 1, 1, [1e20]), IonSpecies("Ar", 18, densities)]
+        for mode in (:superthermal, :full)
+            plasma = PlasmaState(cold_electron_temperature=[10.0], ions=ions, electric_field=[0.0],
+                                 magnetic_field=[0.0])
+            model(window, screening=:partial) =
+                CollisionModel(plasma, CollisionSettings(; mode, screening, screening_window=window))
+            window, dream, complete = model(:excitation_energy), model(:dream), model(:dream, :complete)
+            excitations = [mean_excitation_energy(18, j) for j in (1, 2, 3, 16)]
+            p_below = 0.9momentum_at(minimum(excitations))
+            p_above = 1.1momentum_at(4maximum(excitations))
+            for fun in (slowing_down_frequency, deflection_frequency, parallel_diffusion_frequency)
+                # above every window the frequencies are DREAM's to round-off, below every
+                # window those of complete screening
+                for p in (p_above, 0.5, 5.0)
+                    @test fun(window, 1, p) == fun(dream, 1, p)
+                end
+                for p in (0.1p_below, p_below)
+                    @test fun(window, 1, p) ≈ fun(complete, 1, p) rtol = 1e-15
+                end
+                # inside, between the two, and the ratio to DREAM's continuous (the
+                # frequencies themselves fall as 1/p³); ν_∥ vanishes in :superthermal mode
+                fun(dream, 1, p_above) == 0 && continue
+                ps = range(p_below, p_above; length=1000)
+                values = [fun(window, 1, p) for p in ps]
+                @test all(fun(complete, 1, p) * (1 - 1e-14) <= v <= fun(dream, 1, p) * (1 + 1e-14)
+                          for (p, v) in zip(ps, values))
+                ratios = values ./ [fun(dream, 1, p) for p in ps]
+                @test maximum(abs, diff(ratios)) < 0.02
+            end
+            @test p3_slowing_down_frequency_at_zero(window, 1) ≈
+                  p3_slowing_down_frequency_at_zero(complete, 1) rtol = 1e-15
+        end
+        @test_throws ArgumentError CollisionSettings(screening_window=:born)
+        @test_throws ArgumentError CollisionSettings(screening_window_start=4.0, screening_window_end=1.0)
+    end
+
     @testset "conductivity in the Lorentz-gas limit" begin
         # Linear response f = f_M + f₁ with C f₁ = -E f_M. Without electron-electron
         # collisions (n_cold → 0) the operator reduces to a Lorentz gas, whose

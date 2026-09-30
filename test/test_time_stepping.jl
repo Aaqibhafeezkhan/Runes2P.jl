@@ -273,8 +273,14 @@ square_root_step(u0, k, dt) = ((-k * dt + sqrt((k * dt)^2 + 4u0)) / 2)^2
         @test by_record.settings["setup_hash"] == by_keywords.settings["setup_hash"]
         @test by_record.settings["time"]["stepper"] == Dict{String,Any}("type" => "FixedSteps", "max_halvings" => 10)
         @test by_record.settings["segment"]["steps"] == 3
-        @test run_settings(system, times, options) == run_settings(system; times, save_times=[0.0, 0.03, 0.2],
-                                                                   description=Dict("name" => "options"))
+        # `environment` carries the start time, which differs when the two calls straddle a second
+        without_environment(record) = filter(pair -> pair.first != "environment", record)
+        record_of_options = run_settings(system, times, options)
+        record_of_keywords = run_settings(system; times, save_times=[0.0, 0.03, 0.2],
+                                          description=Dict("name" => "options"))
+        @test without_environment(record_of_options) == without_environment(record_of_keywords)
+        @test haskey(record_of_options["environment"], "start_time")
+        @test haskey(record_of_keywords["environment"], "start_time")
         @test RunOptions().stepper == FixedSteps()
         @test RunOptions().save_times === nothing
         @test describe(FixedSteps(max_halvings=3)) == Dict{String,Any}("type" => "FixedSteps", "max_halvings" => 3)

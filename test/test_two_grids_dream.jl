@@ -28,7 +28,7 @@ const DREAM_TWO_GRIDS_DATA = joinpath(@__DIR__, "data", "dream_two_grids.h5")
         n = read(h5["ions/n"])
         ions = [IonSpecies(names[k], Zs[k], Z0s[k], n[:, k]) for k in eachindex(Zs)]
         p_cut = read(h5["p_cut"])
-        settings = CollisionSettings(ion_size_table=:dream)
+        settings = CollisionSettings(ion_size_table=:dream, screening_window=:dream)
 
         # largest relative difference to DREAM over the cells above 1e-12 of the largest value
         function difference(a, b)

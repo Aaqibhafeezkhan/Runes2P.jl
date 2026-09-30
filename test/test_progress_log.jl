@@ -138,7 +138,7 @@ _count(pattern, text) = length(collect(eachmatch(pattern, text)))
         @test occursin("100.000 %  t = 8.000000e-04 s of 8.000000e-04 s, time point 9 of 9  (segment end, finished)",
                        entries[9])
         @test count(entry -> occursin("(milestone)", entry), entries) == 7
-        @test occursin("steps   1 accepted of 1 attempted since the last entry (0 failed and halved", text)
+        @test occursin("steps   1 accepted of 1 attempted since the last entry (0 failed, 0 rejected, 0 half steps", text)
         @test occursin("steps   none since the last entry", text)       # the entry of the start
         @test occursin(r"solver  Newton iterations \d+\.\d\d per step, Krylov iterations 0\.00 per Newton iteration", text)
         @test occursin(r"cost    \d+\.\d (ms|s) per step: Jacobian \d+ %, residual \d+ %, factorization \d+ %", text)
@@ -228,7 +228,7 @@ _count(pattern, text) = length(collect(eachmatch(pattern, text)))
         @test solution.statistics.accepted == [false, true, true, true]
         @test occursin("] WARNING: step failed: the step to t = 0.24 s with the time step 0.24 s ended with the " *
                        "status domain_error and is retried with half the time step", text)
-        @test occursin("steps   3 accepted of 4 attempted since the last entry (1 failed and halved", text)
+        @test occursin("steps   3 accepted of 4 attempted since the last entry (1 failed, 0 rejected, 0 half steps", text)
         @test occursin("events  since the last entry: 1 × step failed", text)
         # a run that fails
         log = ProgressLog(io=io, on_signal=false)

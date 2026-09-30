@@ -14,7 +14,8 @@ function regression_cases()
     mom = MomentumGrid(biuniform_p_faces(40, 15, 0.0, 0.5, 5.0), uniform_xi_faces(12))
     g = cylindrical_grid(mom, RadialGrid(uniform_r_faces(2, 0.5)))
     cases = Pair{String,Any}[]
-    settings = (("full", CollisionSettings()),
+    # recorded with partial screening at all momenta
+    settings = (("full", CollisionSettings(screening_window=:dream)),
                 ("superthermal", CollisionSettings(mode=:superthermal, screening=:none,
                                                    coulomb_logarithm=:energy_dependent)),
                 ("ultra_relativistic", CollisionSettings(mode=:ultra_relativistic, screening=:complete,

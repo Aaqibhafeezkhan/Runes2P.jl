@@ -49,7 +49,7 @@ end
                     screening=DREAM_SCREENING[read(attr["collfreq_type"])],
                     coulomb_logarithm=DREAM_COULOMB_LOGARITHM[read(attr["lnlambda"])],
                     screened_diffusion=DREAM_SCREENED_DIFFUSION[read(attr["screened_diffusion"])],
-                    ion_size_table=:dream)
+                    ion_size_table=:dream, screening_window=:dream)
                 plasma = _dream_plasma(h5, grp, nr_)
                 cm = CollisionModel(plasma, settings)
                 # Observed maxima: 1e-12 (superthermal), 9e-12 (full mode). The exception

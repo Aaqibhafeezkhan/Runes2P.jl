@@ -141,6 +141,33 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(mode=:full, screening=:complete,
         @test both ≈ [values[1], values[2]] rtol = 1e-8
     end
 
+    @testset "partial screening only above the excitation energy (issue #97)" begin
+        # Deuterium with 5 % argon in Ar⁺ to Ar³⁺ (one third each), synthetic.
+        # The thermal bulk lies below the window of partial screening, so the operator with
+        # partial screening has the conductivity of complete screening, within 1 % of DREAM's
+        # fit (0.9941 of it). DREAM's option applies partial screening to the bulk and gives
+        # 0.954, 0.930 and 0.897 of the fit at 5, 10 and 20 eV.
+        dream_ratios = Dict(5.0 => 0.954, 10.0 => 0.930, 20.0 => 0.897)
+        for T in (5.0, 10.0, 20.0)
+            argon = zeros(19, 1)
+            argon[2:4, 1] .= 0.05e20 / 3
+            plasma = PlasmaState(; cold_electron_temperature=[T],
+                                 ions=[IonSpecies("D", 1, 1, [1e20]), IonSpecies("Ar", 18, argon)],
+                                 electric_field=[0.0], magnetic_field=[0.0])
+            fit = braams_karney_conductivity(plasma, 1) *
+                  test_particle_conductivity_fraction(effective_charge(plasma, 1))
+            ratio(settings) = only(kinetic_conductivity(fokker_planck_operator(conductivity_grid(; T), plasma, settings;
+                                                                               scheme=:central,
+                                                                               electric_field=false))) / fit
+            window = ratio(CollisionSettings(mode=:full, screening=:partial, coulomb_logarithm=:thermal))
+            dream = ratio(CollisionSettings(mode=:full, screening=:partial, coulomb_logarithm=:thermal,
+                                            screening_window=:dream))
+            @test abs(window - 1) < 1e-2
+            @test window ≈ ratio(CONDUCTIVITY_SETTINGS) rtol = 1e-5
+            @test dream ≈ dream_ratios[T] atol = 1e-3
+        end
+    end
+
     @testset "model and term" begin
         radial = RadialGrid(uniform_r_faces(2, 1.0))
         plasma = PlasmaState(; cold_electron_temperature=[10.0, 20.0],
