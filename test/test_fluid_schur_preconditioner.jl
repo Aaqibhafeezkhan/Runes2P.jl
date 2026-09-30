@@ -187,6 +187,7 @@ const SCHUR_TEST_GMRES = Base.require(Runes2P, :Krylov).gmres
                                           transported_layout).lines !== nothing
         @test_throws "true, false or :auto" FluidSchurLU(; radial_lines=:always)
         @test GMRES().preconditioner == FluidSchurLU(; radial_lines=:auto)
+        @test GMRES().restart_length == 50   # above the counts of FluidSchurLU at 40 radii
         # a kinetic row that couples to a radial unknown of another radius
         coupled = copy(A)
         row = first(unknown_range(layout, unknown_id(layout, :hot_tail_distribution), 1))

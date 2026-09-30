@@ -374,8 +374,12 @@ end
 function LinearAlgebra.ldiv!(y::AbstractVector, factors::FluidSchurFactors, x::AbstractVector)
     factors.lines === nothing && return _schur_solve!(y, factors, x)
     # lines, Schur stage, lines
+    # the first line stage at y = 0, where x − A y is x (no product with the matrix)
+    partial = factors.partial
     fill!(y, zero(eltype(y)))
-    _line_stage!(y, factors, x)
+    fill!(partial, zero(eltype(partial)))
+    _line_solve!(partial, factors.lines, x)
+    y .+= partial
     residual = _stage_residual!(factors.residual, factors, x, y)
     correction = factors.partial
     _schur_solve!(correction, factors, residual)

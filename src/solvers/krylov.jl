@@ -28,7 +28,7 @@ RadiusBlockILU(; drop_tolerance::Real=1e-4) = RadiusBlockILU(Float64(drop_tolera
 
 """
     GMRES(; preconditioner=FluidSchurLU(), relative_tolerance=1e-10, max_iterations=200,
-          restart_length=30, preconditioner_refresh=:every_iteration, refresh_iterations=10,
+          restart_length=50, preconditioner_refresh=:every_iteration, refresh_iterations=10,
           operator=:exact)
 
 Newton-Krylov linear solver: restarted GMRES (Krylov.jl) on the scaled Newton operator
@@ -74,12 +74,14 @@ At production sizes with radially coupled radii:
 - `RadiusBlockLU` leaves out the radial coupling, and the Krylov count grows with it: about
   29 per Newton iteration at 20 radii and 59 at 40 under Rechester-Rosenbluth diffusion
   with `δB/B = 1e-3`, the largest of a step 1.4 times that. `restart_length` has to exceed
-  the count. With the default of 30 the iteration stagnates and the step ends with
+  the count. With a restart length of 30 the iteration stagnates and the step ends with
   `:linear_solve_failed` (600 000 and 1 200 000 unknowns, 20 radii), with 200 it converges.
 - [`FluidSchurLU`](@ref) holds the radial coupling by line solves and the fluid unknowns
   exactly: 8.4, 12.1 and 18.5 per Newton iteration at 11, 20 and 40 radii on the
-  production grid, the largest of a step 12, 18 and 28, within the default restart length
-  of 30; the count still grows slowly with the number of radii.
+  production grid, the largest of a step 12, 18 and 28. On the superthermal production
+  grid 13.9, 20.4 and 31.3, the largest of a step 14, 21 and 33. The default
+  restart length of 50 holds all of them (decision of the author; the count still grows
+  slowly with the number of radii).
 - `relative_tolerance` stays at or below the `floor_linear_tolerance` of the
   [`NewtonSolver`](@ref) (1e-8). With 1e-6 the Newton iteration cannot accept a residual
   at its round-off floor and ends with `:max_iterations`. 1e-8 takes about 19 Krylov
@@ -92,7 +94,7 @@ Base.@kwdef struct GMRES{P<:BlockPreconditioner} <: LinearSolver
     preconditioner::P = FluidSchurLU()
     relative_tolerance::Float64 = 1e-10
     max_iterations::Int = 200
-    restart_length::Int = 30
+    restart_length::Int = 50
     preconditioner_refresh::Symbol = :every_iteration
     refresh_iterations::Int = 10
     operator::Symbol = :exact

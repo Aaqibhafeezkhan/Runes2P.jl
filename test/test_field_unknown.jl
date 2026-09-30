@@ -237,6 +237,33 @@ end
                                                                    settings), f0)
         @test kinetic_array(du, layout, f_id) ≈ expected rtol = 1e-12
         @test dependencies(term) == [:hot_tail_distribution, :electric_field]
+
+        # the path of a disruption run: the stored
+        # Jacobian at a time of the cooling plasma against central differences, the field
+        # column included
+        J = jacobian_prototype(system)
+        jacobian!(J, system, u, t)
+        # directions proportional to the state: the layout has no scales, and a unit step in
+        # f against a field of order 1 would move the field by far more than a derivative
+        for _ in 1:3
+            v = randn(rng, length(layout)) .* abs.(u)
+            @test J * v ≈ directional_derivative(system, u, v, t) rtol = 1e-6
+        end
+        # a run over the cooling: the field as an unknown held at `field` against the same
+        # field written into the prescribed plasma
+        times = collect(range(0, 1e-4; length=6))
+        unknown_field = integrate(system, u, times)
+        with_field(t) = with_electric_field(plasma_at(t), field)
+        alone = EquationSystem(UnknownLayout(rad, [KineticUnknown(:hot_tail_distribution, grid)]),
+                               [Equation(:hot_tail_distribution, TimeDerivative(),
+                                         PrescribedFokkerPlanckTerm(:hot_tail_distribution,
+                                                                    AdvectionDiffusion(grid; scheme=:exponential_fitting,
+                                                                                       p_upper_boundary=:f_zero),
+                                                                    with_field; settings))])
+        prescribed_field = integrate(alone, vec(f0), times)
+        @test all(unknown_field.statistics.accepted)
+        @test kinetic_array(unknown_field.states[:, end], layout, f_id) ≈
+              reshape(prescribed_field.states[:, end], size(grid)) rtol = 1e-8
     end
 
     @testset "the operator must not hold the field as well" begin

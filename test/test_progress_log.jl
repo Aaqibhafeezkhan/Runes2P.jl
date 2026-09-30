@@ -14,16 +14,22 @@ Runes2P.apply_update!(update::AskForEntry, u, layout, t) = (t == update.time && 
 Runes2P.update_state(::AskForEntry) = [0.0]
 Runes2P.restore_update!(update::AskForEntry, state) = update
 
-# an interval update that sends SIGUSR1 to the process at one time point and makes every
-# interval last long enough for the profile Julia takes before it calls the report
+# an interval update that sends SIGUSR1 to the process at one time point and waits until
+# the report of Julia has reached the log (at most `timeout` seconds), so that the entry
+# comes at the next time point also on a loaded node
 struct SendSignal <: IntervalUpdate
     time::Float64
-    pause::Float64
+    log::ProgressLog
+    timeout::Float64
 end
 Runes2P.update_name(::SendSignal) = "send_signal"
 function Runes2P.apply_update!(update::SendSignal, u, layout, t)
-    t == update.time && ccall(:kill, Cint, (Cint, Cint), getpid(), 10)
-    sleep(update.pause)
+    t == update.time || return false
+    ccall(:kill, Cint, (Cint, Cint), getpid(), 10)
+    deadline = Base.time() + update.timeout
+    while !update.log.requested[] && Base.time() < deadline
+        sleep(0.01)
+    end
     return false
 end
 Runes2P.update_state(::SendSignal) = [0.0]
@@ -305,7 +311,7 @@ _count(pattern, text) = length(collect(eachmatch(pattern, text)))
         try
             case = _decay_case(8)
             log = ProgressLog(io=io, milestones=[1.0])
-            integrate(case.system, case.u0, case.times; updates=(SendSignal(case.times[2], 0.25),), log)
+            integrate(case.system, case.u0, case.times; updates=(SendSignal(case.times[2], log, 30.0),), log)
             entries = _progress_lines(String(take!(io)))
             @test count(entry -> occursin("(on demand)", entry), entries) == 1
         finally

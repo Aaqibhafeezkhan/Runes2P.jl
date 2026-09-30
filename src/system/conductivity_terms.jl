@@ -250,13 +250,17 @@ ConductivityTerm(electric_field::Symbol, model::ConductivityModel; coefficient::
 dependencies(term::ConductivityTerm) = [term.electric_field]
 is_linear(::ConductivityTerm) = true
 
-function validate(term::ConductivityTerm, layout, row)
+validate(term::ConductivityTerm, layout, row) = validate(term, layout, row, 0.0)
+
+# the conductivity at the initial time of the system: a plasma of the model may be
+# defined on the interval of the run alone
+function validate(term::ConductivityTerm, layout, row, t)
     id = unknown_id(layout, term.electric_field)
     layout.kinds[id] === :radial && layout.sizes[id, 1] == 1 ||
         throw(ArgumentError("the electric field of a ConductivityTerm is a radial unknown with one component"))
     layout.kinds[row] === :radial && layout.sizes[row, 1] == 1 ||
         throw(ArgumentError("ConductivityTerm adds to a radial unknown with one component"))
-    length(conductivity_at(term, 0.0)) == radial_cell_count(layout) ||
+    length(conductivity_at(term, t)) == radial_cell_count(layout) ||
         throw(DimensionMismatch("the plasma of the conductivity has other radii than the layout"))
     return nothing
 end

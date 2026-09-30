@@ -173,6 +173,23 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(mode=:full, screening=:complete,
             term = ConductivityTerm(:electric_field, model)
             @test copy(conductivity_at(term, 0.5)) != conductivity_at(term, 0.0)
         end
+        # a plasma defined on the interval of the run alone: the system, the run and its
+        # record evaluate the model from the initial time on
+        let late(t) = t < 1.0 ? error("no plasma before the run") : conductivity_plasma(; T=10.0 + t, radii=2)
+            model = ConductivityModel(late)
+            layout = UnknownLayout(RadialGrid(uniform_r_faces(2, 1.0)),
+                                   [RadialUnknown(:electric_field), RadialUnknown(:ohmic_current_density; scale=1e4)])
+            system = EquationSystem(layout, [
+                Equation(:electric_field, Algebraic(), PrescribedValueTerm([0.5, 2.0]), LinearTerm(:electric_field; coefficient=-1)),
+                Equation(:ohmic_current_density, Algebraic(), ConductivityTerm(:electric_field, model),
+                         LinearTerm(:ohmic_current_density; coefficient=-1))]; initial_time=1.0)
+            solution = integrate(system, zeros(length(layout)), [1.0, 1.5, 2.0])
+            current = radial_values(solution.states[:, end], layout, unknown_id(layout, :ohmic_current_density))
+            @test current ≈ model(2.0) .* [0.5, 2.0] rtol = 1e-12
+            record = describe(system, DescriptionContext(; times=[1.0, 1.5, 2.0]))
+            @test record["equations"]["ohmic_current_density"]["terms"]["term_1"]["model"]["conductivity"]["values"][:, 3] ≈
+                  model(2.0) rtol = 1e-14
+        end
 
         layout = UnknownLayout(radial, [RadialUnknown(:electric_field), RadialUnknown(:ohmic_current_density; scale=1e4),
                                         ScalarUnknown(:plasma_current)])

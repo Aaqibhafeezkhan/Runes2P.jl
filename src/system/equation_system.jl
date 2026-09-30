@@ -252,7 +252,7 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
             for name in dependencies(term)
                 unknown_id(layout, name)  # throws for unknown names
             end
-            validate(term, layout, row)
+            validate(term, layout, row, T(initial_time))
             coupling(term) in (:sparse, :matrix_free) ||
                 throw(ArgumentError("unknown coupling $(coupling(term)) of $(typeof(term))"))
             bound = BoundTerm(term, row)

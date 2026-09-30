@@ -477,42 +477,89 @@ Base.@propagate_inbounds function _xi_flux(op::AdvectionDiffusion, f, i, k, ir, 
     return V * F
 end
 
+# How the radial fluxes of an apply! are computed, decided once per call so that the loop over
+# the cells holds no test of the scheme or of the pitch overlap:
+# - `_RadialTwoPoint`: one pitch grid at all radii, a two-point scheme (the scheme of too few
+#   radii for a four-point scheme, as in DREAM),
+# - `_RadialFourPoint`: one pitch grid at all radii, a four-point scheme and at least 3 radii,
+# - `_RadialOverlap`: pitch grids that differ between radii, each face with its overlap.
+struct _RadialTwoPoint
+    scheme::Symbol
+end
+struct _RadialFourPoint end
+struct _RadialOverlap end
+
+function _radial_flux_mode(op::AdvectionDiffusion)
+    all(overlap -> overlap.identical, op.radial_overlaps) || return _RadialOverlap()
+    is_four_point_scheme(op.r_scheme) && radial_cell_count(op.grid) >= 3 && return _RadialFourPoint()
+    return _RadialTwoPoint(_two_point_scheme(op.r_scheme))
+end
+
+# Flux Γʳ through the edge face `k = nr + 1` on the side of pitch cell `j`, multiplied by 𝒱'
+Base.@propagate_inbounds function _r_edge_flux(op::AdvectionDiffusion, f, i, j, k)
+    rg = op.grid.radial_grid
+    nr = radial_cell_count(rg)
+    T = eltype(f)
+    V = op.jacobian_r_faces[i, j, k]
+    (V == 0 || op.r_boundary === :zero_flux) && return zero(T)
+    # absorbing edge: f = 0 on the face, or half a cell outside it (DREAM)
+    A = op.advection_r[i, j, k]
+    D = op.diffusion_r_r[i, j, k]
+    f_left = f[i, j, nr]
+    distance = op.r_boundary === :absorbing ? rg.r_faces[k] - rg.r_centers[nr] :
+               nr > 1 ? rg.r_centers[nr] - rg.r_centers[nr-1] : one(eltype(rg.r_centers))
+    F = (A > 0 ? A * f_left : zero(T)) + D * f_left / distance
+    return V * F
+end
+
 # Flux Γʳ through r face `k` (between the radii k-1 and k) on the side of pitch cell `j` of
 # radius `ir` (k - 1 or k), multiplied by 𝒱': the sum over the overlap cells of the pitch
 # cell, each with its share of the cell. Pitch cell `j` itself with one pitch grid on both
 # sides.
-Base.@propagate_inbounds function _r_flux(op::AdvectionDiffusion, f, i, j, ir, k, state=nothing)
+Base.@propagate_inbounds _r_flux(op::AdvectionDiffusion, f, i, j, ir, k, state=nothing) =
+    _r_flux(op, f, i, j, ir, k, state, _RadialOverlap())
+
+Base.@propagate_inbounds function _r_flux(op::AdvectionDiffusion, f, i, j, ir, k, state, mode::_RadialTwoPoint)
+    T = eltype(f)
+    k == 1 && return zero(T)
+    rg = op.grid.radial_grid
+    k == radial_cell_count(rg) + 1 && return _r_edge_flux(op, f, i, j, k)
+    V = op.jacobian_r_faces[i, j, k]
+    V == 0 && return zero(T)
+    distance = rg.r_centers[k] - rg.r_centers[k-1]
+    weight_left = (rg.r_centers[k] - rg.r_faces[k]) / distance
+    F = _face_flux(mode.scheme, op.advection_r[i, j, k], op.diffusion_r_r[i, j, k],
+                   f[i, j, k-1], f[i, j, k], distance, weight_left)
+    return V * F
+end
+
+Base.@propagate_inbounds function _r_flux(op::AdvectionDiffusion, f, i, j, ir, k, state, ::_RadialFourPoint)
+    T = eltype(f)
+    k == 1 && return zero(T)
+    rg = op.grid.radial_grid
+    k == radial_cell_count(rg) + 1 && return _r_edge_flux(op, f, i, j, k)
+    V = op.jacobian_r_faces[i, j, k]
+    V == 0 && return zero(T)
+    distance = rg.r_centers[k] - rg.r_centers[k-1]
+    A = op.advection_r[i, j, k]
+    face_value = A == 0 ? zero(T) : _r_four_point_face(op, f, state, A, i, j, k)
+    return V * (A * face_value - op.diffusion_r_r[i, j, k] * (f[i, j, k] - f[i, j, k-1]) / distance)
+end
+
+Base.@propagate_inbounds function _r_flux(op::AdvectionDiffusion, f, i, j, ir, k, state, ::_RadialOverlap)
     rg = op.grid.radial_grid
     nr = radial_cell_count(rg)
     T = eltype(f)
     k == 1 && return zero(T)
-    if k == nr + 1
-        V = op.jacobian_r_faces[i, j, k]
-        (V == 0 || op.r_boundary === :zero_flux) && return zero(T)
-        # absorbing edge: f = 0 on the face, or half a cell outside it (DREAM)
-        A = op.advection_r[i, j, k]
-        D = op.diffusion_r_r[i, j, k]
-        f_left = f[i, j, nr]
-        distance = op.r_boundary === :absorbing ? rg.r_faces[k] - rg.r_centers[nr] :
-                   nr > 1 ? rg.r_centers[nr] - rg.r_centers[nr-1] : one(eltype(rg.r_centers))
-        F = (A > 0 ? A * f_left : zero(T)) + D * f_left / distance
-        return V * F
+    k == nr + 1 && return _r_edge_flux(op, f, i, j, k)
+    overlap = op.radial_overlaps[k]
+    if overlap.identical
+        mode = is_four_point_scheme(op.r_scheme) && nr >= 3 ? _RadialFourPoint() :
+               _RadialTwoPoint(_two_point_scheme(op.r_scheme))
+        return _r_flux(op, f, i, j, ir, k, state, mode)
     end
     distance = rg.r_centers[k] - rg.r_centers[k-1]
     weight_left = (rg.r_centers[k] - rg.r_faces[k]) / distance
-    overlap = op.radial_overlaps[k]
-    if overlap.identical
-        V = op.jacobian_r_faces[i, j, k]
-        V == 0 && return zero(T)
-        if is_four_point_scheme(op.r_scheme) && nr >= 3
-            A = op.advection_r[i, j, k]
-            face_value = A == 0 ? zero(T) : _r_four_point_face(op, f, state, A, i, j, k)
-            return V * (A * face_value - op.diffusion_r_r[i, j, k] * (f[i, j, k] - f[i, j, k-1]) / distance)
-        end
-        F = _face_flux(_two_point_scheme(op.r_scheme), op.advection_r[i, j, k], op.diffusion_r_r[i, j, k],
-                       f[i, j, k-1], f[i, j, k], distance, weight_left)
-        return V * F
-    end
     total = zero(T)
     if ir == k - 1
         for s in overlap.left_ranges[j]
@@ -555,8 +602,9 @@ function apply!(df::AbstractArray{<:Any,3}, op::AdvectionDiffusion, f::AbstractA
     size(f) == size(df) == size(op.grid) || throw(DimensionMismatch("f and df must match grid"))
     limiter_state === nothing || size(limiter_state) == size(f) ||
         throw(DimensionMismatch("limiter_state must match the grid"))
+    radial_mode = _radial_flux_mode(op)
     @inbounds for ir in 1:radial_cell_count(op.grid)
-        apply_radius!(df, op, f, ir, scale, limiter_state, electric_field)
+        apply_radius!(df, op, f, ir, scale, limiter_state, electric_field, radial_mode)
     end
     return df
 end
@@ -565,9 +613,12 @@ end
     apply_radius!(df, op, f, ir, scale)
 
 Operator contribution to all momentum cells at radius index `ir`. Writes only to
-`df[:, :, ir]`, so different radii can be processed concurrently.
+`df[:, :, ir]`, so different radii can be processed concurrently. `radial_mode` is the
+computation of the radial fluxes (`_radial_flux_mode`), a function barrier: the
+loop over the cells is compiled for it.
 """
-@inline function apply_radius!(df, op::AdvectionDiffusion, f, ir, scale, state=nothing, field=nothing)
+@inline function apply_radius!(df, op::AdvectionDiffusion, f, ir, scale, state=nothing, field=nothing,
+                               radial_mode=_radial_flux_mode(op))
     m = op.momentum_grids[ir]
     rg = op.grid.radial_grid
     np, nxi = momentum_cell_count(m), pitch_cell_count(m)
@@ -578,7 +629,8 @@ Operator contribution to all momentum cells at radius index `ir`. Writes only to
                      m.p_widths[i] +
                      (_xi_flux(op, f, i, j + 1, ir, state, field) - _xi_flux(op, f, i, j, ir, state, field)) /
                      m.xi_widths[j] +
-                     (_r_flux(op, f, i, j, ir, ir + 1, state) - _r_flux(op, f, i, j, ir, ir, state)) / rg.r_widths[ir]
+                     (_r_flux(op, f, i, j, ir, ir + 1, state, radial_mode) -
+                      _r_flux(op, f, i, j, ir, ir, state, radial_mode)) / rg.r_widths[ir]
         df[i, j, ir] -= scale * divergence / V
     end
     return df

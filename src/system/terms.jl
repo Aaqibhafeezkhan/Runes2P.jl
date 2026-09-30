@@ -47,6 +47,8 @@ function dependencies end
 coupling(::EquationTerm) = :sparse
 treatment(::EquationTerm) = :implicit
 validate(::EquationTerm, layout, row) = nothing
+# with the initial time of the system, for terms that evaluate a function of time
+validate(term::EquationTerm, layout, row, t) = validate(term, layout, row)
 
 """
     jacobian_kind(term)

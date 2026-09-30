@@ -563,7 +563,10 @@ function describe(model::ConductivityModel, context::DescriptionContext=Descript
     end
     if model.plasma isa PlasmaState
         record["plasma"] = describe(model.plasma)
-        record["conductivity"] = _plain(model(0.0))
+        # an operator rebuilt in time makes the model time dependent with a constant plasma,
+        # and the first time of the run need not be 0
+        record["conductivity"] = is_time_dependent(model) ? describe_prescribed_levels(model, context) :
+                                 _plain(model(isempty(context.times) ? 0.0 : first(context.times)))
     else
         record["plasma"] = _callable_name(model.plasma)
         record["plasma_table"] = prescribed_table!(context, model.plasma)
