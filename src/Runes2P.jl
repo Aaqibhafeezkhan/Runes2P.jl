@@ -9,6 +9,7 @@ module Runes2P
 include("physics/constants.jl")
 include("physics/atomic_data.jl")
 include("physics/plasma.jl")
+include("physics/plasma_source.jl")
 include("physics/coulomb_logarithm.jl")
 include("physics/conductivity.jl")
 include("physics/collision_frequencies.jl")
@@ -65,6 +66,7 @@ export phase_space_jacobian_r_faces, phase_space_jacobian_over_p2_at_zero
 export momentum_cell_count, pitch_cell_count, radial_cell_count, cell_count
 export AdvectionDiffusion, apply!, momentum_flux, with_scheme
 export Constants, IonSpecies, PlasmaState, free_electron_density, bound_electron_density
+export PlasmaSource, PrescribedPlasma, plasma_values
 export coulomb_logarithm, thermal_coulomb_logarithm, relativistic_coulomb_logarithm
 export CollisionSettings, CollisionModel, slowing_down_frequency, deflection_frequency
 export parallel_diffusion_frequency, p3_slowing_down_frequency_at_zero

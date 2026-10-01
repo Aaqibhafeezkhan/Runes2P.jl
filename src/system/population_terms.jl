@@ -21,8 +21,8 @@ distribution as electrons run away or the free-electron density changes.
 - `:lowest_cell`: the momentum cell at `p = 0` alone (DREAM's delta shape).
 
 `temperature` is the cold-electron temperature in eV at each radius, or a function of time
-that returns the temperatures or a [`PlasmaState`](@ref). The shape follows it in time. It
-is prescribed data: the term is linear, and its Jacobian entries are assembled directly.
+that returns the temperatures or a [`PlasmaState`](@ref). The shape follows it in time and
+is rebuilt when the temperature of a radius changes. It is prescribed data: the term is linear, and its Jacobian entries are assembled directly.
 """
 struct ParticleSourceTerm{T,S} <: EquationTerm
     source::Symbol
@@ -30,7 +30,8 @@ struct ParticleSourceTerm{T,S} <: EquationTerm
     temperature::S
     shape_kind::Symbol
     shape::Vector{Matrix{T}}        # per radius, density 1
-    time::Base.RefValue{Float64}    # the time of the shape, NaN before the first evaluation
+    temperatures::Vector{Float64}   # the temperatures of the shape, empty before the first evaluation
+    time::Base.RefValue{Float64}    # the time of the last evaluation of a temperature in time
 end
 
 function ParticleSourceTerm(source::Symbol, grid::KineticGrid{T}, temperature;
@@ -40,7 +41,7 @@ function ParticleSourceTerm(source::Symbol, grid::KineticGrid{T}, temperature;
     temperature isa AbstractVector && length(temperature) != radial_cell_count(grid) &&
         throw(DimensionMismatch("the temperature needs one value per radius"))
     values = [zeros(T, momentum_cell_count(grid, ir), pitch_cell_count(grid, ir)) for ir in 1:radial_cell_count(grid)]
-    return ParticleSourceTerm{T,typeof(temperature)}(source, grid, temperature, shape, values, Ref(NaN))
+    return ParticleSourceTerm{T,typeof(temperature)}(source, grid, temperature, shape, values, Float64[], Ref(NaN))
 end
 
 dependencies(term::ParticleSourceTerm) = [term.source]
@@ -77,16 +78,23 @@ function _source_shape!(values::AbstractMatrix, kind::Symbol, grid::KineticGrid,
     return values
 end
 
+# the shape at the time t, rebuilt when the temperatures differ from those of the shape
 function _shape_at(term::ParticleSourceTerm, t)
     time = Float64(_value(t))
-    if isnan(term.time[]) || (term.time[] != time && !(term.temperature isa AbstractVector))
-        temperatures = _temperatures(term.temperature, time)
-        length(temperatures) == radial_cell_count(term.grid) ||
-            throw(DimensionMismatch("the temperature needs one value per radius"))
+    built = !isempty(term.temperatures)
+    built && (term.temperature isa AbstractVector || term.time[] == time) && return term.shape
+    temperatures = _temperatures(term.temperature, time)
+    term.time[] = time
+    length(temperatures) == radial_cell_count(term.grid) ||
+        throw(DimensionMismatch("the temperature needs one value per radius"))
+    update_key!(term.temperatures, temperatures) || return term.shape
+    try
         for ir in 1:radial_cell_count(term.grid)
             _source_shape!(term.shape[ir], term.shape_kind, term.grid, ir, temperatures[ir])
         end
-        term.time[] = time
+    catch
+        reset_key!(term.temperatures)
+        rethrow()
     end
     return term.shape
 end
@@ -189,7 +197,7 @@ struct MomentumBoundaryFluxTerm{S} <: EquationTerm
 end
 _coefficient_sources(term::MomentumBoundaryFluxTerm) = (term.source,)
 function MomentumBoundaryFluxTerm(kinetic::Symbol, source; weight::Symbol=:density, coefficient::Real=1.0)
-    source isa Union{AdvectionDiffusion,FokkerPlanckTerm,PrescribedFokkerPlanckTerm} ||
+    source isa Union{AdvectionDiffusion,FokkerPlanckTerm} ||
         throw(ArgumentError("the source of the flux is a Fokker-Planck term or an AdvectionDiffusion operator"))
     weight in (:density, :current) || throw(ArgumentError("weight must be :density or :current, not $weight"))
     _operator_of(source).p_upper_boundary === :interface &&
@@ -229,7 +237,7 @@ Base.@propagate_inbounds function _boundary_weight(term::MomentumBoundaryFluxTer
 end
 
 function rhs!(out, term::MomentumBoundaryFluxTerm, u, layout, row, t)
-    op = _operator_at(term.source, t)
+    op = _operator_at(term.source, u, layout, t)
     f = kinetic_array(u, layout, unknown_id(layout, term.kinetic))
     name = _electric_field_of(term)
     offsets = name === nothing ? nothing : layout.radius_offsets[unknown_id(layout, name)]
@@ -254,7 +262,7 @@ function _add_boundary_flux!(out, term::MomentumBoundaryFluxTerm, op::AdvectionD
 end
 
 function add_jacobian!(J, term::MomentumBoundaryFluxTerm, u, layout, row, t)
-    op = _operator_at(term.source, t)
+    op = _operator_at(term.source, u, layout, t)
     id = unknown_id(layout, term.kinetic)
     f = kinetic_array(u, layout, id)
     field_name = _electric_field_of(term)

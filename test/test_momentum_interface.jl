@@ -262,14 +262,14 @@ end
             Equation(:hot_tail_distribution, TimeDerivative(), prescribed,
                      MomentumInterfaceTerm(:hot_tail_distribution, :runaway_distribution, lower_term, upper)),
             Equation(:runaway_distribution, TimeDerivative(), FokkerPlanckTerm(:runaway_distribution, upper))])
-        @test_throws "bare operator" system_with(prescribed.inner.operator)
+        @test_throws "bare operator" system_with(prescribed.operator)
         @test system_with(prescribed) isa EquationSystem
         # the interface reaches the prescribed term, which is not a term of the equations here
         behind = EquationSystem(layout, [
             Equation(:hot_tail_distribution, TimeDerivative(),
                      MomentumInterfaceTerm(:hot_tail_distribution, :runaway_distribution, prescribed, upper)),
             Equation(:runaway_distribution, TimeDerivative(), FokkerPlanckTerm(:runaway_distribution, upper))])
-        update = RechesterRosenbluthUpdate(prescribed.inner.operator, t -> 1e-3; major_radius=1.0)
+        update = RechesterRosenbluthUpdate(prescribed.operator, t -> 1e-3; major_radius=1.0)
         @test_throws "rebuild clears it" Runes2P.check_update(update, behind)
     end
 

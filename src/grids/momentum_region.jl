@@ -164,36 +164,48 @@ _momentum_envelopes(region::MomentumRegion, grid::KineticGrid, t) =
 """
     RegionEnvelopes(region, grid)
 
-The envelopes of a region on a kinetic grid, per radius, kept by a term and rebuilt when
-the time changes and the limit of the region depends on time. The evaluations of a term
-at one time share them, so a term with a region allocates nothing between the changes.
+The envelopes of a region on a kinetic grid, per radius, kept by a term. A limit that
+depends on time is evaluated once per time, and the envelopes are rebuilt when the limit of
+a radius changes. The evaluations of a term share them, so a term with a
+region allocates nothing between the changes.
 """
 struct RegionEnvelopes{R<:MomentumRegion}
     region::R
     values::Vector{Vector{Float64}}   # per radius, per momentum cell
-    time::Base.RefValue{Float64}      # the time of the values, NaN before the first evaluation
+    limits::Vector{Float64}           # the limits of the values per radius, empty before the first evaluation
+    time::Base.RefValue{Float64}      # the time of the last evaluation of a limit in time
 end
 RegionEnvelopes(region::MomentumRegion, grid::KineticGrid) =
-    RegionEnvelopes(region, [zeros(momentum_cell_count(grid, ir)) for ir in 1:radial_cell_count(grid)], Ref(NaN))
+    RegionEnvelopes(region, [zeros(momentum_cell_count(grid, ir)) for ir in 1:radial_cell_count(grid)], Float64[],
+                    Ref(NaN))
 RegionEnvelopes(::Nothing, grid::KineticGrid) = nothing
 
 # the envelope of the radius at the time t; nothing without a region
 @inline _envelope_at(::Nothing, grid, ir, t) = nothing
 function _envelope_at(envelopes::RegionEnvelopes, grid::KineticGrid, ir, t)
-    time = Float64(_value(t))
-    if isnan(envelopes.time[]) || (envelopes.time[] != time && is_time_dependent(envelopes.region))
-        _rebuild!(envelopes, grid, time)
-    end
+    _refresh!(envelopes, grid, t)
     return envelopes.values[ir]
 end
 
-function _rebuild!(envelopes::RegionEnvelopes, grid::KineticGrid, time)
+function _refresh!(envelopes::RegionEnvelopes, grid::KineticGrid, t)
+    time = Float64(_value(t))
+    built = !isempty(envelopes.limits)
+    built && (!is_time_dependent(envelopes.region) || envelopes.time[] == time) && return envelopes
     radii = radial_cell_count(grid)
-    for ir in 1:radii
-        momentum_envelope!(envelopes.values[ir], envelopes.region, momentum_grid(grid, ir),
-                           momentum_limit(envelopes.region, ir, time; radii))
-    end
+    values = _limit_values(envelopes.region.limit, time)
+    limits = values isa Real ? Iterators.repeated(values, radii) : values
+    values isa Real || length(values) == radii ||
+        throw(DimensionMismatch("the limit of the momentum region has $(length(values)) values for $radii radii"))
     envelopes.time[] = time
+    update_key!(envelopes.limits, limits) || return envelopes
+    try
+        for ir in 1:radii
+            momentum_envelope!(envelopes.values[ir], envelopes.region, momentum_grid(grid, ir), envelopes.limits[ir])
+        end
+    catch
+        reset_key!(envelopes.limits)
+        rethrow()
+    end
     return envelopes
 end
 

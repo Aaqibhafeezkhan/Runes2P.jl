@@ -119,7 +119,7 @@ _count(pattern, text) = length(collect(eachmatch(pattern, text)))
         @test occursin("hot_density: radial, scale 1e+20, 2 entries", text)
         @test occursin("grid_1: cylindrical geometry, 2 radii from r = 0 to 1 m, 16 momentum cells from p = 0 to 1.2 " *
                        "(first cell 0.025), 4 pitch cells", text)
-        @test occursin("type = PrescribedFokkerPlanckTerm", text)
+        @test occursin("type = FokkerPlanckTerm", text)
         @test occursin("p_scheme = exponential_fitting", text)
         @test occursin("type = KnockOnTerm", text)
         @test occursin("type = KnockOnCutoffUpdate", text)

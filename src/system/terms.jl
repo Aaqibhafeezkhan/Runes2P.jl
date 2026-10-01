@@ -263,7 +263,8 @@ end
 struct JacobianCorrectionTag end
 
 """
-    FokkerPlanckTerm(unknown, operator::AdvectionDiffusion; jacobian=:exact, electric_field=nothing)
+    FokkerPlanckTerm(unknown, operator::AdvectionDiffusion; jacobian=:exact, electric_field=nothing,
+                     plasma=nothing, settings=CollisionSettings(), synchrotron=false)
 
 Advection-diffusion (Fokker-Planck) operator applied to the kinetic unknown `unknown`,
 added to the equation of the row unknown (normally the same). Stored sparse, with the
@@ -279,6 +280,15 @@ must not hold the field of a prescribed plasma as well
 ([`fokker_planck_operator`](@ref)`(...; electric_field = false)`). The term is bilinear in
 the distribution and the field, and its stored block holds the column of the field of each
 radius, which is DREAM's Jacobian of its `ElectricFieldTerm`.
+
+`plasma` is the source of the plasma that the collision coefficients follow: a
+[`PlasmaSource`](@ref), a [`PlasmaState`](@ref) or a function of time that returns
+one ([`PrescribedPlasma`](@ref)). The coefficients of `operator` are rebuilt from it with
+`settings` and `synchrotron` ([`set_fokker_planck_coefficients!`](@ref)), and the scheme and
+the boundary conditions of `operator` are kept. The rebuild happens when the plasma values
+of any radius differ from those of the last rebuild ([`update_key!`](@ref)), not at every
+new time, and rebuilds all radii. Without `plasma` the coefficients of `operator` are
+fixed. [`PrescribedFokkerPlanckTerm`](@ref) builds such a term from a function of time.
 
 `jacobian` selects what the stored Jacobian block holds for a flux-limiter scheme (DREAM's
 `ad_jac` setting of `AdvectionInterpolation`). The residual is always the operator's own, so
@@ -302,7 +312,7 @@ stored matrix is a quasi-Newton one that converges linearly, or, with
 operator ([`jacobian_correction_product!`](@ref), one dual-number pass of the operator
 per product).
 """
-struct FokkerPlanckTerm{T} <: EquationTerm
+struct FokkerPlanckTerm{T,P} <: EquationTerm
     unknown::Symbol
     operator::AdvectionDiffusion{T}
     jacobian::Symbol
@@ -314,12 +324,21 @@ struct FokkerPlanckTerm{T} <: EquationTerm
     dual_output::Array{ForwardDiff.Dual{JacobianCorrectionTag,T,1},3}
     field_values::Vector{T}                  # the iterate's field (corrections)
     dual_field::Vector{ForwardDiff.Dual{JacobianCorrectionTag,T,1}}
+    plasma::P                                # nothing, or the PlasmaSource of the coefficients
+    settings::CollisionSettings
+    synchrotron::Bool
+    plasma_key::PlasmaKey                    # the plasma values of the last rebuild
+    rebuilds::Base.RefValue{Int}             # the number of rebuilds, for the caches that read the operator
 end
 
 const LINEAR_JACOBIAN_SCHEMES = (:upwind, :central, :exponential_fitting, :quick, :upwind_second_order)
 
 function FokkerPlanckTerm(unknown::Symbol, operator::AdvectionDiffusion{T}; jacobian::Symbol=:exact,
-                          electric_field::Union{Nothing,Symbol}=nothing) where {T}
+                          electric_field::Union{Nothing,Symbol}=nothing, plasma=nothing,
+                          settings::CollisionSettings=CollisionSettings(), synchrotron::Bool=false) where {T}
+    plasma_from = plasma === nothing ? nothing : plasma_source(plasma)
+    # the rebuild of the coefficients leaves the field out when it is an unknown
+    plasma_from !== nothing && electric_field !== nothing && (operator.coefficient_source[] = nothing)
     if electric_field !== nothing
         source = operator.coefficient_source[]
         source !== nothing && get(source, :electric_field, true) && any(!iszero, source.plasma.electric_field) &&
@@ -338,9 +357,43 @@ function FokkerPlanckTerm(unknown::Symbol, operator::AdvectionDiffusion{T}; jaco
     dims = _jacobian_kind(jacobian, operator, stored) === :approximate ? size(operator.grid) : (0, 0, 0)
     D = ForwardDiff.Dual{JacobianCorrectionTag,T,1}
     radii = electric_field === nothing ? 0 : radial_cell_count(operator.grid)
-    return FokkerPlanckTerm{T}(unknown, operator, jacobian, electric_field, stored, zeros(T, dims), zeros(T, dims),
-                               zeros(D, dims), zeros(D, dims), zeros(T, radii), zeros(D, radii))
+    return FokkerPlanckTerm{T,typeof(plasma_from)}(unknown, operator, jacobian, electric_field, stored, zeros(T, dims),
+                                              zeros(T, dims), zeros(D, dims), zeros(D, dims), zeros(T, radii),
+                                              zeros(D, radii), plasma_from, settings, synchrotron, PlasmaKey(), Ref(0))
 end
+
+"""
+    refresh_coefficients!(term, u, layout, t)
+
+Bring the coefficients of a term up to date with its plasma at the state `u` and the time
+`t`, and return the operator that holds them. A [`FokkerPlanckTerm`](@ref) with a plasma
+source rebuilds its operator when the plasma values of any radius changed since the last
+rebuild. A term without a plasma source returns its operator unchanged. `u` and `layout`
+may be `nothing` for a prescribed plasma.
+"""
+function refresh_coefficients!(term::FokkerPlanckTerm, u, layout, t)
+    term.plasma === nothing && return term.operator
+    field = term.electric_field === nothing
+    plasma = changed_plasma!(term.plasma_key, term.plasma, u, layout, t; electric_field=field)
+    plasma === nothing && return term.operator
+    try
+        set_fokker_planck_coefficients!(term.operator, plasma, term.settings; synchrotron=term.synchrotron,
+                                        electric_field=field)
+    catch
+        reset_key!(term.plasma_key)
+        rethrow()
+    end
+    term.rebuilds[] += 1
+    return term.operator
+end
+
+"""
+    has_plasma_source(term)
+
+Whether the coefficients of a term follow a plasma source ([`refresh_coefficients!`](@ref)).
+"""
+has_plasma_source(term::FokkerPlanckTerm) = term.plasma !== nothing
+has_plasma_source(::Any) = false
 
 # a frozen limiter of a linear scheme is the exact derivative; another scheme's Jacobian
 # is exact only when it is the operator's own scheme
@@ -374,6 +427,7 @@ function validate(term::FokkerPlanckTerm, layout, row)
 end
 
 function rhs!(out, term::FokkerPlanckTerm, u, layout, row, t)
+    refresh_coefficients!(term, u, layout, t)
     id = unknown_id(layout, term.unknown)
     field = _field_values(term.electric_field, u, layout)
     if _equally_spaced(layout.radius_offsets[row]) && _equally_spaced(layout.radius_offsets[id])
@@ -442,6 +496,7 @@ end
 # free with the term's buffers
 function jacobian_correction_product!(out, term::FokkerPlanckTerm, u, v, layout, row, t)
     jacobian_kind(term) === :approximate || return out
+    refresh_coefficients!(term, u, layout, t)
     id = unknown_id(layout, term.unknown)
     f, direction = kinetic_array(u, layout, id), kinetic_array(v, layout, id)
     input, output = term.dual_input, term.dual_output
@@ -478,60 +533,20 @@ end
                                settings=CollisionSettings(), synchrotron=false, jacobian=:exact,
                                electric_field=nothing)
 
-Fokker-Planck term whose collision coefficients follow a prescribed, time-dependent
-plasma state (a cooling plasma, `T(t)` prescribed since Runes2P has no
-self-consistent temperature evolution yet). `plasma_at(t)` returns the
-[`PlasmaState`](@ref) at time `t`; `operator`'s coefficients are rebuilt from it with
-[`set_fokker_planck_coefficients!`](@ref) (`operator`'s scheme and boundary conditions are
-unchanged). The rebuild is cached on `t`: colored AD calls `rhs!` once per colour at the
-same `t`, and the coefficients do not depend on the state `u`, so rebuilding once per
-distinct `t` is exact, not an approximation. Otherwise identical to
-[`FokkerPlanckTerm`](@ref)`(unknown, operator; jacobian)`, which it wraps (`term.inner`).
+A [`FokkerPlanckTerm`](@ref) whose collision coefficients follow a plasma prescribed in time
+(a cooling plasma with `T(t)` prescribed): `plasma_at(t)` returns the [`PlasmaState`](@ref)
+at the time `t`. The same as `FokkerPlanckTerm(unknown, operator; plasma = plasma_at,
+settings, synchrotron, jacobian, electric_field)`, which this function returns. The
+coefficients are rebuilt when the plasma values change ([`refresh_coefficients!`](@ref)).
 
 With `electric_field`, the name of the unknown of the field, the field of the prescribed
 plasma is left out of the coefficients, and the term takes the field of the state.
 """
-struct PrescribedFokkerPlanckTerm{T,F} <: EquationTerm
-    inner::FokkerPlanckTerm{T}
-    plasma_at::F
-    settings::CollisionSettings
-    synchrotron::Bool
-    cached_t::Base.RefValue{Float64}
-end
-
-function PrescribedFokkerPlanckTerm(unknown::Symbol, operator::AdvectionDiffusion, plasma_at;
-                                    settings::CollisionSettings=CollisionSettings(), synchrotron::Bool=false,
-                                    jacobian::Symbol=:exact, electric_field::Union{Nothing,Symbol}=nothing)
-    # the rebuild of the coefficients leaves the field out when it is an unknown
-    electric_field === nothing || (operator.coefficient_source[] = nothing)
-    return PrescribedFokkerPlanckTerm(FokkerPlanckTerm(unknown, operator; jacobian, electric_field), plasma_at,
-                                      settings, synchrotron, Ref(NaN))
-end
-
-dependencies(term::PrescribedFokkerPlanckTerm) = dependencies(term.inner)
-validate(term::PrescribedFokkerPlanckTerm, layout, row) = validate(term.inner, layout, row)
-jacobian_kind(term::PrescribedFokkerPlanckTerm) = jacobian_kind(term.inner)
-is_linear(term::PrescribedFokkerPlanckTerm) = is_linear(term.inner)
-sparsity!(entries, term::PrescribedFokkerPlanckTerm, layout, row) = sparsity!(entries, term.inner, layout, row)
-
-function _rebuild_at!(term::PrescribedFokkerPlanckTerm, t)
-    t == term.cached_t[] && return term.inner.operator
-    set_fokker_planck_coefficients!(term.inner.operator, term.plasma_at(t), term.settings;
-                                    synchrotron=term.synchrotron,
-                                    electric_field=term.inner.electric_field === nothing)
-    term.cached_t[] = t
-    return term.inner.operator
-end
-
-function rhs!(out, term::PrescribedFokkerPlanckTerm, u, layout, row, t)
-    _rebuild_at!(term, t)
-    return rhs!(out, term.inner, u, layout, row, t)
-end
-
-function jacobian_correction_product!(out, term::PrescribedFokkerPlanckTerm, u, v, layout, row, t)
-    _rebuild_at!(term, t)
-    return jacobian_correction_product!(out, term.inner, u, v, layout, row, t)
-end
+PrescribedFokkerPlanckTerm(unknown::Symbol, operator::AdvectionDiffusion, plasma_at;
+                           settings::CollisionSettings=CollisionSettings(), synchrotron::Bool=false,
+                           jacobian::Symbol=:exact, electric_field::Union{Nothing,Symbol}=nothing) =
+    FokkerPlanckTerm(unknown, operator; jacobian, electric_field, plasma=PrescribedPlasma(plasma_at), settings,
+                     synchrotron)
 
 """
     KnockOnTerm(primary, operator::KnockOnOperator; target_density, treatment=:explicit_primary)

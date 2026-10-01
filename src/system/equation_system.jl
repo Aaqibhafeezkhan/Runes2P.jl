@@ -533,18 +533,18 @@ package extension `Runes2PSciMLBaseExt`, which loads with SciMLBase (`using SciM
 """
 function ode_function end
 
-# A bare operator that a PrescribedFokkerPlanckTerm owns holds the coefficients of the last
-# rebuild of that term, which belong to another time when an interface or a boundary flux
-# reads them before the term is evaluated at the new time. Such a term takes the prescribed
-# term, which rebuilds at the time of the evaluation.
+# A bare operator that a FokkerPlanckTerm with a plasma source owns holds the coefficients
+# of the last rebuild of that term, which belong to another plasma when an interface or a
+# boundary flux reads them before the term is evaluated at the new time. Such a term takes
+# the Fokker-Planck term, which rebuilds at the evaluation.
 function _check_prescribed_operators(equations)
-    prescribed = [term for equation in equations for term in equation.terms if term isa PrescribedFokkerPlanckTerm]
+    prescribed = [term for equation in equations for term in equation.terms if has_plasma_source(term)]
     isempty(prescribed) && return nothing
     for equation in equations, term in equation.terms, source in _coefficient_sources(term)
-        source isa AdvectionDiffusion && any(p -> p.inner.operator === source, prescribed) &&
+        source isa AdvectionDiffusion && any(p -> p.operator === source, prescribed) &&
             throw(ArgumentError("a $(nameof(typeof(term))) of $(equation.unknown) reads the bare operator of a " *
-                                "PrescribedFokkerPlanckTerm, whose coefficients belong to the time of its last " *
-                                "rebuild: give it the prescribed term in place of its operator"))
+                                "FokkerPlanckTerm with a plasma source, whose coefficients belong to the plasma of " *
+                                "its last rebuild: give it the Fokker-Planck term in place of its operator"))
     end
     return nothing
 end

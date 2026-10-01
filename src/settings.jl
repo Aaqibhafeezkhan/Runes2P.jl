@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.21"
+const OUTPUT_FORMAT_VERSION = v"0.22"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -432,33 +432,39 @@ end
 describe(term::EquationTerm) = describe(term, DescriptionContext())
 
 settings_fields(::Type{<:FokkerPlanckTerm}) =
-    (described=(:unknown, :operator, :jacobian, :electric_field),
-     derived=(:stored_operator, :values, :correction, :dual_input, :dual_output, :field_values, :dual_field))
+    (described=(:unknown, :operator, :jacobian, :electric_field, :plasma, :settings, :synchrotron),
+     derived=(:stored_operator, :values, :correction, :dual_input, :dual_output, :field_values, :dual_field,
+              :plasma_key, :rebuilds))
 
 function describe(term::FokkerPlanckTerm, context::DescriptionContext)
     record = _term_record(term)
     record["unknown"] = String(term.unknown)
     record["jacobian"] = String(term.jacobian)
     term.electric_field === nothing || (record["electric_field"] = String(term.electric_field))
-    record["operator"] = describe(term.operator, context)
+    if term.plasma === nothing
+        record["operator"] = describe(term.operator, context)
+    else
+        # the coefficients follow the plasma, so the plasma is their record: the function
+        # by its name here, its values in a table of the context
+        record["operator"] = describe(term.operator, context; coefficients=false)
+        record["collision_settings"] = describe(term.settings)
+        record["synchrotron"] = term.synchrotron
+        _describe_plasma_source!(record, term.plasma, context)
+    end
     return record
 end
 
-settings_fields(::Type{<:PrescribedFokkerPlanckTerm}) =
-    (described=(:inner, :plasma_at, :settings, :synchrotron), derived=(:cached_t,))
+settings_fields(::Type{<:PrescribedPlasma}) = (described=(:plasma_at,), derived=(:time, :state))
 
-function describe(term::PrescribedFokkerPlanckTerm, context::DescriptionContext)
-    record = _term_record(term)
-    record["unknown"] = String(term.inner.unknown)
-    record["jacobian"] = String(term.inner.jacobian)
-    term.inner.electric_field === nothing || (record["electric_field"] = String(term.inner.electric_field))
-    # the coefficients follow the plasma in time, so the plasma is their record: the
-    # function by its name here, its values in a table of the context
-    record["operator"] = describe(term.inner.operator, context; coefficients=false)
-    record["collision_settings"] = describe(term.settings)
-    record["synchrotron"] = term.synchrotron
-    record["plasma"] = _callable_name(term.plasma_at)
-    record["plasma_table"] = prescribed_table!(context, term.plasma_at)
+# the plasma of a source in the record of a term: a constant state in full, a function of
+# time by its name, with its values in a table of the context shared by the terms that use it
+function _describe_plasma_source!(record, source::PrescribedPlasma, context::DescriptionContext)
+    if source.plasma_at isa PlasmaState
+        record["plasma"] = describe(source.plasma_at)
+    else
+        record["plasma"] = _callable_name(source.plasma_at)
+        record["plasma_table"] = prescribed_table!(context, source.plasma_at)
+    end
     return record
 end
 
@@ -543,7 +549,7 @@ function describe(term::CurrentMomentTerm, context::DescriptionContext)
 end
 
 settings_fields(::Type{<:ParticleSourceTerm}) =
-    (described=(:source, :grid, :temperature, :shape_kind), derived=(:shape, :time))
+    (described=(:source, :grid, :temperature, :shape_kind), derived=(:shape, :temperatures, :time))
 
 function describe(term::ParticleSourceTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -567,7 +573,7 @@ function describe(term::MomentumBoundaryFluxTerm, context::DescriptionContext)
 end
 
 settings_fields(::Type{<:ConductivityTerm}) =
-    (described=(:electric_field, :model, :coefficient), derived=(:values, :time))
+    (described=(:electric_field, :model, :coefficient), derived=(:values, :plasma_key, :operator_rebuilds))
 
 """
     describe(model::ConductivityModel, context)
@@ -583,12 +589,7 @@ function describe(model::ConductivityModel, context::DescriptionContext=Descript
         record["pitch_rule"] = String(model.pitch_rule)
         record["operator"] = describe(_operator_of(model.operator), context; coefficients=false)
     end
-    if model.plasma isa PlasmaState
-        record["plasma"] = describe(model.plasma)
-    else
-        record["plasma"] = _callable_name(model.plasma)
-        record["plasma_table"] = prescribed_table!(context, model.plasma)
-    end
+    _describe_plasma_source!(record, model.plasma, context)
     # the first time of the run need not be 0, and an operator rebuilt in time makes the
     # model time dependent with a constant plasma
     first_time = isempty(context.times) ? 0.0 : first(context.times)
@@ -702,10 +703,20 @@ function describe(op::FieldParticleOperator, context::DescriptionContext=Descrip
     return record
 end
 
+settings_fields(::Type{<:FieldParticleTerm}) =
+    (described=(:unknown, :operator, :plasma, :settings), derived=(:plasma_key,))
+
 function describe(term::FieldParticleTerm, context::DescriptionContext)
     record = _term_record(term)
     record["unknown"] = String(term.unknown)
     record["operator"] = describe(term.operator, context)
+    if term.plasma !== nothing
+        # the functionals and the shapes follow the plasma, recorded as for a Fokker-Planck
+        # term, and the plasma of the last rebuild is not part of the record
+        delete!(record["operator"], "coefficient_source")
+        record["collision_settings"] = describe(term.settings)
+        _describe_plasma_source!(record, term.plasma, context)
+    end
     return record
 end
 

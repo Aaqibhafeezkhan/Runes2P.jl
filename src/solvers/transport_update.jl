@@ -104,9 +104,10 @@ function check_update(update::RechesterRosenbluthUpdate, system)
     # a prescribed term is reached as a term of an equation or through the coefficients that
     # an interface or a boundary flux reads
     for equation in system.equations, outer in equation.terms, term in (outer, _coefficient_sources(outer)...)
-        term isa PrescribedFokkerPlanckTerm && term.inner.operator === update.operator &&
+        has_plasma_source(term) && term.operator === update.operator &&
             throw(ArgumentError("the update $(update.name) sets the radial transport of the operator of the " *
-                                "prescribed term of $(equation.unknown), whose rebuild clears it. Give the " *
+                                "Fokker-Planck term of $(equation.unknown) with a plasma source, whose rebuild " *
+                                "clears it. Give the " *
                                 "radial transport an operator and a FokkerPlanckTerm of its own."))
     end
     return nothing

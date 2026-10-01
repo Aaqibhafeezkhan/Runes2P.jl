@@ -72,6 +72,12 @@ tier = "quick"
 files = ["test_linear_reuse.jl"]
 
 [[group]]
+name = "quick-12"
+tier = "quick"
+# about 4 minutes alone (a loaded node)
+files = ["test_plasma_source.jl"]
+
+[[group]]
 name = "full-1"
 tier = "full"
 # 15.9 minutes in the probe with test_conductivity.jl, which now has a group of its own

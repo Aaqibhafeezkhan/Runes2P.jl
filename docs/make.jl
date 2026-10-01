@@ -36,7 +36,7 @@ const CATEGORIES = [
     (slug = "physics", title = "Physics", directory = "physics",
      summary = "The plasma state, the Coulomb logarithm, collision frequencies, conductivity, runaway rates and the physical constants.",
      subpages = [
-         ("plasma", "Plasma state and atomic data", ["physics/plasma.jl", "physics/atomic_data.jl"]),
+         ("plasma", "Plasma state and atomic data", ["physics/plasma.jl", "physics/plasma_source.jl", "physics/atomic_data.jl"]),
          ("collisions", "Collisions", ["physics/coulomb_logarithm.jl", "physics/collision_frequencies.jl"]),
          ("conductivity", "Conductivity and runaway rates", ["physics/conductivity.jl", "physics/runaway_rates.jl"]),
          ("constants", "Physical constants", ["physics/constants.jl"]),

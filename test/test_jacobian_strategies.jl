@@ -62,7 +62,7 @@ _strategies_plasma(temperature=100.0; density=1e20, field=5.0, nr=1) =
         J_frozen = dense_jacobian(:tcdf; frozen=true)
         @test stored(frozen) ≈ J_frozen rtol = 1e-12
         @test maximum(abs, J_frozen - J_tcdf) > 1e-3 * scale
-        @test stored(upwind) ≈ Matrix(operator_matrix(with_scheme(exact.sparse_terms[1].term.inner.operator, :upwind))) rtol = 1e-12
+        @test stored(upwind) ≈ Matrix(operator_matrix(with_scheme(exact.sparse_terms[1].term.operator, :upwind))) rtol = 1e-12
         @test stored(fitted) ≈ dense_jacobian(:exponential_fitting) rtol = 1e-12
         @test nnz(jacobian_sparsity(upwind)) == nnz(jacobian_sparsity(system(:upwind, :exact))) <
               nnz(jacobian_sparsity(exact)) == nnz(jacobian_sparsity(frozen))

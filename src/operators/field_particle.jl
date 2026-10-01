@@ -271,17 +271,52 @@ parallel_momentum(op::FieldParticleOperator, f::AbstractArray{<:Any,3}) =
     [sum(op.momentum_weights[ir] .* view(f, :, :, ir)) for ir in 1:radial_cell_count(op.grid)]
 
 """
-    FieldParticleTerm(unknown, operator::FieldParticleOperator)
+    FieldParticleTerm(unknown, operator::FieldParticleOperator; plasma=nothing, settings=nothing)
 
 The momentum-conserving field-particle term [`FieldParticleOperator`](@ref) applied to the
 kinetic unknown `unknown`, added to its own equation. It couples all cells of a radius,
 so it is `:matrix_free`, with a Jacobian of rank `modes` per radius
 ([`low_rank_jacobian`](@ref)) that the block preconditioner of [`GMRES`](@ref) and
 [`SparseLU`](@ref) take by a Woodbury update. Linear in `f`.
+
+`plasma` is the source of the plasma that the functionals and the restoring shapes follow:
+a [`PlasmaSource`](@ref), a [`PlasmaState`](@ref) or a function of
+time that returns one, as for the [`FokkerPlanckTerm`](@ref). They are rebuilt with
+[`set_field_particle_coefficients!`](@ref) and `settings` (by default those the operator
+was built with) when the plasma values of a radius change. The Woodbury factors of the
+solvers are taken from [`low_rank_jacobian`](@ref) at each factorization, so they follow.
 """
-struct FieldParticleTerm{T} <: EquationTerm
+struct FieldParticleTerm{T,P} <: EquationTerm
     unknown::Symbol
     operator::FieldParticleOperator{T}
+    plasma::P                     # nothing, or the PlasmaSource of the coefficients
+    settings::CollisionSettings
+    plasma_key::PlasmaKey         # the plasma values of the last rebuild
+end
+
+function FieldParticleTerm(unknown::Symbol, operator::FieldParticleOperator; plasma=nothing,
+                           settings::Union{Nothing,CollisionSettings}=nothing)
+    if settings === nothing
+        built = operator.coefficient_source[]
+        settings = built === nothing ? CollisionSettings() : built.settings
+    end
+    source = plasma === nothing ? nothing : plasma_source(plasma)
+    return FieldParticleTerm(unknown, operator, source, settings, PlasmaKey())
+end
+
+has_plasma_source(term::FieldParticleTerm) = term.plasma !== nothing
+
+function refresh_coefficients!(term::FieldParticleTerm, u, layout, t)
+    term.plasma === nothing && return term.operator
+    plasma = changed_plasma!(term.plasma_key, term.plasma, u, layout, t; electric_field=false)
+    plasma === nothing && return term.operator
+    try
+        set_field_particle_coefficients!(term.operator, plasma, term.settings)
+    catch
+        reset_key!(term.plasma_key)
+        rethrow()
+    end
+    return term.operator
 end
 
 dependencies(term::FieldParticleTerm) = [term.unknown]
@@ -298,17 +333,28 @@ function validate(term::FieldParticleTerm, layout, row)
     return nothing
 end
 
-function rhs!(out, term::FieldParticleTerm, u, layout, row, t)
+# the term on the distribution of the state vector x, with the coefficients as they are
+function _add_field_particle_term!(out, term::FieldParticleTerm, x, layout, row)
     id = unknown_id(layout, term.unknown)
     for ir in 1:radial_cell_count(layout)
-        _add_field_particle!(kinetic_view(out, layout, row, ir), term.operator, kinetic_view(u, layout, id, ir), ir)
+        _add_field_particle!(kinetic_view(out, layout, row, ir), term.operator, kinetic_view(x, layout, id, ir), ir)
     end
     return out
 end
 
-jacobian_vector_product!(out, term::FieldParticleTerm, u, v, layout, row, t) = rhs!(out, term, v, layout, row, t)
+function rhs!(out, term::FieldParticleTerm, u, layout, row, t)
+    refresh_coefficients!(term, u, layout, t)
+    return _add_field_particle_term!(out, term, u, layout, row)
+end
+
+# linear in f: the product is the term on v, with the coefficients of the state u
+function jacobian_vector_product!(out, term::FieldParticleTerm, u, v, layout, row, t)
+    refresh_coefficients!(term, u, layout, t)
+    return _add_field_particle_term!(out, term, v, layout, row)
+end
 
 function low_rank_jacobian(term::FieldParticleTerm, u, layout, row, t)
+    refresh_coefficients!(term, u, layout, t)
     id = unknown_id(layout, term.unknown)
     op = term.operator
     return [LowRankBlock(unknown_range(layout, row, ir), unknown_range(layout, id, ir),

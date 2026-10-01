@@ -184,8 +184,9 @@ function of time that returns one. `model(t)` gives the conductivity per radius.
   field then has the conductivity of the reference, whatever the grid and the collision
   settings are. On two grids the operator is that of the hot-tail grid. The equilibrium has
   the cold density of the plasma ([`kinetic_conductivity`](@ref)). With a plasma that changes
-  in time the operator is a [`PrescribedFokkerPlanckTerm`](@ref), and every new time costs
-  a sparse factorization of the bordered operator per evaluation (not covered by a test
+  in time the operator is a [`FokkerPlanckTerm`](@ref) with that plasma as its source, and
+  every rebuild of its coefficients costs a sparse factorization of the bordered operator per
+  radius (not covered by a test
   yet). The field-particle operator is not an option here: a system with it
   takes no correction.
 
@@ -198,7 +199,7 @@ Spitzer in its distribution and takes no correction. The derivatives of the cond
 with respect to the temperature and the densities are not part of the Jacobian: the plasma
 is prescribed.
 """
-struct ConductivityModel{P,O}
+struct ConductivityModel{P<:PlasmaSource,O}
     plasma::P
     reference::Symbol
     kinetic::Symbol
@@ -211,24 +212,29 @@ function ConductivityModel(plasma; reference::Symbol=:braams_karney, kinetic::Sy
     kinetic in (:none, :dream_fit, :discrete_operator) ||
         throw(ArgumentError("kinetic must be :none, :dream_fit or :discrete_operator, not $kinetic"))
     if kinetic === :discrete_operator
-        operator isa Union{AdvectionDiffusion,FokkerPlanckTerm,PrescribedFokkerPlanckTerm} ||
+        operator isa Union{AdvectionDiffusion,FokkerPlanckTerm} ||
             throw(ArgumentError("kinetic = :discrete_operator needs the Fokker-Planck operator of the bulk or its term"))
     else
         operator === nothing || throw(ArgumentError("an operator belongs to kinetic = :discrete_operator"))
     end
-    return ConductivityModel(plasma, reference, kinetic, operator, pitch_rule)
+    return ConductivityModel(plasma_source(plasma), reference, kinetic, operator, pitch_rule)
 end
 
-_plasma_at(plasma::PlasmaState, t) = plasma
-_plasma_at(plasma_at, t) = plasma_at(t)
+is_time_dependent(source::PrescribedPlasma) = !(source.plasma_at isa PlasmaState)
+is_time_dependent(::PlasmaSource) = true
 
 # an operator rebuilt from a plasma of its own follows the time with a constant plasma of
 # the model
-is_time_dependent(model::ConductivityModel) =
-    !(model.plasma isa PlasmaState) || model.operator isa PrescribedFokkerPlanckTerm
+is_time_dependent(model::ConductivityModel) = is_time_dependent(model.plasma) || has_plasma_source(model.operator)
 
-function (model::ConductivityModel)(t)
-    plasma = _plasma_at(model.plasma, t)
+(model::ConductivityModel)(t) =
+    _conductivity(model, plasma_values(model.plasma, nothing, nothing, t), _operator_at(model.operator, nothing, nothing, t))
+
+# the number of rebuilds of the operator of the model after its refresh at the state u
+_operator_rebuilds(operator, u, layout, t) = 0
+_operator_rebuilds(term::FokkerPlanckTerm, u, layout, t) = (refresh_coefficients!(term, u, layout, t); term.rebuilds[])
+
+function _conductivity(model::ConductivityModel, plasma::PlasmaState, operator)
     nr = radial_cell_count(plasma)
     sigma = [braams_karney_conductivity(plasma, ir) for ir in 1:nr]
     if model.kinetic === :dream_fit
@@ -236,7 +242,7 @@ function (model::ConductivityModel)(t)
             sigma[ir] *= 1 - test_particle_conductivity_fraction(effective_charge(plasma, ir))
         end
     elseif model.kinetic === :discrete_operator
-        sigma .-= kinetic_conductivity(_operator_at(model.operator, t); pitch_rule=model.pitch_rule)
+        sigma .-= kinetic_conductivity(operator; pitch_rule=model.pitch_rule)
     end
     return sigma
 end
@@ -248,18 +254,20 @@ end
 `electric_field`, added to the row of a radial unknown with one component: Ohm's law of a
 fluid, `0 = σ E − j_ohm`, or the correction of the ohmic current of a fully kinetic run,
 `0 = j(f, all p) − j_hot + E (σ − σ_kinetic) − j_ohm` (DREAM's `j_ohm` with
-`correctedConductivity`). The conductivity is that of the time of the evaluation and is
-kept between the evaluations of a time. The term is linear in the field.
+`correctedConductivity`). The conductivity is that of the plasma of the evaluation. It is
+kept until the plasma values of a radius change, or the coefficients of the operator of
+`kinetic = :discrete_operator`. The term is linear in the field.
 """
 struct ConductivityTerm{M<:ConductivityModel} <: EquationTerm
     electric_field::Symbol
     model::M
     coefficient::Float64
     values::Vector{Float64}
-    time::Base.RefValue{Float64}
+    plasma_key::PlasmaKey                   # the plasma values of `values`
+    operator_rebuilds::Base.RefValue{Int}   # the rebuilds of the operator of the model at `values`
 end
 ConductivityTerm(electric_field::Symbol, model::ConductivityModel; coefficient::Real=1.0) =
-    ConductivityTerm(electric_field, model, Float64(coefficient), Float64[], Ref(NaN))
+    ConductivityTerm(electric_field, model, Float64(coefficient), Float64[], PlasmaKey(), Ref(-1))
 
 dependencies(term::ConductivityTerm) = [term.electric_field]
 is_linear(::ConductivityTerm) = true
@@ -281,22 +289,33 @@ end
 
 """
     conductivity_at(term::ConductivityTerm, t)
+    conductivity_at(term::ConductivityTerm, u, layout, t)
 
-The conductivity of the term per radius at the time `t` [S/m].
+The conductivity of the term per radius [S/m] at the time `t` and the state `u` of the
+system (`nothing` for a prescribed plasma).
 """
-function conductivity_at(term::ConductivityTerm, t)
-    time = Float64(_value(t))
-    if isnan(term.time[]) || (term.time[] != time && is_time_dependent(term.model))
-        values = term.model(time)
-        resize!(term.values, length(values))
-        term.values .= values
-        term.time[] = time
+conductivity_at(term::ConductivityTerm, t) = conductivity_at(term, nothing, nothing, t)
+
+function conductivity_at(term::ConductivityTerm, u, layout, t)
+    model = term.model
+    rebuilds = _operator_rebuilds(model.operator, u, layout, t)
+    changed = changed_plasma!(term.plasma_key, model.plasma, u, layout, t; electric_field=false) !== nothing
+    if changed || rebuilds != term.operator_rebuilds[]
+        try
+            values = _conductivity(model, plasma_values(model.plasma, u, layout, t), _operator_of(model.operator))
+            resize!(term.values, length(values))
+            term.values .= values
+        catch
+            reset_key!(term.plasma_key)
+            rethrow()
+        end
+        term.operator_rebuilds[] = rebuilds
     end
     return term.values
 end
 
 function rhs!(out, term::ConductivityTerm, u, layout, row, t)
-    sigma = conductivity_at(term, t)
+    sigma = conductivity_at(term, u, layout, t)
     field = unknown_id(layout, term.electric_field)
     @inbounds for ir in 1:radial_cell_count(layout)
         out[first(unknown_range(layout, row, ir))] +=

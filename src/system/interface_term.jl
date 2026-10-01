@@ -70,28 +70,27 @@ struct MomentumInterfaceTerm{T,F} <: EquationTerm
 end
 
 _operator_of(op::AdvectionDiffusion) = op
+_operator_of(::Nothing) = nothing
 _operator_of(term::FokkerPlanckTerm) = term.operator
-_operator_of(term::PrescribedFokkerPlanckTerm) = term.inner.operator
 
 # the unknown of the electric field of the term that holds the coefficients, if it has one
 _electric_field_of(::AdvectionDiffusion) = nothing
 _electric_field_of(term::FokkerPlanckTerm) = term.electric_field
-_electric_field_of(term::PrescribedFokkerPlanckTerm) = term.inner.electric_field
 _electric_field_of(term::MomentumInterfaceTerm) = _electric_field_of(term.lower_term)
 
 # the terms or operators whose coefficients a term reads besides its own
 _coefficient_sources(term) = ()
 _coefficient_sources(term::MomentumInterfaceTerm) = (term.lower_term,)
 
-# the operator with its coefficients at the time t
-_operator_at(source, t) = _operator_of(source)
-_operator_at(term::PrescribedFokkerPlanckTerm, t) = _rebuild_at!(term, t)
+# the operator with its coefficients at the state u and the time t
+_operator_at(source, u, layout, t) = _operator_of(source)
+_operator_at(term::FokkerPlanckTerm, u, layout, t) = refresh_coefficients!(term, u, layout, t)
 
 function MomentumInterfaceTerm(lower::Symbol, upper::Symbol, lower_term, upper_operator;
                                pitch_mapping::Symbol=:overlap, scheme::Union{Nothing,Symbol}=nothing)
-    lower_term isa Union{AdvectionDiffusion,FokkerPlanckTerm,PrescribedFokkerPlanckTerm} ||
+    lower_term isa Union{AdvectionDiffusion,FokkerPlanckTerm} ||
         throw(ArgumentError("lower_term must be a Fokker-Planck term or an AdvectionDiffusion operator"))
-    upper_operator isa Union{AdvectionDiffusion,FokkerPlanckTerm,PrescribedFokkerPlanckTerm} ||
+    upper_operator isa Union{AdvectionDiffusion,FokkerPlanckTerm} ||
         throw(ArgumentError("upper_operator must be an AdvectionDiffusion operator or a Fokker-Planck term"))
     lower != upper || throw(ArgumentError("the interface lies between two different unknowns"))
     pitch_mapping in (:overlap, :dream) ||
@@ -241,7 +240,7 @@ function _interface_distance(term::MomentumInterfaceTerm, ir)
 end
 
 function rhs!(out, term::MomentumInterfaceTerm, u, layout, row, t)
-    op = _operator_at(term.lower_term, t)
+    op = _operator_at(term.lower_term, u, layout, t)
     lower, upper = unknown_id(layout, term.lower), unknown_id(layout, term.upper)
     field = _field_values(_electric_field_of(term), u, layout)
     for ir in 1:radial_cell_count(layout)
@@ -333,7 +332,7 @@ momentum this is the runaway rate.
 """
 function interface_flux(term::MomentumInterfaceTerm, u::AbstractVector, layout::UnknownLayout, ir::Integer,
                         t::Real=0.0)
-    op = _operator_at(term.lower_term, t)
+    op = _operator_at(term.lower_term, u, layout, t)
     lower, upper = unknown_id(layout, term.lower), unknown_id(layout, term.upper)
     f_lower, f_upper = kinetic_view(u, layout, lower, ir), kinetic_view(u, layout, upper, ir)
     field = _field_values(_electric_field_of(term), u, layout)
