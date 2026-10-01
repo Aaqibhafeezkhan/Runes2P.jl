@@ -2,6 +2,7 @@
 # written out by hand, boundary fluxes, discrete eigenvalues against analytic ones, and
 # structural properties (symmetry, sign pattern, allocations).
 using LinearAlgebra: eigvals
+using Random: Xoshiro
 using SparseArrays: findnz
 
 _cell_weights(g) = [phase_space_jacobian(g, ir)[i, j] * momentum_grid(g).p_widths[i] *

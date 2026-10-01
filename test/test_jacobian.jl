@@ -1,3 +1,4 @@
+using Random: Xoshiro
 using SparseArrays: nnz
 
 @testset "sparse Jacobian" begin

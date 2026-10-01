@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.18"
+const OUTPUT_FORMAT_VERSION = v"0.20"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -473,9 +473,12 @@ function describe(term::KnockOnTerm, context::DescriptionContext)
     return record
 end
 
+settings_fields(::Type{<:PrescribedValueTerm}) = (described=(:values,), derived=(:points, :evaluated))
+
 function describe(term::PrescribedValueTerm, context::DescriptionContext)
     record = _term_record(term)
-    record["values"] = term.values isa Function ? describe_prescribed_levels(term.values, context) :
+    points = isempty(term.points[]) ? nothing : term.points[]
+    record["values"] = term.values isa Function ? describe_prescribed_levels(term.values, context; points) :
                        _plain(term.values)
     return record
 end
@@ -582,14 +585,23 @@ function describe(model::ConductivityModel, context::DescriptionContext=Descript
     end
     if model.plasma isa PlasmaState
         record["plasma"] = describe(model.plasma)
-        # an operator rebuilt in time makes the model time dependent with a constant plasma,
-        # and the first time of the run need not be 0
-        record["conductivity"] = is_time_dependent(model) ? describe_prescribed_levels(model, context) :
-                                 _plain(model(isempty(context.times) ? 0.0 : first(context.times)))
     else
         record["plasma"] = _callable_name(model.plasma)
         record["plasma_table"] = prescribed_table!(context, model.plasma)
-        record["conductivity"] = describe_prescribed_levels(model, context)
+    end
+    # the first time of the run need not be 0, and an operator rebuilt in time makes the
+    # model time dependent with a constant plasma
+    first_time = isempty(context.times) ? 0.0 : first(context.times)
+    record["conductivity"] = if !is_time_dependent(model)
+        _plain(model(first_time))
+    elseif model.kinetic === :discrete_operator && isempty(context.times)
+        SettingsRecord("described" => false, "reason" => "no time points to sample the model at")
+    elseif model.kinetic === :discrete_operator
+        # each time costs a sparse factorization of the bordered operator per radius
+        SettingsRecord("time" => first_time, "values" => _plain(model(first_time)), "sampled" => "first time point",
+                       "reason" => "the conductivity of the discrete operator costs a factorization per time")
+    else
+        describe_prescribed_levels(model, context)
     end
     return record
 end

@@ -199,6 +199,26 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(mode=:full, screening=:complete,
             @test model(0.5) ≈ [braams_karney_conductivity(single, 1)] .- kinetic_conductivity(later) rtol = 1e-12
             term = ConductivityTerm(:electric_field, model)
             @test copy(conductivity_at(term, 0.5)) != conductivity_at(term, 0.0)
+            # its record takes the first time point alone: every time costs a factorization
+            record = describe(model, DescriptionContext(; times=[0.5, 1.0]))
+            @test record["conductivity"]["sampled"] == "first time point" && record["conductivity"]["time"] == 0.5
+            @test record["conductivity"]["values"] ≈ model(0.5) rtol = 1e-14
+            @test describe(model)["conductivity"]["described"] === false
+        end
+        # the pitch rule of the model is that of the current moment of its equation
+        let grid = conductivity_grid(; cells=20, T=10.0), single = conductivity_plasma(; T=10.0),
+            operator = fokker_planck_operator(grid, single, CONDUCTIVITY_SETTINGS; electric_field=false),
+            layout = UnknownLayout(grid.radial_grid, [RadialUnknown(:electric_field), RadialUnknown(:ohmic_current_density),
+                                                      KineticUnknown(:f, grid)])
+            system_of(model_rule, moment_rule) = EquationSystem(layout, [
+                Equation(:electric_field, Algebraic(), PrescribedValueTerm(1.0), LinearTerm(:electric_field; coefficient=-1)),
+                Equation(:ohmic_current_density, Algebraic(), CurrentMomentTerm(:f, grid; pitch_rule=moment_rule),
+                         ConductivityTerm(:electric_field, ConductivityModel(single; kinetic=:discrete_operator, operator,
+                                                                             pitch_rule=model_rule)),
+                         LinearTerm(:ohmic_current_density; coefficient=-1)),
+                Equation(:f, TimeDerivative(), FokkerPlanckTerm(:f, operator))])
+            @test_throws "pitch rule" system_of(:linear, :cell_center)
+            @test system_of(:cell_center, :cell_center) isa EquationSystem
         end
         # a plasma defined on the interval of the run alone: the system, the run and its
         # record evaluate the model from the initial time on
@@ -317,6 +337,42 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(mode=:full, screening=:complete,
         @test 0.6 < history[6] < 0.95      # one collision time after the step
         # observed: 0.496 of σ E at 0.01 collision times, 0.711 after one, 0.968 after ten,
         # 0.99987 after a hundred; σ_kinetic/σ = 0.508, and 0.9945 with DREAM's fit
+
+        # two grids: the hot-tail grid below a runaway grid to p = 1. The
+        # conductivity of the hot-tail operator takes f = 0 beyond its p_max, and the steady
+        # state of the two grids has σ E as that of one grid.
+        hot_operator = fokker_planck_operator(grid, plasma, CONDUCTIVITY_SETTINGS; electric_field=false,
+                                              p_upper_boundary=:interface)
+        @test only(kinetic_conductivity(hot_operator)) ≈ sigma_kinetic rtol = 1e-14
+        runaway = runaway_grid(grid, uniform_p_faces(4, last(momentum_grid(grid, 1).p_faces), 1.0)[2:end],
+                               uniform_xi_faces(4))
+        runaway_operator = fokker_planck_operator(runaway, plasma, CONDUCTIVITY_SETTINGS; electric_field=false,
+                                                  p_lower_boundary=:interface)
+        paired_hot_term = FokkerPlanckTerm(:hot_tail_distribution, hot_operator; electric_field=:electric_field)
+        paired_interface = MomentumInterfaceTerm(:hot_tail_distribution, :runaway_distribution, paired_hot_term, runaway_operator)
+        paired_layout = UnknownLayout(radial, [RadialUnknown(:electric_field), RadialUnknown(:ohmic_current_density; scale=1e4),
+                                        RadialUnknown(:particle_source; scale=ne / collision_time),
+                                        KineticUnknown(:hot_tail_distribution, grid; scale=1e26),
+                                        KineticUnknown(:runaway_distribution, runaway; scale=1e26)])
+        paired_source = ParticleSourceTerm(:particle_source, grid, [T])
+        paired_model = ConductivityModel(plasma; kinetic=:discrete_operator, operator=hot_operator)
+        paired_system = EquationSystem(paired_layout, [
+            Equation(:electric_field, Algebraic(), PrescribedValueTerm(field), minus(:electric_field)),
+            Equation(:ohmic_current_density, Algebraic(), CurrentMomentTerm(:hot_tail_distribution, grid),
+                     ConductivityTerm(:electric_field, paired_model), minus(:ohmic_current_density)),
+            Equation(:particle_source, Constraint(), DensityMomentTerm(:hot_tail_distribution),
+                     PrescribedValueTerm(-ne); scale=ne),
+            Equation(:hot_tail_distribution, TimeDerivative(), paired_hot_term, paired_interface, paired_source),
+            Equation(:runaway_distribution, TimeDerivative(),
+                     FokkerPlanckTerm(:runaway_distribution, runaway_operator; electric_field=:electric_field), paired_interface)])
+        paired_u0 = zeros(length(paired_layout))
+        kinetic_view(paired_u0, paired_layout, unknown_id(paired_layout, :hot_tail_distribution), 1) .= ne .* source_shape(paired_source, 1)
+        paired_solution = integrate(paired_system, paired_u0, steady)
+        @test all(paired_solution.statistics.accepted)
+        two_grids = only(unknown_view(view(paired_solution.states, :, length(steady)), paired_layout, :ohmic_current_density, 1)) /
+                    (braams_karney * field)
+        @test two_grids ≈ 1 rtol = 1e-5
+        @test two_grids ≈ exact[end] rtol = 1e-6
     end
 
     # The plasma current of a kinetic run with the corrected conductivity against the fluid

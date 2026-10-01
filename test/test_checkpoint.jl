@@ -3,64 +3,6 @@
 # run must repeat it, bit for bit where the solver carries nothing from step to step.
 using HDF5
 
-# a plasma that cools while the field rises, so that the window of the knock-on cutoff
-# moves down: hotter and with a weaker field at the second radius
-function _checkpoint_plasma(t; nr=2, t_end=8e-4)
-    temperature = [1000.0, 2000.0][1:nr] .* (0.05)^(t / t_end)
-    field = [1.0, 0.8][1:nr] .* (1 + 5 * t / t_end)
-    return PlasmaState(cold_electron_temperature=temperature, cold_electron_density=fill(1e20, nr),
-                       ions=[IonSpecies("D", 1, 1, fill(1e20, nr))], electric_field=field,
-                       magnetic_field=fill(5.0, nr))
-end
-
-# Fokker-Planck term with the prescribed plasma, radial diffusion, a knock-on term whose
-# cutoff follows the plasma, and a density moment as a second unknown. The momentum grid
-# has faces every 0.025 below 0.2, where the cutoff of the energy-midpoint rule moves in this
-# plasma, and every 0.125 above.
-function _checkpoint_case(; treatment=:explicit, with_density=true)
-    nr = 2
-    mom = MomentumGrid(biuniform_p_faces(16, 8, 0.0, 0.2, 1.2), uniform_xi_faces(4))
-    grid = cylindrical_grid(mom, RadialGrid(uniform_r_faces(nr, 1.0)))
-    plasma_at(t) = _checkpoint_plasma(t; nr)
-    op = AdvectionDiffusion(grid; scheme=:exponential_fitting, p_upper_boundary=:f_zero)
-    radial = AdvectionDiffusion(grid; scheme=:central, r_boundary=:absorbing)
-    radial.diffusion_r_r .= 50.0
-    knockon = KnockOnOperator(grid, grid, 0.45)
-    terms = (PrescribedFokkerPlanckTerm(:f, op, plasma_at; settings=CollisionSettings(mode=:full)),
-             FokkerPlanckTerm(:f, radial),
-             KnockOnTerm(:f, knockon; target_density=fill(1e20, nr), treatment))
-    unknowns = Any[KineticUnknown(:f, grid; scale=1e20)]
-    equations = Any[Equation(:f, TimeDerivative(), terms...)]
-    if with_density
-        push!(unknowns, RadialUnknown(:hot_density; scale=1e20))
-        push!(equations, Equation(:hot_density, Algebraic(), DensityMomentTerm(:f),
-                                  LinearTerm(:hot_density; coefficient=-1.0)))
-    end
-    layout = UnknownLayout(grid.radial_grid, unknowns)
-    system = EquationSystem(layout, equations)
-    theta = 1000.0 / Constants.ELECTRON_REST_ENERGY
-    f0 = [1e20 * exp(-(sqrt(1 + p^2) - 1) / theta) for p in mom.p_centers, _ in 1:4, _ in 1:nr]
-    u0 = zeros(length(layout))
-    for ir in 1:nr
-        unknown_view(u0, layout, :f, ir) .= f0[:, :, ir]
-        with_density && (unknown_view(u0, layout, :hot_density, ir) .= density(grid, f0)[ir])
-    end
-    times = [0.0, 1e-4, 2e-4, 3e-4, 4e-4, 5e-4, 6e-4, 7e-4, 8e-4]
-    save_times = [0.0, 1.5e-4, 2e-4, 4e-4, 4.5e-4, 7e-4, 8e-4]   # at time points and between them
-    update() = KnockOnCutoffUpdate(knockon, plasma_at)
-    return (; grid, mom, system, layout, u0, times, save_times, plasma_at, knockon, update)
-end
-
-# the fields of the statistics that do not hold wall times
-const _UNTIMED_STATISTICS = [field for field in fieldnames(SolverStatistics) if !endswith(String(field), "time") ||
-                                                                               field === :time]
-
-function _same_statistics(a::SolverStatistics, b::SolverStatistics)
-    return all(field -> isequal(getfield(a, field), getfield(b, field)), _UNTIMED_STATISTICS)
-end
-
-_checkpoint_directory() = mktempdir()
-
 @testset "checkpoint and resume" begin
     @testset "knock-on cutoff update" begin
         case = _checkpoint_case()

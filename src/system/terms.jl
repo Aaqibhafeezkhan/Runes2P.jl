@@ -750,7 +750,10 @@ end
     PrescribedValueTerm(values)
 
 A prescribed value added to the row of a radial unknown with one component or of a scalar
-unknown: a number, one number per radius, or a function of time that returns either. With
+unknown: a number, one number per radius, or a function of time that returns either. For a
+radial unknown the function may also return a callable of r, such as an interpolator:
+it is evaluated on the cell centres once per time, and a profile on points of
+its own that is constant in time is `t -> profile`. With
 `LinearTerm(name; coefficient = -1)` in an algebraic equation it holds the unknown at the
 prescribed value, `0 = value(t) - unknown`, which makes a prescribed profile an unknown of
 the system: a prescribed electric field `E(r, t)` that the kinetic terms read from the
@@ -758,7 +761,14 @@ state.
 """
 struct PrescribedValueTerm{V} <: EquationTerm
     values::V
+    points::Base.RefValue{Vector{Float64}}                  # cell centres, set by validate
+    evaluated::Base.RefValue{Tuple{Float64,Vector{Float64}}} # (time, values) of a profile
 end
+
+# The points and the cache belong to the term object: a term shared between systems on
+# different radial grids takes the points of the last `validate`, and the cache is not safe
+# for concurrent calls of `rhs!` at different times.
+PrescribedValueTerm(values) = PrescribedValueTerm(values, Ref(Float64[]), Ref((NaN, Float64[])))
 
 dependencies(::PrescribedValueTerm) = Symbol[]
 is_linear(::PrescribedValueTerm) = true
@@ -767,10 +777,21 @@ sparsity!(entries, ::PrescribedValueTerm, layout, row) = entries
 _prescribed_values(values, t) = values
 _prescribed_values(values::Function, t) = values(t)
 
+function _prescribed_values(term::PrescribedValueTerm, t)
+    values = _prescribed_values(term.values, t)
+    _is_radial_profile(values) || return values
+    cached_time, cached = term.evaluated[]
+    cached_time == t && return cached
+    evaluated = collect(Float64, radial_values(values, term.points[]))
+    term.evaluated[] = (Float64(t), evaluated)
+    return evaluated
+end
+
 function validate(term::PrescribedValueTerm, layout, row)
     kind = layout.kinds[row]
     kind === :scalar || (kind === :radial && layout.sizes[row, 1] == 1) ||
         throw(ArgumentError("PrescribedValueTerm adds to a scalar unknown or to a radial unknown with one component"))
+    kind === :radial && (term.points[] = collect(Float64, layout.radial_grid.r_centers))
     term.values isa Function && return nothing
     term.values isa Real || (term.values isa AbstractVector{<:Real} && kind === :radial &&
                              length(term.values) == radial_cell_count(layout)) ||
@@ -780,7 +801,7 @@ function validate(term::PrescribedValueTerm, layout, row)
 end
 
 function rhs!(out, term::PrescribedValueTerm, u, layout, row, t)
-    values = _prescribed_values(term.values, t)
+    values = _prescribed_values(term, t)
     if layout.kinds[row] === :scalar
         out[first(unknown_range(layout, row))] += values
     else

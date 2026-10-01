@@ -1,14 +1,5 @@
 using Random
 
-function _conservation_residual(g, df)
-    s = 0.0
-    for ir in 1:radial_cell_count(g), j in 1:pitch_cell_count(g), i in 1:momentum_cell_count(g)
-        s += phase_space_jacobian(g, ir)[i, j] * momentum_grid(g).p_widths[i] *
-             momentum_grid(g).xi_widths[j] * g.radial_grid.r_widths[ir] * df[i, j, ir]
-    end
-    return s
-end
-
 @testset "advection-diffusion" begin
     rng = Xoshiro(1)
     mom = MomentumGrid(biuniform_p_faces(20, 8, 0.0, 0.5, 3.0), uniform_xi_faces(10))

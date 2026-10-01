@@ -2,6 +2,7 @@
 # silence and on demand, the events with their limit per kind, and the bounded size of
 # the log. The kinetic case is the one of test_checkpoint.jl, the stop request the one of
 # test_stop.jl, the failing step the one of test_time_stepping.jl.
+using HDF5
 using Logging
 using Profile
 

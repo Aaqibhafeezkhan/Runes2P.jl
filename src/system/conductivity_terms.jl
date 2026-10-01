@@ -41,10 +41,16 @@ electric_field = false)` or from a plasma without a field, knows its plasma
   in their place. The distribution at `p_max` of a conductivity run is far below
   that of the bulk: DREAM's steady current on a production grid is the same with
   `BC_F_0` and `BC_PHI_CONST` to 1.1e-12.
+- The boundary `:interface` of a hot-tail grid below a runaway grid takes `f = 0` beyond
+  `p_max` as well: the response is that of the bulk on the hot-tail grid, and
+  the flux into the runaway grid at a small field is far below the current of the bulk.
 - `pitch_rule` is that of the current moment ([`current_density`](@ref)).
 - `density` is the density of the equilibrium per radius, the electrons that carry the
-  current. It differs from the cold density of the collision coefficients in the limit of
-  the Lorentz gas, which has no electron-electron collisions.
+  current, by default the cold density of the plasma of the operator. It differs from the
+  cold density of the collision coefficients in the limit of the Lorentz gas, which has no
+  electron-electron collisions. In a fully kinetic run the current of `f_hot` over all
+  momenta is carried by `n_cold + n_hot`: the conductivity with the default density leaves
+  out a part of the order `n_hot / n_cold`.
 - `field_particle`, a [`FieldParticleOperator`](@ref) on the grid of `operator`, adds the
   momentum-conserving field-particle term to `C`.
 
@@ -68,7 +74,7 @@ function kinetic_conductivity(operator::AdvectionDiffusion{T}; pitch_rule::Symbo
     # DREAM's flux boundaries at p_max give the last momentum cell no net flux in the steady
     # state, which makes the bordered systems singular: f = 0 beyond p_max in
     # their place, with the coefficient arrays shared
-    operator.p_upper_boundary in (:constant_flux, :extrapolated_flux, :extrapolated_flux_consistent) &&
+    operator.p_upper_boundary in (:constant_flux, :extrapolated_flux, :extrapolated_flux_consistent, :interface) &&
         (operator = _with_upper_boundary(operator, :f_zero))
     grid = operator.grid
     np, nxi, nr = size(grid)
@@ -168,8 +174,11 @@ function of time that returns one. `model(t)` gives the conductivity per radius.
 - `kinetic = :discrete_operator`: the same with the conductivity of the discrete operator
   of the run in place of the fit ([`kinetic_conductivity`](@ref)). `operator` is the
   Fokker-Planck operator of the bulk or its term, and `pitch_rule` that of the current
-  moment of the run. The steady state of a small field then has the conductivity of the
-  reference, whatever the grid and the collision settings are. With a plasma that changes
+  moment of the run: a system refuses a model whose rule differs from that of a
+  [`CurrentMomentTerm`](@ref) in the same equation. The steady state of a small
+  field then has the conductivity of the reference, whatever the grid and the collision
+  settings are. On two grids the operator is that of the hot-tail grid. The equilibrium has
+  the cold density of the plasma ([`kinetic_conductivity`](@ref)). With a plasma that changes
   in time the operator is a [`PrescribedFokkerPlanckTerm`](@ref), and every new time costs
   a sparse factorization of the bordered operator per evaluation (not covered by a test
   yet). The field-particle operator is not an option here: a system with it
@@ -300,7 +309,9 @@ function sparsity!(entries, term::ConductivityTerm, layout, row)
 end
 
 # A correction of the conductivity and the field-particle term are two ways to
-# the conductivity of Spitzer: both in one system count the missing part twice.
+# the conductivity of Spitzer: both in one system count the missing part twice. The
+# conductivity of the discrete operator is that of a current moment with its pitch rule,
+# and the rules of the two differ by a factor of the pitch grid.
 function _check_conductivity_correction(equations)
     terms = [term for equation in equations for term in equation.terms]
     corrected = any(term -> term isa ConductivityTerm && term.model.kinetic !== :none, terms)
@@ -308,5 +319,15 @@ function _check_conductivity_correction(equations)
         throw(ArgumentError("the system has a corrected conductivity and the field-particle term: the term gives " *
                             "the distribution the conductivity of Spitzer, and the correction would add the " *
                             "missing part again. Take one of the two"))
+    for equation in equations, term in equation.terms
+        term isa ConductivityTerm && term.model.kinetic === :discrete_operator || continue
+        for moment in equation.terms
+            moment isa CurrentMomentTerm && moment.pitch_rule !== term.model.pitch_rule &&
+                throw(ArgumentError("the conductivity model of $(equation.unknown) takes the pitch rule " *
+                                    "$(term.model.pitch_rule) and the current moment of $(moment.kinetic) in the " *
+                                    "same equation $(moment.pitch_rule): give the model the rule of the moment " *
+                                    "(ConductivityModel(...; pitch_rule = :$(moment.pitch_rule)))"))
+        end
+    end
     return nothing
 end

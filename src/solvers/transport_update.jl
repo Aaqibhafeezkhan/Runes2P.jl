@@ -48,8 +48,10 @@ forced_time_points(history::PiecewiseConstant) = history.switch_times
 Radial diffusion of `operator` that follows the level of the magnetic perturbation in time:
 at the start of every interval of the run, at the time `t`,
 `operator.diffusion_r_r` is set to the Rechester-Rosenbluth coefficient of
-`delta_b_over_b_at(t)` ([`add_rechester_rosenbluth_diffusion!`](@ref)), a number or one
-value per radial face. The interval from `t_k` to `t_{k+1}` takes the level at `t_k`. The
+`delta_b_over_b_at(t)` ([`add_rechester_rosenbluth_diffusion!`](@ref)): a number, one value
+per radial face, or a callable of r such as an interpolator, evaluated on the faces
+([`radial_face_values`](@ref)). A profile on points of its own that is constant in time is
+`t -> profile`. The safety factor takes the same forms and is evaluated once. The interval from `t_k` to `t_{k+1}` takes the level at `t_k`. The
 levels of the faces are the state of the update, stored with the checkpoints and restored
 on resume.
 
@@ -64,6 +66,7 @@ struct RechesterRosenbluthUpdate{T,F} <: IntervalUpdate
     delta_b_over_b_at::F
     major_radius::Float64
     safety_factor::Vector{Float64}     # per radial face
+    safety_factor_profile::Any         # as given, for the record
     delta_b_over_b::Vector{Float64}    # per radial face, the levels of the interval
 end
 
@@ -73,7 +76,7 @@ function RechesterRosenbluthUpdate(operator::AdvectionDiffusion, delta_b_over_b_
     q = radial_face_values(safety_factor, operator.grid)
     all(>(0), q) || throw(ArgumentError("the safety factor must be positive"))
     return RechesterRosenbluthUpdate(String(name), operator, delta_b_over_b_at, Float64(major_radius), q,
-                                     fill(NaN, length(q)))
+                                     safety_factor, fill(NaN, length(q)))
 end
 
 update_name(update::RechesterRosenbluthUpdate) = update.name
@@ -120,20 +123,33 @@ end
 
 settings_fields(::Type{<:PiecewiseConstant}) = (described=(:values, :switch_times), derived=())
 settings_fields(::Type{<:RechesterRosenbluthUpdate}) =
-    (described=(:name, :operator, :delta_b_over_b_at, :major_radius, :safety_factor), derived=(:delta_b_over_b,))
+    (described=(:name, :operator, :delta_b_over_b_at, :major_radius, :safety_factor, :safety_factor_profile),
+     derived=(:delta_b_over_b,))
 
-describe(history::PiecewiseConstant) =
-    SettingsRecord("type" => "PiecewiseConstant", "values" => _plain(stack(history.values)),
-                   "switch_times" => _plain(history.switch_times))
+function describe(history::PiecewiseConstant)
+    record = SettingsRecord("type" => "PiecewiseConstant", "switch_times" => _plain(history.switch_times))
+    if any(_is_radial_profile, history.values)
+        # profiles on points of their own, one record per interval
+        record["profiles"] = SettingsRecord("interval_$k" => _is_radial_profile(v) ? _describe_profile(v) :
+                                                             _describe_value(v)
+                                            for (k, v) in enumerate(history.values))
+    else
+        record["values"] = _plain(stack(history.values))
+    end
+    return record
+end
 
 """
-    describe_prescribed_levels(levels_at, context)
+    describe_prescribed_levels(levels_at, context; points=nothing)
 
 Record of a level prescribed as a function of time (a number or one value per radial
 face): the record of a [`PiecewiseConstant`](@ref), or the values at the time points of
-`context`, thinned as the tables of the prescribed plasma are.
+`context`, thinned as the tables of the prescribed plasma are. With `points`, the function
+may return a callable of r ([`radial_values`](@ref)): the values are those at `points`, and
+`profile` records the callable (an interpolator by its points), or `profiles` one per
+sampled time where it changes in time.
 """
-function describe_prescribed_levels(levels_at, context::DescriptionContext)
+function describe_prescribed_levels(levels_at, context::DescriptionContext; points=nothing)
     levels_at isa PiecewiseConstant && return describe(levels_at)
     record = SettingsRecord("type" => "prescribed levels", "source" => _callable_name(levels_at))
     function incomplete(reason)
@@ -144,11 +160,24 @@ function describe_prescribed_levels(levels_at, context::DescriptionContext)
     isempty(context.times) && return incomplete("no time points to sample the function at")
     values = try
         first_value = levels_at(first(context.times))
-        max_samples = context.max_table_bytes ÷ (8 * length(first_value))
+        width = points !== nothing && _is_radial_profile(first_value) ? length(points) : length(first_value)
+        max_samples = context.max_table_bytes ÷ (8 * width)
         indices = _sample_indices(length(context.times), max_samples)
         record["times"] = context.times[indices]
         record["thinned"] = length(indices) < length(context.times)
-        [collect(Float64, vcat(levels_at(t))) for t in context.times[indices]]
+        sampled = [levels_at(t) for t in context.times[indices]]
+        profiles = points === nothing ? [] : filter(_is_radial_profile, sampled)
+        if !isempty(profiles)
+            if all(p -> p == first(profiles), profiles)
+                record["profile"] = _describe_profile(first(profiles))
+            else
+                record["profiles"] = SettingsRecord("sample_$k" => _is_radial_profile(v) ? _describe_profile(v) :
+                                                                   _describe_value(v)
+                                                    for (k, v) in enumerate(sampled))
+            end
+        end
+        # numbers and values are recorded as given, profiles by their values at the points
+        [collect(Float64, isempty(profiles) ? vcat(v) : radial_values(v, points)) for v in sampled]
     catch error
         return incomplete("the function failed at a time point: " * sprint(showerror, error))
     end
@@ -157,10 +186,19 @@ function describe_prescribed_levels(levels_at, context::DescriptionContext)
     return record
 end
 
+# record of a radial profile given as a callable: an interpolator by its points (extension),
+# a function by its name
+_describe_profile(profile) = hasmethod(describe, Tuple{typeof(profile)}) ? describe(profile) :
+                             SettingsRecord("type" => "callable", "source" => _callable_name(profile))
+
 function describe(update::RechesterRosenbluthUpdate, context::DescriptionContext)
-    return SettingsRecord("type" => "RechesterRosenbluthUpdate", "name" => update.name,
-                          "operator" => describe(update.operator, context; coefficients=false),
-                          "major_radius" => update.major_radius,
-                          "safety_factor" => _plain(update.safety_factor),
-                          "delta_b_over_b" => describe_prescribed_levels(update.delta_b_over_b_at, context))
+    record = SettingsRecord("type" => "RechesterRosenbluthUpdate", "name" => update.name,
+                            "operator" => describe(update.operator, context; coefficients=false),
+                            "major_radius" => update.major_radius,
+                            "safety_factor" => _plain(update.safety_factor),
+                            "delta_b_over_b" => describe_prescribed_levels(update.delta_b_over_b_at, context;
+                                                                           points=update.operator.grid.radial_grid.r_faces))
+    _is_radial_profile(update.safety_factor_profile) &&
+        (record["safety_factor_profile"] = _describe_profile(update.safety_factor_profile))
+    return record
 end

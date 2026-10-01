@@ -16,6 +16,7 @@ include("grids/momentum.jl")
 include("grids/pitch_overlap.jl")
 include("grids/radial.jl")
 include("grids/kinetic.jl")
+include("grids/radial_profiles.jl")
 include("grids/momentum_region.jl")
 include("operators/flux_limiters.jl")
 include("operators/advection_diffusion.jl")
@@ -54,7 +55,7 @@ export PitchOverlap, overlap_cell_count, has_identical_grids, remap_to_right!, r
 export has_same_cell_counts, has_same_p_faces, radial_face_overlap, radial_face_pitch_cell_count
 export radial_neighbour_pitch_cells, runaway_grid
 export MomentumInterfaceTerm, interface_flux
-export add_rechester_rosenbluth_diffusion!, radial_face_values, radial_particle_flux, radial_particle_content
+export add_rechester_rosenbluth_diffusion!, radial_values, radial_face_values, radial_particle_flux, radial_particle_content
 export RadialEdgeLossTerm, LossRateTerm, PiecewiseConstant, RechesterRosenbluthUpdate, forced_time_points
 export RadialGrid, uniform_r_faces
 export KineticGrid, cylindrical_grid, density, current_density, pitch_moment_weights, total_particles, has_shared_momentum_grid, momentum_grid

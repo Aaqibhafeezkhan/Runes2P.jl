@@ -8,19 +8,6 @@
 using LinearAlgebra: I, dot
 using SparseArrays: findnz
 
-function iter_plasma_operator(mom, temperature, field; scheme, p_upper_boundary=:f_zero)
-    n_deuterium = 1e20
-    g = cylindrical_grid(mom, RadialGrid(uniform_r_faces(1, 2.0)))
-    argon = zeros(19, 1)
-    argon[1, 1] = 3e19
-    plasma = PlasmaState(cold_electron_temperature=[temperature], cold_electron_density=[n_deuterium],
-                         ions=[IonSpecies("D", 1, 1, [n_deuterium]), IonSpecies("Ar", 18, argon)],
-                         electric_field=[field], magnetic_field=[5.3])
-    settings = CollisionSettings(mode=:full, screening=:partial, coulomb_logarithm=:energy_dependent,
-                                 ion_size_table=:dream)
-    return g, fokker_planck_operator(g, plasma, settings; scheme, p_upper_boundary)
-end
-
 negative_couplings(L) = (IJV = findnz(L); count(k -> IJV[1][k] != IJV[2][k] && IJV[3][k] < 0, eachindex(IJV[3])))
 
 @testset "exponential fitting" begin

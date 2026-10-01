@@ -3,17 +3,6 @@
 # script. The cases are those of test_checkpoint.jl.
 using HDF5
 
-# an interval update that creates a file at the time points from `time` on, as the batch
-# script does when the warning signal of the batch system arrives
-struct RequestStop <: IntervalUpdate
-    file::String
-    time::Float64
-end
-Runes2P.update_name(::RequestStop) = "request_stop"
-Runes2P.apply_update!(update::RequestStop, u, layout, t) = (t >= update.time && touch(update.file); false)
-Runes2P.update_state(::RequestStop) = [0.0]
-Runes2P.restore_update!(update::RequestStop, state) = update
-
 @testset "clean stop" begin
     @testset "stop condition" begin
         withenv("SLURM_JOB_END_TIME" => nothing) do

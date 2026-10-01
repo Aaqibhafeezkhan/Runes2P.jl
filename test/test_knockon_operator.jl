@@ -25,11 +25,6 @@ function knockon_reference(op::KnockOnOperator, f, n_tot)
     return C
 end
 
-function max_rel_diff(a, b; floor=1e-12)
-    cut = floor * maximum(abs, a)
-    return maximum(abs(a[k] - b[k]) / abs(a[k]) for k in eachindex(a) if abs(a[k]) > cut)
-end
-
 @testset "knock-on operator" begin
     h5open(DREAM_KNOCKON_DATA) do h5
         @test read(attributes(h5)["dream_branch"]) == "boltzmann-eqterm"

@@ -5,61 +5,6 @@
 # known backward-Euler solution.
 using HDF5
 
-# test terms on a radial unknown with one component: -rate √x (throws a DomainError for
-# x < 0), rate atan(x - root) (for an algebraic equation) and a constant source
-struct SquareRootDecayTerm <: EquationTerm
-    unknown::Symbol
-    rate::Float64
-end
-struct ArctangentTerm <: EquationTerm
-    unknown::Symbol
-    root::Float64
-end
-struct ConstantSourceTerm <: EquationTerm
-    value::Float64
-end
-Runes2P.dependencies(term::Union{SquareRootDecayTerm,ArctangentTerm}) = [term.unknown]
-Runes2P.dependencies(::ConstantSourceTerm) = Symbol[]
-
-function Runes2P.rhs!(out, term::SquareRootDecayTerm, u, layout, row, t)
-    id = unknown_id(layout, term.unknown)
-    for ir in 1:radial_cell_count(layout),
-        (a, b) in zip(unknown_range(layout, row, ir), unknown_range(layout, id, ir))
-        out[a] -= term.rate * sqrt(u[b])
-    end
-    return out
-end
-function Runes2P.rhs!(out, term::ArctangentTerm, u, layout, row, t)
-    id = unknown_id(layout, term.unknown)
-    for ir in 1:radial_cell_count(layout),
-        (a, b) in zip(unknown_range(layout, row, ir), unknown_range(layout, id, ir))
-        out[a] += atan(u[b] - term.root)
-    end
-    return out
-end
-function Runes2P.rhs!(out, term::ConstantSourceTerm, u, layout, row, t)
-    for ir in 1:radial_cell_count(layout), a in unknown_range(layout, row, ir)
-        out[a] += term.value
-    end
-    return out
-end
-function Runes2P.sparsity!(entries, term::Union{SquareRootDecayTerm,ArctangentTerm}, layout, row)
-    id = unknown_id(layout, term.unknown)
-    for ir in 1:radial_cell_count(layout)
-        append!(entries, zip(unknown_range(layout, row, ir), unknown_range(layout, id, ir)))
-    end
-    return entries
-end
-Runes2P.sparsity!(entries, ::ConstantSourceTerm, layout, row) = entries
-
-# a system of one radial unknown :x on `nr` radii
-function single_unknown_system(kind, terms...; nr=1, scale=1.0, nonnegative=false, extra=())
-    rad = RadialGrid(uniform_r_faces(nr, 0.5))
-    unknowns = [RadialUnknown(:x; scale, nonnegative), (u for (u, _) in extra)...]
-    equations = [Equation(:x, kind, terms...), (eq for (_, eq) in extra)...]
-    return EquationSystem(UnknownLayout(rad, unknowns), equations)
-end
-
 # backward-Euler step of du/dt = -k √u: √u1 solves s² + k dt s - u0 = 0
 square_root_step(u0, k, dt) = ((-k * dt + sqrt((k * dt)^2 + 4u0)) / 2)^2
 
@@ -336,33 +281,6 @@ square_root_step(u0, k, dt) = ((-k * dt + sqrt((k * dt)^2 + 4u0)) / 2)^2
         end
         rm(file)
     end
-end
-
-# fast exchange between the two components of a radial unknown: rate (u2 - u1) and its
-# negative, a stiff pair whose residual has a round-off floor above `residual_tolerance`
-struct ExchangeTerm <: EquationTerm
-    unknown::Symbol
-    rate::Float64
-end
-Runes2P.dependencies(term::ExchangeTerm) = [term.unknown]
-function Runes2P.rhs!(out, term::ExchangeTerm, u, layout, row, t)
-    id = unknown_id(layout, term.unknown)
-    for ir in 1:radial_cell_count(layout)
-        values = radial_view(u, layout, id, ir)
-        rows = unknown_range(layout, row, ir)
-        difference = term.rate * (values[2] - values[1])
-        out[rows[1]] += difference
-        out[rows[2]] -= difference
-    end
-    return out
-end
-function Runes2P.sparsity!(entries, term::ExchangeTerm, layout, row)
-    id = unknown_id(layout, term.unknown)
-    for ir in 1:radial_cell_count(layout), r in unknown_range(layout, row, ir),
-        c in unknown_range(layout, id, ir)
-        push!(entries, (r, c))
-    end
-    return entries
 end
 
 @testset "a stiff step converges at the residual floor" begin

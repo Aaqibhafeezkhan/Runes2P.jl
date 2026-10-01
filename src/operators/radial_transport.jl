@@ -6,16 +6,11 @@
 """
     radial_face_values(values, grid)
 
-One value per radial face of `grid` (radii + 1) from a number, which holds on all faces, or
-from a vector with one value per face.
+One value per radial face of `grid` (radii + 1) from a number, which holds on all faces, a
+vector with one value per face, or a callable of r evaluated on the faces
+([`radial_values`](@ref)).
 """
-function radial_face_values(values, grid::KineticGrid)
-    faces = radial_cell_count(grid) + 1
-    values isa Real && return fill(Float64(values), faces)
-    length(values) == faces ||
-        throw(DimensionMismatch("need one value per radial face ($faces), got $(length(values))"))
-    return collect(Float64, values)
-end
+radial_face_values(values, grid::KineticGrid) = collect(Float64, radial_values(values, grid.radial_grid.r_faces))
 
 """
     add_rechester_rosenbluth_diffusion!(op, delta_b_over_b; major_radius, safety_factor=1)
@@ -29,8 +24,9 @@ The form with `v_∥` and the factor π is that of Papp et al. (arXiv:1504.05074
 and, with `q = 1`, of Berger et al. (arXiv:2208.02117, section 2), the second from the DREAM
 group.
 
-`delta_b_over_b` and the safety factor `q` are numbers or have one value per radial face
-(radii + 1, as DREAM's `dBB` on its radial flux grid), `major_radius` is `R₀` in metres.
+`delta_b_over_b` and the safety factor `q` are numbers, have one value per radial face
+(radii + 1, as DREAM's `dBB` on its radial flux grid) or are callables of r evaluated on the
+faces ([`radial_face_values`](@ref)), `major_radius` is `R₀` in metres.
 The pitch of the coefficient is that of the pitch cells of the radial face
 ([`radial_face_overlap`](@ref)), which are the pitch cells of the grid when all radii share
 their pitch grid. A level of zero on a face leaves the face without transport.

@@ -10,32 +10,6 @@ using HDF5
 # error of the step relative to its tolerance, |u_full - u_half| / (rel |u_full|)
 _decay_step(u, k, h) = u / (1 + k * h)
 
-# growth k x whose evaluation is refused above a bound (a DomainError, as a coefficient
-# outside its table would raise): the backward-Euler step x / (1 - k h) overshoots the
-# bound for k h near 1, and the solve fails with :domain_error
-struct BoundedGrowthTerm <: EquationTerm
-    unknown::Symbol
-    rate::Float64
-    bound::Float64
-end
-Runes2P.dependencies(term::BoundedGrowthTerm) = [term.unknown]
-function Runes2P.rhs!(out, term::BoundedGrowthTerm, u, layout, row, t)
-    id = unknown_id(layout, term.unknown)
-    for ir in 1:radial_cell_count(layout),
-        (a, b) in zip(unknown_range(layout, row, ir), unknown_range(layout, id, ir))
-        u[b] <= term.bound || throw(DomainError(u[b], "above the bound of the growth term"))
-        out[a] += term.rate * u[b]
-    end
-    return out
-end
-function Runes2P.sparsity!(entries, term::BoundedGrowthTerm, layout, row)
-    id = unknown_id(layout, term.unknown)
-    for ir in 1:radial_cell_count(layout)
-        append!(entries, zip(unknown_range(layout, row, ir), unknown_range(layout, id, ir)))
-    end
-    return entries
-end
-_growth_step(u, k, h) = u / (1 - k * h)
 _doubling_error(k, h, rel) = abs(1 - (1 + k * h) / (1 + k * h / 2)^2) / rel
 
 # the sequence DREAM's rule produces on the decay from t = 0 to t_end: per checked step

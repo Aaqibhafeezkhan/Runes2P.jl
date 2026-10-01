@@ -6,6 +6,7 @@
 # test_exponential_fitting.jl).
 
 using ForwardDiff: ForwardDiff
+using Random: Xoshiro
 
 const FOUR_POINT = (:quick, :upwind_second_order, :tcdf, :muscl, :smart, :ospre, :van_albada)
 

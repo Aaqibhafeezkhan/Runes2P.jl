@@ -7,6 +7,7 @@
 using HDF5
 
 const DREAM_DREICER_KINETIC_DATA = joinpath(@__DIR__, "data", "dream_dreicer_kinetic.h5")
+const DREAM_RUNAWAY_RATE_DATA = joinpath(@__DIR__, "data", "dream_runaway_rates.h5")
 
 # one radius, deuterium only, complete screening and a constant Coulomb logarithm, the
 # configuration the fluid formulas assume
