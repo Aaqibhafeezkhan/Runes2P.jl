@@ -28,8 +28,8 @@ RadiusBlockILU(; drop_tolerance::Real=1e-4) = RadiusBlockILU(Float64(drop_tolera
 
 """
     GMRES(; preconditioner=FluidSchurLU(), relative_tolerance=1e-10, max_iterations=200,
-          restart_length=50, preconditioner_refresh=:every_iteration, refresh_iterations=10,
-          operator=:exact)
+          restart_length=50, preconditioner_refresh=:every_iteration, refresh_step_change=0.5,
+          refresh_count_growth=2.0, operator=:exact)
 
 Newton-Krylov linear solver: restarted GMRES (Krylov.jl) on the scaled Newton operator
 `W (M/dt - J) S`, where `J` is the stored Jacobian plus the implicit matrix-free terms,
@@ -54,11 +54,19 @@ terms the two are the same.
   first, and its factors are kept, so the preconditioner is factorized once per step
   ([`NewtonSolver`](@ref), `reuse_linear_matrix`);
 - `:every_step`: in the first Newton iteration of each time step;
-- `:on_demand`: when the time step changes (by more than a relative 1e-8), or when the
-  last solve needed more than
-  `refresh_iterations` Krylov iterations. The stored matrix of a system with prescribed
-  coefficients and a constant time step is the same in every step, so one
-  factorization then serves the whole run.
+- `:on_demand`: when the time step differs from that of the factorization by more than
+  the relative `refresh_step_change`, or when the last solve needed more than
+  `refresh_count_growth` times the Krylov iterations of the first solve after the
+  factorization. The Newton matrix `W (M/dt - J) S`
+  changes with the step through the mass term alone, and the factors of a nearby step
+  precondition it well; the count rule catches coefficients that drift in time and the
+  factors of a longer step applied at a shorter one. A halved step is a change of
+  exactly 0.5 and keeps the factors with the default; a doubled step refreshes. The
+  stored matrix of a system with prescribed coefficients and a constant time step is
+  the same in every step, so one factorization then serves the whole run. Under a step
+  controller that grows the step at its cap of 2 per step, the default
+  `refresh_step_change` factorizes at every such step, and `:on_demand` pays off where
+  the step changes by less.
 
 A solve that fails with a preconditioner from an earlier iteration is repeated once with
 a fresh one.
@@ -96,7 +104,8 @@ Base.@kwdef struct GMRES{P<:BlockPreconditioner} <: LinearSolver
     max_iterations::Int = 200
     restart_length::Int = 50
     preconditioner_refresh::Symbol = :every_iteration
-    refresh_iterations::Int = 10
+    refresh_step_change::Float64 = 0.5
+    refresh_count_growth::Float64 = 2.0
     operator::Symbol = :exact
     low_rank_update::Bool = true
 end
@@ -247,6 +256,7 @@ mutable struct GMRESCache{T,O<:NewtonOperator{T},F,W,P}
     factorized::Bool
     factorized_dt::Float64
     last_iterations::Int
+    fresh_iterations::Int            # of the first solve after the last factorization
     factorization_seconds::Float64   # in the last solve
     matrix_unchanged::Bool           # the stored matrix of the next solve is that of the last one
 end
@@ -263,6 +273,8 @@ function linear_solver_cache(solver::GMRES, matrix::SparseMatrixCSC{T}, system::
                              row_weights, scales) where {T}
     solver.preconditioner_refresh in (:every_iteration, :every_step, :on_demand) ||
         throw(ArgumentError("unknown preconditioner_refresh $(solver.preconditioner_refresh)"))
+    solver.refresh_step_change >= 0 || throw(ArgumentError("refresh_step_change must not be negative"))
+    solver.refresh_count_growth >= 1 || throw(ArgumentError("refresh_count_growth must be at least 1"))
     solver.operator in (:exact, :stored) || throw(ArgumentError("operator must be :exact or :stored"))
     # the row of a constraint has no entry in the column of its unknown, and in the radius
     # block the incomplete factorization meets that zero pivot before any row fills it
@@ -274,7 +286,7 @@ function linear_solver_cache(solver::GMRES, matrix::SparseMatrixCSC{T}, system::
                               solver.operator === :exact, zero(T))
     factors = preconditioner_factors(solver.preconditioner, matrix, system.layout)
     workspace = GmresWorkspace(n, n, Vector{T}; memory=solver.restart_length)
-    return GMRESCache(solver, operator, factors, workspace, 0, 0, false, NaN, 0, 0.0, false)
+    return GMRESCache(solver, operator, factors, workspace, 0, 0, false, NaN, 0, 0, 0.0, false)
 end
 
 function _needs_factorization(cache::GMRESCache, dt, iteration)
@@ -283,10 +295,13 @@ function _needs_factorization(cache::GMRESCache, dt, iteration)
     # the factors of an unchanged matrix are those of a new factorization
     refresh === :every_iteration && return !cache.matrix_unchanged
     refresh === :every_step && return iteration == 1
-    # steps between the points of a range differ in the last bits, which is no reason to
-    # factorize again
-    return !isapprox(dt, cache.factorized_dt; rtol=1e-8) ||
-           cache.last_iterations > cache.solver.refresh_iterations
+    # on demand: a step that differs from that of the factors by more than the tolerance
+    # (steps between the points of a range differ in the last bits, which is no reason to
+    # factorize again), or a count that grew past the growth over the count of the first
+    # solve with these factors
+    # a solve with a zero right-hand side counts no iteration, which is no reference
+    return abs(dt / cache.factorized_dt - 1) > cache.solver.refresh_step_change ||
+           cache.last_iterations > cache.solver.refresh_count_growth * max(cache.fresh_iterations, 1)
 end
 
 function _factorize!(cache::GMRESCache, matrix, dt)
@@ -325,8 +340,11 @@ function solve!(x::AbstractVector, cache::GMRESCache, matrix::SparseMatrixCSC, b
     if !solved && !fresh
         # a preconditioner from an earlier iteration may have gone stale
         _factorize!(cache, matrix, dt) || return :singular_matrix
+        fresh = true
         solved = _gmres!(cache, b)
     end
+    # the count of the first solve with fresh factors is the reference of the count rule
+    fresh && (cache.fresh_iterations = cache.last_iterations)
     solved || return :linear_solve_failed
     copyto!(x, cache.workspace.x)
     return :ok

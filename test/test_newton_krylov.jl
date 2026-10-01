@@ -138,6 +138,72 @@ end
             @test relative_difference(other.states[:, end], every_iteration.states[:, end]) < 1e-9
         end
         @test_throws ArgumentError NewtonWorkspace(system, NewtonSolver(linear_solver=GMRES(preconditioner_refresh=:never)))
+        @test_throws ArgumentError NewtonWorkspace(system, NewtonSolver(linear_solver=GMRES(refresh_step_change=-1.0)))
+        @test_throws ArgumentError NewtonWorkspace(system, NewtonSolver(linear_solver=GMRES(refresh_count_growth=0.5)))
+
+        # the rules of :on_demand on the cache: the step
+        # against that of the factors, the count against that of the first solve with them
+        solver = NewtonSolver(linear_solver=GMRES(preconditioner_refresh=:on_demand, refresh_step_change=0.5,
+                                                  refresh_count_growth=2.0))
+        ws = NewtonWorkspace(system, solver)
+        cache = ws.cache
+        @test Runes2P._needs_factorization(cache, small.time_step, 1)          # nothing factorized yet
+        u = copy(u0)
+        newton_solve!(u, u0, ws, small.time_step, small.time_step)
+        @test cache.factorized && cache.factorized_dt == small.time_step
+        @test cache.fresh_iterations == cache.last_iterations >= 1
+        @test !Runes2P._needs_factorization(cache, small.time_step, 2)
+        @test !Runes2P._needs_factorization(cache, 1.4 * small.time_step, 1)   # within the tolerance
+        @test !Runes2P._needs_factorization(cache, 0.6 * small.time_step, 1)
+        @test Runes2P._needs_factorization(cache, 1.6 * small.time_step, 1)    # outside
+        @test Runes2P._needs_factorization(cache, 0.4 * small.time_step, 1)
+        @test !Runes2P._needs_factorization(cache, 0.5 * small.time_step, 1)   # a halving is the boundary and keeps the factors
+        @test Runes2P._needs_factorization(cache, 2.0 * small.time_step, 1)    # a doubling refreshes
+        cache.last_iterations = 2 * cache.fresh_iterations
+        @test !Runes2P._needs_factorization(cache, small.time_step, 1)         # at the growth, not above
+        cache.last_iterations = 2 * cache.fresh_iterations + 1
+        @test Runes2P._needs_factorization(cache, small.time_step, 1)
+        # a first solve without an iteration (a zero right-hand side) is no reference
+        fresh_before = cache.fresh_iterations
+        cache.fresh_iterations, cache.last_iterations = 0, 1
+        @test !Runes2P._needs_factorization(cache, small.time_step, 1)
+        cache.last_iterations = 3
+        @test Runes2P._needs_factorization(cache, small.time_step, 1)
+        cache.fresh_iterations = fresh_before
+
+        # under the step controller the factorizations are those the step rule asks for
+        # (the count rule off), one per solve whose step differs from that of the factors
+        # by more than the tolerance; the states are those of the run with fresh factors
+        stepper = StepController(initial_step=small.time_step, relative_tolerance=1e-3)
+        controlled(linear_solver) = integrate(system, u0, [0.0, 20 * small.time_step];
+                                              solver=NewtonSolver(; linear_solver), stepper)
+        reference = controlled(GMRES())
+        on_demand = controlled(GMRES(preconditioner_refresh=:on_demand, refresh_step_change=0.5,
+                                     refresh_count_growth=Inf))
+        st = on_demand.statistics
+        # stale factors change the solves within the Krylov tolerance, and the error
+        # estimates with them, so the steps agree to about 1e-10 and not to the bit
+        @test length(st.time_step) == length(reference.statistics.time_step)
+        @test st.time_step ≈ reference.statistics.time_step rtol = 1e-6
+        @test count(st.accepted) >= 6
+        @test length(unique(st.time_step)) >= 4                # the step changed during the run
+        expected = zeros(Int, length(st.time_step))
+        factorized_dt = NaN
+        for (k, dt) in enumerate(st.time_step)
+            if isnan(factorized_dt) || abs(dt / factorized_dt - 1) > 0.5
+                expected[k] = 1
+                factorized_dt = dt
+            end
+        end
+        @test st.preconditioner_updates == expected
+        @test 1 < sum(expected) < length(expected)
+        @test relative_difference(on_demand.states[:, end], reference.states[:, end]) < 1e-8
+        # neither rule: one factorization serves the whole run, plus at most one refresh
+        # after a solve that failed with factors of a step 100 times longer
+        once = controlled(GMRES(preconditioner_refresh=:on_demand, refresh_step_change=Inf, refresh_count_growth=Inf))
+        @test 1 <= sum(once.statistics.preconditioner_updates) <= 2
+        @test once.statistics.time_step ≈ reference.statistics.time_step rtol = 1e-6
+        @test relative_difference(once.states[:, end], reference.states[:, end]) < 1e-8
     end
 
     @testset "failures are reported, not thrown" begin
