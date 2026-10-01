@@ -122,8 +122,8 @@ files = ["test_avalanche_dream.jl", "test_cooling_dream.jl", "test_exponential_f
 [[group]]
 name = "full-9"
 tier = "full"
-# 3.7 minutes in the probe
-files = ["test_example_runaway.jl"]
+# 3.7 minutes in the probe, test_step_control_cascade.jl about 4 minutes alone
+files = ["test_example_runaway.jl", "test_step_control_cascade.jl"]
 
 [[group]]
 name = "full-10"

@@ -11,7 +11,7 @@ On a cluster the suite runs as an array job, one task per group.
 | `groups.toml` | the groups of test files, each with its tier, one array task per group |
 | `helpers.jl` | the module `TestHelpers`: definitions that several test files use |
 | `example_cases.jl` | setups built from DREAM's examples, shared by the tests |
-| `test_*.jl` | the test files, 64 on 2026-10-01 |
+| `test_*.jl` | the test files, 65 on 2026-10-01 |
 | `*_helpers.jl` | a file that one test file includes, not a test file of its own |
 | `data/` | DREAM's output for the comparison tests, written by `reference/dream/cases/` |
 | `drafts/` | test files for a step that is not built yet, outside the suite until then |
