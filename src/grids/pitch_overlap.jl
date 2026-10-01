@@ -142,14 +142,15 @@ has_identical_grids(overlap::PitchOverlap) = overlap.identical
 
 """
     remap_to_right!(f_right, overlap, f_left)
-    remap_to_left!(f_left, overlap, f_right)
 
-Conservative remap of cell averages from one pitch grid of `overlap` to the other, for a
-vector over the pitch cells or a `(p cells, ξ cells)` matrix (each momentum cell on its
-own). The source is taken as constant in each of its cells, and the new cell average is
+Conservative remap of cell averages from the left pitch grid of `overlap` to the right one
+([`remap_to_left!`](@ref) is the reverse), for a vector over the pitch cells or a
+`(p cells, ξ cells)` matrix (each momentum cell on its own). The source is taken as constant in each of its cells, and the new cell average is
 the measure-weighted mean of the source over the cell:
 
-    f_right[j] = Σ_s right_fractions[s] f_left[left_cells[s]],   s in right_ranges[j].
+```math
+f^\\mathrm{right}_j = \\sum_{s \\in \\mathtt{right\\_ranges}[j]} \\mathtt{right\\_fractions}[s]\\, f^\\mathrm{left}_{\\mathtt{left\\_cells}[s]}.
+```
 
 The content `Σ_j measure_j f_j` is conserved to round-off, a constant stays a constant, the
 result lies between the smallest and the largest source value (so a non-negative source
@@ -162,6 +163,12 @@ function remap_to_right!(f_right::AbstractVecOrMat, overlap::PitchOverlap, f_lef
                    length(overlap.left_ranges))
 end
 
+"""
+    remap_to_left!(f_left, overlap, f_right)
+
+Conservative remap of cell averages from the right pitch grid of `overlap` to the left one,
+the reverse of [`remap_to_right!`](@ref), with the same properties.
+"""
 function remap_to_left!(f_left::AbstractVecOrMat, overlap::PitchOverlap, f_right::AbstractVecOrMat)
     return _remap!(f_left, f_right, overlap.left_ranges, overlap.left_fractions, overlap.right_cells,
                    length(overlap.right_ranges))

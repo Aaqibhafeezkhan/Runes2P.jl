@@ -52,8 +52,7 @@ function add_jacobian!(J, term::RadialEdgeLossTerm, u, layout, row, t)
     rg = op.grid.radial_grid
     nr = radial_cell_count(rg)
     m = op.momentum_grids[nr]
-    distance = op.r_boundary === :absorbing ? rg.r_faces[nr+1] - rg.r_centers[nr] :
-               nr > 1 ? rg.r_centers[nr] - rg.r_centers[nr-1] : one(eltype(rg.r_centers))
+    distance = _r_edge_distance(op)
     r = first(unknown_range(layout, row))
     @inbounds for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
         A = op.advection_r[i, j, nr+1]

@@ -1,6 +1,8 @@
-# Interpolators of Interpolations.jl as radial profiles: evaluated on the points
-# of the radial grid, and recorded by their points, the values there, the method and the
-# rule beyond the last point, from which the run can be rebuilt.
+"""
+Interpolators of Interpolations.jl as radial profiles: evaluated on the points
+of the radial grid, and recorded by their points, the values there, the method and the
+rule beyond the last point, from which the run can be rebuilt.
+"""
 module Runes2PInterpolationsExt
 
 using Runes2P

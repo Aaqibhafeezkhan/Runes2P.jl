@@ -105,27 +105,24 @@ end
     end
 
     @testset "save times between the steps, the last step lands on the end" begin
-        # the time points are the ceilings of the steps, the save times are not: a save
-        # time between two steps gets the interpolation of their end states
+        # the time points are the ceilings of the steps and the save times must be among
+        # them: every saved state is a computed one, as in DREAM, and a save time between
+        # the time points is rejected
         k = 3.0
         system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k))
-        save_times = [0.0, 0.3, 0.55, 1.0]
-        solution = integrate(system, [1.0], [0.0, 1.0]; save_times,
-                             stepper=StepDoubling(initial_step=0.05, relative_tolerance=1e-2))
+        times = [0.0, 0.3, 0.55, 1.0]
+        stepper = StepDoubling(initial_step=0.05, relative_tolerance=1e-2)
+        solution = integrate(system, [1.0], times; save_times=[0.0, 0.55, 1.0], stepper)
         stats = solution.statistics
         accepted_times = stats.time[stats.accepted]
-        @test last(accepted_times) == 1.0
-        @test solution.times == save_times
-        states = foldl((u, h) -> _decay_step(u, k, h), diff([0.0; accepted_times]); init=1.0)
-        @test solution.states[1, end] ≈ states rtol = 1e-12
-        for (k_save, s) in enumerate(save_times[2:end-1])
-            after = findfirst(>=(s), accepted_times)
-            u_after = foldl((u, h) -> _decay_step(u, k, h), diff([0.0; accepted_times[1:after]]); init=1.0)
-            t_before = after == 1 ? 0.0 : accepted_times[after-1]
-            u_before = after == 1 ? 1.0 : foldl((u, h) -> _decay_step(u, k, h), diff([0.0; accepted_times[1:after-1]]); init=1.0)
-            fraction = (s - t_before) / (accepted_times[after] - t_before)
-            @test solution.states[1, k_save+1] ≈ (1 - fraction) * u_before + fraction * u_after rtol = 1e-12
+        @test all(t -> t in accepted_times, times[2:end])
+        @test solution.times == [0.0, 0.55, 1.0]
+        for (k_save, s) in enumerate([0.55, 1.0])
+            upto = findfirst(==(s), accepted_times)
+            states = foldl((u, h) -> _decay_step(u, k, h), diff([0.0; accepted_times[1:upto]]); init=1.0)
+            @test solution.states[1, k_save+1] ≈ states rtol = 1e-12
         end
+        @test_throws ArgumentError integrate(system, [1.0], times; save_times=[0.0, 0.4, 1.0], stepper)
     end
 
     @testset "tolerances per unknown" begin
@@ -184,7 +181,7 @@ end
     @testset "record and resume" begin
         k, h0 = 3.0, 0.05
         system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k))
-        times = [0.0, 1.0]
+        times = [0.0, 0.5, 1.0]            # the save times are time points
         save_times = [0.0, 0.5, 1.0]
         stepper = StepDoubling(initial_step=h0, relative_tolerance=1e-2, check_every=1)
         whole = integrate(system, [1.0], times; save_times, stepper)

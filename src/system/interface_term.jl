@@ -18,7 +18,9 @@ cells, and both are computed from the same numbers, so no particle is lost or cr
 the interface.
 
 `lower_term` is the Fokker-Planck term of `lower` ([`FokkerPlanckTerm`](@ref) or
-[`PrescribedFokkerPlanckTerm`](@ref)), or its operator. The flux takes the coefficients
+[`PrescribedFokkerPlanckTerm`](@ref)), or its operator. A prescribed term is passed as the
+term: a system refuses the bare operator of a prescribed term of the system, whose
+coefficients belong to the time of its last rebuild. The flux takes the coefficients
 `Aᵖ` and `Dᵖᵖ` of that operator at its last p face, as DREAM's
 `PXiExternalKineticKinetic` does, and the two operators add no flux of their own through
 the face: the lower one has `p_upper_boundary = :interface`, `upper_operator` has
@@ -76,6 +78,10 @@ _electric_field_of(::AdvectionDiffusion) = nothing
 _electric_field_of(term::FokkerPlanckTerm) = term.electric_field
 _electric_field_of(term::PrescribedFokkerPlanckTerm) = term.inner.electric_field
 _electric_field_of(term::MomentumInterfaceTerm) = _electric_field_of(term.lower_term)
+
+# the terms or operators whose coefficients a term reads besides its own
+_coefficient_sources(term) = ()
+_coefficient_sources(term::MomentumInterfaceTerm) = (term.lower_term,)
 
 # the operator with its coefficients at the time t
 _operator_at(source, t) = _operator_of(source)

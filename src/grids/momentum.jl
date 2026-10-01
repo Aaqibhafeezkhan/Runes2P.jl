@@ -32,8 +32,37 @@ function MomentumGrid(p_faces::AbstractVector{T}, xi_faces::AbstractVector{T}) w
     return MomentumGrid{T}(p_centers, p_faces, diff(p_faces), xi_centers, xi_faces, diff(xi_faces))
 end
 
+"""
+    momentum_cell_count(grid::MomentumGrid)
+    momentum_cell_count(grid::KineticGrid, ir)
+    momentum_cell_count(grid::KineticGrid)
+
+Number of cells in `p`: of a [`MomentumGrid`](@ref), or of the momentum grid of a
+[`KineticGrid`](@ref) at radius `ir`. Without `ir`, the cell counts must be the same at all
+radii, and an `ArgumentError` is thrown otherwise.
+"""
 momentum_cell_count(grid::MomentumGrid) = length(grid.p_centers)
+
+"""
+    pitch_cell_count(grid::MomentumGrid)
+    pitch_cell_count(grid::KineticGrid, ir)
+    pitch_cell_count(grid::KineticGrid)
+
+Number of cells in `ξ`: of a [`MomentumGrid`](@ref), or of the momentum grid of a
+[`KineticGrid`](@ref) at radius `ir`. Without `ir`, the cell counts must be the same at all
+radii, and an `ArgumentError` is thrown otherwise.
+"""
 pitch_cell_count(grid::MomentumGrid) = length(grid.xi_centers)
+
+"""
+    cell_count(grid::MomentumGrid)
+    cell_count(grid::KineticGrid, ir)
+    cell_count(grid::KineticGrid)
+
+Number of `(p, ξ)` cells: of a [`MomentumGrid`](@ref), or of the momentum grid of a
+[`KineticGrid`](@ref) at radius `ir`. Without `ir`, the sum over all radii, which is the
+length of a distribution of the kinetic grid.
+"""
 cell_count(grid::MomentumGrid) = momentum_cell_count(grid) * pitch_cell_count(grid)
 
 """

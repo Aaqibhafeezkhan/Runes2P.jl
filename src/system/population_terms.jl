@@ -187,6 +187,7 @@ struct MomentumBoundaryFluxTerm{S} <: EquationTerm
     weight::Symbol
     coefficient::Float64
 end
+_coefficient_sources(term::MomentumBoundaryFluxTerm) = (term.source,)
 function MomentumBoundaryFluxTerm(kinetic::Symbol, source; weight::Symbol=:density, coefficient::Real=1.0)
     source isa Union{AdvectionDiffusion,FokkerPlanckTerm,PrescribedFokkerPlanckTerm} ||
         throw(ArgumentError("the source of the flux is a Fokker-Planck term or an AdvectionDiffusion operator"))

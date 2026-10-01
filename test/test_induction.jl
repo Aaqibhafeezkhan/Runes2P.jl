@@ -245,5 +245,15 @@ rows_of(layout, name) = [only(unknown_range(layout, unknown_id(layout, name), ir
         @test final[only(unknown_range(layout, unknown_id(layout, :wall_poloidal_flux)))] ≈ loop_voltage * 1e-3 rtol = 1e-12
         @test radial_values(final, layout, unknown_id(layout, :poloidal_flux)) ≈ fill(loop_voltage * 1e-3, 8) rtol = 1e-10
         @test radial_values(final, layout, unknown_id(layout, :electric_field)) ≈ fill(loop_voltage / 2π, 8) rtol = 1e-9
+        # a loop voltage that rises in time: backward Euler takes the voltage at
+        # the end of each step, so the flux at the wall is Σ V(t_k) Δt
+        rising(t) = 0.3 + 200 * t
+        ramp = EquationSystem(layout, vcat(induction_equations(rad; wall_radius=0.7, loop_voltage_at_wall=rising),
+                                           [no_current]))
+        solution = integrate(ramp, zeros(length(layout)), times)
+        wall = [only(view(solution.states, unknown_range(layout, unknown_id(layout, :wall_poloidal_flux)), k))
+                for k in eachindex(times)]
+        @test wall ≈ cumsum(vcat(0.0, rising.(times[2:end]) .* diff(times))) rtol = 1e-12
+        @test wall[end] > loop_voltage * 1e-3
     end
 end

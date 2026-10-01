@@ -17,7 +17,12 @@ holds it) is `C`, and `∂L/∂E` the derivative of the operator with the field 
 at zero field, by dual numbers ([`apply!`](@ref)`(...; electric_field)`). Per radius the
 two bordered systems
 
-    [C  g; wᵀ 0] [f₀; λ₀] = [0; n],        [C  g; wᵀ 0] [f₁; λ₁] = [−(∂L/∂E) f₀; 0]
+```math
+\\begin{pmatrix} C & g \\\\ w^\\mathsf{T} & 0 \\end{pmatrix} \\begin{pmatrix} f_0 \\\\ \\lambda_0 \\end{pmatrix}
+    = \\begin{pmatrix} 0 \\\\ n \\end{pmatrix}, \\qquad
+\\begin{pmatrix} C & g \\\\ w^\\mathsf{T} & 0 \\end{pmatrix} \\begin{pmatrix} f_1 \\\\ \\lambda_1 \\end{pmatrix}
+    = \\begin{pmatrix} -(\\partial L / \\partial E) f_0 \\\\ 0 \\end{pmatrix}
+```
 
 give the equilibrium `f₀` of the discrete operator with the density `n` and the response
 `f₁` without a change of the density, with `w` the density weights of the cells and `g` a

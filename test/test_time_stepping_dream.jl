@@ -181,7 +181,10 @@ end
                 # beyond the stretch, so that no ceiling cuts a step inside it.
                 common = 23
                 stepper = StepDoubling(initial_step=dt0, relative_tolerance=reltol_step, check_every=check_every)
-                solution = integrate(system, u0, [0.0, 1.5 * t_dream[common]]; stepper, save_times=t_dream[1:common])
+                # the run is free of ceilings inside the stretch (every saved state is a computed
+                # one, so the states at DREAM's times come from the second run below)
+                solution = integrate(system, u0, [0.0, 1.5 * t_dream[common]]; stepper,
+                                     save_times=[1.5 * t_dream[common]])
                 stats = solution.statistics
                 accepted = stats.time[stats.accepted]
                 # the same accepted steps, the same rejections with the same errors
@@ -194,14 +197,20 @@ end
                 @test stats.accepted[checked[1:common]] == (logged[1:common] .<= 1)
                 @test all(==(2), stats.newton_iterations)
                 @test count(==(:half_step), stats.kind) == 2 * length(checked)
-                # the moments DREAM checks at every accepted time (the first column holds
-                # the initial guess of the algebraic unknowns, not their solution)
-                @test solution.times == t_dream[1:common]
-                n_hot = [only(unknown_view(solution.states[:, m], layout, :hot_electron_density, ir))
+                # the moments DREAM checks at every accepted time, from a run whose time points
+                # are DREAM's accepted times: its steps are the accepted ones of the run above,
+                # and the ceilings hold the attempts DREAM rejected to the accepted length, so
+                # the states are computed at those times (the first column holds the initial
+                # guess of the algebraic unknowns, not their solution)
+                @test t_dream[1] == 0
+                at_points = integrate(system, u0, t_dream[1:common]; stepper)
+                @test at_points.times == t_dream[1:common]
+                @test all(at_points.statistics.accepted[at_points.statistics.kind .== :step])
+                n_hot = [only(unknown_view(at_points.states[:, m], layout, :hot_electron_density, ir))
                          for ir in 1:nr, m in 2:common]
-                j_hot = [only(unknown_view(solution.states[:, m], layout, :hot_electron_current_density, ir))
+                j_hot = [only(unknown_view(at_points.states[:, m], layout, :hot_electron_current_density, ir))
                          for ir in 1:nr, m in 2:common]
-                n_re = [only(unknown_view(solution.states[:, m], layout, :runaway_density, ir))
+                n_re = [only(unknown_view(at_points.states[:, m], layout, :runaway_density, ir))
                         for ir in 1:nr, m in 2:common]
                 @test n_hot ≈ n_hot_dream[:, 2:common] rtol = 1e-8
                 @test j_hot ≈ j_hot_dream[:, 2:common] rtol = 1e-6              # the drift of the times, 1e-6, on its slope

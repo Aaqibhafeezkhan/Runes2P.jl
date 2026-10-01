@@ -198,17 +198,32 @@ momentum_grid(grid::KineticGrid) = (_require_shared(grid); first(grid.momentum_g
 
 """
     phase_space_jacobian(grid, ir)
-    phase_space_jacobian_p_faces(grid, ir)
-    phase_space_jacobian_xi_faces(grid, ir)
-    phase_space_jacobian_over_p2_at_zero(grid, ir)
 
-Phase-space Jacobian `𝒱'` at radius index `ir`: at cell centres `(p cells, ξ cells)`, on
-the p faces `(p cells + 1, ξ cells)`, on the ξ faces `(p cells, ξ cells + 1)`, and the limit
-`𝒱'/p²` at `p = 0` for each ξ cell.
+Phase-space Jacobian `𝒱'` at radius index `ir`, at the cell centres, `(p cells, ξ cells)`.
+See also [`phase_space_jacobian_p_faces`](@ref), [`phase_space_jacobian_xi_faces`](@ref),
+[`phase_space_jacobian_r_faces`](@ref) and [`phase_space_jacobian_over_p2_at_zero`](@ref).
 """
 phase_space_jacobian(grid::KineticGrid, ir::Integer) = grid.jacobian_centers[ir]
+
+"""
+    phase_space_jacobian_p_faces(grid, ir)
+
+Phase-space Jacobian `𝒱'` at radius index `ir` on the p faces, `(p cells + 1, ξ cells)`.
+"""
 phase_space_jacobian_p_faces(grid::KineticGrid, ir::Integer) = grid.jacobian_p_faces[ir]
+
+"""
+    phase_space_jacobian_xi_faces(grid, ir)
+
+Phase-space Jacobian `𝒱'` at radius index `ir` on the ξ faces, `(p cells, ξ cells + 1)`.
+"""
 phase_space_jacobian_xi_faces(grid::KineticGrid, ir::Integer) = grid.jacobian_xi_faces[ir]
+
+"""
+    phase_space_jacobian_over_p2_at_zero(grid, ir)
+
+Limit of ``\\mathcal{V}'/p^2`` at `p = 0` for each ξ cell at radius index `ir`.
+"""
 phase_space_jacobian_over_p2_at_zero(grid::KineticGrid, ir::Integer) = grid.jacobian_over_p2_at_zero[ir]
 
 """

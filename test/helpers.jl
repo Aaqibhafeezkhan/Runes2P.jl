@@ -140,7 +140,7 @@ function _checkpoint_case(; treatment=:explicit, with_density=true)
         with_density && (unknown_view(u0, layout, :hot_density, ir) .= density(grid, f0)[ir])
     end
     times = [0.0, 1e-4, 2e-4, 3e-4, 4e-4, 5e-4, 6e-4, 7e-4, 8e-4]
-    save_times = [0.0, 1.5e-4, 2e-4, 4e-4, 4.5e-4, 7e-4, 8e-4]   # at time points and between them
+    save_times = [0.0, 2e-4, 4e-4, 5e-4, 7e-4, 8e-4]   # time points, every saved state is a computed one
     update() = KnockOnCutoffUpdate(knockon, plasma_at)
     return (; grid, mom, system, layout, u0, times, save_times, plasma_at, knockon, update)
 end

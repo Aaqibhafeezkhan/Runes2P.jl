@@ -9,32 +9,41 @@ using SparseMatrixColorings: column_groups
 """
     TimeDerivative()
     TimeDerivative(of)
-    Algebraic()
-    Constraint()
 
-Kinds of [`Equation`](@ref): `du/dt = Σ terms` or `0 = Σ terms`. `TimeDerivative(of)`
-puts the time derivative of another unknown into the row, `d(of)/dt = Σ terms`, for an
-unknown `of` of the same kind and sizes as the unknown of the equation.
-Faraday's law is of this form: the equation of the electric field is
-`dψ/dt = 2π E`, with the poloidal flux as `of`, and the equation of the flux is Ampère's
-law, which is algebraic. Every algebraic row then holds its own unknown. The unknown of
-an equation with the derivative of another unknown must appear in the terms of that
-equation.
-
-`Algebraic()` is an equation `0 = Σ terms` that holds its unknown. `Constraint()` is one
-that does not: the unknown is fixed through the equations of other unknowns, which hold
-it. The magnitude of the particle source is of this kind: its equation is the density that
-the distribution has to keep, `0 = n(f) − n_cold − n_hot`, and the magnitude stands in the
-kinetic equation (DREAM's `S_particle`). The system then has the index 2
-in that unknown, which backward Euler solves, and the diagonal entry of the row in the
-Jacobian is zero. A constraint names the scale of the quantity it balances
-(`Equation(...; scale)`): its unknown is a rate, whose scale does not fit the row.
+Kind of [`Equation`](@ref) `du/dt = Σ terms`. The other kinds are [`Algebraic`](@ref) and
+[`Constraint`](@ref). `TimeDerivative(of)` puts the time derivative of another unknown into
+the row, `d(of)/dt = Σ terms`, for an unknown `of` of the same kind and sizes as the
+unknown of the equation. Faraday's law is of this form: the equation of
+the electric field is `dψ/dt = 2π E`, with the poloidal flux as `of`, and the equation of
+the flux is Ampère's law, which is algebraic. Every algebraic row then holds its own
+unknown. The unknown of an equation with the derivative of another unknown must appear in
+the terms of that equation.
 """
 struct TimeDerivative
     of::Union{Nothing,Symbol}
 end
 TimeDerivative() = TimeDerivative(nothing)
+
+"""
+    Algebraic()
+
+Kind of [`Equation`](@ref) `0 = Σ terms` that holds its unknown. See also
+[`TimeDerivative`](@ref) and [`Constraint`](@ref).
+"""
 struct Algebraic end
+
+"""
+    Constraint()
+
+Kind of [`Equation`](@ref) `0 = Σ terms` that does not hold its unknown: the unknown is
+fixed through the equations of other unknowns, which hold it. The magnitude of the particle
+source is of this kind: its equation is the density that the distribution has to keep,
+`0 = n(f) − n_cold − n_hot`, and the magnitude stands in the kinetic equation (DREAM's
+`S_particle`). The system then has the index 2 in that unknown, which backward Euler
+solves, and the diagonal entry of the row in the Jacobian is zero. A constraint names
+the scale of the quantity it balances (`Equation(...; scale)`): its unknown is a rate, whose
+scale does not fit the row.
+"""
 struct Constraint end
 
 """
@@ -197,6 +206,7 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
     isempty(missing_equations) || throw(ArgumentError("no equation for $(join(missing_equations, ", "))"))
 
     _check_conductivity_correction(equations)
+    _check_prescribed_operators(equations)
     sparse_terms, matrix_free_terms, explicit_terms = BoundTerm[], BoundTerm[], BoundTerm[]
     mass = zeros(T, length(layout))
     mass_columns = collect(1:length(layout))
@@ -410,12 +420,17 @@ end
 
 """
     jacobian_sparsity(system)
-    jacobian_prototype(system)
 
-Structural pattern of the stored Jacobian (the diagonal and the implicit `:sparse` terms),
-and a sparse matrix with that structure, to be filled by [`jacobian!`](@ref).
+Structural pattern of the stored Jacobian: the diagonal and the implicit `:sparse` terms.
 """
 jacobian_sparsity(system::EquationSystem) = system.pattern
+
+"""
+    jacobian_prototype(system)
+
+A new sparse matrix with the structure of [`jacobian_sparsity`](@ref), to be filled by
+[`jacobian!`](@ref).
+"""
 jacobian_prototype(system::EquationSystem) = copy(system.prototype)
 
 """
@@ -517,3 +532,19 @@ SciML `ODEFunction` of the system, for OrdinaryDiffEq and NonlinearSolve. Define
 package extension `Runes2PSciMLBaseExt`, which loads with SciMLBase (`using SciMLBase`).
 """
 function ode_function end
+
+# A bare operator that a PrescribedFokkerPlanckTerm owns holds the coefficients of the last
+# rebuild of that term, which belong to another time when an interface or a boundary flux
+# reads them before the term is evaluated at the new time. Such a term takes the prescribed
+# term, which rebuilds at the time of the evaluation.
+function _check_prescribed_operators(equations)
+    prescribed = [term for equation in equations for term in equation.terms if term isa PrescribedFokkerPlanckTerm]
+    isempty(prescribed) && return nothing
+    for equation in equations, term in equation.terms, source in _coefficient_sources(term)
+        source isa AdvectionDiffusion && any(p -> p.inner.operator === source, prescribed) &&
+            throw(ArgumentError("a $(nameof(typeof(term))) of $(equation.unknown) reads the bare operator of a " *
+                                "PrescribedFokkerPlanckTerm, whose coefficients belong to the time of its last " *
+                                "rebuild: give it the prescribed term in place of its operator"))
+    end
+    return nothing
+end

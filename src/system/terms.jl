@@ -43,9 +43,57 @@ calls.
 """
 abstract type EquationTerm end
 
+"""
+    dependencies(term)
+
+Names of the unknowns that the [`EquationTerm`](@ref) `term` reads, as a collection of
+`Symbol`s. Every term defines it.
+"""
 function dependencies end
+
+"""
+    coupling(term)
+
+`:sparse` (default) when the Jacobian block of the [`EquationTerm`](@ref) `term` is
+stored, with its structural nonzeros listed by [`sparsity!`](@ref). `:matrix_free` when it
+is applied through [`jacobian_vector_product!`](@ref), as for the knock-on term, whose
+block is dense per radius.
+"""
 coupling(::EquationTerm) = :sparse
+
+"""
+    treatment(term)
+
+`:implicit` (default) or `:explicit`. An explicit [`EquationTerm`](@ref) is evaluated at
+the previous time level and contributes nothing to the Jacobian.
+"""
 treatment(::EquationTerm) = :implicit
+
+"""
+    rhs!(out, term, u, layout, row, t)
+
+Add the [`EquationTerm`](@ref) `term` to `out` in the rows of the unknown with id `row`,
+as a pure function of the state `u` and the time `t`. A `:sparse` term (see
+[`coupling`](@ref)) must accept state vectors of dual numbers, since its Jacobian comes
+from automatic differentiation.
+"""
+rhs!
+
+"""
+    sparsity!(entries, term, layout, row)
+
+Push the `(row index, column index)` pairs of the structural nonzeros of the Jacobian
+block of a `:sparse` [`EquationTerm`](@ref) (see [`coupling`](@ref)) to `entries`.
+"""
+sparsity!
+
+"""
+    jacobian_vector_product!(out, term, u, v, layout, row, t)
+
+Add the product `(∂ rhs_term / ∂u) v` of a `:matrix_free` [`EquationTerm`](@ref) (see
+[`coupling`](@ref)) to `out`.
+"""
+jacobian_vector_product!
 validate(::EquationTerm, layout, row) = nothing
 # with the initial time of the system, for terms that evaluate a function of time
 validate(term::EquationTerm, layout, row, t) = validate(term, layout, row)
@@ -375,48 +423,16 @@ function sparsity!(entries, term::FokkerPlanckTerm, layout, row)
     id = unknown_id(layout, term.unknown)
     op = term.stored_operator
     np, nxi, nr = size(op.grid)
-    p_width = stencil_half_width(op.p_scheme)
-    xi_width = stencil_half_width(op.xi_scheme)
-    r_width = stencil_half_width(op.r_scheme)
+    widths = (p_width=stencil_half_width(op.p_scheme), xi_width=stencil_half_width(op.xi_scheme),
+              r_width=stencil_half_width(op.r_scheme), p_upper_boundary=op.p_upper_boundary)
     for ir in 1:nr, j in 1:nxi, i in 1:np
         r = _kinetic_index(layout, row, ir, i, j)
-        for dj in -1:1, di in -1:1
-            (1 <= i + di <= np && 1 <= j + dj <= nxi) || continue
-            push!(entries, (r, _kinetic_index(layout, id, ir, i + di, j + dj)))
-        end
-        # the second neighbours of the four-point schemes
-        for d in 2:p_width, s in (-d, d)
-            1 <= i + s <= np && push!(entries, (r, _kinetic_index(layout, id, ir, i + s, j)))
-        end
-        for d in 2:xi_width, s in (-d, d)
-            1 <= j + s <= nxi && push!(entries, (r, _kinetic_index(layout, id, ir, i, j + s)))
-        end
-        for neighbour in radial_neighbour_pitch_cells(op.grid, ir, j, -1)
-            push!(entries, (r, _kinetic_index(layout, id, ir - 1, i, neighbour)))
-        end
-        for neighbour in radial_neighbour_pitch_cells(op.grid, ir, j, 1)
-            push!(entries, (r, _kinetic_index(layout, id, ir + 1, i, neighbour)))
-        end
-        for d in 2:r_width, s in (-d, d)
-            1 <= ir + s <= nr && push!(entries, (r, _kinetic_index(layout, id, ir + s, i, j)))
+        _visit_stencil(op.grid, i, j, ir; widths...) do i2, j2, ir2
+            push!(entries, (r, _kinetic_index(layout, id, ir2, i2, j2)))
         end
         # the field of the radius acts on every cell of the radius
         term.electric_field === nothing ||
             push!(entries, (r, first(unknown_range(layout, unknown_id(layout, term.electric_field), ir))))
-        # the extrapolated p_max boundary flux couples the last row up to 3 cells in p
-        # (:extrapolated_flux's second term has no p-ξ cross contribution,
-        # :extrapolated_flux_consistent's does)
-        pub = op.p_upper_boundary
-        if pub in (:extrapolated_flux, :extrapolated_flux_consistent) && i == np
-            for d in 1:3
-                np - d >= 1 && push!(entries, (r, _kinetic_index(layout, id, ir, np - d, j)))
-            end
-            if pub === :extrapolated_flux_consistent
-                for s in (-1, 1)
-                    np >= 2 && 1 <= j + s <= nxi && push!(entries, (r, _kinetic_index(layout, id, ir, np - 2, j + s)))
-                end
-            end
-        end
     end
     return entries
 end

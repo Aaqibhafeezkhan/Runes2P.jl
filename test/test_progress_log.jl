@@ -114,7 +114,7 @@ _count(pattern, text) = length(collect(eachmatch(pattern, text)))
                        "milestones = 102 values from 0.0001 to 1, first 0.0001, last 1, on_signal = false, " *
                        "state = true", text)
         @test occursin("9 time points from t = 0 to 0.0008 s, intervals from 0.0001 to 0.0001 s", text)
-        @test occursin("7 save times, stepper FixedSteps with max_halvings = 10", text)
+        @test occursin("6 save times, stepper FixedSteps with max_halvings = 10", text)
         @test occursin("f: kinetic on grid_1, scale 1e+20, 128 entries", text)
         @test occursin("hot_density: radial, scale 1e+20, 2 entries", text)
         @test occursin("grid_1: cylindrical geometry, 2 radii from r = 0 to 1 m, 16 momentum cells from p = 0 to 1.2 " *

@@ -1,5 +1,5 @@
 using Random: Xoshiro
-using SparseArrays: nnz
+using SparseArrays: findnz, nnz
 
 @testset "sparse Jacobian" begin
     rng = Xoshiro(2)
@@ -45,6 +45,22 @@ end
     M_traced = operator_matrix(op; backend=sparse_ad_backend())
     @test M_stencil ≈ M_traced
     @test check_stencil_pattern(op)
+end
+
+@testset "one stencil for the operator and the term" begin
+    # stencil_pattern and the sparsity of FokkerPlanckTerm come from one function:
+    # the term's entries are the operator's pattern, and the pattern covers the traced one
+    mom = MomentumGrid(uniform_p_faces(6, 0.2, 2.0), uniform_xi_faces(5))
+    g = cylindrical_grid(mom, RadialGrid(uniform_r_faces(4, 1.0)))
+    layout = UnknownLayout(g.radial_grid, [KineticUnknown(:f, g)])
+    for scheme in (:central, :quick, :tcdf),
+        p_upper_boundary in (:f_zero, :extrapolated_flux, :extrapolated_flux_consistent)
+        op = AdvectionDiffusion(g; scheme, p_upper_boundary, r_boundary=:absorbing)
+        entries = Runes2P.sparsity!(Tuple{Int,Int}[], FokkerPlanckTerm(:f, op), layout, 1)
+        rows, columns, _ = findnz(stencil_pattern(op))
+        @test Set(entries) == Set(zip(rows, columns))
+        @test check_stencil_pattern(op)
+    end
 end
 
 @testset "non-local operators are refused" begin

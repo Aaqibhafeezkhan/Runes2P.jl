@@ -310,10 +310,11 @@ precedes others; Runes2P uses one set of tolerances for the acceptance and the
 next step.
 
 The first step has the length `initial_step` (`nothing`: the first interval of the time
-points). Every step ends at or before the next time point of the run; a save time
-between two steps gets the interpolation of their end states, as with [`FixedSteps`](@ref)
-(DREAM saves every accepted step and has no save times). A step shortened by a time
-point sets the next length from its own error, as a step to `tmax` does in DREAM.
+points). Every step ends at or before the next time point of the run, and a save time
+must be a time point, so that every saved state is a computed one, as with
+[`FixedSteps`](@ref) (DREAM saves computed steps only and has no save times). A step
+shortened by a time point sets the next length from its own error, as a step to `tmax`
+does in DREAM.
 """
 struct StepDoubling <: TimeStepper
     initial_step::Float64      # NaN: the first interval of the time points
@@ -461,9 +462,9 @@ function advance!(stepper::StepDoubling, state::StepDoublingState, run, options,
 end
 
 """
-    StepController(; initial_step=nothing, relative_tolerance=1e-2, max_growth=2.0, min_shrink=0.2,
+    StepController(; initial_step=nothing, relative_tolerance=1e-3, max_growth=2.0, min_shrink=0.2,
                    safety=0.9, gains=(0.35, 0.2), max_failures=5, failure_factor=0.2,
-                   max_rejections=20)
+                   max_rejections=20, tail_cut=1.0, tail_floor=1e-12)
 
 The two `gains` are the fields `gain_error` and `gain_memory` of the record.
 
@@ -504,7 +505,24 @@ times its length, at most `max_failures` times in a row.
 
 The first step has the length `initial_step` (`nothing`: the first interval of the time
 points). Every step ends at or before the next time point and the next save time, so
-every saved state is a computed one. The state of the controller (the step length, the
+every saved state is a computed one. A step cut short by a time point or a save time is
+estimated like any other, and the next length follows from the step taken (at most
+`max_growth` times it), not from the length that was planned: after a run of close save
+times the step grows back by the cap, each step under the tolerance.
+
+The cells of the hot tail of a kinetic unknown lie far below the absolute floor of the
+cell measure (`relative × scale`, 1e17 m⁻³ at a density of 1e20 m⁻³ and a tolerance of
+1e-3, against 1e15 m⁻³ in the tail), so the cells alone leave the tail uncontrolled.
+With `tail_cut` (a momentum in units of mₑc, `nothing` for none) the error of
+every kinetic unknown also holds its moments above the cut: the density and the current
+density at every radius ([`density`](@ref) and [`current_density`](@ref) with a
+[`MomentumRegion`](@ref)), each estimated by the moment of the cell estimate, over
+`absolute + relative |moment|` with the absolute tolerance `tail_floor` times the scale of
+the unknown for the density and e c times that for the current. The error of the unknown
+is the larger of the root mean square over its cells and that over its `2 nr` moments. On
+a two-grid layout the runaway unknown lies above the cut as a whole, so its moments are
+its density and current. The state of the
+controller (the step length, the
 memory of the filter, the last accepted state and its step) is in every checkpoint, and
 a resumed run repeats the uninterrupted one. A run resumed onto another layout (an
 unknown added or removed) keeps the step length and starts with a doubling, since the
@@ -522,11 +540,16 @@ struct StepController <: TimeStepper
     max_failures::Int
     failure_factor::Float64
     max_rejections::Int
+    tail_cut::Float64          # the momentum above which the tail moments are taken, NaN: none
+    tail_floor::Float64        # the absolute tolerance of the tail density, relative to the scale
 end
-function StepController(; initial_step::Union{Nothing,Real}=nothing, relative_tolerance::Real=1e-2,
+function StepController(; initial_step::Union{Nothing,Real}=nothing, relative_tolerance::Real=1e-3,
                         max_growth::Real=2.0, min_shrink::Real=0.2, safety::Real=0.9, gains=(0.35, 0.2),
-                        max_failures::Integer=5, failure_factor::Real=0.2, max_rejections::Integer=20)
+                        max_failures::Integer=5, failure_factor::Real=0.2, max_rejections::Integer=20,
+                        tail_cut::Union{Nothing,Real}=1.0, tail_floor::Real=1e-12)
     initial_step === nothing || initial_step > 0 || throw(ArgumentError("the initial step must be positive"))
+    tail_cut === nothing || tail_cut >= 0 || throw(ArgumentError("tail_cut must not be negative"))
+    tail_floor >= 0 || throw(ArgumentError("tail_floor must not be negative"))
     relative_tolerance > 0 || throw(ArgumentError("the relative tolerance must be positive"))
     max_growth > 1 || throw(ArgumentError("max_growth must exceed 1"))
     0 < min_shrink < 1 || throw(ArgumentError("min_shrink must lie in (0, 1)"))
@@ -539,7 +562,7 @@ function StepController(; initial_step::Union{Nothing,Real}=nothing, relative_to
     return StepController(initial_step === nothing ? NaN : Float64(initial_step), Float64(relative_tolerance),
                           Float64(max_growth), Float64(min_shrink), Float64(safety),
                           Float64(gains[1]), Float64(gains[2]), Int(max_failures), Float64(failure_factor),
-                          Int(max_rejections))
+                          Int(max_rejections), tail_cut === nothing ? NaN : Float64(tail_cut), Float64(tail_floor))
 end
 
 # the state of StepController: the step length, the last accepted state and its step
@@ -558,6 +581,10 @@ mutable struct StepControllerState{T}
     const half::Vector{T}             # the buffers of the doubling of the first step
     const doubled::Vector{T}
     const errors::Vector{Float64}     # per unknown, NaN before the first estimate
+    const tail_region::Union{Nothing,MomentumRegion}   # the region of the tail moments
+    const tail_buffers::Vector{Array{T,3}}             # per unknown: the grid of a kinetic one, else empty
+    const tail_errors::Vector{Float64}                 # per unknown, the error of the tail moments, NaN without
+    const tail_floor_scale::Vector{Float64}            # per unknown, the absolute tolerance of the tail density
 end
 
 function stepper_state(stepper::StepController, system::EquationSystem{T}, times, t, record::AbstractDict) where {T}
@@ -570,12 +597,18 @@ function stepper_state(stepper::StepController, system::EquationSystem{T}, times
     end
     n = length(layout)
     count = length(layout.unknowns)
+    # the tail moments of the kinetic unknowns: the region above the cut and a buffer in the
+    # shape of each kinetic unknown's grid
+    tail_region = isnan(stepper.tail_cut) ? nothing : MomentumRegion(stepper.tail_cut)
+    tail_buffers = [tail_region !== nothing && layout.kinds[id] === :kinetic ? zeros(T, size(u.grid)) : zeros(T, 0, 0, 0)
+                    for (id, u) in enumerate(layout.unknowns)]
+    tail_floor_scale = [stepper.tail_floor * u.scale for u in layout.unknowns]
     if get(record, "type", "") == "StepController"
         previous = haskey(record, "previous_state") ? Vector{T}(record["previous_state"]) : T[]
         if length(previous) == n
             return StepControllerState{T}(Float64(record["dt"]), Float64(record["previous_step"]),
                                           Float64(record["error_old"]), Int(record["failures"]), 0, previous,
-                                          absolute, relative, zeros(T, n), zeros(T, n), fill(NaN, count))
+                                          absolute, relative, zeros(T, n), zeros(T, n), fill(NaN, count), tail_region, tail_buffers, fill(NaN, count), tail_floor_scale)
         end
         # the run resumes onto another layout (an unknown added or removed): the stored
         # state of the predictor does not fit, so the controller starts with its stored
@@ -584,11 +617,11 @@ function stepper_state(stepper::StepController, system::EquationSystem{T}, times
             @warn "the layout of the run differs from the stored state of the step controller ($(length(previous)) " *
                   "entries against $n): the history of the predictor is dropped, the first step is a doubling"
         return StepControllerState{T}(Float64(record["dt"]), NaN, 1.0, 0, 0, zeros(T, n), absolute, relative,
-                                      zeros(T, n), zeros(T, n), fill(NaN, count))
+                                      zeros(T, n), zeros(T, n), fill(NaN, count), tail_region, tail_buffers, fill(NaN, count), tail_floor_scale)
     end
     dt = isnan(stepper.initial_step) ? _interval_length(times, t) : stepper.initial_step
     return StepControllerState{T}(dt, NaN, 1.0, 0, 0, zeros(T, n), absolute, relative, zeros(T, n), zeros(T, n),
-                                  fill(NaN, count))
+                                  fill(NaN, count), tail_region, tail_buffers, fill(NaN, count), tail_floor_scale)
 end
 
 function stepper_record(state::StepControllerState)
@@ -604,11 +637,14 @@ stepper_errors(state::StepControllerState) = state.errors
 
 # the error per unknown of the local error estimate `factor (a - b)`, the root mean
 # square over the entries of the unknown of the estimate over its tolerance at the
-# state `u`, and the largest of them; an unknown with zero tolerances is left out (NaN)
+# state `u`, and the largest of them; an unknown with zero tolerances is left out (NaN).
+# A kinetic unknown with the tail moments takes the larger of that and the root mean
+# square over its tail moments (`_tail_moment_error!`).
 function _controller_errors!(state::StepControllerState, layout, u, a, b, factor)
     largest = 0.0
     for id in eachindex(layout.unknowns)
         absolute, relative = state.absolute[id], state.relative[id]
+        state.tail_errors[id] = NaN
         if absolute == 0 && relative == 0
             state.errors[id] = NaN
             continue
@@ -621,11 +657,49 @@ function _controller_errors!(state::StepControllerState, layout, u, a, b, factor
             count += 1
         end
         error = count == 0 ? 0.0 : sqrt(sum_squares / count)
+        if !isempty(state.tail_buffers[id])
+            tail = _tail_moment_error!(state, layout, id, u, a, b, factor, relative)
+            state.tail_errors[id] = tail
+            error = max(error, tail)
+        end
         isfinite(error) || (error = Inf)
         state.errors[id] = error
         largest = max(largest, error)
     end
     return largest
+end
+
+# the error of the tail moments of the kinetic unknown `id`: the density and
+# the current density above the cut, at every radius, of the estimate `factor (a - b)` over
+# `absolute + relative |moment(u)|`, as one root mean square over the 2 nr entries. The
+# absolute tolerance of the density is `tail_floor` times the scale of the unknown, that
+# of the current e c times it. The cells of the tail lie far below the absolute floor of
+# the cell measure, so the moments are what controls the tail.
+function _tail_moment_error!(state::StepControllerState, layout, id, u, a, b, factor, relative)
+    grid = layout.unknowns[id].grid
+    buffer, region = state.tail_buffers[id], state.tail_region
+    for ir in 1:radial_cell_count(layout)
+        buffer[:, :, ir] .= kinetic_view(u, layout, id, ir)
+    end
+    density_u = density(grid, buffer; region)
+    current_u = current_density(grid, buffer; region)
+    for ir in 1:radial_cell_count(layout)
+        buffer[:, :, ir] .= factor .* (kinetic_view(a, layout, id, ir) .- kinetic_view(b, layout, id, ir))
+    end
+    density_e = density(grid, buffer; region)
+    current_e = current_density(grid, buffer; region)
+    floor_density = state.tail_floor_scale[id]
+    floor_current = Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT * floor_density
+    sum_squares, count = 0.0, 0
+    for ir in eachindex(density_u)
+        for (e, m, floor) in ((density_e[ir], density_u[ir], floor_density), (current_e[ir], current_u[ir], floor_current))
+            scale = floor + relative * abs(m)
+            scale == 0 && continue
+            sum_squares += (e / scale)^2
+            count += 1
+        end
+    end
+    return count == 0 ? 0.0 : sqrt(sum_squares / count)
 end
 
 function _controller_failure!(stepper::StepController, state::StepControllerState, run, options, t_next, h, result)
@@ -769,10 +843,12 @@ it fails (`max_step_halvings = n` is a shorthand for `stepper = FixedSteps(max_h
 Each step is solved by [`newton_solve!`](@ref) with explicit terms at the previous time
 level. A step that still fails throws [`TimeStepFailure`](@ref).
 
-States are saved at `save_times` (increasing, inside `[times[1], times[end]]`),
-independently of the steps (DREAM #81, #93): a save time that falls between the ends of a
-step gets the linear interpolation of its end states, the dense output of backward Euler.
-Returns a [`TimeSolution`](@ref).
+States are saved at `save_times` (increasing, inside `[times[1], times[end]]`), and every
+saved state is a computed one: with [`FixedSteps`](@ref) and [`StepDoubling`](@ref) a
+save time must be a time point (an `ArgumentError` names one that is not; DREAM saves
+computed steps only, DREAM issues #81 and #93), while [`StepController`](@ref) ends a step
+on every save time. [`time_points`](@ref) builds `times` and `save_times` from
+[`Leg`](@ref)s in one arithmetic. Returns a [`TimeSolution`](@ref).
 
 The solution carries the record of the run's settings ([`run_settings`](@ref)), taken
 before the first step and before a stored state is restored, so it describes the setup
@@ -845,6 +921,15 @@ function _check_run(system::EquationSystem, u0, times, save_times, options::RunO
     issorted(save_times) || throw(ArgumentError("save_times must be increasing"))
     all(s -> first(times) <= s <= last(times), save_times) ||
         throw(ArgumentError("save_times must lie inside [times[1], times[end]]"))
+    # every saved state is a computed one: a save time is an end of a step
+    step_ends = ceilings(options.stepper, times, save_times)
+    for s in save_times
+        s in step_ends ||
+            throw(ArgumentError("the save time $s is not a time point of the run: with " *
+                                "$(nameof(typeof(options.stepper))) every saved state is a computed one, " *
+                                "so a save time is a time point (time_points(legs) builds matching " *
+                                "times and save_times), and only StepController takes save times between them"))
+    end
     updates = _checked_updates(options.updates)
     foreach(update -> check_update(update, system), updates)
     for update in updates, t in forced_time_points(update)
@@ -1046,14 +1131,11 @@ function _run_steps!(run::RunState{T}, options::RunOptions) where {T}
                                        "$negative negative cells of the kinetic unknowns after the step to " *
                                        "t = $t_next s")
         end
+        # every save time is an end of a step (`_check_run`), so the saved state is the computed one
         while run.next_save <= length(run.save_times) && run.save_times[run.next_save] <= t_next
-            s = run.save_times[run.next_save]
-            if s == t_next
-                _save!(run, u)
-            else
-                fraction = (s - t) / h
-                _save!(run, (1 - fraction) .* u_old .+ fraction .* u)
-            end
+            run.save_times[run.next_save] == t_next ||
+                error("the save time $(run.save_times[run.next_save]) lies inside the step to $t_next")
+            _save!(run, u)
         end
         copyto!(u_old, u)
         run.t = t_next

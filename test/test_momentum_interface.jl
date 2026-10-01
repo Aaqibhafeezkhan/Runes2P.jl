@@ -219,6 +219,60 @@ end
         @test (@allocated rhs!(du, u, system, 0.0)) == 0
     end
 
+    @testset "four-point and limiter schemes below the interface ($scheme, $mapping)" for scheme in
+            (:quick, :tcdf), mapping in (:overlap, :dream)
+        # the interface flux takes upwind where the lower operator has a scheme the interface
+        # does not, and the two grids keep the particles
+        lower = random_coefficients!(AdvectionDiffusion(hot; scheme, p_upper_boundary=:interface), rng)
+        upper = random_coefficients!(AdvectionDiffusion(runaway; scheme, p_lower_boundary=:interface), rng)
+        upper.advection_p[end, :, :] .= 0   # close the outer p boundary
+        pair = two_grid_system(lower, upper; pitch_mapping=mapping)
+        @test pair.interface.scheme === :upwind
+        state = rand(rng, length(pair.layout))
+        change = zeros(length(pair.layout))
+        rhs!(change, state, pair.system, 0.0)
+        total = kinetic_content(pair.layout, :hot_tail_distribution, change) +
+                kinetic_content(pair.layout, :runaway_distribution, change)
+        scale = kinetic_content(pair.layout, :hot_tail_distribution, abs.(change)) +
+                kinetic_content(pair.layout, :runaway_distribution, abs.(change))
+        @test abs(total) < 1e-13 * scale
+        # the interface alone moves the flux through the face
+        moved = EquationSystem(pair.layout, [Equation(:hot_tail_distribution, TimeDerivative(), pair.interface),
+                                             Equation(:runaway_distribution, TimeDerivative(), pair.interface)])
+        rhs!(change, state, moved, 0.0)
+        through_face = sum(interface_flux(pair.interface, state, pair.layout, ir) * rad.spatial_jacobian[ir] *
+                           rad.r_widths[ir] for ir in 1:2)
+        @test kinetic_content(pair.layout, :runaway_distribution, change) ≈ through_face rtol = 1e-13
+    end
+
+    @testset "the bare operator of a prescribed term" begin
+        # an interface that reads the operator of a prescribed term in place of the term would
+        # take the coefficients of its last rebuild: the system refuses it, and the update of
+        # the radial transport finds a prescribed term behind an interface
+        plasma = PlasmaState(cold_electron_temperature=fill(100.0, 2), ions=[IonSpecies("D", 1, 1, fill(1e19, 2))],
+                             electric_field=zeros(2), magnetic_field=fill(5.0, 2))
+        settings = CollisionSettings(mode=:superthermal, screening=:complete)
+        prescribed = PrescribedFokkerPlanckTerm(:hot_tail_distribution,
+                                                AdvectionDiffusion(hot; p_upper_boundary=:interface), t -> plasma;
+                                                settings)
+        upper = fokker_planck_operator(runaway, plasma, settings; p_lower_boundary=:interface)
+        layout = UnknownLayout(rad, [KineticUnknown(:hot_tail_distribution, hot),
+                                     KineticUnknown(:runaway_distribution, runaway)])
+        system_with(lower_term) = EquationSystem(layout, [
+            Equation(:hot_tail_distribution, TimeDerivative(), prescribed,
+                     MomentumInterfaceTerm(:hot_tail_distribution, :runaway_distribution, lower_term, upper)),
+            Equation(:runaway_distribution, TimeDerivative(), FokkerPlanckTerm(:runaway_distribution, upper))])
+        @test_throws "bare operator" system_with(prescribed.inner.operator)
+        @test system_with(prescribed) isa EquationSystem
+        # the interface reaches the prescribed term, which is not a term of the equations here
+        behind = EquationSystem(layout, [
+            Equation(:hot_tail_distribution, TimeDerivative(),
+                     MomentumInterfaceTerm(:hot_tail_distribution, :runaway_distribution, prescribed, upper)),
+            Equation(:runaway_distribution, TimeDerivative(), FokkerPlanckTerm(:runaway_distribution, upper))])
+        update = RechesterRosenbluthUpdate(prescribed.inner.operator, t -> 1e-3; major_radius=1.0)
+        @test_throws "rebuild clears it" Runes2P.check_update(update, behind)
+    end
+
     @testset "diffusion across the interface" begin
         # a constant is steady. With the overlap the couplings between cells are
         # non-negative. DREAM's mapping interpolates the runaway values in the pitch and gives

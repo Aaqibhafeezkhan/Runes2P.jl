@@ -47,6 +47,7 @@ include("solvers/interval_updates.jl")
 include("solvers/transport_update.jl")
 include("solvers/checkpoint.jl")
 include("solvers/progress_log.jl")
+include("solvers/legs.jl")
 include("solvers/time_stepping.jl")
 
 export MomentumGrid, uniform_p_faces, biuniform_p_faces, tanh_p_faces, uniform_xi_faces
@@ -102,7 +103,7 @@ export residual!, mass_matrix, jacobian_sparsity, jacobian_prototype, jacobian_o
 export FluidSchurLU
 export LinearSolver, SparseLU, GMRES, RadiusBlockLU, RadiusBlockILU, NewtonSolver, NewtonWorkspace, NewtonResult, newton_solve!, invalidate_jacobian!
 export SolverStatistics, TimeSolution, TimeStepFailure, integrate, write_output
-export RunOptions, TimeStepper, FixedSteps, StepDoubling, StepController
+export RunOptions, TimeStepper, FixedSteps, StepDoubling, StepController, Leg, time_points
 export OUTPUT_FORMAT_VERSION, DescriptionContext, run_settings, read_settings, settings_hash, settings_fields
 export code_version, run_environment, describe_prescribed_plasma, resolved_pitch_options
 export IntervalUpdate, KnockOnCutoffUpdate, free_critical_momentum, total_critical_momentum

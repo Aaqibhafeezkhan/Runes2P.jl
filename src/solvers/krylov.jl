@@ -8,19 +8,32 @@ using IncompleteLU: ILUFactorization, ilu
 using LinearAlgebra: LinearAlgebra, mul!
 
 """
-    RadiusBlockLU()
-    RadiusBlockILU(; drop_tolerance=1e-4)
+    BlockPreconditioner
 
 Preconditioners for [`GMRES`](@ref): the scaled stored Newton matrix restricted to the
 blocks of [`radius_block_range`](@ref) (all unknowns at one radius) and
-[`scalar_block_range`](@ref), each block factorized on its own; couplings between blocks
-(radial transport, scalar unknowns) and the matrix-free terms are left out.
-`RadiusBlockLU` factorizes each block exactly (UMFPACK, symbolic analysis reused);
-`RadiusBlockILU` computes an incomplete LU factorization (Crout ILU of IncompleteLU.jl),
-which drops entries of the factors below `drop_tolerance` in magnitude.
+[`scalar_block_range`](@ref), each block factorized on its own. The subtypes are
+[`RadiusBlockLU`](@ref), [`RadiusBlockILU`](@ref) and [`FluidSchurLU`](@ref).
 """
 abstract type BlockPreconditioner end
+
+"""
+    RadiusBlockLU()
+
+[`BlockPreconditioner`](@ref) that factorizes each block exactly (UMFPACK, symbolic
+analysis reused). Couplings between blocks (radial transport, scalar unknowns) and the
+matrix-free terms are left out.
+"""
 struct RadiusBlockLU <: BlockPreconditioner end
+
+"""
+    RadiusBlockILU(; drop_tolerance=1e-4)
+
+[`BlockPreconditioner`](@ref) that computes an incomplete LU factorization of each block
+(Crout ILU of IncompleteLU.jl), which drops entries of the factors below `drop_tolerance`
+in magnitude. Couplings between blocks (radial transport, scalar unknowns) and the
+matrix-free terms are left out.
+"""
 struct RadiusBlockILU <: BlockPreconditioner
     drop_tolerance::Float64
 end

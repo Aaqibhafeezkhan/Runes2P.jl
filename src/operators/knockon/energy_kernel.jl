@@ -4,7 +4,9 @@
 Momentum part of the knock-on operator between a primary momentum grid (incident
 electrons, cells `k`) and a knock-on momentum grid (cells `i`):
 
-    rates[i, k] = β₁(p1_k) [S(p_U) - S(p_L)] / Δp_i,
+```math
+\\mathtt{rates}[i, k] = \\beta_1(p_{1,k}) \\, \\frac{S(p_U) - S(p_L)}{\\Delta p_i},
+```
 
 the Møller production rate coefficient [m³/s] averaged over knock-on cell `i` (`S_ik` of
 the DREAM notes), with `[p_L, p_U]` the part of the cell inside

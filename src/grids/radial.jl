@@ -22,6 +22,13 @@ function RadialGrid(r_faces::AbstractVector{T}) where {T<:AbstractFloat}
     return RadialGrid{T}(r_centers, r_faces, diff(r_faces), copy(r_centers), copy(r_faces))
 end
 
+"""
+    radial_cell_count(grid)
+
+Number of radial cells of a [`RadialGrid`](@ref), or of the radial grid of a
+[`KineticGrid`](@ref) or [`UnknownLayout`](@ref), or the radius count of a
+[`PlasmaState`](@ref).
+"""
 radial_cell_count(grid::RadialGrid) = length(grid.r_centers)
 
 """

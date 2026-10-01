@@ -28,7 +28,10 @@ a pair sum to `energy.rates[i, k]`, so the production is exactly the energy kern
 With `xi_star_mode = :interval` the weights come from the Møller flux
 integrated over the receiving interval against the hat functions `φ_m` of the table,
 
-    entry_weight[t] = β₁/Δp_i ∫ β(p) Σ(p, p1_k) φ_{m_t}(ξ*(p, p1_k)) dp,
+```math
+\\mathtt{entry\\_weight}[t] = \\frac{\\beta_1}{\\Delta p_i} \\int \\beta(p) \\, \\Sigma(p, p_{1,k}) \\,
+    \\varphi_{m_t}\\bigl(\\xi_*(p, p_{1,k})\\bigr) \\, \\mathrm{d}p,
+```
 
 which is the pitch kernel integrated over ξ*(p) instead of evaluated at one ξ*. With
 `:midpoint` or `:centre` a pair has the two entries of the linear interpolation at its
@@ -190,12 +193,22 @@ Knock-on source on the grid `knockon` produced by primaries on the grid `primary
 (the same grid for in-grid knock-on) colliding with stationary targets of density
 `n_tot` (the total electron density):
 
-    C[i, j, r] = n_tot[r] / 𝒱'_K[i, j, r] Σ_k S[i, k] Σ_l W[k, l, r] δ[j, l](ξ*(p_i, p1_k)),
-    W[k, l, r] = Δp_k Δξ_l 𝒱'_P[k, l, r] f[k, l, r].
+```math
+\\begin{aligned}
+C_{ijr} &= \\frac{n_{\\mathrm{tot},r}}{\\mathcal{V}'_{K,ijr}} \\sum_k S_{ik} \\sum_l W_{klr} \\,
+    \\delta_{jl}\\bigl(\\xi_*(p_i, p_{1,k})\\bigr), \\\\
+W_{klr} &= \\Delta p_k \\, \\Delta \\xi_l \\, \\mathcal{V}'_{P,klr} \\, f_{klr}.
+\\end{aligned}
+```
 
-`C` has the units of `∂f/∂t`. Its density moment is the total production rate:
-`(1/V') Σ_ij 𝒱'_ij Δp_i Δξ_j C_ij = n_tot Σ_kl (𝒱'_kl Δp_k Δξ_l f_kl / V') total_rates[k]`,
-with `total_rates` from the energy kernel. Only the ratio `𝒱'_P / 𝒱'_K` at equal radius
+`C` has the units of ``\\partial f / \\partial t``. Its density moment is the total
+production rate, with `total_rates` from the energy kernel:
+
+```math
+\\frac{1}{V'} \\sum_{ij} \\mathcal{V}'_{ij} \\Delta p_i \\Delta \\xi_j C_{ij}
+    = n_\\mathrm{tot} \\sum_{kl} \\frac{\\mathcal{V}'_{kl} \\Delta p_k \\Delta \\xi_l f_{kl}}{V'} \\, \\mathtt{total\\_rates}[k].
+```
+ Only the ratio `𝒱'_P / 𝒱'_K` at equal radius
 enters, so any constant normalization of `𝒱'` cancels (DREAM's cylindrical `Vprime` is
 `4π²` times Runes2P's).
 
@@ -323,11 +336,16 @@ end
 
 """
     energy_kernel(op::KnockOnOperator, ir=1)
-    pitch_kernel(op::KnockOnOperator, ir=1)
 
-Energy and pitch kernels used at radius index `ir`.
+The [`MollerEnergyKernel`](@ref) used at radius index `ir`.
 """
 energy_kernel(op::KnockOnOperator, ir::Integer=1) = op.kernels[ir].energy
+
+"""
+    pitch_kernel(op::KnockOnOperator, ir=1)
+
+The [`MollerPitchKernel`](@ref) used at radius index `ir`.
+"""
 pitch_kernel(op::KnockOnOperator, ir::Integer=1) = op.kernels[ir].pitch
 
 """

@@ -15,23 +15,13 @@ const CASCADE_DENSITY = 1e20
 
 cascade_temperature(t) = CASCADE_T0 * (1 + t / CASCADE_TAU)^(-CASCADE_ALPHA)
 
-# hand-set legs of an injection cascade as (duration, steps), the top-up to 1e-3 s appended
-const CASCADE_LEGS = [(1e-9, 1000), (3e-9, 1000), (7e-9, 1000), (1e-8, 1000), (1e-8, 100),
-                      (1e-7, 100), (1e-6, 100), (1e-5, 100), (1e-4, 100)]
-
-# the time points of the legs with `factor` times their steps, and the end of each leg
-function cascade_leg_times(factor=1)
-    legs = vcat(CASCADE_LEGS, [(CASCADE_T_END - sum(first.(CASCADE_LEGS)), 1000)])
-    times, ends = [0.0], Float64[]
-    for (duration, count) in legs
-        start, n = last(times), count * factor
-        for k in 1:n-1
-            push!(times, start + k * duration / n)
-        end
-        push!(times, start + duration)
-        push!(ends, start + duration)
-    end
-    return times, ends
+# hand-set legs of an injection cascade as (duration, steps) with the top-up to 1e-3 s
+# appended, one saved state at the end of each leg, with `factor` times their steps
+function cascade_legs(factor=1)
+    legs = [(1e-9, 1000), (3e-9, 1000), (7e-9, 1000), (1e-8, 1000), (1e-8, 100),
+            (1e-7, 100), (1e-6, 100), (1e-5, 100), (1e-4, 100)]
+    push!(legs, (CASCADE_T_END - sum(first.(legs)), 1000))
+    return [Leg(duration; steps=factor * steps, saves=1) for (duration, steps) in legs]
 end
 
 function cascade_case(; np=40, nxi=6)
@@ -85,16 +75,19 @@ end
 
 @testset "cascade case of the step control" begin
     case = cascade_case()
-    times, ends = cascade_leg_times()
+    times, ends = time_points(cascade_legs())      # the leg ends are the save times, with t = 0
     @test length(times) - 1 == 5500
+    @test length(ends) == 11 && ends[1] == 0.0
     @test last(ends) ≈ CASCADE_T_END
+    @test all(e -> e in times, ends)
     reference = integrate(case.system, case.u0, times; save_times=ends)
     @test all(reference.statistics.accepted)
     @test reference.times == ends
     @test all(d -> abs(d - 1) < 1e-5, cascade_densities(case, reference))
     # the time error of the legs themselves: three times their steps (measured 1.3e-3)
-    finer_times, _ = cascade_leg_times(3)
+    finer_times, finer_ends = time_points(cascade_legs(3))
     @test length(finer_times) - 1 == 16500
+    @test finer_ends == ends
     finer = integrate(case.system, case.u0, finer_times; save_times=ends)
     leg_error = maximum(cascade_differences(finer, reference))
     @test leg_error < 3e-3
@@ -105,13 +98,15 @@ end
     @test ramp_of_legs > 4000
 
     @testset "predictor controller" begin
-        # measured: 226 accepted steps, no rejection, 118 steps for the ramp, 7.2e-3 against the legs
+        # measured with the tail moments: 283 accepted steps, no
+        # rejection, 104 steps for the ramp, 7.1e-3 against the legs in the bulk; without the
+        # moments 226 steps, 118 for the ramp, 7.2e-3
         stepper = StepController(initial_step=1e-12, relative_tolerance=1e-3)
         solution = integrate(case.system, case.u0, [0.0, last(ends)]; save_times=ends, stepper)
         stats = solution.statistics
         steps = cascade_steps(stats)
         @test solution.times == ends
-        @test length(steps.accepted) <= 300
+        @test length(steps.accepted) <= 350
         @test steps.rejected <= 5
         @test steps.half == 2                               # the doubling of the first step
         h = stats.time_step[steps.accepted]
@@ -126,19 +121,28 @@ end
         @test maximum(differences) < 2e-2
         @test maximum(differences) > leg_error                # the controller's error, not the legs'
         @test all(d -> abs(d - 1) < 1e-5, cascade_densities(case, solution))
-        # the hot tail: the density above p = 0.3 within 7.5e-3 of the legs, the one
-        # above p = 1 (6.9e-4 n at 1 ms) within 6.9e-5 during the cascade and 4.3e-2 at 1 ms. The
-        # floor of the error measure, 1e17 m⁻³, lies 50 times above f there, so those cells are
-        # not controlled at the late, long steps.
+        # the hot tail: the floor of the cell measure, 1e17 m⁻³, lies 50 times above f beyond
+        # p = 1, so the cells alone left the tail uncontrolled at the late, long steps, 4.3e-2
+        # of the legs' density above p = 1 at 1 ms. With the tail moments in the
+        # error, the late steps follow the tail and the difference halves, 2.2e-2;
+        # backward Euler accumulates its one-signed local errors over the
+        # steps, so a few 1e-3 would need a tolerance near 1e-5 or a second-order stepper.
         @test maximum(abs, cascade_tail_differences(case, solution, reference, 0.3)) < 2e-2
         tail = cascade_tail_differences(case, solution, reference, 1.0)
-        @test maximum(abs, tail[1:8]) < 1e-3                 # the save times up to 1.1e-5 s
-        @test maximum(abs, tail) < 1e-1
+        @test maximum(abs, tail[ends .<= 1.2e-5]) < 1e-3     # the save times up to 1.1e-5 s
+        @test maximum(abs, tail) < 4e-2
+        without = integrate(case.system, case.u0, [0.0, last(ends)]; save_times=ends,
+                            stepper=StepController(initial_step=1e-12, relative_tolerance=1e-3, tail_cut=nothing))
+        tail_without = cascade_tail_differences(case, without, reference, 1.0)
+        @test 3e-2 < maximum(abs, tail_without) < 1e-1
+        @test maximum(abs, tail) < 0.7 * maximum(abs, tail_without)
+        @test length(cascade_steps(without.statistics).accepted) < length(steps.accepted)
 
-        # the default tolerance: half the steps, twice the difference (measured 107 steps, 54 for
-        # the ramp, 1.6e-2 against the legs)
+        # a tolerance of 1e-2, the quick first estimate of a scenario: half the steps, twice the
+        # difference (measured with the tail moments 125 steps, 53 for the ramp, 1.6e-2 against
+        # the legs in the bulk, 7.6e-2 in the density above p = 1)
         looser = integrate(case.system, case.u0, [0.0, last(ends)]; save_times=ends,
-                           stepper=StepController(initial_step=1e-12))
+                           stepper=StepController(initial_step=1e-12, relative_tolerance=1e-2))
         steps_looser = cascade_steps(looser.statistics)
         @test length(steps_looser.accepted) <= 150
         @test length(steps_looser.accepted) < length(steps.accepted)
@@ -148,10 +152,13 @@ end
 
     @testset "step doubling" begin
         # DREAM's rule has no growth cap: the first step of 1e-12 s changes f by 1e-7 of the
-        # tolerance (collisions at 15 keV are slow), and the next step is 1e-6 s. Measured: 85
-        # accepted and 13 rejected steps with 196 half steps, 2.0e-2 against the legs.
+        # tolerance (collisions at 15 keV are slow), so the next step runs to its ceiling, the
+        # first leg end at 1e-9 s, 999 times the first. Measured: 88 accepted and
+        # 13 rejected steps with 202 half steps, 44 steps for the ramp, 1.6e-2 against the legs
+        # in the bulk and 0.20 in the density above p = 1 at 1 ms.
         stepper = StepDoubling(initial_step=1e-12, relative_tolerance=1e-3)
-        solution = integrate(case.system, case.u0, [0.0, last(ends)]; save_times=ends, stepper)
+        # the save times must be time points for the doubling, so the leg ends are its ceilings
+        solution = integrate(case.system, case.u0, ends; save_times=ends, stepper)
         stats = solution.statistics
         steps = cascade_steps(stats)
         @test solution.times == ends
@@ -164,19 +171,19 @@ end
         @test all(d -> abs(d - 1) < 1e-5, cascade_densities(case, solution))
         @test maximum(abs, cascade_tail_differences(case, solution, reference, 1.0)) < 4e-1   # measured 1.9e-1
 
-        # at the default tolerance the rule jumps to steps of 1e-5 s and misses the cascade:
-        # both solves of a step relax to the same Maxwellian, so the doubling estimate stays
-        # under the tolerance while the states at the save times, interpolated across the
-        # steps, differ from the legs by up to 1.1 of the largest value (measured 16 steps).
-        default = integrate(case.system, case.u0, [0.0, last(ends)]; save_times=ends,
+        # at the default tolerance the rule steps from leg end to leg end through the cascade
+        # (its ceilings) and misses the dynamics in between: both solves of a step relax to the
+        # same Maxwellian, so the doubling estimate stays under the tolerance while the states
+        # differ from the legs by 4.9e-2 of the largest value at 1.3e-7 s, 2.3e-2 at 1 ms and
+        # 0.61 in the density above p = 1 at 1 ms (measured 31 steps, 3 rejected).
+        default = integrate(case.system, case.u0, ends; save_times=ends,
                             stepper=StepDoubling(initial_step=1e-12))
         steps_default = cascade_steps(default.statistics)
-        @test length(steps_default.accepted) < 30
+        @test length(steps_default.accepted) < 60
         @test all(default.statistics.error[steps_default.accepted] .<= 1)
-        @test maximum(cascade_differences(reference, default)) > 0.3
-        # at the final time, computed by the rule itself: 2.4e-2 of the largest value in the bulk and
-        # 6.2e-1 in the density above p = 1
-        @test cascade_differences(reference, default)[end] > 1e-2
+        differences_default = cascade_differences(reference, default)
+        @test 3e-2 < maximum(differences_default) < 1e-1
+        @test differences_default[end] > 1e-2
         @test abs(cascade_tail_differences(case, default, reference, 1.0)[end]) > 0.3
     end
 end

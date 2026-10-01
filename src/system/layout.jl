@@ -236,24 +236,27 @@ end
 
 """
     radius_block_range(layout, ir)
-    scalar_block_range(layout)
 
-Contiguous index range of all unknowns at radius index `ir`, and of all scalar unknowns.
-The per-radius preconditioner and a radial domain decomposition work on these blocks.
+Contiguous index range of all unknowns at radius index `ir`. The per-radius
+preconditioner and a radial domain decomposition work on these blocks.
 """
 radius_block_range(layout::UnknownLayout, ir::Integer) = layout.radius_blocks[ir]
+
+"""
+    scalar_block_range(layout)
+
+Contiguous index range of all scalar unknowns, the block next to those of
+[`radius_block_range`](@ref).
+"""
 scalar_block_range(layout::UnknownLayout) = layout.scalar_block
 
 """
     radial_view(u, layout, id, ir)
-    kinetic_view(u, layout, id, ir)
-    scalar_view(u, layout, id)
 
-Views into the state vector `u`: the components of a radial unknown at radius index `ir`
-(vector), a kinetic unknown at `ir` as a `(p cells, ξ cells)` matrix of the momentum grid
-there, and a scalar unknown (0-dimensional). Type-stable for a given `u`, including
-vectors of dual numbers, so terms use them in inner loops with ids from
-[`unknown_id`](@ref).
+View into the state vector `u` of the components of the radial unknown `id` at radius index
+`ir`, as a vector. Type-stable for a given `u`, including vectors of dual numbers, so terms
+use it in inner loops with ids from [`unknown_id`](@ref). See also [`kinetic_view`](@ref)
+and [`scalar_view`](@ref).
 """
 function radial_view(u::AbstractVector, layout::UnknownLayout, id::Integer, ir::Integer)
     layout.kinds[id] === :radial ||
@@ -262,6 +265,13 @@ function radial_view(u::AbstractVector, layout::UnknownLayout, id::Integer, ir::
     return view(u, offset+1:offset+layout.sizes[id, ir])
 end
 
+"""
+    kinetic_view(u, layout, id, ir)
+
+View into the state vector `u` of the kinetic unknown `id` at radius index `ir`, as a
+`(p cells, ξ cells)` matrix of the momentum grid there. Type-stable as
+[`radial_view`](@ref).
+"""
 function kinetic_view(u::AbstractVector, layout::UnknownLayout, id::Integer, ir::Integer)
     layout.kinds[id] === :kinetic ||
         throw(ArgumentError("$(layout.unknowns[id].name) is not a kinetic unknown"))
@@ -269,6 +279,12 @@ function kinetic_view(u::AbstractVector, layout::UnknownLayout, id::Integer, ir:
     return reshape(view(u, offset+1:offset+layout.sizes[id, ir]), layout.shapes[id, ir])
 end
 
+"""
+    scalar_view(u, layout, id)
+
+View into the state vector `u` of the scalar unknown `id`, 0-dimensional. Type-stable as
+[`radial_view`](@ref).
+"""
 function scalar_view(u::AbstractVector, layout::UnknownLayout, id::Integer)
     layout.kinds[id] === :scalar ||
         throw(ArgumentError("$(layout.unknowns[id].name) is not a scalar unknown"))

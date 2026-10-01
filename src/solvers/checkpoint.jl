@@ -148,15 +148,21 @@ end
 
 """
     write_checkpoint(settings::CheckpointSettings, stored::StoredState)
+
+Write a checkpoint ([`write_atomically`](@ref), keeping the previous one). Defined by the
+package extension `Runes2PHDF5Ext`, which loads with HDF5. See also [`read_checkpoint`](@ref).
+"""
+function write_checkpoint end
+
+"""
     read_checkpoint(settings::CheckpointSettings)
     read_checkpoint(filename)
 
-Write a checkpoint ([`write_atomically`](@ref), keeping the previous one), and read one
-as a [`StoredState`](@ref). Reading with the settings falls back on the previous
-checkpoint when the last one is missing or cannot be read, and returns `nothing` when
-there is neither. Defined by the package extension `Runes2PHDF5Ext`, which loads with HDF5.
+Read a checkpoint as a [`StoredState`](@ref). Reading with the settings falls back on the
+previous checkpoint when the last one is missing or cannot be read, and returns `nothing`
+when there is neither. Defined by the package extension `Runes2PHDF5Ext`, which loads with
+HDF5.
 """
-function write_checkpoint end
 function read_checkpoint end
 
 """

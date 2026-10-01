@@ -153,16 +153,16 @@ square_root_step(u0, k, dt) = ((-k * dt + sqrt((k * dt)^2 + 4u0)) / 2)^2
         system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k); nr=2)
         u0 = [1.0, 2.0]
         times = [0.0, 0.01, 0.05, 0.06, 0.2, 0.7]
-        save_times = [0.0, 0.03, 0.06, 0.7]
+        save_times = [0.0, 0.05, 0.06, 0.7]
         solution = integrate(system, u0, times; save_times)
         exact = [u0 ./ prod(1 + k * (times[j+1] - times[j]) for j in 1:m-1; init=1.0) for m in eachindex(times)]
         @test solution.times == save_times
         @test solution.states[:, 1] == u0
+        @test solution.states[:, 2] ≈ exact[3] rtol = 1e-12
         @test solution.states[:, 3] ≈ exact[4] rtol = 1e-12
         @test solution.states[:, 4] ≈ exact[6] rtol = 1e-12
-        # between the ends of a step: linear interpolation of the end states
-        θ = (0.03 - 0.01) / (0.05 - 0.01)
-        @test solution.states[:, 2] ≈ (1 - θ) * exact[2] + θ * exact[3] rtol = 1e-12
+        # every saved state is a computed one: a save time between the time points is rejected
+        @test_throws ArgumentError integrate(system, u0, times; save_times=[0.0, 0.03, 0.7])
         stats = solution.statistics
         @test stats.time == times[2:end]
         @test stats.time_step ≈ diff(times)
@@ -209,19 +209,19 @@ square_root_step(u0, k, dt) = ((-k * dt + sqrt((k * dt)^2 + 4u0)) / 2)^2
         k = 3.0
         system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k); nr=2)
         times = [0.0, 0.01, 0.05, 0.2]
-        options = RunOptions(save_times=[0.0, 0.03, 0.2], description=Dict("name" => "options"))
+        options = RunOptions(save_times=[0.0, 0.05, 0.2], description=Dict("name" => "options"))
         by_record = integrate(system, [1.0, 2.0], times, options)
-        by_keywords = integrate(system, [1.0, 2.0], times; save_times=[0.0, 0.03, 0.2],
+        by_keywords = integrate(system, [1.0, 2.0], times; save_times=[0.0, 0.05, 0.2],
                                 description=Dict("name" => "options"))
         @test by_record.states == by_keywords.states
-        @test by_record.times == by_keywords.times == [0.0, 0.03, 0.2]
+        @test by_record.times == by_keywords.times == [0.0, 0.05, 0.2]
         @test by_record.settings["setup_hash"] == by_keywords.settings["setup_hash"]
         @test by_record.settings["time"]["stepper"] == Dict{String,Any}("type" => "FixedSteps", "max_halvings" => 10)
         @test by_record.settings["segment"]["steps"] == 3
         # `environment` carries the start time, which differs when the two calls straddle a second
         without_environment(record) = filter(pair -> pair.first != "environment", record)
         record_of_options = run_settings(system, times, options)
-        record_of_keywords = run_settings(system; times, save_times=[0.0, 0.03, 0.2],
+        record_of_keywords = run_settings(system; times, save_times=[0.0, 0.05, 0.2],
                                           description=Dict("name" => "options"))
         @test without_environment(record_of_options) == without_environment(record_of_keywords)
         @test haskey(record_of_options["environment"], "start_time")

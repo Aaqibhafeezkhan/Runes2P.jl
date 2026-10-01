@@ -3,13 +3,18 @@
 
 Flux-form advection-diffusion operator on a `KineticGrid`,
 
-    ∂f/∂t = -(1/𝒱') [∂_p(𝒱' Γᵖ) + ∂_ξ(𝒱' Γᵠ) + ∂_r(𝒱' Γʳ)],
-    Γᵖ = Aᵖ f - Dᵖᵖ ∂_p f - Dᵖᵠ ∂_ξ f,
-    Γᵠ = Aᵠ f - Dᵠᵠ ∂_ξ f - Dᵠᵖ ∂_p f,
-    Γʳ = Aʳ f - Dʳʳ ∂_r f,
+```math
+\\begin{aligned}
+\\frac{\\partial f}{\\partial t} &= -\\frac{1}{\\mathcal{V}'} \\left[\\partial_p (\\mathcal{V}' \\Gamma^p)
+    + \\partial_\\xi (\\mathcal{V}' \\Gamma^\\xi) + \\partial_r (\\mathcal{V}' \\Gamma^r)\\right], \\\\
+\\Gamma^p &= A^p f - D^{pp} \\partial_p f - D^{p\\xi} \\partial_\\xi f, \\\\
+\\Gamma^\\xi &= A^\\xi f - D^{\\xi\\xi} \\partial_\\xi f - D^{\\xi p} \\partial_p f, \\\\
+\\Gamma^r &= A^r f - D^{rr} \\partial_r f,
+\\end{aligned}
+```
 
-with coefficients given on the faces of each direction (`advection_p` is Aᵖ,
-`diffusion_p_xi` is Dᵖᵠ, and so on). Particle conservation is exact up to the fluxes
+with coefficients given on the faces of each direction (`advection_p` is ``A^p``,
+`diffusion_p_xi` is ``D^{p\\xi}``, and so on). Particle conservation is exact up to the fluxes
 through the outer boundaries.
 
 The pitch grid may differ between radii, with the same cell counts and
@@ -495,6 +500,16 @@ function _radial_flux_mode(op::AdvectionDiffusion)
     return _RadialTwoPoint(_two_point_scheme(op.r_scheme))
 end
 
+# Distance over which the diffusion of the absorbing edge acts: from the centre of the last
+# cell to the edge, where f = 0, or with DREAM's edge (`:absorbing_dream`) f = 0 half a
+# cell outside it, the distance between the last two centres (1 with a single radius).
+function _r_edge_distance(op::AdvectionDiffusion)
+    rg = op.grid.radial_grid
+    nr = radial_cell_count(rg)
+    op.r_boundary === :absorbing && return rg.r_faces[nr+1] - rg.r_centers[nr]
+    return nr > 1 ? rg.r_centers[nr] - rg.r_centers[nr-1] : one(eltype(rg.r_centers))
+end
+
 # Flux Γʳ through the edge face `k = nr + 1` on the side of pitch cell `j`, multiplied by 𝒱'
 Base.@propagate_inbounds function _r_edge_flux(op::AdvectionDiffusion, f, i, j, k)
     rg = op.grid.radial_grid
@@ -506,9 +521,7 @@ Base.@propagate_inbounds function _r_edge_flux(op::AdvectionDiffusion, f, i, j, 
     A = op.advection_r[i, j, k]
     D = op.diffusion_r_r[i, j, k]
     f_left = f[i, j, nr]
-    distance = op.r_boundary === :absorbing ? rg.r_faces[k] - rg.r_centers[nr] :
-               nr > 1 ? rg.r_centers[nr] - rg.r_centers[nr-1] : one(eltype(rg.r_centers))
-    F = (A > 0 ? A * f_left : zero(T)) + D * f_left / distance
+    F = (A > 0 ? A * f_left : zero(T)) + D * f_left / _r_edge_distance(op)
     return V * F
 end
 

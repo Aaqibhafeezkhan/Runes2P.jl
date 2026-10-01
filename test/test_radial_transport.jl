@@ -316,6 +316,12 @@ distribution(layout, grid, u) = reshape(u[1:end-1], size(grid))
         @test Runes2P.update_name(run.update) == "radial_transport"
         @test forced_time_points(run.update) == [1e-3]
         @test all(isnan, Runes2P.update_state(run.update))
+        # a checkpoint before the first interval holds no levels: the restore leaves the
+        # operator without transport
+        fresh = case(history)
+        Runes2P.restore_update!(fresh.update, fill(NaN, 7))
+        @test all(isnan, Runes2P.update_state(fresh.update)) && all(iszero, fresh.radial.diffusion_r_r)
+        @test_throws DimensionMismatch Runes2P.restore_update!(fresh.update, fill(NaN, 6))
         u0 = state_of(run.layout, f0)
         @test Runes2P.apply_update!(run.update, u0, run.layout, 0.0) === true
         @test Runes2P.apply_update!(run.update, u0, run.layout, 0.5e-3) === false
@@ -520,12 +526,16 @@ distribution(layout, grid, u) = reshape(u[1:end-1], size(grid))
         @test jacobian_colors(system) <= jacobian_colors(alone) + 2 < cell_count(grid, 1)
         @test length(system.direct_terms) == 1
         @test isempty(alone.direct_terms)
-        # with DREAM's distance and with advection through the edge
-        for r_boundary in (:absorbing, :absorbing_dream, :zero_flux)
-            op = AdvectionDiffusion(grid; scheme=:upwind, r_boundary)
+        # with DREAM's distance and with advection through the edge, on one pitch grid and on
+        # pitch grids that differ between the radii
+        per_radius = cylindrical_grid([MomentumGrid(momentum.p_faces, faces)
+                                       for faces in (uniform_xi_faces(4), biuniform_theta_xi_faces(4, 2, 0.9),
+                                                     [-1.0, -0.3, 0.2, 0.7, 1.0])], grid.radial_grid)
+        for edge_grid in (grid, per_radius), r_boundary in (:absorbing, :absorbing_dream, :zero_flux)
+            op = AdvectionDiffusion(edge_grid; scheme=:upwind, r_boundary)
             op.diffusion_r_r .= rand(rng, size(op.diffusion_r_r)...)
             op.advection_r .= randn(rng, size(op.advection_r)...)
-            small = UnknownLayout(grid.radial_grid, [KineticUnknown(:f, grid), ScalarUnknown(:lost_particles)])
+            small = UnknownLayout(edge_grid.radial_grid, [KineticUnknown(:f, edge_grid), ScalarUnknown(:lost_particles)])
             budget = EquationSystem(small, [
                 Equation(:f, TimeDerivative(), FokkerPlanckTerm(:f, op)),
                 Equation(:lost_particles, TimeDerivative(), RadialEdgeLossTerm(:f, op; coefficient=2.5))])
@@ -535,7 +545,10 @@ distribution(layout, grid, u) = reshape(u[1:end-1], size(grid))
             K = jacobian_prototype(budget)
             jacobian!(K, budget, rand(rng, length(small)), 0.0)
             @test K * v ≈ dv rtol = 1e-12
-            @test dv[end] ≈ 2.5 * radial_particle_flux(op, reshape(v[1:end-1], size(grid)), 4) rtol = 1e-13
+            @test dv[end] ≈ 2.5 * radial_particle_flux(op, reshape(v[1:end-1], size(edge_grid)), 4) rtol = 1e-13
+            # what leaves the radii arrives in the lost particles
+            change = total_particles(edge_grid, reshape(dv[1:end-1], size(edge_grid)))
+            @test change + dv[end] / 2.5 ≈ 0 atol = 1e-12 * total_particles(edge_grid, abs.(reshape(dv[1:end-1], size(edge_grid))))
             @test (@allocated jacobian!(K, budget, v, 0.0)) == 0
         end
     end

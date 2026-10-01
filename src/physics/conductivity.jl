@@ -69,14 +69,18 @@ effective_charge(plasma::PlasmaState, ir::Integer) = effective_charge(plasma.ion
 
 Electric conductivity [S/m] of a relativistic plasma after Braams and Karney,
 
-    σ = 4π ε₀² T^{3/2} / (Z_eff √mₑ e² lnΛ) σ̄(T/mₑc², 1/(1 + Z_eff)),
+```math
+\\sigma = \\frac{4\\pi \\varepsilon_0^2 T^{3/2}}{Z_\\mathrm{eff} \\sqrt{m_e} \\, e^2 \\ln\\Lambda} \\,
+    \\bar\\sigma\\left(\\frac{T}{m_e c^2}, \\frac{1}{1 + Z_\\mathrm{eff}}\\right),
+```
 
 with the temperature in eV (in joules in the formula), the thermal Coulomb logarithm
 ([`thermal_coulomb_logarithm`](@ref)) at the free-electron density, and the table of
 [`normalized_conductivity`](@ref). This is DREAM's `evaluateBraamsElectricConductivity`. In
 cylindrical geometry DREAM's conductivity of Sauter and Redl equals it, since the
 neoclassical correction is 1 without trapped particles. At low temperature and high charge
-it is the Lorentz conductivity `64 √(2π) ε₀² T^{3/2} / (√mₑ e² Z lnΛ)`.
+it is the Lorentz conductivity
+``64 \\sqrt{2\\pi} \\, \\varepsilon_0^2 T^{3/2} / (\\sqrt{m_e} \\, e^2 Z \\ln\\Lambda)``.
 """
 function braams_karney_conductivity(temperature, effective_charge, free_electron_density)
     temperature > 0 || throw(DomainError(temperature, "the temperature must be positive"))

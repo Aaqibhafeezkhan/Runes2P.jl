@@ -475,26 +475,26 @@ using HDF5
         k = 4.0
         times = [0.0, 0.24, 0.26]
         system = single_unknown_system(TimeDerivative(), SquareRootDecayTerm(:x, k))
-        whole = integrate(system, [0.2], times; save_times=[0.0, 0.1, 0.24, 0.26])
+        whole = integrate(system, [0.2], times; save_times=[0.0, 0.24, 0.26])
         @test whole.statistics.time_step ≈ [0.24, 0.12, 0.12, 0.02]
         checkpoint = CheckpointSettings("halved"; directory=_checkpoint_directory(), interval=0)
         # a budget spent at once: the segment stops after its first accepted step, inside
         # the first interval
-        first_segment = integrate(system, [0.2], times; save_times=[0.0, 0.1, 0.24, 0.26], checkpoint,
+        first_segment = integrate(system, [0.2], times; save_times=[0.0, 0.24, 0.26], checkpoint,
                                   stop=StopCondition(wall_budget=1e-9, slack=0))
         @test run_status(first_segment) === :stopped
         @test first_segment.settings["segment"]["end_time"] == 0.12
         @test first_segment.settings["segment"]["steps"] == 1
-        @test first_segment.times == [0.0, 0.1]
+        @test first_segment.times == [0.0]
         stored = read_checkpoint(checkpoint)
         @test stored.time == 0.12
         @test stored.stepper == Dict{String,Any}("type" => "FixedSteps", "dt" => 0.12, "halvings" => 1)
         @test stored.summary["attempted_steps"] == 2
-        second_segment = @test_logs integrate(system, [0.2], times; save_times=[0.0, 0.1, 0.24, 0.26], checkpoint,
+        second_segment = @test_logs integrate(system, [0.2], times; save_times=[0.0, 0.24, 0.26], checkpoint,
                                               resume=true)
         @test run_status(second_segment) === :finished
         @test second_segment.times == [0.24, 0.26]
-        @test second_segment.states == whole.states[:, 3:4]
+        @test second_segment.states == whole.states[:, 2:3]
         @test second_segment.statistics.time_step == whole.statistics.time_step[3:4]
         @test second_segment.statistics.time == whole.statistics.time[3:4]
         joined = read_output(checkpoint)
@@ -505,10 +505,10 @@ using HDF5
         without = StoredState(stored.time, stored.state, stored.layout, stored.update_states, stored.settings,
                               stored.segment, stored.saved_count, stored.summary, Dict{String,Any}(), stored.source)
         @test_throws ArgumentError integrate(system, [0.2], times; resume=without)
-        at_point = StoredState(0.24, whole.states[:, 3], stored.layout, stored.update_states, stored.settings,
-                               stored.segment, 3, stored.summary, Dict{String,Any}(), stored.source)
-        last_step = @test_logs integrate(system, [0.2], times; save_times=[0.0, 0.1, 0.24, 0.26], resume=at_point)
-        @test last_step.states == whole.states[:, 4:4]
+        at_point = StoredState(0.24, whole.states[:, 2], stored.layout, stored.update_states, stored.settings,
+                               stored.segment, 2, stored.summary, Dict{String,Any}(), stored.source)
+        last_step = @test_logs integrate(system, [0.2], times; save_times=[0.0, 0.24, 0.26], resume=at_point)
+        @test last_step.states == whole.states[:, 3:3]
         @test last_step.statistics.time_step == whole.statistics.time_step[4:4]
         # a stored time outside the time points is refused
         outside = StoredState(0.5, stored.state, stored.layout, stored.update_states, stored.settings,
@@ -520,7 +520,7 @@ using HDF5
         # Many time points and few saved states, the pattern of a production run: a
         # checkpoint comes before the segment has saved anything, in a run from its start
         # and in a resumed one.
-        save_times = [3.5e-4, 8e-4]
+        save_times = [4e-4, 8e-4]
         case = _checkpoint_case()
         whole = integrate(case.system, case.u0, case.times; save_times, updates=(case.update(),))
         case = _checkpoint_case()
@@ -565,21 +565,21 @@ using HDF5
         h5open(file) do h5
             @test read(h5["update_states/knockon_cutoff"]) == whole.update_states["knockon_cutoff"]
         end
-        # the fourth saved state is at the fifth time point
-        stored = read_state(file; time_index=4)
-        @test stored.time == case.save_times[4] == case.times[5]
-        @test stored.state == whole.states[:, 4]
-        @test stored.update_states["knockon_cutoff"] == whole.update_states["knockon_cutoff"][:, 4]
-        @test stored.saved_count == 4
+        # the third saved state is at the fifth time point
+        stored = read_state(file; time_index=3)
+        @test stored.time == case.save_times[3] == case.times[5]
+        @test stored.state == whole.states[:, 3]
+        @test stored.update_states["knockon_cutoff"] == whole.update_states["knockon_cutoff"][:, 3]
+        @test stored.saved_count == 3
         @test stored.segment == 1
         case = _checkpoint_case()
         resumed = @test_logs integrate(case.system, case.u0, case.times; save_times=case.save_times,
                                        updates=(case.update(),), resume=stored)
-        @test resumed.times == case.save_times[5:end]
-        @test resumed.states == whole.states[:, 5:end]
-        @test resumed.update_states["knockon_cutoff"] == whole.update_states["knockon_cutoff"][:, 5:end]
+        @test resumed.times == case.save_times[4:end]
+        @test resumed.states == whole.states[:, 4:end]
+        @test resumed.update_states["knockon_cutoff"] == whole.update_states["knockon_cutoff"][:, 4:end]
         @test resumed.settings["segment"]["index"] == 2
-        @test resumed.settings["segment"]["saved_before"] == 4
+        @test resumed.settings["segment"]["saved_before"] == 3
         # a state from an output file has no count of the attempts before it: the join
         # of the two outputs falls back on the time and keeps every state once
         @test !haskey(resumed.settings["segment"], "attempts_before")
@@ -604,9 +604,10 @@ using HDF5
         @test done.settings["segment"]["changed_sections"] == ["time"]
         @test_throws ArgumentError read_state(file; time_index=8)
 
-        # a saved state between two time points is not a state to resume from
-        between = read_state(file; time_index=2)
-        @test between.time == 1.5e-4
+        # a stored state between two time points (none is saved, so one is built by hand) is
+        # not a state to resume from without the record of the stepper
+        between = StoredState(1.5e-4, stored.state, stored.layout, stored.update_states, stored.settings,
+                              stored.segment, stored.saved_count, stored.summary, Dict{String,Any}(), stored.source)
         @test_throws ArgumentError integrate(case.system, case.u0, case.times; resume=between)
 
         # one file read back is the solution written

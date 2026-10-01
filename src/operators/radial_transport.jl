@@ -18,7 +18,9 @@ radial_face_values(values, grid::KineticGrid) = collect(Float64, radial_values(v
 Radial diffusion of electrons along stochastic field lines (Rechester and Rosenbluth, Phys.
 Rev. Lett. 40, 38, 1978), added to `op.diffusion_r_r`:
 
-    Dʳʳ = π q R₀ (δB/B)² |v_∥|,    v_∥ = c p ξ / γ.
+```math
+D^{rr} = \\pi q R_0 \\left(\\frac{\\delta B}{B}\\right)^2 |v_\\parallel|, \\qquad v_\\parallel = \\frac{c p \\xi}{\\gamma}.
+```
 
 The form with `v_∥` and the factor π is that of Papp et al. (arXiv:1504.05074, section 2)
 and, with `q = 1`, of Berger et al. (arXiv:2208.02117, section 2), the second from the DREAM

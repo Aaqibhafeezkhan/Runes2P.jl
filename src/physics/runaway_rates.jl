@@ -39,8 +39,10 @@ critical momentum by diffusing up the electric field, for a field `electric_fiel
 an electron density `density` [m⁻³], a temperature `temperature` [eV] and an effective
 charge `effective_charge`. Zero for `E ≤ E_c`.
 
-    rate = C (n/τ_ee) (E/E_D)^(-3(1 + Z_eff) h / 16)
-           exp(-λ/(4 E/E_D) - √(η (1 + Z_eff) / (E/E_D)))
+```math
+\\mathrm{rate} = C \\frac{n}{\\tau_{ee}} \\left(\\frac{E}{E_D}\\right)^{-3 (1 + Z_\\mathrm{eff}) h / 16}
+    \\exp\\left(-\\frac{\\lambda}{4 E / E_D} - \\sqrt{\\frac{\\eta (1 + Z_\\mathrm{eff})}{E / E_D}}\\right)
+```
 
 with `E_c` from the relativistic Coulomb logarithm (complete screening) and `E_D` and
 `τ_ee` from the thermal one. `corrections = true` includes the `h`, `η` and `λ`

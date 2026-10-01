@@ -57,7 +57,7 @@ files = ["test_checkpoint.jl", "test_grids.jl", "test_newton_krylov.jl"]
 name = "quick-9"
 tier = "quick"
 # 16.0 minutes in the probe
-files = ["test_induction.jl", "test_jacobian_strategies.jl", "test_knockon_cutoff.jl", "test_knockon_implicit.jl", "test_momentum_region.jl", "test_pitch_overlap.jl", "test_settings.jl", "test_step_controller.jl", "test_step_doubling.jl"]
+files = ["test_induction.jl", "test_jacobian_strategies.jl", "test_knockon_cutoff.jl", "test_knockon_implicit.jl", "test_legs.jl", "test_momentum_region.jl", "test_pitch_overlap.jl", "test_settings.jl", "test_step_controller.jl", "test_step_doubling.jl"]
 
 [[group]]
 name = "quick-10"

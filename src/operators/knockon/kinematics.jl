@@ -33,9 +33,12 @@ end
 
 Knock-on momentum `p` with [`xi_star`](@ref)`(p, p1) = xi_s`, the inverse of `xi_star` in
 its first argument (`ξ*` grows monotonically with `p`): from
-`ξ*² = (γ₁ + 1)(γ - 1)/((γ₁ - 1)(γ + 1))`,
+``\\xi_*^2 = (\\gamma_1 + 1)(\\gamma - 1) / ((\\gamma_1 - 1)(\\gamma + 1))``,
 
-    γ - 1 = 2 ξ*² (γ₁ - 1) / (γ₁ + 1 - ξ*² (γ₁ - 1)),    p = √((γ - 1)(γ + 1)).
+```math
+\\gamma - 1 = \\frac{2 \\xi_*^2 (\\gamma_1 - 1)}{\\gamma_1 + 1 - \\xi_*^2 (\\gamma_1 - 1)}, \\qquad
+p = \\sqrt{(\\gamma - 1)(\\gamma + 1)}.
+```
 
 Used to split the receiving momentum interval of a pair at the `ξ*` values of the pitch
 table.

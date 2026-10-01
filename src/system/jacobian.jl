@@ -37,30 +37,12 @@ last two interior faces), and, for `:extrapolated_flux_consistent` only,
 diagonally to `(np - 2, j ± 1)` through its second term's p-ξ cross contribution
 (`:extrapolated_flux`'s second term has none).
 """
-function stencil_pattern(op::AdvectionDiffusion)
-    pattern = stencil_pattern(op.grid; p_width=stencil_half_width(op.p_scheme), xi_width=stencil_half_width(op.xi_scheme),
-                              r_width=stencil_half_width(op.r_scheme))
-    op.p_upper_boundary in (:extrapolated_flux, :extrapolated_flux_consistent) || return pattern
-    np, nxi, nr = size(op.grid)
-    index = LinearIndices((np, nxi, nr))
-    rows = Int[]
-    columns = Int[]
-    for ir in 1:nr, j in 1:nxi
-        for d in 1:3
-            np - d >= 1 && (push!(rows, index[np, j, ir]); push!(columns, index[np-d, j, ir]))
-        end
-        if op.p_upper_boundary === :extrapolated_flux_consistent
-            for s in (-1, 1)
-                np >= 2 && 1 <= j + s <= nxi &&
-                    (push!(rows, index[np, j, ir]); push!(columns, index[np-2, j+s, ir]))
-            end
-        end
-    end
-    extra = sparse(rows, columns, trues(length(rows)), np * nxi * nr, np * nxi * nr)
-    return pattern .| extra
-end
+stencil_pattern(op::AdvectionDiffusion) =
+    stencil_pattern(op.grid; p_width=stencil_half_width(op.p_scheme), xi_width=stencil_half_width(op.xi_scheme),
+                    r_width=stencil_half_width(op.r_scheme), p_upper_boundary=op.p_upper_boundary)
 
-function stencil_pattern(grid::KineticGrid; p_width::Integer=1, xi_width::Integer=1, r_width::Integer=1)
+function stencil_pattern(grid::KineticGrid; p_width::Integer=1, xi_width::Integer=1, r_width::Integer=1,
+                         p_upper_boundary::Symbol=:f_zero)
     np, nxi, nr = size(grid)
     index = LinearIndices((np, nxi, nr))
     rows = Int[]
@@ -69,25 +51,53 @@ function stencil_pattern(grid::KineticGrid; p_width::Integer=1, xi_width::Intege
     sizehint!(columns, 11 * np * nxi * nr)
     for ir in 1:nr, j in 1:nxi, i in 1:np
         row = index[i, j, ir]
-        for dj in -1:1, di in -1:1
-            (1 <= i + di <= np && 1 <= j + dj <= nxi) || continue
-            push!(rows, row); push!(columns, index[i+di, j+dj, ir])
-        end
-        for d in 2:p_width, s in (-d, d)
-            1 <= i + s <= np && (push!(rows, row); push!(columns, index[i+s, j, ir]))
-        end
-        for d in 2:xi_width, s in (-d, d)
-            1 <= j + s <= nxi && (push!(rows, row); push!(columns, index[i, j+s, ir]))
-        end
-        for dr in (-1, 1), neighbour in radial_neighbour_pitch_cells(grid, ir, j, dr)
-            push!(rows, row); push!(columns, index[i, neighbour, ir+dr])
-        end
-        # the second radial neighbours of the four-point schemes, which need one pitch grid
-        for d in 2:r_width, s in (-d, d)
-            1 <= ir + s <= nr && (push!(rows, row); push!(columns, index[i, j, ir+s]))
+        _visit_stencil(grid, i, j, ir; p_width, xi_width, r_width, p_upper_boundary) do i2, j2, ir2
+            push!(rows, row)
+            push!(columns, index[i2, j2, ir2])
         end
     end
-    return sparse(rows, columns, trues(length(rows)), np * nxi * nr, np * nxi * nr)
+    # the extrapolated flux repeats cells of the 3 × 3 block
+    return sparse(rows, columns, trues(length(rows)), np * nxi * nr, np * nxi * nr, |)
+end
+
+# Calls `visit(i2, j2, ir2)` for every cell that the flux divergence of cell (i, j, ir)
+# reads: the 3 × 3 block in p and ξ, the second neighbours of the four-point schemes along
+# the axes, the radial neighbours (the cells of the neighbouring radii that overlap pitch
+# cell j), the second radial neighbours of the four-point schemes, and for the extrapolated
+# flux at p_max the last row up to 3 cells in p (with the p-ξ cross term of
+# `:extrapolated_flux_consistent`). A cell may be visited twice.
+# Shared by `stencil_pattern` and the sparsity of `FokkerPlanckTerm`.
+function _visit_stencil(visit, grid::KineticGrid, i, j, ir; p_width::Integer, xi_width::Integer, r_width::Integer,
+                        p_upper_boundary::Symbol)
+    np, nxi, nr = size(grid)
+    for dj in -1:1, di in -1:1
+        (1 <= i + di <= np && 1 <= j + dj <= nxi) || continue
+        visit(i + di, j + dj, ir)
+    end
+    for d in 2:p_width, s in (-d, d)
+        1 <= i + s <= np && visit(i + s, j, ir)
+    end
+    for d in 2:xi_width, s in (-d, d)
+        1 <= j + s <= nxi && visit(i, j + s, ir)
+    end
+    for dr in (-1, 1), neighbour in radial_neighbour_pitch_cells(grid, ir, j, dr)
+        visit(i, neighbour, ir + dr)
+    end
+    # the second radial neighbours of the four-point schemes, which need one pitch grid
+    for d in 2:r_width, s in (-d, d)
+        1 <= ir + s <= nr && visit(i, j, ir + s)
+    end
+    if i == np && p_upper_boundary in (:extrapolated_flux, :extrapolated_flux_consistent)
+        for d in 1:3
+            np - d >= 1 && visit(np - d, j, ir)
+        end
+        if p_upper_boundary === :extrapolated_flux_consistent
+            for s in (-1, 1)
+                np >= 2 && 1 <= j + s <= nxi && visit(np - 2, j + s, ir)
+            end
+        end
+    end
+    return nothing
 end
 
 """
