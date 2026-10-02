@@ -276,6 +276,10 @@ end
 ConductivityTerm(electric_field::Symbol, model::ConductivityModel; coefficient::Real=1.0) =
     ConductivityTerm(electric_field, model, Float64(coefficient), Float64[], PlasmaKey(), Ref(-1))
 
+# the operator of a model of the discrete operator is read by the term:
+# a bare operator that a Fokker-Planck term with a plasma source rebuilds is refused
+_coefficient_sources(term::ConductivityTerm) = term.model.operator === nothing ? () : (term.model.operator,)
+
 # the temperature unknown of a plasma that reads unknowns: the conductivity of Braams and
 # Karney depends on the temperature, the effective charge and the free-electron density,
 # and the last two come from the ions, which are prescribed

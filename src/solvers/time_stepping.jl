@@ -173,8 +173,8 @@ describe(stepper::TimeStepper) = _describe_fields(stepper)
 ceilings(::TimeStepper, times, save_times) = collect(Float64, times)
 
 # the end of a step of the length the stepper asks for: the last step before a ceiling
-# lands exactly on it
-_step_end(t, dt, ceiling) = ceiling - t <= dt * (1 + 1e-10) ? ceiling : t + dt
+# lands exactly on it; the slack covers the rounding of t + dt
+_step_end(t, dt, ceiling) = ceiling - t <= dt * (1 + 1e-10) + 4eps(ceiling) ? ceiling : t + dt
 
 # one solve from the state `from` to the time t_next, into `to`, recorded in the
 # statistics; `to` holds the last iterate on failure
@@ -404,12 +404,14 @@ function _doubling_errors!(state::StepDoublingState, layout, full, doubled)
     return largest
 end
 
-# a failed solve of the doubling: the step length shrinks by the failure factor
-function _doubling_failure!(stepper::StepDoubling, state::StepDoublingState, run, options, t_next, h, result)
+# a failed solve of the doubling: the step length shrinks by the failure factor from the
+# step tried, `step`, which a ceiling may have cut below the planned length
+function _doubling_failure!(stepper::StepDoubling, state::StepDoublingState, run, options, t_next, h, result;
+                            step=h)
     state.failures += 1
     state.failures > stepper.max_failures &&
         _give_up(run, options, t_next, h, result, "after $(stepper.max_failures) failures in a row")
-    state.dt = stepper.failure_factor * state.dt
+    state.dt = stepper.failure_factor * min(state.dt, step)
     return _retry_after_failure(run, options, t_next, h, result,
                                 "is retried with $(stepper.failure_factor) times the time step")
 end
@@ -428,12 +430,16 @@ function advance!(stepper::StepDoubling, state::StepDoublingState, run, options,
     end
     # the two half steps, then the full step from the same state
     t_half = t + h / 2
+    # DREAM counts the failures in a row of every solve (`ValidateStep` after each converged
+    # one), so a converged half step resets the count
     result = _solve_step!(run, u_old, state.half, t_half, t_half - t; kind=:half_step)
     result.status === :converged ||
-        return _doubling_failure!(stepper, state, run, options, t_half, t_half - t, result)
+        return _doubling_failure!(stepper, state, run, options, t_half, t_half - t, result; step=h)
+    state.failures = 0
     result = _solve_step!(run, state.half, state.doubled, t_next, t_next - t_half; kind=:half_step)
     result.status === :converged ||
-        return _doubling_failure!(stepper, state, run, options, t_next, t_next - t_half, result)
+        return _doubling_failure!(stepper, state, run, options, t_next, t_next - t_half, result; step=h)
+    state.failures = 0
     copyto!(u, u_old)
     started = time_ns()
     result = newton_solve!(u, u_old, run.ws, t_next, h)
@@ -466,8 +472,6 @@ end
                    safety=0.9, gains=(0.35, 0.2), max_failures=5, failure_factor=0.2,
                    max_rejections=20, tail_cut=1.0, tail_floor=1e-12)
 
-The two `gains` are the fields `gain_error` and `gain_memory` of the record.
-
 The step controller of Runes2P: an error estimate of the backward-Euler step without an
 extra solve, tolerances per unknown with a floor, and a PI filter on the step length with a
 cap on its growth. It is the adaptive stepper of this package; DREAM's
@@ -495,13 +499,14 @@ at most 1.
 The next step follows the PI filter of Gustafsson and Söderlind (Hairer and Wanner,
 Solving ODEs II, section IV.2), for a local error of second order in the step:
 `h_new = h · safety · error^(-gains[1]) · error_old^(gains[2])`, with the factor kept
-between `min_shrink` and `max_growth`. The default gains are the elementary 0.7 and 0.4
+between `min_shrink` and `max_growth`. The two `gains` are the fields `gain_error` and
+`gain_memory` of the record. The default gains are the elementary 0.7 and 0.4
 over the order 2 (DREAM's stabiliser has them on the order 1). A rejected step is
 repeated with `h · max(min_shrink, safety · error^(-1/2))` and keeps the memory of the
 filter; more than `max_rejections` rejections in a row end the run with
 [`TimeStepFailure`](@ref) (a settings error, such as a `min_shrink` near 1 with a step
 whose error does not fall). A step whose solve fails is retried with `failure_factor`
-times its length, at most `max_failures` times in a row.
+times the length tried, at most `max_failures` times in a row.
 
 The first step has the length `initial_step` (`nothing`: the first interval of the time
 points). Every step ends at or before the next time point and the next save time, so
@@ -519,12 +524,20 @@ density at every radius ([`density`](@ref) and [`current_density`](@ref) with a
 [`MomentumRegion`](@ref)), each estimated by the moment of the cell estimate, over
 `absolute + relative |moment|` with the absolute tolerance `tail_floor` times the scale of
 the unknown for the density and e c times that for the current. The error of the unknown
-is the larger of the root mean square over its cells and that over its `2 nr` moments. On
-a two-grid layout the runaway unknown lies above the cut as a whole, so its moments are
-its density and current. The state of the
-controller (the step length, the
-memory of the filter, the last accepted state and its step) is in every checkpoint, and
-a resumed run repeats the uninterrupted one. A run resumed onto another layout (an
+is the larger of the root mean square over its cells and that over its `2 nr` moments,
+taken per radius on the momentum grid of that radius. On a two-grid layout the runaway
+unknown lies above the cut as a whole, so its moments are its density and current.
+
+The estimate assumes that every term is implicit. An explicit or lagged term contributes
+`h h_old u''/2` in place of `h² u''/2` to the difference, which the growth cap bounds to a
+factor of order 2.
+
+The state of the controller (the step length, the memory of the filter, the last accepted
+state and its step) is in every checkpoint. With a direct solver a resumed run repeats the
+uninterrupted one bit for bit. With [`GMRES`](@ref)`(preconditioner_refresh = :on_demand)`
+the factors of the preconditioner are not in the checkpoint, so the Krylov solves after a
+resume differ within the Newton tolerance, and the step lengths may differ from those of
+the uninterrupted run. A run resumed onto another layout (an
 unknown added or removed) keeps the step length and starts with a doubling, since the
 stored state of the predictor does not fit; the count of rejections in a row starts at
 zero in every segment.
@@ -582,7 +595,7 @@ mutable struct StepControllerState{T}
     const doubled::Vector{T}
     const errors::Vector{Float64}     # per unknown, NaN before the first estimate
     const tail_region::Union{Nothing,MomentumRegion}   # the region of the tail moments
-    const tail_buffers::Vector{Array{T,3}}             # per unknown: the grid of a kinetic one, else empty
+    const tail_weights::Vector{Vector{NTuple{2,Matrix{Float64}}}}   # per unknown and radius: density and current weights, empty without
     const tail_errors::Vector{Float64}                 # per unknown, the error of the tail moments, NaN without
     const tail_floor_scale::Vector{Float64}            # per unknown, the absolute tolerance of the tail density
 end
@@ -600,15 +613,15 @@ function stepper_state(stepper::StepController, system::EquationSystem{T}, times
     # the tail moments of the kinetic unknowns: the region above the cut and a buffer in the
     # shape of each kinetic unknown's grid
     tail_region = isnan(stepper.tail_cut) ? nothing : MomentumRegion(stepper.tail_cut)
-    tail_buffers = [tail_region !== nothing && layout.kinds[id] === :kinetic ? zeros(T, size(u.grid)) : zeros(T, 0, 0, 0)
-                    for (id, u) in enumerate(layout.unknowns)]
+    tail_weights = [tail_region !== nothing && layout.kinds[id] === :kinetic ? _tail_moment_weights(u.grid, tail_region) :
+                    NTuple{2,Matrix{Float64}}[] for (id, u) in enumerate(layout.unknowns)]
     tail_floor_scale = [stepper.tail_floor * u.scale for u in layout.unknowns]
     if get(record, "type", "") == "StepController"
         previous = haskey(record, "previous_state") ? Vector{T}(record["previous_state"]) : T[]
         if length(previous) == n
             return StepControllerState{T}(Float64(record["dt"]), Float64(record["previous_step"]),
                                           Float64(record["error_old"]), Int(record["failures"]), 0, previous,
-                                          absolute, relative, zeros(T, n), zeros(T, n), fill(NaN, count), tail_region, tail_buffers, fill(NaN, count), tail_floor_scale)
+                                          absolute, relative, zeros(T, n), zeros(T, n), fill(NaN, count), tail_region, tail_weights, fill(NaN, count), tail_floor_scale)
         end
         # the run resumes onto another layout (an unknown added or removed): the stored
         # state of the predictor does not fit, so the controller starts with its stored
@@ -617,11 +630,11 @@ function stepper_state(stepper::StepController, system::EquationSystem{T}, times
             @warn "the layout of the run differs from the stored state of the step controller ($(length(previous)) " *
                   "entries against $n): the history of the predictor is dropped, the first step is a doubling"
         return StepControllerState{T}(Float64(record["dt"]), NaN, 1.0, 0, 0, zeros(T, n), absolute, relative,
-                                      zeros(T, n), zeros(T, n), fill(NaN, count), tail_region, tail_buffers, fill(NaN, count), tail_floor_scale)
+                                      zeros(T, n), zeros(T, n), fill(NaN, count), tail_region, tail_weights, fill(NaN, count), tail_floor_scale)
     end
     dt = isnan(stepper.initial_step) ? _interval_length(times, t) : stepper.initial_step
     return StepControllerState{T}(dt, NaN, 1.0, 0, 0, zeros(T, n), absolute, relative, zeros(T, n), zeros(T, n),
-                                  fill(NaN, count), tail_region, tail_buffers, fill(NaN, count), tail_floor_scale)
+                                  fill(NaN, count), tail_region, tail_weights, fill(NaN, count), tail_floor_scale)
 end
 
 function stepper_record(state::StepControllerState)
@@ -657,7 +670,7 @@ function _controller_errors!(state::StepControllerState, layout, u, a, b, factor
             count += 1
         end
         error = count == 0 ? 0.0 : sqrt(sum_squares / count)
-        if !isempty(state.tail_buffers[id])
+        if !isempty(state.tail_weights[id])
             tail = _tail_moment_error!(state, layout, id, u, a, b, factor, relative)
             state.tail_errors[id] = tail
             error = max(error, tail)
@@ -676,23 +689,20 @@ end
 # of the current e c times it. The cells of the tail lie far below the absolute floor of
 # the cell measure, so the moments are what controls the tail.
 function _tail_moment_error!(state::StepControllerState, layout, id, u, a, b, factor, relative)
-    grid = layout.unknowns[id].grid
-    buffer, region = state.tail_buffers[id], state.tail_region
-    for ir in 1:radial_cell_count(layout)
-        buffer[:, :, ir] .= kinetic_view(u, layout, id, ir)
-    end
-    density_u = density(grid, buffer; region)
-    current_u = current_density(grid, buffer; region)
-    for ir in 1:radial_cell_count(layout)
-        buffer[:, :, ir] .= factor .* (kinetic_view(a, layout, id, ir) .- kinetic_view(b, layout, id, ir))
-    end
-    density_e = density(grid, buffer; region)
-    current_e = current_density(grid, buffer; region)
     floor_density = state.tail_floor_scale[id]
     floor_current = Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT * floor_density
     sum_squares, count = 0.0, 0
-    for ir in eachindex(density_u)
-        for (e, m, floor) in ((density_e[ir], density_u[ir], floor_density), (current_e[ir], current_u[ir], floor_current))
+    for (ir, (density_weights, current_weights)) in enumerate(state.tail_weights[id])
+        f, f_a, f_b = kinetic_view(u, layout, id, ir), kinetic_view(a, layout, id, ir), kinetic_view(b, layout, id, ir)
+        density_u, current_u, density_e, current_e = 0.0, 0.0, 0.0, 0.0
+        @inbounds for k in eachindex(f, f_a, f_b, density_weights, current_weights)
+            estimate = factor * (f_a[k] - f_b[k])
+            density_u += density_weights[k] * f[k]
+            current_u += current_weights[k] * f[k]
+            density_e += density_weights[k] * estimate
+            current_e += current_weights[k] * estimate
+        end
+        for (e, m, floor) in ((density_e, density_u, floor_density), (current_e, current_u, floor_current))
             scale = floor + relative * abs(m)
             scale == 0 && continue
             sum_squares += (e / scale)^2
@@ -702,11 +712,36 @@ function _tail_moment_error!(state::StepControllerState, layout, id, u, a, b, fa
     return count == 0 ? 0.0 : sqrt(sum_squares / count)
 end
 
-function _controller_failure!(stepper::StepController, state::StepControllerState, run, options, t_next, h, result)
+# the weights of the density and the current density above the cut of the region, per
+# radius on the momentum grid of that radius: the moments of `density` and
+# `current_density` as sums of weight times f, for grids whose cell counts differ between
+# the radii
+function _tail_moment_weights(grid::KineticGrid, region::MomentumRegion)
+    weights = NTuple{2,Matrix{Float64}}[]
+    for ir in 1:radial_cell_count(grid)
+        m = momentum_grid(grid, ir)
+        jacobian = phase_space_jacobian(grid, ir)
+        envelope = momentum_envelope(region, grid, ir)
+        pitch = pitch_moment_weights(m)
+        volume = grid.radial_grid.spatial_jacobian[ir]
+        density_weights = [envelope[i] * jacobian[i, j] * m.p_widths[i] * m.xi_widths[j] / volume
+                           for i in 1:momentum_cell_count(m), j in 1:pitch_cell_count(m)]
+        current_weights = [Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT * envelope[i] * jacobian[i, j] *
+                           m.p_widths[i] * m.p_centers[i] / sqrt(1 + m.p_centers[i]^2) * pitch[j] / volume
+                           for i in 1:momentum_cell_count(m), j in 1:pitch_cell_count(m)]
+        push!(weights, (density_weights, current_weights))
+    end
+    return weights
+end
+
+# a failed solve of the controller: the step length shrinks by the failure factor from the
+# step tried, `step`, which a ceiling may have cut below the planned length
+function _controller_failure!(stepper::StepController, state::StepControllerState, run, options, t_next, h, result;
+                              step=h)
     state.failures += 1
     state.failures > stepper.max_failures &&
         _give_up(run, options, t_next, h, result, "after $(stepper.max_failures) failures in a row")
-    state.dt = stepper.failure_factor * state.dt
+    state.dt = stepper.failure_factor * min(state.dt, step)
     return _retry_after_failure(run, options, t_next, h, result,
                                 "is retried with $(stepper.failure_factor) times the time step")
 end
@@ -721,10 +756,10 @@ function _controller_estimate!(stepper::StepController, state::StepControllerSta
         t_half = t + h / 2
         result = _solve_step!(run, u_old, state.half, t_half, t_half - t; kind=:half_step)
         result.status === :converged ||
-            return _controller_failure!(stepper, state, run, options, t_half, t_half - t, result)
+            return _controller_failure!(stepper, state, run, options, t_half, t_half - t, result; step=h)
         result = _solve_step!(run, state.half, state.doubled, t_next, t_next - t_half; kind=:half_step)
         result.status === :converged ||
-            return _controller_failure!(stepper, state, run, options, t_next, t_next - t_half, result)
+            return _controller_failure!(stepper, state, run, options, t_next, t_next - t_half, result; step=h)
     end
     copyto!(u, u_old)
     started = time_ns()
@@ -847,8 +882,9 @@ States are saved at `save_times` (increasing, inside `[times[1], times[end]]`), 
 saved state is a computed one: with [`FixedSteps`](@ref) and [`StepDoubling`](@ref) a
 save time must be a time point (an `ArgumentError` names one that is not; DREAM saves
 computed steps only, DREAM issues #81 and #93), while [`StepController`](@ref) ends a step
-on every save time. [`time_points`](@ref) builds `times` and `save_times` from
-[`Leg`](@ref)s in one arithmetic. Returns a [`TimeSolution`](@ref).
+on every save time. A save time within a relative 1e-12 of a time point is taken as that
+time point. [`time_points`](@ref) builds `times` and `save_times` from [`Leg`](@ref)s in
+one arithmetic. Returns a [`TimeSolution`](@ref).
 
 The solution carries the record of the run's settings ([`run_settings`](@ref)), taken
 before the first step and before a stored state is restored, so it describes the setup
@@ -1071,10 +1107,24 @@ function _write_checkpoint!(run::RunState, checkpoint::CheckpointSettings, log, 
     return nothing
 end
 
+# A save time within rounding of a time point (relative 1e-12) is that time point, so that
+# times and save times built by separate arithmetic give no step of the rounding length
+# between them
+function _snap_save_times(save_times::AbstractVector, times::AbstractVector)
+    snapped = collect(promote_type(eltype(save_times), eltype(times)), save_times)
+    for (k, s) in enumerate(snapped)
+        i = searchsortedfirst(times, s)
+        for j in (i - 1, i)
+            1 <= j <= length(times) && isapprox(times[j], s; rtol=1e-12) && (snapped[k] = times[j])
+        end
+    end
+    return snapped
+end
+
 function _integrate(system::EquationSystem{T}, u0::AbstractVector, times::AbstractVector,
                     options::RunOptions) where {T}
     layout = system.layout
-    save_times = options.save_times === nothing ? times : options.save_times
+    save_times = options.save_times === nothing ? times : _snap_save_times(options.save_times, times)
     updates = _check_run(system, u0, times, save_times, options)
     settings = run_settings(system, times, options)
     stored = _resume_state(options.resume, options.checkpoint)
@@ -1114,9 +1164,10 @@ function _run_steps!(run::RunState{T}, options::RunOptions) where {T}
     times, layout, stats = run.times, run.layout, run.stats
     u_old, u = run.u_old, run.u
     stop, log, checkpoint = options.stop, options.log, options.checkpoint
+    # the wall time of a step includes its failed and rejected attempts
+    started = time_ns()
     while run.t < last(times)
         t = run.t
-        started = time_ns()
         advanced = advance!(run.stepper, run.stepper_state, run, options, run.ceilings[run.next_ceiling])
         advanced === nothing && continue      # a failed or rejected attempt, retried by the stepper
         t_next, h = advanced
@@ -1163,6 +1214,7 @@ function _run_steps!(run::RunState{T}, options::RunOptions) where {T}
         _apply_updates!(run)
         report_progress!(log, u_old, layout, run.t, times, run.next_point - 2, stats;
                          errors=stepper_errors(run.stepper_state))
+        started = time_ns()
     end
     _update_segment!(run, "finished")
     _finish(run, log, "segment end, finished")

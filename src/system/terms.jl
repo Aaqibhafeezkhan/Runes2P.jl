@@ -264,7 +264,7 @@ struct JacobianCorrectionTag end
 
 """
     FokkerPlanckTerm(unknown, operator::AdvectionDiffusion; jacobian=:exact, electric_field=nothing,
-                     plasma=nothing, settings=CollisionSettings(), synchrotron=false,
+                     plasma=nothing, settings=nothing, synchrotron=nothing,
                      coefficients=:implicit)
 
 Advection-diffusion (Fokker-Planck) operator applied to the kinetic unknown `unknown`,
@@ -286,7 +286,9 @@ radius, which is DREAM's Jacobian of its `ElectricFieldTerm`.
 [`PlasmaSource`](@ref), a [`PlasmaState`](@ref) or a function of time that returns
 one ([`PrescribedPlasma`](@ref)). The coefficients of `operator` are rebuilt from it with
 `settings` and `synchrotron` ([`set_fokker_planck_coefficients!`](@ref)), and the scheme and
-the boundary conditions of `operator` are kept. The rebuild happens when the plasma values
+the boundary conditions of `operator` are kept. Without them the term takes those that
+built `operator` ([`fokker_planck_operator`](@ref)), and `CollisionSettings()` and no
+synchrotron loss for an operator built otherwise. The rebuild happens when the plasma values
 of any radius differ from those of the last rebuild ([`update_key!`](@ref)), not at every
 new time, and rebuilds all radii. Without `plasma` the coefficients of `operator` are
 fixed. [`PrescribedFokkerPlanckTerm`](@ref) builds such a term from a function of time.
@@ -351,10 +353,15 @@ const LINEAR_JACOBIAN_SCHEMES = (:upwind, :central, :exponential_fitting, :quick
 
 function FokkerPlanckTerm(unknown::Symbol, operator::AdvectionDiffusion{T}; jacobian::Symbol=:exact,
                           electric_field::Union{Nothing,Symbol}=nothing, plasma=nothing,
-                          settings::CollisionSettings=CollisionSettings(), synchrotron::Bool=false,
+                          settings::Union{Nothing,CollisionSettings}=nothing, synchrotron::Union{Nothing,Bool}=nothing,
                           coefficients::Symbol=:implicit) where {T}
     coefficients in (:implicit, :lagged) ||
         throw(ArgumentError("coefficients must be :implicit or :lagged, not $coefficients"))
+    # the settings that built the operator, before the field branch below forgets them: a
+    # rebuild with other settings would change the coefficients at the first refresh
+    built = operator.coefficient_source[]
+    settings === nothing && (settings = built === nothing ? CollisionSettings() : built.settings)
+    synchrotron === nothing && (synchrotron = built === nothing ? false : built.synchrotron)
     plasma_from = plasma === nothing ? nothing : plasma_source(plasma)
     # the rebuild of the coefficients leaves the field out when it is an unknown
     plasma_from !== nothing && electric_field !== nothing && (operator.coefficient_source[] = nothing)
@@ -654,7 +661,7 @@ end
 
 """
     PrescribedFokkerPlanckTerm(unknown, operator::AdvectionDiffusion, plasma_at;
-                               settings=CollisionSettings(), synchrotron=false, jacobian=:exact,
+                               settings=nothing, synchrotron=nothing, jacobian=:exact,
                                electric_field=nothing)
 
 A [`FokkerPlanckTerm`](@ref) whose collision coefficients follow a plasma prescribed in time
@@ -667,7 +674,7 @@ With `electric_field`, the name of the unknown of the field, the field of the pr
 plasma is left out of the coefficients, and the term takes the field of the state.
 """
 PrescribedFokkerPlanckTerm(unknown::Symbol, operator::AdvectionDiffusion, plasma_at;
-                           settings::CollisionSettings=CollisionSettings(), synchrotron::Bool=false,
+                           settings::Union{Nothing,CollisionSettings}=nothing, synchrotron::Union{Nothing,Bool}=nothing,
                            jacobian::Symbol=:exact, electric_field::Union{Nothing,Symbol}=nothing) =
     FokkerPlanckTerm(unknown, operator; jacobian, electric_field, plasma=PrescribedPlasma(plasma_at), settings,
                      synchrotron)

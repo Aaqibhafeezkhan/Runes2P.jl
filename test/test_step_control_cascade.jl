@@ -66,7 +66,7 @@ function cascade_tail_differences(case, solution, reference, p_cut)
 end
 
 # the growth ratios of consecutive accepted steps, without the steps that landed on a
-# ceiling, after which the controller resumes its planned length
+# ceiling, after which the controller plans the next length from the step taken
 function cascade_growth_ratios(statistics, accepted, ends)
     h, t = statistics.time_step[accepted], statistics.time[accepted]
     on_ceiling = [any(e -> abs(s - e) <= 1e-9 * e, ends) for s in t]

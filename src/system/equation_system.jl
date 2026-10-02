@@ -572,17 +572,44 @@ package extension `Runes2PSciMLBaseExt`, which loads with SciMLBase (`using SciM
 function ode_function end
 
 # A bare operator that a FokkerPlanckTerm with a plasma source owns holds the coefficients
-# of the last rebuild of that term, which belong to another plasma when an interface or a
-# boundary flux reads them before the term is evaluated at the new time. Such a term takes
-# the Fokker-Planck term, which rebuilds at the evaluation.
+# of the last rebuild of that term, which belong to another plasma when an interface, a
+# boundary flux or a conductivity model reads them before the term is evaluated at the new
+# time. Such a term takes the Fokker-Planck term, which rebuilds at the evaluation. The
+# rebuild also fixes what the owning term may share:
+# - one term rebuilds an operator: two would each keep their own key on shared arrays, and
+#   the coefficients of the last rebuild would pass for those of the other;
+# - the rebuild clears the radial coefficients, so radial transport needs an operator and
+#   a term of its own;
+# - a field-particle term on the same unknown restores the momentum that the e-e part of
+#   the Fokker-Planck term takes, which needs the same collision settings.
 function _check_prescribed_operators(equations)
-    prescribed = [term for equation in equations for term in equation.terms if has_plasma_source(term)]
+    prescribed = [term for equation in equations for term in equation.terms
+                  if term isa FokkerPlanckTerm && has_plasma_source(term)]
     isempty(prescribed) && return nothing
     for equation in equations, term in equation.terms, source in _coefficient_sources(term)
         source isa AdvectionDiffusion && any(p -> p.operator === source, prescribed) &&
             throw(ArgumentError("a $(nameof(typeof(term))) of $(equation.unknown) reads the bare operator of a " *
                                 "FokkerPlanckTerm with a plasma source, whose coefficients belong to the plasma of " *
                                 "its last rebuild: give it the Fokker-Planck term in place of its operator"))
+    end
+    for (k, term) in enumerate(prescribed)
+        any(other -> other.operator === term.operator, @view prescribed[k+1:end]) &&
+            throw(ArgumentError("two Fokker-Planck terms with a plasma source rebuild the same operator of " *
+                                "$(term.unknown): give each term an operator of its own"))
+        op = term.operator
+        (any(!iszero, op.advection_r) || any(!iszero, op.diffusion_r_r)) &&
+            throw(ArgumentError("the operator of the Fokker-Planck term of $(term.unknown) with a plasma source " *
+                                "holds radial transport, which its rebuild clears: give the radial transport an " *
+                                "operator and a FokkerPlanckTerm of its own"))
+    end
+    for equation in equations, term in equation.terms
+        term isa FieldParticleTerm && has_plasma_source(term) || continue
+        for owner in prescribed
+            owner.unknown === term.unknown && owner.settings != term.settings &&
+                throw(ArgumentError("the field-particle term of $(term.unknown) has other collision settings than " *
+                                    "the Fokker-Planck term of that unknown, so the field-particle part does not " *
+                                    "restore the momentum of its electron-electron part: give both the same settings"))
+        end
     end
     return nothing
 end

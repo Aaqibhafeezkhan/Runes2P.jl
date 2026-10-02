@@ -174,4 +174,54 @@ end
         @test record["collision_settings"]["mode"] == "full"
         @test haskey(record, "plasma_table")
     end
+
+    @testset "what an operator with a plasma source shares (audit 5.6–5.8)" begin
+        g = _source_grid()
+        layout = UnknownLayout(g.radial_grid, [KineticUnknown(:f, g; scale=1e20), RadialUnknown(:electric_field),
+                                               RadialUnknown(:ohmic_current_density; scale=1e4)])
+        minus(name) = LinearTerm(name; coefficient=-1)
+        field_rows = [Equation(:electric_field, Algebraic(), PrescribedValueTerm([0.5, 2.0]), minus(:electric_field))]
+        # the settings and the synchrotron loss of the rebuild default to those of the operator
+        custom = CollisionSettings(mode=:superthermal, screening=:complete)
+        built = fokker_planck_operator(g, _source_plasma(10.0), custom; synchrotron=true)
+        term = FokkerPlanckTerm(:f, built; plasma=_cooling())
+        @test term.settings == custom && term.synchrotron
+        prescribed = PrescribedFokkerPlanckTerm(:f, fokker_planck_operator(g, _source_plasma(10.0), custom), _cooling())
+        @test prescribed.settings == custom && !prescribed.synchrotron
+        @test FokkerPlanckTerm(:f, AdvectionDiffusion(g); plasma=_cooling()).settings == CollisionSettings()
+        # a conductivity model of the discrete operator that reads the bare operator of a
+        # rebuilt term holds the coefficients of the last rebuild
+        fp = PrescribedFokkerPlanckTerm(:f, AdvectionDiffusion(g; p_upper_boundary=:f_zero), _cooling();
+                                        settings=SOURCE_SETTINGS)
+        conductivity(operator) = Equation(:ohmic_current_density, Algebraic(),
+                                          ConductivityTerm(:electric_field, ConductivityModel(_source_plasma(10.0);
+                                                                                               kinetic=:discrete_operator,
+                                                                                               operator)),
+                                          minus(:ohmic_current_density))
+        system_with(operator) = EquationSystem(layout, [Equation(:f, TimeDerivative(), fp), field_rows...,
+                                                        conductivity(operator)])
+        @test_throws "bare operator" system_with(fp.operator)
+        @test system_with(fp) isa EquationSystem
+        # two rebuilt terms on one operator
+        twin = FokkerPlanckTerm(:f, fp.operator; plasma=_cooling(), settings=SOURCE_SETTINGS)
+        @test_throws "the same operator" EquationSystem(layout, [Equation(:f, TimeDerivative(), fp, twin), field_rows...,
+                                                                 conductivity(fp)])
+        # radial transport in a rebuilt operator is cleared by the rebuild
+        with_transport = AdvectionDiffusion(g; p_upper_boundary=:f_zero)
+        add_rechester_rosenbluth_diffusion!(with_transport, 1e-3; major_radius=1.0)
+        transported = PrescribedFokkerPlanckTerm(:f, with_transport, _cooling(); settings=SOURCE_SETTINGS)
+        @test_throws "radial transport" EquationSystem(layout, [Equation(:f, TimeDerivative(), transported),
+                                                                field_rows..., conductivity(transported)])
+        # the field-particle term restores the momentum of the e-e part with the same settings
+        # (without the corrected conductivity, which the field-particle term excludes)
+        op = FieldParticleOperator(g, _source_plasma(10.0), CollisionSettings(mode=:full, screening=:partial))
+        kinetic_layout = UnknownLayout(g.radial_grid, [KineticUnknown(:f, g; scale=1e20)])
+        @test_throws "collision settings" EquationSystem(kinetic_layout, [Equation(:f, TimeDerivative(), fp,
+                                                                                   FieldParticleTerm(:f, op; plasma=_cooling()))])
+        same = FieldParticleOperator(g, _source_plasma(10.0), SOURCE_SETTINGS)
+        @test EquationSystem(kinetic_layout, [Equation(:f, TimeDerivative(), fp,
+                                                       FieldParticleTerm(:f, same; plasma=_cooling()))]) isa EquationSystem
+        # a temperature at or below zero in the shape of a particle source is a failed solve
+        @test_throws DomainError Runes2P._source_shape!(zeros(40, 4), :maxwellian, g, 1, -1.0)
+    end
 end

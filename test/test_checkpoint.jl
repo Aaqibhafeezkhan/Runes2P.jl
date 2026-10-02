@@ -357,6 +357,16 @@ using HDF5
         @test joined.states == whole.states
         @test joined.update_states == whole.update_states
         @test _same_statistics(joined.statistics, whole.statistics)
+        # checkpoints that exist and cannot be read stop the run: it must not start again
+        # from its initial state over its own segment files
+        broken = CheckpointSettings("broken"; directory=_checkpoint_directory(), interval=0)
+        write(Runes2P.checkpoint_file(broken), "not an HDF5 file")
+        write(Runes2P.previous_checkpoint_file(broken), "not an HDF5 file")
+        @test_throws ArgumentError read_checkpoint(broken)
+        case = _checkpoint_case()
+        @test_throws ArgumentError integrate(case.system, case.u0, case.times; save_times=case.save_times,
+                                            updates=(case.update(),), checkpoint=broken, resume=true)
+        @test !isfile(Runes2P.segment_file(broken, 1))
         # and with neither checkpoint the run starts from its initial state
         empty_run = CheckpointSettings("empty"; directory=_checkpoint_directory(), interval=0)
         @test read_checkpoint(empty_run) === nothing

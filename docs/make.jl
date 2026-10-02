@@ -67,7 +67,7 @@ const CATEGORIES = [
      subpages = [
          ("linear_newton", "Linear solvers and Newton", ["solvers/linear_solver.jl", "solvers/krylov.jl",
                                                          "solvers/fluid_schur_preconditioner.jl", "solvers/newton.jl"]),
-         ("time_stepping", "Time stepping", ["solvers/time_stepping.jl"]),
+         ("time_stepping", "Time stepping", ["solvers/time_stepping.jl", "solvers/legs.jl"]),
          ("interval_updates", "Updates between intervals", ["solvers/interval_updates.jl", "solvers/transport_update.jl"]),
          ("checkpoints", "Checkpoints and progress log", ["solvers/checkpoint.jl", "solvers/progress_log.jl"]),
          ("settings", "Run settings", ["settings.jl"]),

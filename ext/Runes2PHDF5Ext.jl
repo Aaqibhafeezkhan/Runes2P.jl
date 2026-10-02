@@ -359,15 +359,23 @@ end
 
 Runes2P.read_checkpoint(filename::AbstractString) = Runes2P.read_state(filename)
 
+# A run whose checkpoints all exist but cannot be read must not start again from its
+# initial state: with resume = true it would replace the file of the first segment.
+# Only a run without any checkpoint file starts fresh.
 function Runes2P.read_checkpoint(settings::CheckpointSettings)
+    unreadable = String[]
     for file in (checkpoint_file(settings), previous_checkpoint_file(settings))
         isfile(file) || continue
         try
             return Runes2P.read_state(file)
         catch error
             @warn "the checkpoint $file cannot be read" error
+            push!(unreadable, file)
         end
     end
+    isempty(unreadable) ||
+        throw(ArgumentError("no checkpoint of the run can be read ($(join(unreadable, ", "))): repair or remove " *
+                            "them to start the run again from its initial state"))
     return nothing
 end
 

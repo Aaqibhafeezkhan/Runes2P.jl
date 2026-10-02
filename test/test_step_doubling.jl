@@ -178,6 +178,21 @@ end
                                                stepper=StepDoubling(initial_step=0.95, max_failures=0))
     end
 
+    @testset "a failed step cut by a ceiling shrinks from its own length" begin
+        # the planned length (100) lies far beyond the ceiling at t = 2, so
+        # the step tried is 2. Growth k = 0.25 from 9 with the bound 15.5: the half steps of 1
+        # give 12 and 16, the second fails. The retry takes 0.2 times the step tried, 0.4,
+        # where 0.2 times the planned length (20) cut to the ceiling repeated the failed step.
+        system = single_unknown_system(TimeDerivative(), BoundedGrowthTerm(:x, 0.25, 15.5))
+        solution = integrate(system, [9.0], [0.0, 2.0]; stepper=StepDoubling(initial_step=100.0, max_failures=2))
+        stats = solution.statistics
+        @test stats.kind[1:2] == [:half_step, :half_step]
+        @test stats.status[1:2] == [:converged, :domain_error]
+        @test stats.time_step[1:2] ≈ [1.0, 1.0]
+        @test stats.time_step[3] ≈ 0.2                     # the half step of the retry of 0.4
+        @test solution.times[end] == 2.0
+    end
+
     @testset "record and resume" begin
         k, h0 = 3.0, 0.05
         system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k))

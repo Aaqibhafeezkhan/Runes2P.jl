@@ -57,7 +57,10 @@ A [`PlasmaSource`](@ref) whose cold-electron temperature [eV] and density [m⁻�
 values of radial unknowns of the system at each radius, with the rest of
 the plasma (ions, fields) from `prescribed`, a [`PlasmaState`](@ref), a function of time
 that returns one, or a [`PrescribedPlasma`](@ref). `density = nothing` keeps the density of
-`prescribed`. The values are taken without their derivative parts, so the coefficients of a
+`prescribed`, which a [`PlasmaState`](@ref) built without `cold_electron_density` takes as
+the free-electron density: in a fully kinetic case the target of the e-e collisions then
+counts the hot and runaway electrons as well, where DREAM's target is the closure
+`n_cold = n_free − n_hot − n_re`. The values are taken without their derivative parts, so the coefficients of a
 term hold numbers. Their derivatives enter the Jacobian as columns of their own.
 
 A temperature at or below `temperature_floor` [eV] raises a `DomainError`, which the

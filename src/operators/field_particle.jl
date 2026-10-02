@@ -225,7 +225,11 @@ function set_field_particle_coefficients!(op::FieldParticleOperator{T}, plasma::
         test_elements = transpose(ell) * phi            # T_bd
         shape_elements = transpose(W) * shapes          # G_ca
         A = shape_elements \ ((ratios .* test_elements) / test_elements)
-        all(isfinite, A) || throw(ArgumentError("the restoring shapes are degenerate at radius $ir"))
+        # a DomainError: a rebuild in a run with a changing plasma reaches it, and the solvers
+        # take that as a failed solve
+        all(isfinite, A) ||
+            throw(DomainError(plasma.cold_electron_temperature[ir],
+                              "the restoring shapes are degenerate at radius $ir at this cold-electron temperature"))
         op.loss_functionals[ir] .= ell
         op.restoring_shapes[ir] .= shapes * A
     end

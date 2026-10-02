@@ -160,7 +160,9 @@ function write_checkpoint end
 
 Read a checkpoint as a [`StoredState`](@ref). Reading with the settings falls back on the
 previous checkpoint when the last one is missing or cannot be read, and returns `nothing`
-when there is neither. Defined by the package extension `Runes2PHDF5Ext`, which loads with
+when neither file exists. When checkpoint files exist and none of them can be read it
+throws an `ArgumentError`, so that a run with `resume = true` does not start again from
+its initial state over its own files. Defined by the package extension `Runes2PHDF5Ext`, which loads with
 HDF5.
 """
 function read_checkpoint end

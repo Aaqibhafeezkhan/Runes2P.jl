@@ -4,6 +4,7 @@
 # floor, a stiff relaxation whose step grows to the ceiling, the failure path, the record
 # and the resume. The helpers are those of test_time_stepping.jl and test_step_doubling.jl.
 using HDF5
+using Random: Xoshiro
 
 # the exact local error of one backward-Euler step of du/dt = -k u from u: the step
 # against the exact solution over h
@@ -195,6 +196,25 @@ end
         # tolerance overestimates it by a factor of order 2, the uncontrolled run by far more
         @test 1 / 3 < runs["with"].ratio < 3
         @test runs["without"].ratio > 10
+
+        # pitch grids whose cell counts differ between the radii: the moments
+        # are taken per radius, where they needed one shape of the grid before
+        ragged = cylindrical_grid([mom, MomentumGrid(uniform_p_faces(8, 0.0, 2.0), uniform_xi_faces(3))],
+                                  RadialGrid(uniform_r_faces(2, 1.0)))
+        ragged_layout = UnknownLayout(ragged.radial_grid, [KineticUnknown(:f, ragged; scale=1.0)])
+        ragged_system = EquationSystem(ragged_layout, [Equation(:f, TimeDerivative(), TailDecayTerm(:f, k, k_tail, 1.0))])
+        solution = integrate(ragged_system, ones(length(ragged_layout)), [0.0, t_end];
+                             stepper=StepController(initial_step=1e-3, relative_tolerance=1e-2))
+        stats = solution.statistics
+        @test maximum(stats.time_step[[k for k in eachindex(stats.kind) if stats.kind[k] === :step && stats.accepted[k]]]) <
+              1 / k_tail
+        # the weights give the moments of `density` and `current_density` at every radius
+        same = cylindrical_grid(MomentumGrid(uniform_p_faces(8, 0.0, 2.0), uniform_xi_faces(3)),
+                                RadialGrid(uniform_r_faces(2, 1.0)))
+        f = rand(Xoshiro(146), size(same)...)
+        weights = Runes2P._tail_moment_weights(same, region)
+        @test [sum(weights[ir][1] .* f[:, :, ir]) for ir in 1:2] ≈ density(same, f; region) rtol = 1e-13
+        @test [sum(weights[ir][2] .* f[:, :, ir]) for ir in 1:2] ≈ current_density(same, f; region) rtol = 1e-13
     end
 
     @testset "tolerances and the floor" begin
@@ -257,6 +277,36 @@ end
         end
         @test failure.status === :rejected
         @test length(failure.statistics.time) == 3 * 4      # four doublings, the last one over the cap
+    end
+
+    @testset "a failed step cut by a ceiling shrinks from its own length" begin
+        # the planned length (100) lies far beyond the ceiling at t = 2, so
+        # the step tried is 2. Growth k = 0.25 from 9 with the bound 15.5: the half steps of 1
+        # give 12 and 16, the second fails. The retry takes 0.2 times the step tried, 0.4,
+        # where 0.2 times the planned length (20) cut to the ceiling repeated the failed step.
+        system = single_unknown_system(TimeDerivative(), BoundedGrowthTerm(:x, 0.25, 15.5))
+        solution = integrate(system, [9.0], [0.0, 2.0]; stepper=StepController(initial_step=100.0, max_failures=2))
+        stats = solution.statistics
+        @test stats.kind[1:2] == [:half_step, :half_step]
+        @test stats.status[1:2] == [:converged, :domain_error]
+        @test stats.time_step[1:2] ≈ [1.0, 1.0]
+        @test stats.time_step[3] ≈ 0.2                     # the half step of the retry of 0.4
+        @test solution.times[end] == 2.0
+    end
+
+    @testset "save times within rounding of the time points" begin
+        # save times built by another arithmetic than the time points lie an
+        # ulp off them. They are taken as the time points, so no step of the rounding length
+        # follows the time point.
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-3.0))
+        times = collect(range(0.0, 1.0; length=11))
+        save_times = [t * (1 + 1e-15) for t in times]
+        solution = integrate(system, [1.0], times; save_times, stepper=StepController(initial_step=0.05))
+        @test solution.times == times
+        @test minimum(solution.statistics.time_step) > 1e-6
+        # with the time points of FixedSteps as well
+        fixed = integrate(system, [1.0], times; save_times)
+        @test fixed.times == times
     end
 
     @testset "record and resume" begin

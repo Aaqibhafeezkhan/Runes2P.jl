@@ -22,12 +22,12 @@ end
 
 # f with T and n as unknowns held at the prescribed values by algebraic rows
 function _cold_system(g, u0; coefficients=:implicit, density=:cold_electron_density, scheme=:exponential_fitting,
-                      field=false, jacobian=:exact)
+                      field=false, jacobian=:exact, base=_cold_base)
     unknowns = [KineticUnknown(:f, g; scale=1e20), RadialUnknown(:cold_electron_temperature; scale=100.0)]
     density === nothing || push!(unknowns, RadialUnknown(:cold_electron_density; scale=1e20))
     field && push!(unknowns, RadialUnknown(:electric_field; scale=10.0))
     layout = UnknownLayout(g.radial_grid, unknowns)
-    plasma = PlasmaFromUnknowns(_cold_base; density)
+    plasma = PlasmaFromUnknowns(base; density)
     term = FokkerPlanckTerm(:f, AdvectionDiffusion(g; scheme, p_upper_boundary=:f_zero);
                             plasma, settings=COLD_SETTINGS, coefficients, jacobian,
                             electric_field=field ? :electric_field : nothing)
@@ -57,9 +57,8 @@ function _cold_initial_state(g, f0)
 end
 
 # the same distribution with the plasma prescribed, shifted in time by `lag`
-function _cold_reference(g, f0, times; lag=0.0)
+function _cold_reference(g, f0, times; lag=0.0, plasma_at=t -> _cold_base(max(t - lag, 0.0)))
     layout = UnknownLayout(g.radial_grid, [KineticUnknown(:f, g; scale=1e20)])
-    plasma_at(t) = _cold_base(max(t - lag, 0.0))
     term = PrescribedFokkerPlanckTerm(:f, AdvectionDiffusion(g; scheme=:exponential_fitting, p_upper_boundary=:f_zero),
                                       plasma_at; settings=COLD_SETTINGS)
     system = EquationSystem(layout, [Equation(:f, TimeDerivative(), term)]; time_scale=1e-6)
@@ -134,6 +133,20 @@ end
         # and it differs from the implicit run by the lag
         implicit = _cold_reference(g, f0, times)
         @test !isapprox(f, implicit.states; rtol=1e-6)
+        # the prescribed part of the plasma at the time of the evaluation, the unknowns at
+        # the start of the step: a field that grows in time tells the two apart
+        rising(t) = PlasmaState(; cold_electron_temperature=_cold_temperature(t), cold_electron_density=_cold_density(t),
+                                ions=[IonSpecies("D", 1, 1, [1e20, 8e19])], electric_field=[20.0, 15.0] .* (1 + t / 1e-4),
+                                magnetic_field=[5.0, 5.0])
+        mixed(t) = PlasmaState(; cold_electron_temperature=_cold_temperature(max(t - dt, 0.0)),
+                               cold_electron_density=_cold_density(max(t - dt, 0.0)),
+                               ions=[IonSpecies("D", 1, 1, [1e20, 8e19])], electric_field=[20.0, 15.0] .* (1 + t / 1e-4),
+                               magnetic_field=[5.0, 5.0])
+        system, _ = _cold_system(g, u0; coefficients=:lagged, base=rising)
+        solution = integrate(system, u0(system.layout), times)
+        f = reduce(hcat, vec(kinetic_array(solution.states[:, k], system.layout, 1)) for k in eachindex(times))
+        @test f ≈ _cold_reference(g, f0, times; plasma_at=mixed).states rtol = 1e-8
+        @test !isapprox(f, _cold_reference(g, f0, times; plasma_at=t -> rising(max(t - dt, 0.0))).states; rtol=1e-6)
     end
 
     @testset "the energy row: T through W_cold" begin
@@ -187,8 +200,10 @@ end
     @testset "the plasma columns against central differences" begin
         # a state away from the prescribed one, with an anisotropic f
         rng = Xoshiro(58)
-        for scheme in (:exponential_fitting, :central), density in (:cold_electron_density, nothing), field in (false, true)
-            (field && scheme === :central) && continue
+        # with the flux limiters as well
+        for scheme in (:exponential_fitting, :central, :van_albada, :tcdf), density in (:cold_electron_density, nothing),
+            field in (false, true)
+            (field && scheme !== :exponential_fitting) && continue
             system, term = _cold_system(g, u0; scheme, density, field)
             layout = system.layout
             u = u0(layout)

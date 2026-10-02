@@ -57,7 +57,7 @@ end
               source_shape(following, 1, 1e-3)
         @test_throws ArgumentError ParticleSourceTerm(:particle_source, grid, temperature; shape=:delta)
         @test_throws DimensionMismatch ParticleSourceTerm(:particle_source, grid, [1.0, 2.0, 3.0])
-        @test_throws ArgumentError source_shape(ParticleSourceTerm(:particle_source, grid, [100.0, -1.0]), 1)
+        @test_throws DomainError source_shape(ParticleSourceTerm(:particle_source, grid, [100.0, -1.0]), 1)
     end
 
     # a distribution that loses particles at a rate per radius, and the source that holds its

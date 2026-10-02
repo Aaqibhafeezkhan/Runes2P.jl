@@ -74,8 +74,11 @@ end
 # the shape of the source on one momentum grid, with density 1
 function _source_shape!(values::AbstractMatrix, kind::Symbol, grid::KineticGrid, ir, temperature)
     m = momentum_grid(grid, ir)
+    # a DomainError: with the temperature an unknown, a Newton iterate can reach it, and the
+    # solvers take that as a failed solve
     kind === :lowest_cell || temperature > 0 ||
-        throw(ArgumentError("the temperature of the particle source must be positive, it is $temperature at radius $ir"))
+        throw(DomainError(temperature, "the temperature of the particle source must be positive, it is " *
+                                       "$temperature at radius $ir"))
     theta = temperature / Constants.ELECTRON_REST_ENERGY
     for j in axes(values, 2), (i, p) in enumerate(m.p_centers)
         values[i, j] = kind === :lowest_cell ? (i == 1 ? 1.0 : 0.0) :
@@ -87,6 +90,9 @@ function _source_shape!(values::AbstractMatrix, kind::Symbol, grid::KineticGrid,
     for j in axes(values, 2), i in axes(values, 1)
         norm += jacobian[i, j] * m.p_widths[i] * m.xi_widths[j] * values[i, j]
     end
+    norm > 0 && isfinite(norm) ||
+        throw(DomainError(temperature, "the shape of the particle source at radius $ir has no finite density on " *
+                                       "the momentum grid at the temperature $temperature"))
     values ./= norm / grid.radial_grid.spatial_jacobian[ir]
     return values
 end
