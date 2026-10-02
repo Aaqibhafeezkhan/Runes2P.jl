@@ -144,8 +144,8 @@ function kinetic_conductivity(operator::AdvectionDiffusion{T}; pitch_rule::Symbo
 end
 
 # the operator with another boundary condition at p_max, sharing every coefficient array
-_with_upper_boundary(op::AdvectionDiffusion{T}, boundary::Symbol) where {T} =
-    AdvectionDiffusion{T}(op.grid, op.advection_p, op.diffusion_p_p, op.diffusion_p_xi, op.advection_xi,
+_with_upper_boundary(op::AdvectionDiffusion{T,C}, boundary::Symbol) where {T,C} =
+    AdvectionDiffusion{T,C}(op.grid, op.advection_p, op.diffusion_p_p, op.diffusion_p_xi, op.advection_xi,
                           op.diffusion_xi_xi, op.diffusion_xi_p, op.advection_r, op.diffusion_r_r,
                           op.unit_field_advection_p, op.unit_field_advection_xi, op.p_flux_at_lower_boundary,
                           op.advection_p_times_p2_at_zero, op.p_scheme, op.xi_scheme, op.r_scheme,
@@ -211,7 +211,14 @@ function ConductivityModel(plasma; reference::Symbol=:braams_karney, kinetic::Sy
     reference === :braams_karney || throw(ArgumentError("reference must be :braams_karney, not $reference"))
     kinetic in (:none, :dream_fit, :discrete_operator) ||
         throw(ArgumentError("kinetic must be :none, :dream_fit or :discrete_operator, not $kinetic"))
+    # the conductivity of the discrete operator costs a factorization per radius, so it is
+    # always lagged
+    is_state_dependent(plasma_source(plasma)) && kinetic === :discrete_operator &&
+        throw(ArgumentError("the conductivity of the discrete operator takes a prescribed plasma"))
     if kinetic === :discrete_operator
+        operator isa FokkerPlanckTerm && is_state_dependent(operator.plasma) &&
+            throw(ArgumentError("the conductivity of the discrete operator takes an operator with a prescribed " *
+                                "plasma: it costs a factorization per radius at every rebuild"))
         operator isa Union{AdvectionDiffusion,FokkerPlanckTerm} ||
             throw(ArgumentError("kinetic = :discrete_operator needs the Fokker-Planck operator of the bulk or its term"))
     else
@@ -269,8 +276,14 @@ end
 ConductivityTerm(electric_field::Symbol, model::ConductivityModel; coefficient::Real=1.0) =
     ConductivityTerm(electric_field, model, Float64(coefficient), Float64[], PlasmaKey(), Ref(-1))
 
-dependencies(term::ConductivityTerm) = [term.electric_field]
-is_linear(::ConductivityTerm) = true
+# the temperature unknown of a plasma that reads unknowns: the conductivity of Braams and
+# Karney depends on the temperature, the effective charge and the free-electron density,
+# and the last two come from the ions, which are prescribed
+_conductivity_unknowns(model::ConductivityModel) =
+    model.plasma isa PlasmaFromUnknowns ? (model.plasma.temperature,) : ()
+
+dependencies(term::ConductivityTerm) = [term.electric_field; collect(Symbol, _conductivity_unknowns(term.model))]
+is_linear(term::ConductivityTerm) = isempty(_conductivity_unknowns(term.model))
 
 validate(term::ConductivityTerm, layout, row) = validate(term, layout, row, 0.0)
 
@@ -282,6 +295,13 @@ function validate(term::ConductivityTerm, layout, row, t)
         throw(ArgumentError("the electric field of a ConductivityTerm is a radial unknown with one component"))
     layout.kinds[row] === :radial && layout.sizes[row, 1] == 1 ||
         throw(ArgumentError("ConductivityTerm adds to a radial unknown with one component"))
+    for name in _conductivity_unknowns(term.model)
+        id = unknown_id(layout, name)
+        layout.kinds[id] === :radial && layout.sizes[id, 1] == 1 ||
+            throw(ArgumentError("the temperature of a ConductivityTerm is a radial unknown with one component"))
+    end
+    # a conductivity that follows the temperature has no value without the state
+    isempty(_conductivity_unknowns(term.model)) || return nothing
     length(conductivity_at(term, t)) == radial_cell_count(layout) ||
         throw(DimensionMismatch("the plasma of the conductivity has other radii than the layout"))
     return nothing
@@ -315,6 +335,7 @@ function conductivity_at(term::ConductivityTerm, u, layout, t)
 end
 
 function rhs!(out, term::ConductivityTerm, u, layout, row, t)
+    isempty(_conductivity_unknowns(term.model)) || return _add_state_conductivity!(out, term, u, layout, row, t)
     sigma = conductivity_at(term, u, layout, t)
     field = unknown_id(layout, term.electric_field)
     @inbounds for ir in 1:radial_cell_count(layout)
@@ -324,10 +345,33 @@ function rhs!(out, term::ConductivityTerm, u, layout, row, t)
     return out
 end
 
+# σ(T) E with the temperature of the state, dual numbers included, so that the colored AD
+# gives the column of the temperature
+function _add_state_conductivity!(out, term::ConductivityTerm, u, layout, row, t)
+    model = term.model
+    base = plasma_values(model.plasma.prescribed, u, layout, t)
+    temperature = radial_values(u, layout, unknown_id(layout, model.plasma.temperature))
+    field = radial_values(u, layout, unknown_id(layout, term.electric_field))
+    for ir in 1:radial_cell_count(layout)
+        T = temperature[ir]
+        _value(T) > model.plasma.temperature_floor ||
+            throw(DomainError(_value(T), "the cold-electron temperature at radius $ir is at or below the floor"))
+        charge = effective_charge(base, ir)
+        sigma = braams_karney_conductivity(T, charge, free_electron_density(base, ir))
+        model.kinetic === :dream_fit && (sigma *= 1 - test_particle_conductivity_fraction(charge))
+        out[first(unknown_range(layout, row, ir))] += term.coefficient * sigma * field[ir]
+    end
+    return out
+end
+
 function sparsity!(entries, term::ConductivityTerm, layout, row)
     field = unknown_id(layout, term.electric_field)
     for ir in 1:radial_cell_count(layout)
-        push!(entries, (first(unknown_range(layout, row, ir)), first(unknown_range(layout, field, ir))))
+        r = first(unknown_range(layout, row, ir))
+        push!(entries, (r, first(unknown_range(layout, field, ir))))
+        for name in _conductivity_unknowns(term.model)
+            push!(entries, (r, first(unknown_range(layout, unknown_id(layout, name), ir))))
+        end
     end
     return entries
 end

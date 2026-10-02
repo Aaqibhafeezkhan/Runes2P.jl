@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.22"
+const OUTPUT_FORMAT_VERSION = v"0.23"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -432,9 +432,9 @@ end
 describe(term::EquationTerm) = describe(term, DescriptionContext())
 
 settings_fields(::Type{<:FokkerPlanckTerm}) =
-    (described=(:unknown, :operator, :jacobian, :electric_field, :plasma, :settings, :synchrotron),
+    (described=(:unknown, :operator, :jacobian, :electric_field, :plasma, :settings, :synchrotron, :coefficients),
      derived=(:stored_operator, :values, :correction, :dual_input, :dual_output, :field_values, :dual_field,
-              :plasma_key, :rebuilds))
+              :plasma_key, :rebuilds, :dual_operator, :dual_columns))
 
 function describe(term::FokkerPlanckTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -449,12 +449,24 @@ function describe(term::FokkerPlanckTerm, context::DescriptionContext)
         record["operator"] = describe(term.operator, context; coefficients=false)
         record["collision_settings"] = describe(term.settings)
         record["synchrotron"] = term.synchrotron
+        is_state_dependent(term.plasma) && (record["coefficients"] = String(term.coefficients))
         _describe_plasma_source!(record, term.plasma, context)
     end
     return record
 end
 
 settings_fields(::Type{<:PrescribedPlasma}) = (described=(:plasma_at,), derived=(:time, :state))
+settings_fields(::Type{<:PlasmaFromUnknowns}) =
+    (described=(:prescribed, :temperature, :density, :temperature_floor), derived=())
+
+# a plasma from the unknowns: their names, the floor, and the prescribed rest
+function _describe_plasma_source!(record, source::PlasmaFromUnknowns, context::DescriptionContext)
+    record["plasma_unknowns"] = SettingsRecord("temperature" => String(source.temperature),
+                                               "density" => source.density === nothing ? "prescribed" :
+                                                            String(source.density),
+                                               "temperature_floor" => source.temperature_floor)
+    return _describe_plasma_source!(record, source.prescribed, context)
+end
 
 # the plasma of a source in the record of a term: a constant state in full, a function of
 # time by its name, with its values in a table of the context shared by the terms that use it
@@ -496,6 +508,14 @@ function describe(term::LinearTerm, context::DescriptionContext)
     return record
 end
 
+function describe(term::ProductTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["first"] = String(term.first)
+    record["second"] = String(term.second)
+    record["coefficient"] = term.coefficient
+    return record
+end
+
 """
     describe(region::MomentumRegion, context)
 
@@ -515,6 +535,10 @@ _describe_limit(limit::Union{Real,AbstractVector{<:Real}}, context) = _plain(lim
 _describe_limit(limit, context) = describe_prescribed_levels(limit, context)
 function _describe_limit(limit::ThermalMomentum, context)
     record = SettingsRecord("type" => "ThermalMomentum", "factor" => limit.factor)
+    if limit.temperature isa Symbol
+        record["temperature"] = SettingsRecord("unknown" => String(limit.temperature))
+        return record
+    end
     record["temperature"] = limit.temperature isa AbstractVector ? _plain(limit.temperature) :
                             describe_prescribed_levels(t -> _temperatures(limit.temperature, t), context)
     limit.temperature isa AbstractVector || (record["temperature"]["source"] = _callable_name(limit.temperature))
@@ -556,9 +580,15 @@ function describe(term::ParticleSourceTerm, context::DescriptionContext)
     record["source"] = String(term.source)
     record["grid"] = grid_name!(context, term.grid)
     record["shape"] = String(term.shape_kind)
-    record["temperature"] = term.temperature isa AbstractVector ? _plain(term.temperature) :
-                            describe_prescribed_levels(t -> _temperatures(term.temperature, t), context)
-    term.temperature isa AbstractVector || (record["temperature"]["source"] = _callable_name(term.temperature))
+    record["temperature"] = if term.temperature isa Symbol
+        SettingsRecord("unknown" => String(term.temperature))
+    elseif term.temperature isa AbstractVector
+        _plain(term.temperature)
+    else
+        describe_prescribed_levels(t -> _temperatures(term.temperature, t), context)
+    end
+    term.temperature isa Union{Symbol,AbstractVector} ||
+        (record["temperature"]["source"] = _callable_name(term.temperature))
     return record
 end
 
@@ -593,7 +623,9 @@ function describe(model::ConductivityModel, context::DescriptionContext=Descript
     # the first time of the run need not be 0, and an operator rebuilt in time makes the
     # model time dependent with a constant plasma
     first_time = isempty(context.times) ? 0.0 : first(context.times)
-    record["conductivity"] = if !is_time_dependent(model)
+    record["conductivity"] = if model.plasma isa PlasmaFromUnknowns
+        SettingsRecord("described" => false, "reason" => "the conductivity follows the temperature unknown")
+    elseif !is_time_dependent(model)
         _plain(model(first_time))
     elseif model.kinetic === :discrete_operator && isempty(context.times)
         SettingsRecord("described" => false, "reason" => "no time points to sample the model at")
@@ -725,7 +757,7 @@ end
 
 settings_fields(::Type{<:EquationSystem}) =
     (described=(:layout, :equations, :time_scale, :newton_tolerances, :time_step_tolerances),
-     derived=(:sparse_terms, :matrix_free_terms, :explicit_terms, :correction_terms, :direct_terms,
+     derived=(:sparse_terms, :matrix_free_terms, :explicit_terms, :correction_terms, :direct_terms, :column_terms,
               :automatic_jacobian, :automatic_positions, :stored_jacobian_exact,
               :linear, :mass, :mass_columns, :row_scales, :pattern, :sparse_rhs!, :preparation, :backend, :prototype, :time, :buffer,
               :product))

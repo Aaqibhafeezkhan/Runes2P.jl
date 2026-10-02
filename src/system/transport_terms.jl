@@ -16,7 +16,7 @@ them during the run.
 """
 struct RadialEdgeLossTerm{T} <: EquationTerm
     kinetic::Symbol
-    operator::AdvectionDiffusion{T}
+    operator::AdvectionDiffusion{T,T}
     coefficient::Float64
 end
 RadialEdgeLossTerm(kinetic::Symbol, operator::AdvectionDiffusion; coefficient::Real=1.0) =

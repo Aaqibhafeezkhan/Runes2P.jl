@@ -91,7 +91,7 @@ end
 
 """
     EquationSystem(layout, equations; time_scale=1, newton_tolerances, time_step_tolerances,
-                   initial_time=0)
+                   initial_time=0, initial_state=nothing)
 
 The system `M du/dt = rhs(u, t)` for the unknowns of `layout`, with one
 [`Equation`](@ref) per unknown. On construction it checks that every unknown has exactly
@@ -121,12 +121,15 @@ iteration.
 error control, which [`integrate`](@ref) does not have yet (fixed steps with halving on
 failure).
 
-The construction evaluates the implicit `:sparse` terms once, at the zero state and the
-time `initial_time`, for the structure of the stored Jacobian. Set `initial_time` to the
-start of the run when a term is defined only on the run's time interval (the `plasma_at`
-of a [`PrescribedFokkerPlanckTerm`](@ref)).
+The construction evaluates the implicit `:sparse` terms once, at the state `initial_state`
+(the zero state by default) and the time `initial_time`, for the structure of the stored
+Jacobian. Set `initial_time` to the start of the run when a term is defined only on the
+run's time interval (the `plasma_at` of a [`PrescribedFokkerPlanckTerm`](@ref)), and
+`initial_state` to the initial state when a term needs a valid state, such as a
+Fokker-Planck term whose plasma reads the temperature from an unknown
+([`PlasmaFromUnknowns`](@ref)).
 """
-struct EquationSystem{T,S<:Tuple,M<:Tuple,X<:Tuple,C<:Tuple,D<:Tuple,F,P,B}
+struct EquationSystem{T,S<:Tuple,M<:Tuple,X<:Tuple,C<:Tuple,D<:Tuple,K<:Tuple,F,P,B}
     layout::UnknownLayout{T}
     equations::Vector{Equation}
     sparse_terms::S
@@ -134,6 +137,7 @@ struct EquationSystem{T,S<:Tuple,M<:Tuple,X<:Tuple,C<:Tuple,D<:Tuple,F,P,B}
     explicit_terms::X
     correction_terms::C
     direct_terms::D                       # the sparse terms that assemble their own block
+    column_terms::K                       # the sparse terms that add the columns of their plasma unknowns
     automatic_jacobian::SparseMatrixCSC{T,Int}  # the AD part, with the pattern of the coloring
     automatic_positions::Vector{Int}      # its stored entries in the stored Jacobian
     stored_jacobian_exact::Bool
@@ -183,6 +187,13 @@ end
     return _add_jacobians!(J, Base.tail(terms), u, layout, t)
 end
 
+@inline _add_plasma_columns!(J, ::Tuple{}, u, layout, t) = J
+@inline function _add_plasma_columns!(J, terms::Tuple, u, layout, t)
+    bound = first(terms)
+    add_plasma_columns!(J, bound.term, u, layout, bound.row, t)
+    return _add_plasma_columns!(J, Base.tail(terms), u, layout, t)
+end
+
 @inline _add_corrections!(out, ::Tuple{}, u, v, layout, t) = out
 @inline function _add_corrections!(out, terms::Tuple, u, v, layout, t)
     bound = first(terms)
@@ -194,7 +205,7 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
                         time_scale::Real=1.0,
                         newton_tolerances::AbstractDict=Dict{Symbol,Tolerance}(),
                         time_step_tolerances::AbstractDict=Dict{Symbol,Tolerance}(),
-                        initial_time::Real=0.0) where {T}
+                        initial_time::Real=0.0, initial_state::Union{Nothing,AbstractVector}=nothing) where {T}
     count = length(layout.unknowns)
     rows = zeros(Int, count)
     for eq in equations
@@ -238,10 +249,16 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
                 layout.kinds[of] === layout.kinds[row] && layout.sizes[of, :] == layout.sizes[row, :] ||
                     throw(ArgumentError("the equation of $(eq.unknown) holds the time derivative of " *
                                         "$(eq.kind.of), which needs the same kind and sizes"))
-                holds_unknown ||
+                # the unknown of the row is determined by its own row or, as the temperature by
+                # the energy in DREAM's pairing, by the equation of the unknown it differentiates
+                determined_by_of = any(other -> other.unknown === eq.kind.of &&
+                                                any(term -> treatment(term) === :implicit &&
+                                                            eq.unknown in dependencies(term), other.terms),
+                                       equations)
+                holds_unknown || determined_by_of ||
                     throw(ArgumentError("the equation of $(eq.unknown) holds the time derivative of " *
-                                        "$(eq.kind.of) and has no implicit term depending on $(eq.unknown), " *
-                                        "so it cannot determine it"))
+                                        "$(eq.kind.of), and neither it nor the equation of $(eq.kind.of) has an " *
+                                        "implicit term depending on $(eq.unknown), so nothing determines it"))
             end
             derivative_rows[of] == 0 ||
                 throw(ArgumentError("the time derivative of $(layout.unknowns[of].name) is in the equations of " *
@@ -288,6 +305,7 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
     end
     automatic_tuple = Tuple(bound for bound in sparse_terms if jacobian_assembly(bound.term) === :automatic)
     direct_tuple = Tuple(bound for bound in sparse_terms if jacobian_assembly(bound.term) === :direct)
+    column_tuple = Tuple(bound for bound in sparse_terms if has_plasma_columns(bound.term))
 
     # structural pattern of the stored Jacobian: the diagonal (for M/Δt) and the sparse
     # terms. The coloring takes the part of the terms with automatic assembly
@@ -303,6 +321,11 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
     for bound in direct_tuple
         sparsity!(entries, bound.term, layout, bound.row)
     end
+    # the columns of the plasma unknowns of terms whose coefficients follow them: assembled
+    # by the terms, outside the coloring like the direct terms
+    for bound in column_tuple
+        plasma_column_sparsity!(entries, bound.term, layout, bound.row)
+    end
     pattern = as_pattern(entries)
 
     time = Ref(T(initial_time))
@@ -312,17 +335,27 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
         (du, u) -> (fill!(du, zero(eltype(du))); _add_terms!(du, terms, u, layout, time[]); nothing)
     end
     backend = sparse_ad_backend(pattern=automatic_pattern)
-    x0 = zeros(T, n)
+    initial_state === nothing || length(initial_state) == n ||
+        throw(DimensionMismatch("the initial state has $(length(initial_state)) entries, the layout $n"))
+    x0 = initial_state === nothing ? zeros(T, n) : collect(T, initial_state)
     buffer = zeros(T, n)
-    preparation = DI.prepare_jacobian(sparse_rhs!, buffer, backend, x0)
-    automatic_jacobian = DI.jacobian(sparse_rhs!, buffer, preparation, backend, x0)
-    # the prototype is evaluated at u = 0 and t = initial_time, where some derivatives
+    preparation, automatic_jacobian = try
+        preparation = DI.prepare_jacobian(sparse_rhs!, buffer, backend, x0)
+        preparation, DI.jacobian(sparse_rhs!, buffer, preparation, backend, x0)
+    catch failure
+        failure isa DomainError && initial_state === nothing &&
+            throw(ArgumentError("a term is not defined at the zero state, where the structure of the Jacobian is " *
+                                "evaluated ($(sprint(showerror, failure))): give the initial state, " *
+                                "EquationSystem(...; initial_state)"))
+        rethrow()
+    end
+    # the prototype is evaluated at u = x0 and t = initial_time, where some derivatives
     # vanish; it must still carry the whole pattern, or jacobian! at other states would
     # miss entries
     nnz(automatic_jacobian) == nnz(automatic_pattern) ||
         error("the Jacobian prototype lost structural entries ($(nnz(automatic_jacobian)) of " *
               "$(nnz(automatic_pattern)))")
-    if isempty(direct_tuple)
+    if isempty(direct_tuple) && isempty(column_tuple)
         prototype = automatic_jacobian
         automatic_positions = Int[]
     else
@@ -340,9 +373,11 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
         end
         _merge_jacobian!(prototype, automatic_jacobian, automatic_positions)
         _add_jacobians!(prototype, direct_tuple, x0, layout, T(initial_time))
+        _add_plasma_columns!(prototype, column_tuple, x0, layout, T(initial_time))
     end
     return EquationSystem(layout, collect(Equation, equations), sparse_tuple, matrix_free_tuple,
-                          explicit_tuple, correction_tuple, direct_tuple, automatic_jacobian, automatic_positions,
+                          explicit_tuple, correction_tuple, direct_tuple, column_tuple, automatic_jacobian,
+                          automatic_positions,
                           isempty(correction_tuple), linear, mass, mass_columns, row_scales, pattern,
                           sparse_rhs!, preparation, backend, prototype,
                           time, buffer, zeros(T, n), T(time_scale), Dict{Symbol,Tolerance}(newton_tolerances),
@@ -373,6 +408,7 @@ function rhs!(du::AbstractVector, u::AbstractVector, system::EquationSystem, t)
     layout = system.layout
     # the ODE form has no previous time level: a lagged part takes the state itself
     _prepare_terms!(system.sparse_terms, u, layout, t)
+    _prepare_terms!(system.matrix_free_terms, u, layout, t)
     _add_terms!(du, system.sparse_terms, u, layout, t)
     _add_terms!(du, system.matrix_free_terms, u, layout, t)
     _add_terms!(du, system.explicit_terms, u, layout, t)
@@ -392,6 +428,7 @@ function residual!(F::AbstractVector, u::AbstractVector, u_old::AbstractVector,
     fill!(rhs, zero(eltype(rhs)))
     layout = system.layout
     _prepare_terms!(system.sparse_terms, u_old, layout, t)
+    _prepare_terms!(system.matrix_free_terms, u_old, layout, t)
     _add_terms!(rhs, system.sparse_terms, u, layout, t)
     _add_terms!(rhs, system.matrix_free_terms, u, layout, t)
     _add_terms!(rhs, system.explicit_terms, u_old, layout, t)
@@ -453,7 +490,7 @@ Matrix-free and explicit terms are not included.
 """
 function jacobian!(J::SparseMatrixCSC, system::EquationSystem, u::AbstractVector, t)
     system.time[] = t
-    if isempty(system.direct_terms)
+    if isempty(system.direct_terms) && isempty(system.column_terms)
         DI.jacobian!(system.sparse_rhs!, system.buffer, J, system.preparation, system.backend, u)
         return J
     end
@@ -461,6 +498,7 @@ function jacobian!(J::SparseMatrixCSC, system::EquationSystem, u::AbstractVector
     DI.jacobian!(system.sparse_rhs!, system.buffer, automatic, system.preparation, system.backend, u)
     _merge_jacobian!(J, automatic, system.automatic_positions)
     _add_jacobians!(J, system.direct_terms, u, system.layout, t)
+    _add_plasma_columns!(J, system.column_terms, u, system.layout, t)
     return J
 end
 

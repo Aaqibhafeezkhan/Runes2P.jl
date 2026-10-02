@@ -166,6 +166,11 @@ end
 is_linear(term::MomentumInterfaceTerm) = _electric_field_of(term) === nothing
 
 function validate(term::MomentumInterfaceTerm, layout, row)
+    # the flux follows the plasma unknowns of the Fokker-Planck term, whose columns this
+    # term does not have yet
+    has_plasma_columns(term.lower_term) &&
+        throw(ArgumentError("MomentumInterfaceTerm reads the coefficients of a Fokker-Planck term whose plasma follows unknowns, " *
+                            "and has no Jacobian columns for them yet (issue #143): use coefficients = :lagged"))
     lower, upper = unknown_id(layout, term.lower), unknown_id(layout, term.upper)
     layout.kinds[lower] === :kinetic && layout.kinds[upper] === :kinetic ||
         throw(ArgumentError("MomentumInterfaceTerm lies between two kinetic unknowns"))

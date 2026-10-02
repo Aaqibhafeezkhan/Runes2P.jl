@@ -35,6 +35,7 @@ include("system/terms.jl")
 include("system/interface_term.jl")
 include("system/transport_terms.jl")
 include("system/population_terms.jl")
+include("system/energy_terms.jl")
 include("operators/field_particle.jl")
 include("system/conductivity_terms.jl")
 include("system/equation_system.jl")
@@ -66,7 +67,7 @@ export phase_space_jacobian_r_faces, phase_space_jacobian_over_p2_at_zero
 export momentum_cell_count, pitch_cell_count, radial_cell_count, cell_count
 export AdvectionDiffusion, apply!, momentum_flux, with_scheme
 export Constants, IonSpecies, PlasmaState, free_electron_density, bound_electron_density
-export PlasmaSource, PrescribedPlasma, plasma_values
+export PlasmaSource, PrescribedPlasma, PlasmaFromUnknowns, plasma_values, is_state_dependent
 export coulomb_logarithm, thermal_coulomb_logarithm, relativistic_coulomb_logarithm
 export CollisionSettings, CollisionModel, slowing_down_frequency, deflection_frequency
 export parallel_diffusion_frequency, p3_slowing_down_frequency_at_zero
@@ -96,6 +97,7 @@ export PrescribedValueTerm
 export MomentumRegion, ThermalMomentum, momentum_limit, momentum_envelope, momentum_envelope!, is_time_dependent
 export PoloidalFluxDiffusionTerm, CrossSectionIntegralTerm, cross_section_weights, edge_to_wall_inductance
 export InductionNames, induction_unknowns, induction_equations, initial_poloidal_flux
+export ProductTerm, THERMAL_ENERGY_FACTOR, thermal_energy_equation, set_thermal_energy!
 export FokkerPlanckTerm, PrescribedFokkerPlanckTerm, KnockOnTerm, LinearTerm, DensityMomentTerm, CurrentMomentTerm, MaxwellianSourceTerm, LayoutKineticArray, kinetic_array
 export Equation, TimeDerivative, Algebraic, Constraint, EquationSystem, Tolerance, tolerance
 export ParticleSourceTerm, source_shape, MomentumBoundaryFluxTerm

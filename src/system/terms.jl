@@ -264,7 +264,8 @@ struct JacobianCorrectionTag end
 
 """
     FokkerPlanckTerm(unknown, operator::AdvectionDiffusion; jacobian=:exact, electric_field=nothing,
-                     plasma=nothing, settings=CollisionSettings(), synchrotron=false)
+                     plasma=nothing, settings=CollisionSettings(), synchrotron=false,
+                     coefficients=:implicit)
 
 Advection-diffusion (Fokker-Planck) operator applied to the kinetic unknown `unknown`,
 added to the equation of the row unknown (normally the same). Stored sparse, with the
@@ -290,6 +291,18 @@ of any radius differ from those of the last rebuild ([`update_key!`](@ref)), not
 new time, and rebuilds all radii. Without `plasma` the coefficients of `operator` are
 fixed. [`PrescribedFokkerPlanckTerm`](@ref) builds such a term from a function of time.
 
+With a plasma that reads unknowns ([`PlasmaFromUnknowns`](@ref)) the term depends on them
+and is not linear. `coefficients` selects the state its coefficients are built from:
+
+- `:implicit`: the state of the Newton iterate, as DREAM does. The stored Jacobian holds
+  the columns of the plasma unknowns ([`add_plasma_columns!`](@ref)) next to the block in
+  `f`.
+- `:lagged`: the state at the start of the step, set in [`prepare_step!`](@ref), with the
+  prescribed part of the plasma at the time of the evaluation. The term is linear in `f`
+  within a step and its block is exact. In the ODE form ([`rhs!`](@ref) of the system, the
+  SciML interface) `prepare_step!` sees the state itself, so a lagged term is implicit
+  there.
+
 `jacobian` selects what the stored Jacobian block holds for a flux-limiter scheme (DREAM's
 `ad_jac` setting of `AdvectionInterpolation`). The residual is always the operator's own, so
 every mode converges to the same solution:
@@ -314,10 +327,10 @@ per product).
 """
 struct FokkerPlanckTerm{T,P} <: EquationTerm
     unknown::Symbol
-    operator::AdvectionDiffusion{T}
+    operator::AdvectionDiffusion{T,T}
     jacobian::Symbol
     electric_field::Union{Nothing,Symbol}    # the unknown of the field, when it is one
-    stored_operator::AdvectionDiffusion{T}   # the operator whose (frozen) derivative is the stored block
+    stored_operator::AdvectionDiffusion{T,T}   # the operator whose (frozen) derivative is the stored block
     values::Array{T,3}                       # the iterate's values (frozen limiter, corrections)
     correction::Array{T,3}
     dual_input::Array{ForwardDiff.Dual{JacobianCorrectionTag,T,1},3}
@@ -329,13 +342,19 @@ struct FokkerPlanckTerm{T,P} <: EquationTerm
     synchrotron::Bool
     plasma_key::PlasmaKey                    # the plasma values of the last rebuild
     rebuilds::Base.RefValue{Int}             # the number of rebuilds, for the caches that read the operator
+    coefficients::Symbol                     # :implicit or :lagged, for a plasma that reads unknowns
+    dual_operator::Base.RefValue{Any}        # the coefficients in dual numbers, for the plasma columns
+    dual_columns::Base.RefValue{Any}         # the term in dual numbers, for the plasma columns
 end
 
 const LINEAR_JACOBIAN_SCHEMES = (:upwind, :central, :exponential_fitting, :quick, :upwind_second_order)
 
 function FokkerPlanckTerm(unknown::Symbol, operator::AdvectionDiffusion{T}; jacobian::Symbol=:exact,
                           electric_field::Union{Nothing,Symbol}=nothing, plasma=nothing,
-                          settings::CollisionSettings=CollisionSettings(), synchrotron::Bool=false) where {T}
+                          settings::CollisionSettings=CollisionSettings(), synchrotron::Bool=false,
+                          coefficients::Symbol=:implicit) where {T}
+    coefficients in (:implicit, :lagged) ||
+        throw(ArgumentError("coefficients must be :implicit or :lagged, not $coefficients"))
     plasma_from = plasma === nothing ? nothing : plasma_source(plasma)
     # the rebuild of the coefficients leaves the field out when it is an unknown
     plasma_from !== nothing && electric_field !== nothing && (operator.coefficient_source[] = nothing)
@@ -359,7 +378,8 @@ function FokkerPlanckTerm(unknown::Symbol, operator::AdvectionDiffusion{T}; jaco
     radii = electric_field === nothing ? 0 : radial_cell_count(operator.grid)
     return FokkerPlanckTerm{T,typeof(plasma_from)}(unknown, operator, jacobian, electric_field, stored, zeros(T, dims),
                                               zeros(T, dims), zeros(D, dims), zeros(D, dims), zeros(T, radii),
-                                              zeros(D, radii), plasma_from, settings, synchrotron, PlasmaKey(), Ref(0))
+                                              zeros(D, radii), plasma_from, settings, synchrotron, PlasmaKey(), Ref(0),
+                                              coefficients, Ref{Any}(nothing), Ref{Any}(nothing))
 end
 
 """
@@ -368,10 +388,19 @@ end
 Bring the coefficients of a term up to date with its plasma at the state `u` and the time
 `t`, and return the operator that holds them. A [`FokkerPlanckTerm`](@ref) with a plasma
 source rebuilds its operator when the plasma values of any radius changed since the last
-rebuild. A term without a plasma source returns its operator unchanged. `u` and `layout`
+rebuild. A term without a plasma source returns its operator unchanged, and so does a term
+with `coefficients = :lagged`, which [`prepare_step!`](@ref) refreshes. `u` and `layout`
 may be `nothing` for a prescribed plasma.
 """
 function refresh_coefficients!(term::FokkerPlanckTerm, u, layout, t)
+    _is_lagged(term) && return term.operator
+    return _rebuild_coefficients!(term, u, layout, t)
+end
+
+_is_lagged(term::FokkerPlanckTerm) = term.coefficients === :lagged && is_state_dependent(term.plasma)
+
+# the coefficients of the plasma at the state u and the time t
+function _rebuild_coefficients!(term::FokkerPlanckTerm, u, layout, t)
     term.plasma === nothing && return term.operator
     field = term.electric_field === nothing
     plasma = changed_plasma!(term.plasma_key, term.plasma, u, layout, t; electric_field=field)
@@ -395,6 +424,89 @@ Whether the coefficients of a term follow a plasma source ([`refresh_coefficient
 has_plasma_source(term::FokkerPlanckTerm) = term.plasma !== nothing
 has_plasma_source(::Any) = false
 
+# a lagged term takes the plasma of the state at the start of the step
+function prepare_step!(term::FokkerPlanckTerm, u_old, layout, row, t)
+    _is_lagged(term) && _rebuild_coefficients!(term, u_old, layout, t)
+    return nothing
+end
+
+"""
+    has_plasma_columns(term)
+
+Whether the stored Jacobian holds columns of the plasma unknowns of a term: the derivative
+of the term with respect to the temperature and the density of each radius, which the
+colored AD of the term does not see, since its coefficients hold numbers. Such a term lists
+them with [`plasma_column_sparsity!`](@ref) and adds them with
+[`add_plasma_columns!`](@ref). True for a [`FokkerPlanckTerm`](@ref) whose plasma reads
+unknowns and whose coefficients are implicit.
+"""
+has_plasma_columns(::Any) = false
+has_plasma_columns(term::FokkerPlanckTerm) = is_state_dependent(term.plasma) && !_is_lagged(term)
+
+"""
+    plasma_column_sparsity!(entries, term, layout, row)
+
+Push the entries of the plasma columns of a term with [`has_plasma_columns`](@ref): every
+cell of the row unknown at a radius against each plasma unknown of that radius.
+"""
+function plasma_column_sparsity!(entries, term::FokkerPlanckTerm, layout, row)
+    for ir in 1:radial_cell_count(layout), name in source_dependencies(term.plasma)
+        column = first(unknown_range(layout, unknown_id(layout, name), ir))
+        append!(entries, ((r, column) for r in unknown_range(layout, row, ir)))
+    end
+    return entries
+end
+
+"""
+    add_plasma_columns!(J, term, u, layout, row, t)
+
+Add the plasma columns of a term with [`has_plasma_columns`](@ref) to `J` at the state `u`
+and the time `t`. A [`FokkerPlanckTerm`](@ref) builds its coefficients from the plasma with
+dual numbers in the temperature and the density of every radius ([`dual_plasma`](@ref)) and
+applies them to `f`: the partials are the derivatives of the residual through the scheme's
+own face weights, the Péclet number of exponential fitting included. The scheme is the
+operator's own, as is the residual, whatever `jacobian` selects for the block in `f`.
+"""
+function add_plasma_columns!(J, term::FokkerPlanckTerm, u, layout, row, t)
+    plasma = plasma_values(term.plasma, u, layout, t)
+    names = source_dependencies(term.plasma)
+    dual = dual_plasma(plasma, length(names) == 2)
+    D = eltype(dual.cold_electron_temperature)
+    op = _dual_operator!(term, D)
+    with_field = term.electric_field === nothing
+    set_fokker_planck_coefficients!(op, dual, term.settings; synchrotron=term.synchrotron, electric_field=with_field)
+    id = unknown_id(layout, term.unknown)
+    f = kinetic_array(u, layout, id)
+    df = term.dual_columns[]::Array{D,3}
+    fill!(df, zero(D))
+    apply!(df, op, f; electric_field=_field_values(term.electric_field, u, layout))
+    np, nxi, nr = size(df)
+    for ir in 1:nr
+        columns = ntuple(k -> first(unknown_range(layout, unknown_id(layout, names[k]), ir)), length(names))
+        for j in 1:nxi, i in 1:np
+            r = _kinetic_index(layout, row, ir, i, j)
+            partials = ForwardDiff.partials(df[i, j, ir])
+            for k in eachindex(columns)
+                _add_entry!(J, r, columns[k], partials[k])
+            end
+        end
+    end
+    return J
+end
+
+# the operator of dual coefficients of a term, made at the first use
+function _dual_operator!(term::FokkerPlanckTerm, ::Type{D}) where {D}
+    op = term.dual_operator[]
+    if !(op isa AdvectionDiffusion{<:Any,D})
+        op = similar_coefficients(term.operator, D)
+        # the coefficients of a unit field do not depend on the plasma
+        term.electric_field === nothing || set_unit_field_coefficients!(op)
+        term.dual_operator[] = op
+        term.dual_columns[] = zeros(D, size(term.operator.grid))
+    end
+    return op::AdvectionDiffusion{<:Any,D}
+end
+
 # a frozen limiter of a linear scheme is the exact derivative; another scheme's Jacobian
 # is exact only when it is the operator's own scheme
 function _jacobian_kind(jacobian, operator, stored)
@@ -404,10 +516,17 @@ function _jacobian_kind(jacobian, operator, stored)
 end
 
 dependencies(term::FokkerPlanckTerm) =
-    term.electric_field === nothing ? [term.unknown] : [term.unknown, term.electric_field]
-jacobian_kind(term::FokkerPlanckTerm) = _jacobian_kind(term.jacobian, term.operator, term.stored_operator)
-# with the field as an unknown the term is bilinear in the distribution and the field
-is_linear(term::FokkerPlanckTerm) = term.electric_field === nothing && is_linear(term.operator)
+    unique!([term.unknown; term.electric_field === nothing ? Symbol[] : [term.electric_field];
+             collect(Symbol, source_dependencies(term.plasma))])
+# the kind of the stored block in f: another scheme's Jacobian or a frozen limiter
+_scheme_jacobian_kind(term::FokkerPlanckTerm) = _jacobian_kind(term.jacobian, term.operator, term.stored_operator)
+# the columns of the plasma unknowns are exact for the operator's own scheme, so the kind
+# is that of the block in f
+jacobian_kind(term::FokkerPlanckTerm) = _scheme_jacobian_kind(term)
+# with the field as an unknown the term is bilinear in the distribution and the field; with a
+# plasma from the unknowns the coefficients depend on the state
+is_linear(term::FokkerPlanckTerm) =
+    term.electric_field === nothing && !is_state_dependent(term.plasma) && is_linear(term.operator)
 
 function validate(term::FokkerPlanckTerm, layout, row)
     id = unknown_id(layout, term.unknown)
@@ -422,6 +541,11 @@ function validate(term::FokkerPlanckTerm, layout, row)
         field = unknown_id(layout, term.electric_field)
         layout.kinds[field] === :radial && layout.sizes[field, 1] == 1 ||
             throw(ArgumentError("the electric field of a FokkerPlanckTerm is a radial unknown with one component"))
+    end
+    for name in source_dependencies(term.plasma)
+        id = unknown_id(layout, name)
+        layout.kinds[id] === :radial && layout.sizes[id, 1] == 1 ||
+            throw(ArgumentError("the plasma unknown $name of a FokkerPlanckTerm is a radial unknown with one component"))
     end
     return nothing
 end
@@ -452,7 +576,7 @@ end
 
 # the operator on `f` into `df`, with the stored block's derivative for a dual state
 function _fokker_planck!(df, term::FokkerPlanckTerm, f, field=nothing)
-    if jacobian_kind(term) === :exact || !(eltype(f) <: ForwardDiff.Dual)
+    if _scheme_jacobian_kind(term) === :exact || !(eltype(f) <: ForwardDiff.Dual)
         apply!(df, term.operator, f; electric_field=field)
     elseif term.jacobian === :frozen_limiter
         # a dual state (Jacobian assembly): the limiter weights at the values, applied as
@@ -495,7 +619,7 @@ end
 # minus the stored operator's (the frozen limiter's, or the other scheme's); allocation
 # free with the term's buffers
 function jacobian_correction_product!(out, term::FokkerPlanckTerm, u, v, layout, row, t)
-    jacobian_kind(term) === :approximate || return out
+    _scheme_jacobian_kind(term) === :approximate || return out
     refresh_coefficients!(term, u, layout, t)
     id = unknown_id(layout, term.unknown)
     f, direction = kinetic_array(u, layout, id), kinetic_array(v, layout, id)
@@ -866,8 +990,9 @@ DensityMomentTerm(kinetic::Symbol, grid::KineticGrid; coefficient::Real=1.0,
                   region::Union{Nothing,MomentumRegion}=nothing) =
     DensityMomentTerm(kinetic, Float64(coefficient), RegionEnvelopes(region, grid))
 
-dependencies(term::DensityMomentTerm) = [term.kinetic]
-is_linear(::DensityMomentTerm) = true
+_region_unknowns(envelopes) = envelopes === nothing ? () : region_temperature(envelopes.region)
+dependencies(term::DensityMomentTerm) = [term.kinetic; collect(Symbol, _region_unknowns(term.envelopes))]
+is_linear(term::DensityMomentTerm) = isempty(_region_unknowns(term.envelopes))
 
 # the envelopes of a term fit the grid of its unknown
 _check_envelopes(::Nothing, grid) = nothing
@@ -896,7 +1021,7 @@ function _add_density_moment!(out, term::DensityMomentTerm, grid::KineticGrid, u
     for ir in 1:radial_cell_count(layout)
         m = momentum_grid(grid, ir)
         jacobian = phase_space_jacobian(grid, ir)
-        envelope = _envelope_at(term.envelopes, grid, ir, t)
+        envelope = _moment_envelope(term.envelopes, grid, ir, u, layout, t)
         f = kinetic_view(u, layout, id, ir)
         n = zero(eltype(out))
         @inbounds for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
@@ -916,7 +1041,7 @@ function add_jacobian!(J, term::DensityMomentTerm, u, layout, row, t)
     for ir in 1:radial_cell_count(layout)
         m = momentum_grid(grid, ir)
         jacobian = phase_space_jacobian(grid, ir)
-        envelope = _envelope_at(term.envelopes, grid, ir, t)
+        envelope = _envelope_at(term.envelopes, grid, ir, u, layout, t)
         r = first(unknown_range(layout, row, ir))
         factor = term.coefficient / grid.radial_grid.spatial_jacobian[ir]
         @inbounds for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
@@ -924,21 +1049,68 @@ function add_jacobian!(J, term::DensityMomentTerm, u, layout, row, t)
                         factor * _envelope_value(envelope, i) * jacobian[i, j] * m.p_widths[i] * m.xi_widths[j])
         end
     end
+    _add_threshold_column!(J, term.envelopes, grid, u, layout, row, id) do ir, i, j
+        m = momentum_grid(grid, ir)
+        term.coefficient / grid.radial_grid.spatial_jacobian[ir] * phase_space_jacobian(grid, ir)[i, j] *
+            m.p_widths[i] * m.xi_widths[j]
+    end
     return J
 end
 
-sparsity!(entries, term::DensityMomentTerm, layout, row) = _moment_sparsity!(entries, term.kinetic, layout, row)
+sparsity!(entries, term::DensityMomentTerm, layout, row) =
+    _moment_sparsity!(entries, term.kinetic, layout, row, term.envelopes)
 
-# the row of a moment holds every cell of its radius
-function _moment_sparsity!(entries, kinetic::Symbol, layout, row)
+# the row of a moment holds every cell of its radius, and the temperature of the radius when
+# the limit of its region follows that unknown
+function _moment_sparsity!(entries, kinetic::Symbol, layout, row, envelopes=nothing)
     id = unknown_id(layout, kinetic)
+    temperature = envelopes === nothing ? () : region_temperature(envelopes.region)
     for ir in 1:radial_cell_count(layout)
         r = first(unknown_range(layout, row, ir))
         for s in unknown_range(layout, id, ir)
             push!(entries, (r, s))
         end
+        for name in temperature
+            push!(entries, (r, first(unknown_range(layout, unknown_id(layout, name), ir))))
+        end
     end
     return entries
+end
+
+# the envelope for the residual of a moment: in the number type of a state with derivative
+# parts when the limit follows the temperature, so that the AD of rhs! holds its column
+function _moment_envelope(envelopes, grid, ir, u, layout, t)
+    if envelopes !== nothing && !isempty(region_temperature(envelopes.region)) && eltype(u) <: ForwardDiff.Dual
+        limit = _state_limits(envelopes.region, u, layout)[ir]
+        return momentum_envelope!(zeros(typeof(limit), momentum_cell_count(grid, ir)), envelopes.region,
+                                  momentum_grid(grid, ir), limit)
+    end
+    return _envelope_at(envelopes, grid, ir, u, layout, t)
+end
+
+# the column of the temperature of a moment over a region that follows it: the derivative of
+# the envelope with respect to the temperature times the moment weight `weight(ir, i, j)` of
+# each cell and f
+function _add_threshold_column!(weight, J, envelopes, grid, u, layout, row, id)
+    envelopes === nothing && return J
+    temperature = region_temperature(envelopes.region)
+    isempty(temperature) && return J
+    T_id = unknown_id(layout, only(temperature))
+    D = ForwardDiff.Dual{PlasmaColumnTag,Float64,1}
+    T = radial_values(u, layout, T_id)
+    limit = envelopes.region.limit
+    for ir in 1:radial_cell_count(layout)
+        m = momentum_grid(grid, ir)
+        p0 = limit.factor * sqrt(2 * D(T[ir], ForwardDiff.Partials((1.0,))) / Constants.ELECTRON_REST_ENERGY)
+        envelope = momentum_envelope!(zeros(D, momentum_cell_count(m)), envelopes.region, m, p0)
+        f = kinetic_view(u, layout, id, ir)
+        value = 0.0
+        for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
+            value += ForwardDiff.partials(envelope[i], 1) * weight(ir, i, j) * f[i, j]
+        end
+        _add_entry!(J, first(unknown_range(layout, row, ir)), first(unknown_range(layout, T_id, ir)), value)
+    end
+    return J
 end
 
 """
@@ -969,8 +1141,8 @@ function CurrentMomentTerm(kinetic::Symbol, grid::KineticGrid; coefficient::Real
     return CurrentMomentTerm(kinetic, grid, Float64(coefficient), pitch_rule, weights, RegionEnvelopes(region, grid))
 end
 
-dependencies(term::CurrentMomentTerm) = [term.kinetic]
-is_linear(::CurrentMomentTerm) = true
+dependencies(term::CurrentMomentTerm) = [term.kinetic; collect(Symbol, _region_unknowns(term.envelopes))]
+is_linear(term::CurrentMomentTerm) = isempty(_region_unknowns(term.envelopes))
 
 function validate(term::CurrentMomentTerm, layout, row)
     id = unknown_id(layout, term.kinetic)
@@ -989,7 +1161,7 @@ function rhs!(out, term::CurrentMomentTerm, u, layout, row, t)
     grid = kinetic_grid(layout, id)
     for ir in 1:radial_cell_count(layout)
         j = _current_moment(momentum_grid(grid, ir), term.pitch_weights[ir], phase_space_jacobian(grid, ir),
-                            kinetic_view(u, layout, id, ir), _envelope_at(term.envelopes, grid, ir, t))
+                            kinetic_view(u, layout, id, ir), _moment_envelope(term.envelopes, grid, ir, u, layout, t))
         out[first(unknown_range(layout, row, ir))] += term.coefficient * j / grid.radial_grid.spatial_jacobian[ir]
     end
     return out
@@ -1005,7 +1177,7 @@ function add_jacobian!(J, term::CurrentMomentTerm, u, layout, row, t)
         m = momentum_grid(grid, ir)
         jacobian = phase_space_jacobian(grid, ir)
         weights = term.pitch_weights[ir]
-        envelope = _envelope_at(term.envelopes, grid, ir, t)
+        envelope = _envelope_at(term.envelopes, grid, ir, u, layout, t)
         r = first(unknown_range(layout, row, ir))
         factor = term.coefficient * charge / grid.radial_grid.spatial_jacobian[ir]
         @inbounds for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
@@ -1015,10 +1187,17 @@ function add_jacobian!(J, term::CurrentMomentTerm, u, layout, row, t)
                         sqrt(1 + p^2))
         end
     end
+    _add_threshold_column!(J, term.envelopes, grid, u, layout, row, id) do ir, i, j
+        m = momentum_grid(grid, ir)
+        p = m.p_centers[i]
+        term.coefficient * charge / grid.radial_grid.spatial_jacobian[ir] * term.pitch_weights[ir][j] *
+            phase_space_jacobian(grid, ir)[i, j] * m.p_widths[i] * p / sqrt(1 + p^2)
+    end
     return J
 end
 
-sparsity!(entries, term::CurrentMomentTerm, layout, row) = _moment_sparsity!(entries, term.kinetic, layout, row)
+sparsity!(entries, term::CurrentMomentTerm, layout, row) =
+    _moment_sparsity!(entries, term.kinetic, layout, row, term.envelopes)
 
 """
     MaxwellianSourceTerm(kinetic, grid, temperature; target_density, rate,

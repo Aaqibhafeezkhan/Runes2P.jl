@@ -495,10 +495,16 @@ end
     @test !haskey(describe(own)["equations"]["a"], "time_derivative_of")
     @test !haskey(describe(own)["equations"]["a"], "scale")
 
-    # the unknown of the row must be in its terms, the sizes must agree, and the derivative
-    # of an unknown belongs to one row
-    @test_throws "cannot determine it" EquationSystem(layout, [
+    # the unknown of the row must be in its terms or in those of the equation of the unknown
+    # it differentiates (DREAM's pairing of T_cold and W_cold), the sizes must
+    # agree, and the derivative of an unknown belongs to one row
+    @test EquationSystem(layout, [
         Equation(:a, Algebraic(), LinearTerm(:b), LinearTerm(:a; coefficient=-1)),
+        Equation(:b, TimeDerivative(:a), LinearTerm(:a; coefficient=-2)),
+        Equation(:c, TimeDerivative(), LinearTerm(:d; coefficient=-3)),
+        Equation(:d, Algebraic(), LinearTerm(:c), LinearTerm(:d; coefficient=-1))]) isa EquationSystem
+    @test_throws "nothing determines it" EquationSystem(layout, [
+        Equation(:a, Algebraic(), PrescribedValueTerm(1.0), LinearTerm(:a; coefficient=-1)),
         Equation(:b, TimeDerivative(:a), LinearTerm(:a; coefficient=-2)),
         Equation(:c, TimeDerivative(), LinearTerm(:d; coefficient=-3)),
         Equation(:d, Algebraic(), LinearTerm(:c), LinearTerm(:d; coefficient=-1))])

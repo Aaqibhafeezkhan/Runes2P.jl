@@ -285,6 +285,12 @@ time that returns one, as for the [`FokkerPlanckTerm`](@ref). They are rebuilt w
 [`set_field_particle_coefficients!`](@ref) and `settings` (by default those the operator
 was built with) when the plasma values of a radius change. The Woodbury factors of the
 solvers are taken from [`low_rank_jacobian`](@ref) at each factorization, so they follow.
+
+A plasma that reads unknowns ([`PlasmaFromUnknowns`](@ref)) is always taken
+at the state at the start of the step ([`prepare_step!`](@ref)), the lagged treatment of
+the [`FokkerPlanckTerm`](@ref). The derivative of the term with respect to the temperature
+and the density at a radius is a dense column of all cells of that radius, which has no
+place in the low-rank Jacobian of the term.
 """
 struct FieldParticleTerm{T,P} <: EquationTerm
     unknown::Symbol
@@ -306,7 +312,16 @@ end
 
 has_plasma_source(term::FieldParticleTerm) = term.plasma !== nothing
 
-function refresh_coefficients!(term::FieldParticleTerm, u, layout, t)
+# a plasma from the unknowns is lagged: prepare_step! rebuilds the term
+refresh_coefficients!(term::FieldParticleTerm, u, layout, t) =
+    is_state_dependent(term.plasma) ? term.operator : _rebuild_coefficients!(term, u, layout, t)
+
+function prepare_step!(term::FieldParticleTerm, u_old, layout, row, t)
+    is_state_dependent(term.plasma) && _rebuild_coefficients!(term, u_old, layout, t)
+    return nothing
+end
+
+function _rebuild_coefficients!(term::FieldParticleTerm, u, layout, t)
     term.plasma === nothing && return term.operator
     plasma = changed_plasma!(term.plasma_key, term.plasma, u, layout, t; electric_field=false)
     plasma === nothing && return term.operator
@@ -319,10 +334,10 @@ function refresh_coefficients!(term::FieldParticleTerm, u, layout, t)
     return term.operator
 end
 
-dependencies(term::FieldParticleTerm) = [term.unknown]
+dependencies(term::FieldParticleTerm) = [term.unknown; collect(Symbol, source_dependencies(term.plasma))]
 coupling(::FieldParticleTerm) = :matrix_free
 has_low_rank_jacobian(::FieldParticleTerm) = true
-is_linear(::FieldParticleTerm) = true
+is_linear(term::FieldParticleTerm) = !is_state_dependent(term.plasma)
 
 function validate(term::FieldParticleTerm, layout, row)
     id = unknown_id(layout, term.unknown)

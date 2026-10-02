@@ -62,7 +62,7 @@ value at the end of a step.
 """
 struct RechesterRosenbluthUpdate{T,F} <: IntervalUpdate
     name::String
-    operator::AdvectionDiffusion{T}
+    operator::AdvectionDiffusion{T,T}
     delta_b_over_b_at::F
     major_radius::Float64
     safety_factor::Vector{Float64}     # per radial face

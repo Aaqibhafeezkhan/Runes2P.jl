@@ -1,5 +1,5 @@
 """
-    AdvectionDiffusion{T}
+    AdvectionDiffusion{T,C}
 
 Flux-form advection-diffusion operator on a `KineticGrid`,
 
@@ -117,20 +117,20 @@ The radial diffusion is central. Ghost cells as in DREAM: mirrored at the axis, 
 the edge of the plasma. The flux through the edge is the upwind outflow. It needs one pitch
 grid at all radii, and with fewer than three radii the face value is central.
 """
-struct AdvectionDiffusion{T<:AbstractFloat}
+struct AdvectionDiffusion{T<:AbstractFloat,C<:Real}
     grid::KineticGrid{T}
-    advection_p::Array{T,3}       # on p faces (p cells + 1, ξ cells, radii)
-    diffusion_p_p::Array{T,3}
-    diffusion_p_xi::Array{T,3}
-    advection_xi::Array{T,3}      # on ξ faces (p cells, ξ cells + 1, radii)
-    diffusion_xi_xi::Array{T,3}
-    diffusion_xi_p::Array{T,3}
-    advection_r::Array{T,3}       # on r faces (p cells, face pitch cells, radii + 1)
-    diffusion_r_r::Array{T,3}
-    unit_field_advection_p::Array{T,3}   # Aᵖ of a field of 1 V/m, on p faces
-    unit_field_advection_xi::Array{T,3}  # Aᵠ of a field of 1 V/m, on ξ faces
-    p_flux_at_lower_boundary::Matrix{T}      # Γᵖ at p_min (ξ cells, radii)
-    advection_p_times_p2_at_zero::Matrix{T}  # lim p²Aᵖ at p = 0 (ξ cells, radii)
+    advection_p::Array{C,3}       # on p faces (p cells + 1, ξ cells, radii)
+    diffusion_p_p::Array{C,3}
+    diffusion_p_xi::Array{C,3}
+    advection_xi::Array{C,3}      # on ξ faces (p cells, ξ cells + 1, radii)
+    diffusion_xi_xi::Array{C,3}
+    diffusion_xi_p::Array{C,3}
+    advection_r::Array{C,3}       # on r faces (p cells, face pitch cells, radii + 1)
+    diffusion_r_r::Array{C,3}
+    unit_field_advection_p::Array{C,3}   # Aᵖ of a field of 1 V/m, on p faces
+    unit_field_advection_xi::Array{C,3}  # Aᵠ of a field of 1 V/m, on ξ faces
+    p_flux_at_lower_boundary::Matrix{C}      # Γᵖ at p_min (ξ cells, radii)
+    advection_p_times_p2_at_zero::Matrix{C}  # lim p²Aᵖ at p = 0 (ξ cells, radii)
     p_scheme::Symbol
     xi_scheme::Symbol
     r_scheme::Symbol
@@ -209,7 +209,7 @@ function AdvectionDiffusion(grid::KineticGrid{T}; scheme::Symbol=:upwind, p_sche
     on_xi_faces() = zeros(T, np, nxi + 1, nr)
     on_r_faces() = zeros(T, np, face_cells, nr + 1)
     radii = 1:nr
-    return AdvectionDiffusion{T}(grid, on_p_faces(), on_p_faces(), on_p_faces(),
+    return AdvectionDiffusion{T,T}(grid, on_p_faces(), on_p_faces(), on_p_faces(),
                                  on_xi_faces(), on_xi_faces(), on_xi_faces(),
                                  on_r_faces(), on_r_faces(), on_p_faces(), on_xi_faces(), zeros(T, nxi, nr),
                                  zeros(T, nxi, nr),
@@ -233,8 +233,8 @@ array, boundary value and boundary condition with `op` (a rebuild of `op`'s coef
 unchanged. Used by the Jacobian modes of [`FokkerPlanckTerm`](@ref): the
 residual of one scheme with the stored Jacobian of another.
 """
-function with_scheme(op::AdvectionDiffusion{T}, scheme::Symbol; p_scheme::Symbol=scheme,
-                     xi_scheme::Symbol=scheme) where {T}
+function with_scheme(op::AdvectionDiffusion{T,C}, scheme::Symbol; p_scheme::Symbol=scheme,
+                     xi_scheme::Symbol=scheme) where {T,C}
     for s in (p_scheme, xi_scheme)
         s in (:upwind, :central, :exponential_fitting) || is_four_point_scheme(s) ||
             throw(ArgumentError("unknown scheme $s"))
@@ -242,7 +242,7 @@ function with_scheme(op::AdvectionDiffusion{T}, scheme::Symbol; p_scheme::Symbol
     p_scheme === :exponential_fitting && op.p_upper_boundary === :extrapolated_flux &&
         throw(ArgumentError("extrapolated_flux has no exponential_fitting counterpart in DREAM " *
                             "(BC_DPHI_CONST); its flux does not split into Aᵖ times a face value"))
-    return AdvectionDiffusion{T}(op.grid, op.advection_p, op.diffusion_p_p, op.diffusion_p_xi, op.advection_xi,
+    return AdvectionDiffusion{T,C}(op.grid, op.advection_p, op.diffusion_p_p, op.diffusion_p_xi, op.advection_xi,
                                  op.diffusion_xi_xi, op.diffusion_xi_p, op.advection_r, op.diffusion_r_r,
                                  op.unit_field_advection_p, op.unit_field_advection_xi,
                                  op.p_flux_at_lower_boundary, op.advection_p_times_p2_at_zero, p_scheme, xi_scheme,
@@ -250,6 +250,27 @@ function with_scheme(op::AdvectionDiffusion{T}, scheme::Symbol; p_scheme::Symbol
                                  op.momentum_grids, op.radial_overlaps,
                                  op.jacobian_centers, op.jacobian_p_faces, op.jacobian_xi_faces, op.jacobian_r_faces,
                                  op.jacobian_over_p2_at_zero, op.coefficient_source)
+end
+
+"""
+    similar_coefficients(op::AdvectionDiffusion, ::Type{C})
+
+An operator with the grid, the schemes and the boundary conditions of `op` and zero
+coefficients of the number type `C`: coefficients that hold dual numbers,
+whose application to a distribution gives the derivative of the residual with respect to
+the plasma values the coefficients are built from, through the scheme's own face weights.
+"""
+function similar_coefficients(op::AdvectionDiffusion{T}, ::Type{C}) where {T,C<:Real}
+    zeroed(A) = zeros(C, size(A))
+    return AdvectionDiffusion{T,C}(op.grid, zeroed(op.advection_p), zeroed(op.diffusion_p_p),
+                                   zeroed(op.diffusion_p_xi), zeroed(op.advection_xi), zeroed(op.diffusion_xi_xi),
+                                   zeroed(op.diffusion_xi_p), zeroed(op.advection_r), zeroed(op.diffusion_r_r),
+                                   zeroed(op.unit_field_advection_p), zeroed(op.unit_field_advection_xi),
+                                   zeroed(op.p_flux_at_lower_boundary), zeroed(op.advection_p_times_p2_at_zero),
+                                   op.p_scheme, op.xi_scheme, op.r_scheme, op.p_lower_boundary, op.p_upper_boundary,
+                                   op.r_boundary, op.momentum_grids, op.radial_overlaps, op.jacobian_centers,
+                                   op.jacobian_p_faces, op.jacobian_xi_faces, op.jacobian_r_faces,
+                                   op.jacobian_over_p2_at_zero, Ref{Any}(nothing))
 end
 
 # the scheme of a direction with too few cells for a four-point scheme: central, as in DREAM

@@ -22,7 +22,14 @@ distribution as electrons run away or the free-electron density changes.
 
 `temperature` is the cold-electron temperature in eV at each radius, or a function of time
 that returns the temperatures or a [`PlasmaState`](@ref). The shape follows it in time and
-is rebuilt when the temperature of a radius changes. It is prescribed data: the term is linear, and its Jacobian entries are assembled directly.
+is rebuilt when the temperature of a radius changes. It is prescribed data: the term is
+linear, and its Jacobian entries are assembled directly.
+
+`temperature` may also be the name of the radial unknown of the temperature. The term is
+then not linear, and its Jacobian holds the column of the temperature, `S ∂g/∂T`, with the
+derivative of the normalization on the grid, which DREAM's column leaves out
+(`ParticleSourceTerm.cpp`). The momentum integral of that column vanishes, as the source
+adds `S` particles at any temperature.
 """
 struct ParticleSourceTerm{T,S} <: EquationTerm
     source::Symbol
@@ -44,8 +51,9 @@ function ParticleSourceTerm(source::Symbol, grid::KineticGrid{T}, temperature;
     return ParticleSourceTerm{T,typeof(temperature)}(source, grid, temperature, shape, values, Float64[], Ref(NaN))
 end
 
-dependencies(term::ParticleSourceTerm) = [term.source]
-is_linear(::ParticleSourceTerm) = true
+_temperature_unknown(term::ParticleSourceTerm) = term.temperature isa Symbol ? (term.temperature,) : ()
+dependencies(term::ParticleSourceTerm) = [term.source; collect(Symbol, _temperature_unknown(term))]
+is_linear(term::ParticleSourceTerm) = isempty(_temperature_unknown(term))
 jacobian_assembly(::ParticleSourceTerm) = :direct
 
 function validate(term::ParticleSourceTerm, layout, row)
@@ -55,6 +63,11 @@ function validate(term::ParticleSourceTerm, layout, row)
     layout.kinds[row] === :kinetic || throw(ArgumentError("ParticleSourceTerm adds to a kinetic unknown"))
     _same_momentum_grids(term.grid, kinetic_grid(layout, row)) ||
         throw(DimensionMismatch("the grid of the term does not match $(layout.unknowns[row].name)"))
+    for name in _temperature_unknown(term)
+        id = unknown_id(layout, name)
+        layout.kinds[id] === :radial && layout.sizes[id, 1] == 1 ||
+            throw(ArgumentError("the temperature of a ParticleSourceTerm is a radial unknown with one component"))
+    end
     return nothing
 end
 
@@ -78,12 +91,19 @@ function _source_shape!(values::AbstractMatrix, kind::Symbol, grid::KineticGrid,
     return values
 end
 
-# the shape at the time t, rebuilt when the temperatures differ from those of the shape
-function _shape_at(term::ParticleSourceTerm, t)
+# the shape at the state u and the time t, rebuilt when the temperatures differ from those
+# of the shape
+function _shape_at(term::ParticleSourceTerm, u, layout, t)
     time = Float64(_value(t))
     built = !isempty(term.temperatures)
-    built && (term.temperature isa AbstractVector || term.time[] == time) && return term.shape
-    temperatures = _temperatures(term.temperature, time)
+    if term.temperature isa Symbol
+        u === nothing && throw(ArgumentError("a particle source with the temperature $(term.temperature) as an " *
+                                             "unknown needs the state of the system"))
+        temperatures = [_value(x) for x in radial_values(u, layout, unknown_id(layout, term.temperature))]
+    else
+        built && (term.temperature isa AbstractVector || term.time[] == time) && return term.shape
+        temperatures = _temperatures(term.temperature, time)
+    end
     term.time[] = time
     length(temperatures) == radial_cell_count(term.grid) ||
         throw(DimensionMismatch("the temperature needs one value per radius"))
@@ -103,12 +123,23 @@ end
     source_shape(term::ParticleSourceTerm, ir, t=0)
 
 Shape of the source at the radius index `ir` and the time `t`: the particles per volume,
-second and phase-space volume that a magnitude of 1/(m³ s) adds to each cell.
+second and phase-space volume that a magnitude of 1/(m³ s) adds to each cell. A term whose
+temperature is an unknown needs the state, `source_shape(term, ir, u, layout, t)`.
 """
-source_shape(term::ParticleSourceTerm, ir::Integer, t=0.0) = _shape_at(term, t)[ir]
+source_shape(term::ParticleSourceTerm, ir::Integer, t=0.0) = _shape_at(term, nothing, nothing, t)[ir]
+source_shape(term::ParticleSourceTerm, ir::Integer, u, layout, t) = _shape_at(term, u, layout, t)[ir]
+
+# the shapes in the number type of a temperature unknown that carries derivative parts, so
+# that the AD of rhs! holds the column of the temperature
+function _dual_shapes(term::ParticleSourceTerm, u, layout)
+    temperature = radial_values(u, layout, unknown_id(layout, term.temperature))
+    return [_source_shape!(zeros(eltype(temperature), size(term.shape[ir])), term.shape_kind, term.grid, ir,
+                           temperature[ir]) for ir in 1:radial_cell_count(term.grid)]
+end
 
 function rhs!(out, term::ParticleSourceTerm, u, layout, row, t)
-    shapes = _shape_at(term, t)
+    shapes = term.temperature isa Symbol && eltype(u) <: ForwardDiff.Dual ? _dual_shapes(term, u, layout) :
+             _shape_at(term, u, layout, t)
     magnitude = radial_values(u, layout, unknown_id(layout, term.source))
     for ir in 1:radial_cell_count(layout)
         added = kinetic_view(out, layout, row, ir)
@@ -122,7 +153,7 @@ function rhs!(out, term::ParticleSourceTerm, u, layout, row, t)
 end
 
 function add_jacobian!(J, term::ParticleSourceTerm, u, layout, row, t)
-    shapes = _shape_at(term, t)
+    shapes = _shape_at(term, u, layout, t)
     id = unknown_id(layout, term.source)
     for ir in 1:radial_cell_count(layout)
         column = first(unknown_range(layout, id, ir))
@@ -131,13 +162,26 @@ function add_jacobian!(J, term::ParticleSourceTerm, u, layout, row, t)
             _add_entry!(J, r, column, shape[k])
         end
     end
+    term.temperature isa Symbol || return J
+    # the column of the temperature: S ∂g/∂T, the normalization included
+    D = ForwardDiff.Dual{PlasmaColumnTag,Float64,1}
+    temperature = radial_values(u, layout, unknown_id(layout, term.temperature))
+    magnitude = radial_values(u, layout, id)
+    T_id = unknown_id(layout, term.temperature)
+    for ir in 1:radial_cell_count(layout)
+        shape = _source_shape!(zeros(D, size(term.shape[ir])), term.shape_kind, term.grid, ir,
+                               D(temperature[ir], ForwardDiff.Partials((1.0,))))
+        column = first(unknown_range(layout, T_id, ir))
+        for (k, r) in enumerate(unknown_range(layout, row, ir))
+            _add_entry!(J, r, column, magnitude[ir] * ForwardDiff.partials(shape[k], 1))
+        end
+    end
     return J
 end
 
 function sparsity!(entries, term::ParticleSourceTerm, layout, row)
-    id = unknown_id(layout, term.source)
-    for ir in 1:radial_cell_count(layout)
-        column = first(unknown_range(layout, id, ir))
+    for name in (term.source, _temperature_unknown(term)...), ir in 1:radial_cell_count(layout)
+        column = first(unknown_range(layout, unknown_id(layout, name), ir))
         append!(entries, ((r, column) for r in unknown_range(layout, row, ir)))
     end
     return entries
@@ -220,6 +264,11 @@ is_linear(term::MomentumBoundaryFluxTerm) =
 jacobian_assembly(::MomentumBoundaryFluxTerm) = :direct
 
 function validate(term::MomentumBoundaryFluxTerm, layout, row)
+    # the flux follows the plasma unknowns of the Fokker-Planck term, whose columns this
+    # term does not have yet
+    has_plasma_columns(term.source) &&
+        throw(ArgumentError("MomentumBoundaryFluxTerm reads the coefficients of a Fokker-Planck term whose plasma follows unknowns, " *
+                            "and has no Jacobian columns for them yet (issue #143): use coefficients = :lagged"))
     id = unknown_id(layout, term.kinetic)
     layout.kinds[id] === :kinetic || throw(ArgumentError("MomentumBoundaryFluxTerm needs a kinetic unknown"))
     layout.kinds[row] === :radial && layout.sizes[row, 1] == 1 ||

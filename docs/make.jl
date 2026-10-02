@@ -57,7 +57,7 @@ const CATEGORIES = [
      subpages = [
          ("layout", "Unknown layout", ["system/layout.jl"]),
          ("terms", "Equation terms", ["system/terms.jl", "system/interface_term.jl", "system/transport_terms.jl",
-                                      "system/population_terms.jl"]),
+                                      "system/population_terms.jl", "system/energy_terms.jl"]),
          ("conductivity_induction", "Conductivity and induction", ["system/conductivity_terms.jl", "system/induction_terms.jl"]),
          ("equation_system", "Equations and the system", ["system/equation_system.jl"]),
          ("jacobian", "Jacobians", ["system/jacobian.jl"]),

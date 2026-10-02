@@ -99,11 +99,11 @@ end
         region = MomentumRegion(ThermalMomentum(t -> (calls[] += 1; fill(10.0, 3)); factor=3))
         envelopes = Runes2P.RegionEnvelopes(region, g)
         for ir in 1:3
-            Runes2P._envelope_at(envelopes, g, ir, 0.0)
+            Runes2P._envelope_at(envelopes, g, ir, nothing, nothing, 0.0)
         end
         @test calls[] == 1
         envelopes.values[2][1] = -1.0
-        Runes2P._envelope_at(envelopes, g, 2, 1e-6)
+        Runes2P._envelope_at(envelopes, g, 2, nothing, nothing, 1e-6)
         @test calls[] == 2 && envelopes.values[2][1] == -1.0
         @test envelopes.values[3] == momentum_envelope(region, g, 3, 0.0)
 

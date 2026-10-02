@@ -10,6 +10,11 @@ Momentum limit that follows the cold-electron temperature: `factor` thermal mome
 `pThreshold = 7` in thermal units by default in its Python interface). `temperature` is
 the temperature in eV at each radius, or a function of time that returns the temperatures
 or a [`PlasmaState`](@ref). `limit(t)` gives the momenta at the time `t`.
+
+`temperature` may also be the name of the radial unknown of the temperature. The limit
+then follows the state, and the moments over the region hold the column of
+the temperature in their Jacobian: the derivative of the envelope with respect to the
+limit, piecewise in the cells as DREAM's (`MomentQuantity.cpp`).
 """
 struct ThermalMomentum{S}
     temperature::S
@@ -21,6 +26,8 @@ function ThermalMomentum(temperature; factor::Real=7.0)
 end
 
 _temperatures(temperature::AbstractVector, t) = temperature
+_temperatures(name::Symbol, t) =
+    throw(ArgumentError("a limit that follows the temperature unknown $name needs the state of the system"))
 _temperatures(plasma::PlasmaState, t) = plasma.cold_electron_temperature
 _temperatures(temperature_at, t) = _temperatures(temperature_at(t), t)
 
@@ -69,6 +76,23 @@ function MomentumRegion(limit; side::Symbol=:above, envelope::Symbol=:interpolat
     smooth_width > 0 || throw(ArgumentError("smooth_width must be positive"))
     limit isa Real && (limit >= 0 || throw(ArgumentError("the limit of a momentum region must not be negative")))
     return MomentumRegion(limit, side, envelope, Float64(smooth_width))
+end
+
+"""
+    region_temperature(region)
+
+The name of the temperature unknown that the limit of a region follows, as a tuple of one
+name, or an empty tuple (also for `nothing`).
+"""
+region_temperature(region::MomentumRegion) = region.limit isa ThermalMomentum{Symbol} ? (region.limit.temperature,) : ()
+region_temperature(::Nothing) = ()
+
+# the limits per radius of a region that follows the temperature unknown, in the number type
+# of the state
+function _state_limits(region::MomentumRegion, u, layout)
+    limit = region.limit
+    temperature = radial_values(u, layout, unknown_id(layout, limit.temperature))
+    return [limit.factor * sqrt(2 * temperature[ir] / Constants.ELECTRON_REST_ENERGY) for ir in eachindex(temperature)]
 end
 
 """
@@ -180,19 +204,25 @@ RegionEnvelopes(region::MomentumRegion, grid::KineticGrid) =
                     Ref(NaN))
 RegionEnvelopes(::Nothing, grid::KineticGrid) = nothing
 
-# the envelope of the radius at the time t; nothing without a region
-@inline _envelope_at(::Nothing, grid, ir, t) = nothing
-function _envelope_at(envelopes::RegionEnvelopes, grid::KineticGrid, ir, t)
-    _refresh!(envelopes, grid, t)
+# the envelope of the radius at the state u and the time t; nothing without a region
+@inline _envelope_at(::Nothing, grid, ir, u, layout, t) = nothing
+function _envelope_at(envelopes::RegionEnvelopes, grid::KineticGrid, ir, u, layout, t)
+    _refresh!(envelopes, grid, u, layout, t)
     return envelopes.values[ir]
 end
 
-function _refresh!(envelopes::RegionEnvelopes, grid::KineticGrid, t)
+function _refresh!(envelopes::RegionEnvelopes, grid::KineticGrid, u, layout, t)
     time = Float64(_value(t))
     built = !isempty(envelopes.limits)
-    built && (!is_time_dependent(envelopes.region) || envelopes.time[] == time) && return envelopes
     radii = radial_cell_count(grid)
-    values = _limit_values(envelopes.region.limit, time)
+    if !isempty(region_temperature(envelopes.region))
+        # a limit that follows the state is compared at every evaluation
+        u === nothing && throw(ArgumentError("a region that follows the temperature unknown needs the state"))
+        values = [_value(x) for x in _state_limits(envelopes.region, u, layout)]
+    else
+        built && (!is_time_dependent(envelopes.region) || envelopes.time[] == time) && return envelopes
+        values = _limit_values(envelopes.region.limit, time)
+    end
     limits = values isa Real ? Iterators.repeated(values, radii) : values
     values isa Real || length(values) == radii ||
         throw(DimensionMismatch("the limit of the momentum region has $(length(values)) values for $radii radii"))
