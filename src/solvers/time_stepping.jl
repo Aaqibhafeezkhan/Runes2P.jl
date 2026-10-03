@@ -155,7 +155,9 @@ Base.showerror(io::IO, e::TimeStepFailure) =
 # - `advance!(stepper, state, run, options, ceiling)`: one attempt to advance the run from
 #   its time to at most `ceiling`, with its own solves and their statistics; `(t_next, h)`
 #   with the accepted state in `run.u`, or `nothing` when the attempt failed or was
-#   rejected and the stepper retries with another length (it throws when it gives up).
+#   rejected and the stepper retries with another length (it throws when it gives up);
+# - `reset_history!(state)`: forget the accepted states before the current one, after an
+#   update changed the setup; nothing by default.
 
 """
     TimeStepper
@@ -255,6 +257,7 @@ end
 
 "The error estimate per unknown of the last accepted step, for the log; `nothing` without one."
 stepper_errors(state) = nothing
+reset_history!(state) = nothing
 
 "Record of the state of a stepper, stored in the checkpoint."
 stepper_record(state::FixedStepState) =
@@ -469,8 +472,8 @@ end
 
 """
     StepController(; initial_step=nothing, relative_tolerance=1e-3, max_growth=2.0, min_shrink=0.2,
-                   safety=0.9, gains=(0.35, 0.2), max_failures=5, failure_factor=0.2,
-                   max_rejections=20, tail_cut=1.0, tail_floor=1e-12)
+                   safety=0.9, gains=nothing, max_failures=5, failure_factor=0.2,
+                   max_rejections=20, tail_cut=1.0, tail_floor=1e-12, order=1)
 
 The step controller of Runes2P: an error estimate of the backward-Euler step without an
 extra solve, tolerances per unknown with a floor, and a PI filter on the step length with a
@@ -497,16 +500,20 @@ The error of the step is the largest over the unknowns; the step is accepted whe
 at most 1.
 
 The next step follows the PI filter of Gustafsson and Söderlind (Hairer and Wanner,
-Solving ODEs II, section IV.2), for a local error of second order in the step:
+Solving ODEs II, section IV.2):
 `h_new = h · safety · error^(-gains[1]) · error_old^(gains[2])`, with the factor kept
-between `min_shrink` and `max_growth`. The two `gains` are the fields `gain_error` and
-`gain_memory` of the record. The default gains are the elementary 0.7 and 0.4
-over the order 2 (DREAM's stabiliser has them on the order 1). A rejected step is
-repeated with `h · max(min_shrink, safety · error^(-1/2))` and keeps the memory of the
-filter; more than `max_rejections` rejections in a row end the run with
-[`TimeStepFailure`](@ref) (a settings error, such as a `min_shrink` near 1 with a step
-whose error does not fall). A step whose solve fails is retried with `failure_factor`
-times the length tried, at most `max_failures` times in a row.
+between `min_shrink` and `max_growth`. The default gains are the elementary 0.7 and 0.4
+over the order of the local error, `(0.35, 0.2)` for backward Euler, whose local error is
+of second order in the step (DREAM's stabiliser has them over the order 1). The two
+`gains` are the fields `gain_error` and `gain_memory` of the record. The memory
+`error_old` is floored at 1e-4, as in Hairer's codes, so that a step after one with an
+error near zero is not shrunk by the limit. An interval update that reports a change of the
+setup restarts the estimate: the next step takes it from a doubling, as the first step of
+a run. A rejected step is repeated with `h · max(min_shrink, safety · error^(-1/(k+1)))`,
+k the order of the step, and keeps the memory of the filter; more than `max_rejections`
+rejections in a row end the run with [`TimeStepFailure`](@ref) (a settings error, such as
+a `min_shrink` near 1 with a step whose error does not fall). A step whose solve fails is
+retried with `failure_factor` times the length tried, at most `max_failures` times in a row.
 
 The first step has the length `initial_step` (`nothing`: the first interval of the time
 points). Every step ends at or before the next time point and the next save time, so
@@ -522,11 +529,27 @@ With `tail_cut` (a momentum in units of mₑc, `nothing` for none) the error of
 every kinetic unknown also holds its moments above the cut: the density and the current
 density at every radius ([`density`](@ref) and [`current_density`](@ref) with a
 [`MomentumRegion`](@ref)), each estimated by the moment of the cell estimate, over
-`absolute + relative |moment|` with the absolute tolerance `tail_floor` times the scale of
-the unknown for the density and e c times that for the current. The error of the unknown
+`absolute + relative |moment|` with the absolute tolerance `tail_floor` times the density
+of the electrons on all kinetic grids at that radius for the density, and e c times that
+for the current, so that the floor does not depend on the scale of the unknown and stays
+a floor for a runaway grid whose electrons all lie above the cut. The error of the unknown
 is the larger of the root mean square over its cells and that over its `2 nr` moments,
 taken per radius on the momentum grid of that radius. On a two-grid layout the runaway
 unknown lies above the cut as a whole, so its moments are its density and current.
+
+With `order = 2` the steps are those of the variable-step BDF2,
+`u - a u_n + b u_{n-1} = c h f(u)` with `a = (1+ω)²/(1+2ω)`, `b = ω²/(1+2ω)`, `c = (1+ω)/(1+2ω)`
+and `ω` the ratio of the step to the one before. The solve is the backward-Euler residual
+with the reference `a u_n - b u_{n-1}` in the time derivative and the effective step `c h`
+([`residual!`](@ref)); the terms see `u_n` as with backward Euler, and the statistics
+record `h`. The estimate is Milne's: the quadratic extrapolation through the last three
+accepted states, `ρ (u - P)` with `ρ = h(h+h1)/((h+h1+h2)(2h+h1) + h(h+h1))`, 2/11 at
+constant steps, for a local error of third order in the step. The first two steps of a run
+and the first two after an update that changes the setup are backward-Euler steps, with
+the gains scaled to their order. BDF2 is zero-stable for `ω < 1 + √2`, so `max_growth`
+must stay below that. It keeps neither the positivity of backward Euler with an M-matrix
+operator nor the second order for explicit and lagged terms, which it warns about. The
+default is `order = 1`, backward Euler, which DREAM uses.
 
 The estimate assumes that every term is implicit. An explicit or lagged term contributes
 `h h_old u''/2` in place of `h² u''/2` to the difference, which the growth cap bounds to a
@@ -554,12 +577,19 @@ struct StepController <: TimeStepper
     failure_factor::Float64
     max_rejections::Int
     tail_cut::Float64          # the momentum above which the tail moments are taken, NaN: none
-    tail_floor::Float64        # the absolute tolerance of the tail density, relative to the scale
+    tail_floor::Float64        # the absolute tolerance of the tail density, relative to the density
+    order::Int                 # 1: backward Euler, 2: BDF2
 end
 function StepController(; initial_step::Union{Nothing,Real}=nothing, relative_tolerance::Real=1e-3,
-                        max_growth::Real=2.0, min_shrink::Real=0.2, safety::Real=0.9, gains=(0.35, 0.2),
+                        max_growth::Real=2.0, min_shrink::Real=0.2, safety::Real=0.9, gains=nothing,
                         max_failures::Integer=5, failure_factor::Real=0.2, max_rejections::Integer=20,
-                        tail_cut::Union{Nothing,Real}=1.0, tail_floor::Real=1e-12)
+                        tail_cut::Union{Nothing,Real}=1.0, tail_floor::Real=1e-12, order::Integer=1)
+    order in (1, 2) || throw(ArgumentError("order must be 1 (backward Euler) or 2 (BDF2), not $order"))
+    # variable-step BDF2 is zero-stable for a step ratio below 1 + √2
+    order == 2 && max_growth >= 1 + sqrt(2) &&
+        throw(ArgumentError("BDF2 needs max_growth below 1 + √2 ≈ 2.414 for its stability, not $max_growth"))
+    # the elementary gains over the order of the local error, h^(order+1)
+    gains === nothing && (gains = (0.7 / (order + 1), 0.4 / (order + 1)))
     initial_step === nothing || initial_step > 0 || throw(ArgumentError("the initial step must be positive"))
     tail_cut === nothing || tail_cut >= 0 || throw(ArgumentError("tail_cut must not be negative"))
     tail_floor >= 0 || throw(ArgumentError("tail_floor must not be negative"))
@@ -575,29 +605,53 @@ function StepController(; initial_step::Union{Nothing,Real}=nothing, relative_to
     return StepController(initial_step === nothing ? NaN : Float64(initial_step), Float64(relative_tolerance),
                           Float64(max_growth), Float64(min_shrink), Float64(safety),
                           Float64(gains[1]), Float64(gains[2]), Int(max_failures), Float64(failure_factor),
-                          Int(max_rejections), tail_cut === nothing ? NaN : Float64(tail_cut), Float64(tail_floor))
+                          Int(max_rejections), tail_cut === nothing ? NaN : Float64(tail_cut), Float64(tail_floor),
+                          Int(order))
 end
 
-# the state of StepController: the step length, the last accepted state and its step
-# (NaN before the first accepted step), the error of the last accepted step for the
-# filter, the failures in a row, the tolerances per unknown, the buffers and the errors
-# per unknown of the last estimate
+# the gains of the filter for a step of the order k: those of the stepper are for its own
+# order, and the steps of backward Euler that start a BDF2 run scale them to order 1
+_gains(stepper::StepController, k) = (stepper.gain_error, stepper.gain_memory) .* ((stepper.order + 1) / (k + 1))
+
+# BDF2 is of second order for the implicit terms alone: an explicit term and a term built
+# from the start of the step keep the first order of their own time level
+function _warn_first_order_terms(system::EquationSystem)
+    first_order = !isempty(system.explicit_terms) ||
+                  any(bound -> _first_order_term(bound.term), system.sparse_terms) ||
+                  any(bound -> _first_order_term(bound.term), system.matrix_free_terms)
+    first_order && @warn "StepController(order = 2) with explicit or lagged terms: BDF2 is of second order for the " *
+                         "implicit terms only, the explicit and lagged ones stay of first order"
+    return first_order
+end
+_first_order_term(term) = false
+_first_order_term(term::FokkerPlanckTerm) = _is_lagged(term)
+_first_order_term(term::KnockOnTerm) = _lagged_primary(term)
+_first_order_term(term::FieldParticleTerm) = is_state_dependent(term.plasma)
+
+# the state of StepController: the step length, the two last accepted states before the
+# current one and their steps (NaN before there is one; the second only for BDF2), the
+# error of the last accepted step for the filter, the failures in a row, the tolerances per
+# unknown, the buffers and the errors per unknown of the last estimate
 mutable struct StepControllerState{T}
     dt::Float64
     previous_step::Float64
+    previous_step2::Float64
     error_old::Float64
     failures::Int
     rejections::Int                   # in a row
     const previous::Vector{T}         # the accepted state before u_old
+    const previous2::Vector{T}        # the accepted state before that (BDF2)
     const absolute::Vector{Float64}   # per unknown of the layout
     const relative::Vector{Float64}
-    const half::Vector{T}             # the buffers of the doubling of the first step
+    const half::Vector{T}             # the buffers of the doubling of the first step and the predictor
     const doubled::Vector{T}
+    const reference::Vector{T}        # the reference state of the BDF2 step
     const errors::Vector{Float64}     # per unknown, NaN before the first estimate
     const tail_region::Union{Nothing,MomentumRegion}   # the region of the tail moments
-    const tail_weights::Vector{Vector{NTuple{2,Matrix{Float64}}}}   # per unknown and radius: density and current weights, empty without
+    const tail_weights::Vector{Vector{NTuple{3,Matrix{Float64}}}}   # per unknown and radius: tail density, tail current and density weights, empty without
     const tail_errors::Vector{Float64}                 # per unknown, the error of the tail moments, NaN without
-    const tail_floor_scale::Vector{Float64}            # per unknown, the absolute tolerance of the tail density
+    const tail_floor::Float64                          # the tail floor relative to the density of the grid electrons
+    const grid_density::Vector{Float64}                # per radius, the density of the electrons on all kinetic grids
 end
 
 function stepper_state(stepper::StepController, system::EquationSystem{T}, times, t, record::AbstractDict) where {T}
@@ -608,45 +662,58 @@ function stepper_state(stepper::StepController, system::EquationSystem{T}, times
         push!(absolute, tolerance === nothing ? stepper.relative_tolerance * u.scale : tolerance.absolute)
         push!(relative, tolerance === nothing ? stepper.relative_tolerance : tolerance.relative)
     end
+    stepper.order == 2 && _warn_first_order_terms(system)
     n = length(layout)
     count = length(layout.unknowns)
-    # the tail moments of the kinetic unknowns: the region above the cut and a buffer in the
-    # shape of each kinetic unknown's grid
+    # the tail moments of the kinetic unknowns: the region above the cut and the weights of
+    # the moments on each kinetic unknown's grid
     tail_region = isnan(stepper.tail_cut) ? nothing : MomentumRegion(stepper.tail_cut)
     tail_weights = [tail_region !== nothing && layout.kinds[id] === :kinetic ? _tail_moment_weights(u.grid, tail_region) :
-                    NTuple{2,Matrix{Float64}}[] for (id, u) in enumerate(layout.unknowns)]
-    tail_floor_scale = [stepper.tail_floor * u.scale for u in layout.unknowns]
+                    NTuple{3,Matrix{Float64}}[] for (id, u) in enumerate(layout.unknowns)]
+    state(dt, step, step2, error_old, failures, previous, previous2) =
+        StepControllerState{T}(dt, step, step2, error_old, failures, 0, previous, previous2, absolute, relative,
+                               zeros(T, n), zeros(T, n), zeros(T, n), fill(NaN, count), tail_region, tail_weights,
+                               fill(NaN, count), stepper.tail_floor, zeros(radial_cell_count(layout)))
     if get(record, "type", "") == "StepController"
         previous = haskey(record, "previous_state") ? Vector{T}(record["previous_state"]) : T[]
         if length(previous) == n
-            return StepControllerState{T}(Float64(record["dt"]), Float64(record["previous_step"]),
-                                          Float64(record["error_old"]), Int(record["failures"]), 0, previous,
-                                          absolute, relative, zeros(T, n), zeros(T, n), fill(NaN, count), tail_region, tail_weights, fill(NaN, count), tail_floor_scale)
+            # the second state of BDF2, when the record has one (format 0.24)
+            previous2 = haskey(record, "previous_state_2") ? Vector{T}(record["previous_state_2"]) : T[]
+            step2 = length(previous2) == n ? Float64(record["previous_step_2"]) : NaN
+            return state(Float64(record["dt"]), Float64(record["previous_step"]), step2, Float64(record["error_old"]),
+                         Int(record["failures"]), previous, length(previous2) == n ? previous2 : zeros(T, n))
         end
         # the run resumes onto another layout (an unknown added or removed): the stored
-        # state of the predictor does not fit, so the controller starts with its stored
+        # states of the predictor do not fit, so the controller starts with its stored
         # step and a doubling for the first estimate
         isempty(previous) ||
             @warn "the layout of the run differs from the stored state of the step controller ($(length(previous)) " *
                   "entries against $n): the history of the predictor is dropped, the first step is a doubling"
-        return StepControllerState{T}(Float64(record["dt"]), NaN, 1.0, 0, 0, zeros(T, n), absolute, relative,
-                                      zeros(T, n), zeros(T, n), fill(NaN, count), tail_region, tail_weights, fill(NaN, count), tail_floor_scale)
+        return state(Float64(record["dt"]), NaN, NaN, 1.0, 0, zeros(T, n), zeros(T, n))
     end
     dt = isnan(stepper.initial_step) ? _interval_length(times, t) : stepper.initial_step
-    return StepControllerState{T}(dt, NaN, 1.0, 0, 0, zeros(T, n), absolute, relative, zeros(T, n), zeros(T, n),
-                                  fill(NaN, count), tail_region, tail_weights, fill(NaN, count), tail_floor_scale)
+    return state(dt, NaN, NaN, 1.0, 0, zeros(T, n), zeros(T, n))
 end
 
 function stepper_record(state::StepControllerState)
     record = SettingsRecord("type" => "StepController", "dt" => state.dt, "previous_step" => state.previous_step,
                             "error_old" => state.error_old, "failures" => state.failures)
     isnan(state.previous_step) || (record["previous_state"] = collect(Float64, state.previous))
+    if !isnan(state.previous_step2)
+        record["previous_step_2"] = state.previous_step2
+        record["previous_state_2"] = collect(Float64, state.previous2)
+    end
     return record
 end
 
 ceilings(::StepController, times, save_times) = sort!(unique!(collect(Float64, vcat(times, save_times))))
 
 stepper_errors(state::StepControllerState) = state.errors
+
+# after an update that changed the setup the extrapolation through the states before it
+# would hold the jump of the setup, a term of first order in the step: the next step takes
+# its estimate from a doubling, as the first step of a run
+reset_history!(state::StepControllerState) = (state.previous_step = NaN; state.previous_step2 = NaN; nothing)
 
 # the error per unknown of the local error estimate `factor (a - b)`, the root mean
 # square over the entries of the unknown of the estimate over its tolerance at the
@@ -655,6 +722,7 @@ stepper_errors(state::StepControllerState) = state.errors
 # square over its tail moments (`_tail_moment_error!`).
 function _controller_errors!(state::StepControllerState, layout, u, a, b, factor)
     largest = 0.0
+    _grid_density!(state, layout, u)
     for id in eachindex(layout.unknowns)
         absolute, relative = state.absolute[id], state.relative[id]
         state.tail_errors[id] = NaN
@@ -685,14 +753,13 @@ end
 # the error of the tail moments of the kinetic unknown `id`: the density and
 # the current density above the cut, at every radius, of the estimate `factor (a - b)` over
 # `absolute + relative |moment(u)|`, as one root mean square over the 2 nr entries. The
-# absolute tolerance of the density is `tail_floor` times the scale of the unknown, that
-# of the current e c times it. The cells of the tail lie far below the absolute floor of
-# the cell measure, so the moments are what controls the tail.
+# absolute tolerance of the density is `tail_floor` times the density of the electrons on
+# all kinetic grids at the radius (`_grid_density!`), that of the current e c times it.
+# The cells of the tail lie far below the absolute floor of the cell measure, so
+# the moments are what controls the tail.
 function _tail_moment_error!(state::StepControllerState, layout, id, u, a, b, factor, relative)
-    floor_density = state.tail_floor_scale[id]
-    floor_current = Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT * floor_density
     sum_squares, count = 0.0, 0
-    for (ir, (density_weights, current_weights)) in enumerate(state.tail_weights[id])
+    for (ir, (density_weights, current_weights, _)) in enumerate(state.tail_weights[id])
         f, f_a, f_b = kinetic_view(u, layout, id, ir), kinetic_view(a, layout, id, ir), kinetic_view(b, layout, id, ir)
         density_u, current_u, density_e, current_e = 0.0, 0.0, 0.0, 0.0
         @inbounds for k in eachindex(f, f_a, f_b, density_weights, current_weights)
@@ -702,6 +769,8 @@ function _tail_moment_error!(state::StepControllerState, layout, id, u, a, b, fa
             density_e += density_weights[k] * estimate
             current_e += current_weights[k] * estimate
         end
+        floor_density = state.tail_floor * state.grid_density[ir]
+        floor_current = Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT * floor_density
         for (e, m, floor) in ((density_e, density_u, floor_density), (current_e, current_u, floor_current))
             scale = floor + relative * abs(m)
             scale == 0 && continue
@@ -712,12 +781,31 @@ function _tail_moment_error!(state::StepControllerState, layout, id, u, a, b, fa
     return count == 0 ? 0.0 : sqrt(sum_squares / count)
 end
 
-# the weights of the density and the current density above the cut of the region, per
-# radius on the momentum grid of that radius: the moments of `density` and
-# `current_density` as sums of weight times f, for grids whose cell counts differ between
+# the density of the electrons on all kinetic grids at every radius, the reference of the
+# tail floor: on a two-grid layout the runaway grid lies above the cut as a whole, and a
+# floor relative to its own density would vanish with it
+function _grid_density!(state::StepControllerState, layout, u)
+    fill!(state.grid_density, 0.0)
+    for (id, weights) in enumerate(state.tail_weights), (ir, (_, _, all_weights)) in enumerate(weights)
+        f = kinetic_view(u, layout, id, ir)
+        density = 0.0
+        @inbounds for k in eachindex(f, all_weights)
+            density += all_weights[k] * f[k]
+        end
+        state.grid_density[ir] += density
+    end
+    for ir in eachindex(state.grid_density)
+        state.grid_density[ir] = abs(state.grid_density[ir])
+    end
+    return state.grid_density
+end
+
+# the weights of the density and the current density above the cut of the region, and of
+# the density over all momenta, per radius on the momentum grid of that radius: the
+# moments of `density` and `current_density` as sums of weight times f, for grids whose cell counts differ between
 # the radii
 function _tail_moment_weights(grid::KineticGrid, region::MomentumRegion)
-    weights = NTuple{2,Matrix{Float64}}[]
+    weights = NTuple{3,Matrix{Float64}}[]
     for ir in 1:radial_cell_count(grid)
         m = momentum_grid(grid, ir)
         jacobian = phase_space_jacobian(grid, ir)
@@ -729,7 +817,9 @@ function _tail_moment_weights(grid::KineticGrid, region::MomentumRegion)
         current_weights = [Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT * envelope[i] * jacobian[i, j] *
                            m.p_widths[i] * m.p_centers[i] / sqrt(1 + m.p_centers[i]^2) * pitch[j] / volume
                            for i in 1:momentum_cell_count(m), j in 1:pitch_cell_count(m)]
-        push!(weights, (density_weights, current_weights))
+        all_weights = [jacobian[i, j] * m.p_widths[i] * m.xi_widths[j] / volume
+                       for i in 1:momentum_cell_count(m), j in 1:pitch_cell_count(m)]
+        push!(weights, (density_weights, current_weights, all_weights))
     end
     return weights
 end
@@ -746,9 +836,10 @@ function _controller_failure!(stepper::StepController, state::StepControllerStat
                                 "is retried with $(stepper.failure_factor) times the time step")
 end
 
-# the solve of the step from u_old to u over h with its error estimate: by the predictor
-# through the last accepted state, or by a doubling when there is none. `nothing` after
-# a failed solve, which the controller has handled.
+# the solve of the step from u_old to u over h with its error estimate and the order of
+# the step: backward Euler with the estimate from the predictor through the last accepted
+# state, or from a doubling when there is none; BDF2 (order 2) once two accepted states
+# precede u_old. `nothing` after a failed solve, which the controller has handled.
 function _controller_estimate!(stepper::StepController, state::StepControllerState, run, options, t_next, h)
     u_old, u = run.u_old, run.u
     if isnan(state.previous_step)
@@ -761,9 +852,19 @@ function _controller_estimate!(stepper::StepController, state::StepControllerSta
         result.status === :converged ||
             return _controller_failure!(stepper, state, run, options, t_next, t_next - t_half, result; step=h)
     end
+    bdf2 = stepper.order == 2 && !isnan(state.previous_step2)
     copyto!(u, u_old)
     started = time_ns()
-    result = newton_solve!(u, u_old, run.ws, t_next, h)
+    if bdf2
+        # variable-step BDF2, u - a u_n + b u_{n-1} = c h f(u), as a backward-Euler residual
+        # with the reference a u_n - b u_{n-1} and the step c h (ω = h / h_{n-1})
+        ω = h / state.previous_step
+        a, b, c = (1 + ω)^2 / (1 + 2ω), ω^2 / (1 + 2ω), (1 + ω) / (1 + 2ω)
+        @. state.reference = a * u_old - b * state.previous
+        result = newton_solve!(u, u_old, run.ws, t_next, c * h; reference=state.reference)
+    else
+        result = newton_solve!(u, u_old, run.ws, t_next, h)
+    end
     wall = (time_ns() - started) / 1e9
     if result.status !== :converged
         _record!(run.stats, t_next, h, result, run.ws, wall)
@@ -772,15 +873,26 @@ function _controller_estimate!(stepper::StepController, state::StepControllerSta
     if isnan(state.previous_step)
         # the doubling difference is half the local error of the full step
         error = _controller_errors!(state, run.layout, u, u, state.doubled, 2.0)
-    else
+    elseif !bdf2
         # the extrapolation through the two last backward-Euler states is the forward-Euler
         # predictor with the derivative of the last step; the implicit solution differs
         # from it by h² u'', twice the local error
         ratio = h / state.previous_step
         @. state.half = u_old + ratio * (u_old - state.previous)
         error = _controller_errors!(state, run.layout, u, u, state.half, 0.5)
+    else
+        # Milne's device: the quadratic extrapolation P through the last three accepted
+        # states misses by h (h + h1)(h + h1 + h2) u'''/6, BDF2 by h² (h + h1)² u'''/(6 (2h + h1)),
+        # so the local error is ρ (u - P), with ρ = 2/11 at constant steps
+        h1, h2 = state.previous_step, state.previous_step2
+        l0 = (h + h1) * (h + h1 + h2) / (h1 * (h1 + h2))
+        l1 = -h * (h + h1 + h2) / (h1 * h2)
+        l2 = h * (h + h1) / (h2 * (h1 + h2))
+        @. state.half = l0 * u_old + l1 * state.previous + l2 * state.previous2
+        ρ = h * (h + h1) / ((h + h1 + h2) * (2h + h1) + h * (h + h1))
+        error = _controller_errors!(state, run.layout, u, u, state.half, ρ)
     end
-    return (error, result, wall)
+    return (error, result, wall, bdf2 ? 2 : 1)
 end
 
 function advance!(stepper::StepController, state::StepControllerState, run, options, ceiling)
@@ -789,7 +901,7 @@ function advance!(stepper::StepController, state::StepControllerState, run, opti
     h = t_next - t
     estimate = _controller_estimate!(stepper, state, run, options, t_next, h)
     estimate === nothing && return nothing
-    error, result, wall = estimate
+    error, result, wall, order = estimate
     accepted = error <= 1
     _record!(run.stats, t_next, h, result, run.ws, wall; accepted, error)
     state.failures = 0
@@ -802,8 +914,9 @@ function advance!(stepper::StepController, state::StepControllerState, run, opti
                                                           result.krylov_iterations, result.preconditioner_updates,
                                                           false, false, 0.0, 0.0, 0.0, 0.0),
                      "with the error $error of its tolerance, after $(stepper.max_rejections) rejections in a row")
-        # the elementary rule, from the measured step; the filter keeps its memory
-        state.dt = h * max(stepper.min_shrink, stepper.safety * error^(-0.5))
+        # the elementary rule for a local error of the order of the step, from the
+        # measured step; the filter keeps its memory
+        state.dt = h * max(stepper.min_shrink, stepper.safety * error^(-1 / (order + 1)))
         log = options.log
         log_event!(log, "step rejected", Logging.Info,
                    "the step to t = $t_next s with the time step $h s has the error $error of its tolerance " *
@@ -814,10 +927,17 @@ function advance!(stepper::StepController, state::StepControllerState, run, opti
     end
     state.rejections = 0
     # the PI filter on the measured step, its growth capped; a zero error grows by the cap
-    factor = error == 0 ? stepper.max_growth :
-             stepper.safety * error^(-stepper.gain_error) * state.error_old^stepper.gain_memory
+    gain_error, gain_memory = _gains(stepper, order)
+    factor = error == 0 ? stepper.max_growth : stepper.safety * error^(-gain_error) * state.error_old^gain_memory
     state.dt = h * clamp(factor, stepper.min_shrink, stepper.max_growth)
-    state.error_old = max(error, 1e-10)
+    # the memory of the filter floored as in Hairer's codes: a step with an error near
+    # zero would otherwise shrink the next one by the limit
+    state.error_old = max(error, 1e-4)
+    # the history of the predictor: the second state only for BDF2
+    if stepper.order == 2 && !isnan(state.previous_step)
+        copyto!(state.previous2, state.previous)
+        state.previous_step2 = state.previous_step
+    end
     copyto!(state.previous, u_old)
     state.previous_step = h
     return (t_next, h)
@@ -1069,7 +1189,10 @@ function _apply_updates!(run::RunState)
     for update in run.updates
         changed |= apply_update!(update, run.u_old, run.layout, run.t) === true
     end
-    changed && invalidate_jacobian!(run.ws)
+    if changed
+        invalidate_jacobian!(run.ws)
+        reset_history!(run.stepper_state)
+    end
     return nothing
 end
 

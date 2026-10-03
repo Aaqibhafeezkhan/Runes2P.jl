@@ -100,7 +100,8 @@ end
     @testset "predictor controller" begin
         # measured with the tail moments: 283 accepted steps, no
         # rejection, 104 steps for the ramp, 7.1e-3 against the legs in the bulk; without the
-        # moments 226 steps, 118 for the ramp, 7.2e-3
+        # moments 226 steps, 118 for the ramp, 7.2e-3; with the memory floor and the tail
+        # floor, 289 accepted steps
         stepper = StepController(initial_step=1e-12, relative_tolerance=1e-3)
         solution = integrate(case.system, case.u0, [0.0, last(ends)]; save_times=ends, stepper)
         stats = solution.statistics
@@ -140,7 +141,8 @@ end
 
         # a tolerance of 1e-2, the quick first estimate of a scenario: half the steps, twice the
         # difference (measured with the tail moments 125 steps, 53 for the ramp, 1.6e-2 against
-        # the legs in the bulk, 7.6e-2 in the density above p = 1)
+        # the legs in the bulk, 7.6e-2 in the density above p = 1; 133 steps with the memory
+        # floor and the tail floor)
         looser = integrate(case.system, case.u0, [0.0, last(ends)]; save_times=ends,
                            stepper=StepController(initial_step=1e-12, relative_tolerance=1e-2))
         steps_looser = cascade_steps(looser.statistics)

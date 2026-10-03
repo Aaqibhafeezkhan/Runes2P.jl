@@ -416,14 +416,16 @@ function rhs!(du::AbstractVector, u::AbstractVector, system::EquationSystem, t)
 end
 
 """
-    residual!(F, u, u_old, system::EquationSystem, t, dt)
+    residual!(F, u, u_old, system::EquationSystem, t, dt; reference=u_old)
 
-Backward-Euler residual `F = M (u - u_old)/dt - rhs(u, t)`, with explicit terms at
-`u_old`. `M` has one entry per row with a time derivative, in the column of the unknown
+Backward-Euler residual `F = M (u - reference)/dt - rhs(u, t)`, with explicit terms at
+`u_old` and the terms prepared from `u_old` ([`prepare_step!`](@ref)). The reference is
+the start state for backward Euler; the two-step BDF2 of [`StepController`](@ref)`(order = 2)`
+passes its combination of the two last states and its effective step. `M` has one entry per row with a time derivative, in the column of the unknown
 whose derivative the row holds. Allocation free.
 """
 function residual!(F::AbstractVector, u::AbstractVector, u_old::AbstractVector,
-                   system::EquationSystem, t, dt)
+                   system::EquationSystem, t, dt; reference::AbstractVector=u_old)
     rhs = system.buffer
     fill!(rhs, zero(eltype(rhs)))
     layout = system.layout
@@ -435,7 +437,7 @@ function residual!(F::AbstractVector, u::AbstractVector, u_old::AbstractVector,
     mass, columns = system.mass, system.mass_columns
     @inbounds for i in eachindex(F)
         column = columns[i]
-        F[i] = mass[i] * (u[column] - u_old[column]) / dt - rhs[i]
+        F[i] = mass[i] * (u[column] - reference[column]) / dt - rhs[i]
     end
     return F
 end

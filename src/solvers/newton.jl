@@ -248,9 +248,9 @@ function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver=NewtonS
 end
 
 # residual with the errors of evaluation outside the physical domain turned into a status
-function _checked_residual!(F, u, u_old, system, t, dt)
+function _checked_residual!(F, u, u_old, system, t, dt; reference=u_old)
     try
-        residual!(F, u, u_old, system, t, dt)
+        residual!(F, u, u_old, system, t, dt; reference)
     catch err
         err isa DomainError || rethrow()
         return :domain_error
@@ -317,13 +317,13 @@ function _below_lower_limit(ws::NewtonWorkspace, u)
 end
 
 # trial = u + step δ and its residual, with backtracking when the line search is on
-function _take_step!(ws::NewtonWorkspace, u, u_old, t, dt, step)
+function _take_step!(ws::NewtonWorkspace, u, u_old, t, dt, step; reference=u_old)
     solver, system = ws.solver, ws.system
     trial, F = ws.trial, ws.trial_residual
     merit0 = _merit(ws, ws.residual)
     for backtrack in 0:(solver.line_search ? solver.max_backtracks : 0)
         @. trial = u + step * ws.update
-        status = _checked_residual!(F, trial, u_old, system, t, dt)
+        status = _checked_residual!(F, trial, u_old, system, t, dt; reference)
         solver.line_search || return step, status
         if status === :ok
             merit = _merit(ws, F)
@@ -351,17 +351,20 @@ function _convergence_order(norms)
 end
 
 """
-    newton_solve!(u, u_old, workspace::NewtonWorkspace, t, dt)
+    newton_solve!(u, u_old, workspace::NewtonWorkspace, t, dt; reference=u_old)
 
 Solve the backward-Euler step from `u_old` to time `t` with step `dt`, starting from the
-guess in `u` and overwriting it. Returns a [`NewtonResult`](@ref); on failure `u` holds
+guess in `u` and overwriting it. `reference` replaces `u_old` in the time derivative
+alone ([`residual!`](@ref)): BDF2 passes its combination of the two last states with its
+effective step. Returns a [`NewtonResult`](@ref); on failure `u` holds
 the last iterate. Never throws for a failed iteration: a singular matrix, a non-finite
 residual, Jacobian or update, a `DomainError` from a term (evaluation outside the physical
 domain), a linear solve that did not converge, a failed line search, an entry below its lower limit at convergence and the
 iteration limit are reported through the status, for the time stepper to handle
 (DREAM #25, #81).
 """
-function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorkspace, t, dt)
+function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorkspace, t, dt;
+                       reference::AbstractVector=u_old)
     system, solver = ws.system, ws.solver
     empty!(ws.residual_norms)
     empty!(ws.update_norms)
@@ -380,7 +383,7 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
                      linear_step, jacobian_seconds, residual_seconds, factorization_seconds, solve_seconds)
 
     started = time_ns()
-    status = _checked_residual!(ws.residual, u, u_old, system, t, dt)
+    status = _checked_residual!(ws.residual, u, u_old, system, t, dt; reference)
     residual_seconds += (time_ns() - started) / 1e9
     status === :ok || return result(status, 0, NaN)
     initial = _residual_norm(ws, ws.residual)
@@ -426,7 +429,7 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
         limited_step = _limited_step_length(ws, u, ws.update)
         limited_step > 0 || return result(:below_lower_limit, iteration - 1, initial)
         started = time_ns()
-        step, status = _take_step!(ws, u, u_old, t, dt, limited_step)
+        step, status = _take_step!(ws, u, u_old, t, dt, limited_step; reference)
         residual_seconds += (time_ns() - started) / 1e9
         smallest_step = min(smallest_step, step)
         status === :ok || return result(status, iteration - 1, initial)
