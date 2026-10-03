@@ -67,9 +67,9 @@ function electron_electron_operator(grid::KineticGrid, plasma::PlasmaState, sett
         throw(ArgumentError("the field-particle term needs collision mode :full (a Maxwellian bulk in f)"))
     op = AdvectionDiffusion(grid; scheme, p_upper_boundary=:outflow)
     model = CollisionModel(plasma, settings)
-    m = momentum_grid(grid)
     np, nxi, nr = size(grid)
     for ir in 1:nr
+        m = momentum_grid(grid, ir)
         theta = _normalized_temperature(model, ir)
         for k in 1:np+1
             p = m.p_faces[k]
@@ -145,8 +145,9 @@ exact first Legendre modes on the grid and the conductivity does not depend on t
 resolution (to 1e-5). With `:linear`, the moment of [`current_density`](@ref), it
 converges to the same value at second order in the pitch cell width. The normalization of
 `f_M` cancels. On a pitch grid symmetric about `ξ = 0` the term vanishes on any `f` even
-in `ξ`. Needs collision mode `:full`, where the bulk is part of `f`, and a shared momentum
-grid.
+in `ξ`. Needs collision mode `:full`, where the bulk is part of `f`, and cold electrons at
+every radius. The momentum and pitch grids may differ between radii, with the
+same cell counts at every radius.
 """
 struct FieldParticleOperator{T}
     grid::KineticGrid{T}
@@ -162,8 +163,8 @@ end
 function FieldParticleOperator(grid::KineticGrid{T}, plasma::PlasmaState,
                                settings::CollisionSettings=CollisionSettings(); modes::Integer=3,
                                scheme::Symbol=:exponential_fitting, pitch_rule::Symbol=:cell_center) where {T}
-    has_shared_momentum_grid(grid) ||
-        throw(ArgumentError("the field-particle operator needs a shared momentum grid"))
+    has_same_cell_counts(grid) ||
+        throw(ArgumentError("the field-particle operator needs the same momentum and pitch cell counts at every radius"))
     1 <= modes <= size(LIKE_SPECIES_FIELD_TO_TEST_RATIOS, 1) ||
         throw(ArgumentError("modes must be 1, 2 or 3"))
     np, nxi, nr = size(grid)
@@ -192,6 +193,14 @@ function set_field_particle_coefficients!(op::FieldParticleOperator{T}, plasma::
     radial_cell_count(plasma) == radial_cell_count(grid) ||
         throw(DimensionMismatch("plasma and grid radii differ"))
     np, nxi, nr = size(grid)
+    # without cold electrons the e-e collisions and the restoring shapes vanish, which points
+    # to wrong input data or settings: checked before the collision model reads the density
+    for ir in 1:nr
+        plasma.cold_electron_density[ir] > 0 ||
+            throw(DomainError(plasma.cold_electron_density[ir],
+                              "no cold electrons at radius $ir: the field-particle term needs collision mode " *
+                              ":full with a thermal bulk at every radius (check the input data and the settings)"))
+    end
     K = op.modes
     collisions = operator_matrix(electron_electron_operator(grid, plasma, settings; scheme=op.scheme))
     ratios = LIKE_SPECIES_FIELD_TO_TEST_RATIOS[1:K, 1:K]

@@ -188,7 +188,9 @@ function of time that returns one. `model(t)` gives the conductivity per radius.
   every rebuild of its coefficients costs a sparse factorization of the bordered operator per
   radius (not covered by a test
   yet). The field-particle operator is not an option here: a system with it
-  takes no correction.
+  takes no correction. Neither is a system whose terms read the temperature from an
+  unknown: this model needs a prescribed plasma, and the system refuses a prescribed
+  temperature next to the unknown. `:dream_fit` follows the unknown.
 
 The correction is a statement on the steady state. While the distribution relaxes to the
 shape of the ohmic one, within collision times after a change of the field, the current of

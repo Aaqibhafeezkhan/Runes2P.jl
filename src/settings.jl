@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.24"
+const OUTPUT_FORMAT_VERSION = v"0.25"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -783,6 +783,7 @@ function describe(system::EquationSystem, context::DescriptionContext=Descriptio
         equation.kind isa TimeDerivative && equation.kind.of !== nothing &&
             (record["time_derivative_of"] = String(equation.kind.of))
         equation.scale === nothing || (record["scale"] = equation.scale)
+        equation.initial_value === :given || (record["initial_value"] = String(equation.initial_value))
         equations[String(equation.unknown)] = record
     end
     tolerances(kind) = SettingsRecord(String(u.name) => describe(tolerance(system, u.name; kind))

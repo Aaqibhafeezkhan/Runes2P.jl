@@ -90,6 +90,12 @@ tier = "quick"
 files = ["test_plasma_columns.jl"]
 
 [[group]]
+name = "quick-15"
+tier = "quick"
+# small radial systems
+files = ["test_initial_values.jl", "test_plasma_pairings.jl"]
+
+[[group]]
 name = "full-1"
 tier = "full"
 # 15.9 minutes in the probe with test_conductivity.jl, which now has a group of its own

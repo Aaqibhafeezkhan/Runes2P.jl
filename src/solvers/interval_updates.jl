@@ -66,7 +66,10 @@ end
                         critical_momentum_at=total_critical_momentum, linked=[],
                         electric_field=nothing)
 
-Knock-on cutoff that follows the plasma `plasma_at(t)`:
+Knock-on cutoff that follows the plasma `plasma_at(t)`, or
+a [`PlasmaSource`](@ref) such as [`PlasmaFromUnknowns`](@ref), which it reads at the state of
+the start of each interval (a system whose bulk reads the temperature from an
+unknown refuses a prescribed temperature here):
 at the start of every interval the cutoff of each radius of `operator` is set to a face
 of the knock-on momentum grid. The cutoff per radius is the state of the update.
 `critical_momentum_at(plasma, ir)` gives the runaway threshold.
@@ -145,7 +148,8 @@ update_name(update::KnockOnCutoffUpdate) = update.name
 
 function apply_update!(update::KnockOnCutoffUpdate, u, layout, t)
     operator = update.operator
-    plasma = update.plasma_at(t)
+    source = update.plasma_at
+    plasma = source isa PlasmaSource ? plasma_values(source, u, layout, t) : source(t)
     nr = radial_cell_count(operator.knockon)
     radial_cell_count(plasma) == nr || throw(DimensionMismatch("plasma and knock-on grid radii differ"))
     if update.electric_field !== nothing
@@ -217,9 +221,13 @@ function describe(update::KnockOnCutoffUpdate, context::DescriptionContext)
                             "no_ceiling_factor" => update.no_ceiling_factor,
                             "per_radius" => update.per_radius,
                             "thermal_factor" => update.thermal_factor,
-                            "critical_momentum" => _callable_name(update.critical_momentum_at),
-                            "plasma" => _callable_name(update.plasma_at),
-                            "plasma_table" => prescribed_table!(context, update.plasma_at))
+                            "critical_momentum" => _callable_name(update.critical_momentum_at))
+    if update.plasma_at isa PlasmaSource
+        _describe_plasma_source!(record, update.plasma_at, context)
+    else
+        record["plasma"] = _callable_name(update.plasma_at)
+        record["plasma_table"] = prescribed_table!(context, update.plasma_at)
+    end
     update.electric_field === nothing || (record["electric_field"] = String(update.electric_field))
     isempty(update.linked) ||
         (record["linked_operators"] = SettingsRecord("operator_$k" => describe(other, context)
@@ -240,6 +248,20 @@ Refuse an update that does not fit the equation system of the run, before the fi
 Nothing by default.
 """
 check_update(update::IntervalUpdate, system) = nothing
+
+# the cutoff follows the temperature of the bulk: the unknown of the temperature when the
+# terms of the bulk read one
+function check_update(update::KnockOnCutoffUpdate, system)
+    temperature = _bulk_temperature_unknown(system.equations)
+    temperature === nothing && return nothing
+    source = update.plasma_at
+    source isa PlasmaFromUnknowns && source.temperature === temperature ||
+        throw(ArgumentError("the knock-on cutoff update $(update.name) takes a prescribed temperature, while the " *
+                            "terms of the cold bulk read the unknown $temperature: give it " *
+                            "PlasmaFromUnknowns(plasma_at; temperature = :$temperature), which it reads at the " *
+                            "start of each interval"))
+    return nothing
+end
 
 function _checked_updates(updates)
     list = updates isa IntervalUpdate ? (updates,) : Tuple(updates)

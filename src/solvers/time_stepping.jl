@@ -1032,10 +1032,17 @@ be at one of them, equal to the last bit, so that the stepper can start there. T
 continues from the stored time; a script that builds its time points the same way in
 every segment gets the same numbers. The unknowns are matched by name: those in the
 stored state replace the values of `u0`, on the same grids, and an unknown the stored
-state does not have keeps its value of `u0`. The updates are set back to their stored
+state does not have keeps its value of `u0`, or takes it from its equation (below). The
+updates are set back to their stored
 states. The settings may differ from those of the run that stored the state (tolerances,
 the solver, later time points, terms); the record names the sections that changed
 (`segment` in the settings) and a warning lists them.
+
+An unknown whose equation has `initial_value = :from_equation` (the energy of the cold
+electrons, [`thermal_energy_equation`](@ref)) is set from its row at the start of the run,
+whatever `u0` holds there ([`fill_initial_values!`](@ref)); a resumed run sets those that
+the stored state does not have. The record of the segment names them
+(`initial_values_from_equations`).
 
 `stop` ([`StopCondition`](@ref)) ends the segment after an accepted step before the
 last time point, when the wall time left does not cover another step or a stop file
@@ -1104,6 +1111,7 @@ function _start_segment!(u_old, layout, times, save_times, updates, settings, st
     t = T(first(times))
     first_save, segment = 1, 1
     summary_before, stepper_before = SettingsRecord(), SettingsRecord()
+    copied = Symbol[]
     if stored !== nothing
         first(times) <= stored.time <= last(times) ||
             throw(ArgumentError("the stored time $(stored.time) of $(stored.source) lies outside the time points"))
@@ -1111,7 +1119,7 @@ function _start_segment!(u_old, layout, times, save_times, updates, settings, st
             throw(ArgumentError("the stored time $(stored.time) of $(stored.source) is not one of the time points, " *
                                 "which a state without the record of the stepper must be"))
         t = T(stored.time)
-        copy_unknowns!(u_old, layout, stored.state, stored.layout)
+        copied = copy_unknowns!(u_old, layout, stored.state, stored.layout)
         for update in updates
             state = get(stored.update_states, update_name(update), nothing)
             state === nothing || restore_update!(update, state)
@@ -1137,7 +1145,7 @@ function _start_segment!(u_old, layout, times, save_times, updates, settings, st
     if stored !== nothing && settings["segment"]["settings_changed"]
         @warn "resuming $(stored.source) with changed settings" sections = settings["segment"]["changed_sections"]
     end
-    return (; t, first_save, segment, summary_before, stepper_before)
+    return (; t, first_save, segment, summary_before, stepper_before, copied)
 end
 
 # The state of a running segment: the states and the times, what it has saved, its
@@ -1253,6 +1261,11 @@ function _integrate(system::EquationSystem{T}, u0::AbstractVector, times::Abstra
     stored = _resume_state(options.resume, options.checkpoint)
     u_old = Vector{T}(u0)
     start = _start_segment!(u_old, layout, times, save_times, updates, settings, stored, options)
+    # the unknowns that take their initial value from their equation: all of
+    # them at the start of a run, those the stored layout lacks on a resume
+    added = stored === nothing ? nothing : setdiff((unknown.name for unknown in layout.unknowns), start.copied)
+    filled = fill_initial_values!(u_old, system, start.t; unknowns=added)
+    isempty(filled) || (settings["segment"]["initial_values_from_equations"] = String.(filled))
     stop, log, checkpoint = options.stop, options.log, options.checkpoint
 
     # a stop file of an earlier segment is not a request to this one

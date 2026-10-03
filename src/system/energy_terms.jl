@@ -63,11 +63,15 @@ in J/m³ and `T` in eV (DREAM's `W_cold`). The row of the temperature holds the 
 derivative of the energy, `Equation(temperature, TimeDerivative(energy), ...)`, with
 the heating and loss terms in W/m³, as in DREAM, where the energy is the unknown of the time
 derivative and the temperature that of its own row.
+
+The energy takes its initial value from the row (`initial_value = :from_equation`):
+[`integrate`](@ref) sets it from the temperature and the density of the initial
+state, and the value of the energy in that state is not read.
 """
 thermal_energy_equation(; energy::Symbol=:cold_thermal_energy, temperature::Symbol=:cold_electron_temperature,
                         density::Symbol=:cold_electron_density) =
     Equation(energy, Algebraic(), ProductTerm(density, temperature; coefficient=THERMAL_ENERGY_FACTOR),
-             LinearTerm(energy; coefficient=-1))
+             LinearTerm(energy; coefficient=-1); initial_value=:from_equation)
 
 """
     set_thermal_energy!(u, layout; energy=:cold_thermal_energy,

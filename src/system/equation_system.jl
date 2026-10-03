@@ -58,19 +58,32 @@ weights of the residual ([`residual_scales`](@ref)). By default it is the scale 
 unknown whose time derivative the row holds, and the scale of the unknown of the equation
 for an algebraic row. An algebraic row that balances another quantity than its unknown
 names the scale of that quantity: the row of the poloidal flux holds Ampère's law.
+
+`initial_value = :from_equation` makes [`integrate`](@ref) set the unknown of an algebraic
+equation from its row at the start of a run (DREAM's `INITRULE_EVAL_EQUATION`), in place
+of the value in the initial state: [`fill_initial_values!`](@ref). The default `:given`
+takes the initial state as it is.
 """
 struct Equation{K,TT<:Tuple}
     unknown::Symbol
     kind::K
     terms::TT
     scale::Union{Nothing,Float64}
+    initial_value::Symbol
 end
-function Equation(unknown::Symbol, kind, terms::Tuple; scale::Union{Nothing,Real}=nothing)
+function Equation(unknown::Symbol, kind, terms::Tuple; scale::Union{Nothing,Real}=nothing,
+                  initial_value::Symbol=:given)
     scale === nothing || scale > 0 || throw(ArgumentError("the scale of an equation must be positive"))
-    return Equation(unknown, kind, terms, scale === nothing ? nothing : Float64(scale))
+    initial_value in (:given, :from_equation) ||
+        throw(ArgumentError("initial_value must be :given or :from_equation, not $initial_value"))
+    initial_value === :from_equation && !(kind isa Algebraic) &&
+        throw(ArgumentError("the equation of $unknown takes its initial value from its row, which needs an " *
+                            "algebraic equation"))
+    return Equation(unknown, kind, terms, scale === nothing ? nothing : Float64(scale), initial_value)
 end
-Equation(unknown::Symbol, kind, terms::EquationTerm...; scale::Union{Nothing,Real}=nothing) =
-    Equation(unknown, kind, terms; scale)
+Equation(unknown::Symbol, kind, terms::EquationTerm...; scale::Union{Nothing,Real}=nothing,
+         initial_value::Symbol=:given) =
+    Equation(unknown, kind, terms; scale, initial_value)
 
 """
     Tolerance(absolute, relative)
@@ -218,6 +231,7 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
 
     _check_conductivity_correction(equations)
     _check_prescribed_operators(equations)
+    _check_plasma_pairings(equations)
     sparse_terms, matrix_free_terms, explicit_terms = BoundTerm[], BoundTerm[], BoundTerm[]
     mass = zeros(T, length(layout))
     mass_columns = collect(1:length(layout))
@@ -443,6 +457,70 @@ function residual!(F::AbstractVector, u::AbstractVector, u_old::AbstractVector,
 end
 
 """
+    fill_initial_values!(u, system, t; unknowns=nothing)
+
+Set the unknowns whose [`Equation`](@ref) has `initial_value = :from_equation` from their
+algebraic rows at the time `t`, entry by entry (DREAM's `INITRULE_EVAL_EQUATION`; the
+energy of the cold electrons from their temperature and density). A row
+`0 = c x + r(u)` that is linear in its own unknown `x` gives `x = −r/c`. The coefficient
+`c` comes from the row at `x = 0, s, 2s`, with `s` the scale of the unknown, so a row
+needs no particular form. A row that reads another filled unknown is solved again until
+every filled row holds, whatever the order of the equations. `unknowns` limits the fill
+to those names, the unknowns that a resumed run adds to the stored layout. Returns the
+names of the filled unknowns.
+
+Throws an `ArgumentError` for a row that does not depend on its unknown or is not linear in
+it, and for filled rows that read each other in a cycle.
+"""
+function fill_initial_values!(u::AbstractVector, system::EquationSystem, t::Real; unknowns=nothing)
+    layout = system.layout
+    rows = [eq for eq in system.equations
+            if eq.initial_value === :from_equation && (unknowns === nothing || eq.unknown in unknowns)]
+    isempty(rows) && return Symbol[]
+    out = similar(u)
+    positions = Dict(eq.unknown => reduce(vcat, collect.(_unknown_ranges(layout, unknown_id(layout, eq.unknown))))
+                     for eq in rows)
+    coefficients = Dict{Symbol,Vector{eltype(u)}}()
+    function row_values(eq)
+        fill!(out, zero(eltype(out)))
+        row = unknown_id(layout, eq.unknown)
+        for term in eq.terms
+            rhs!(out, term, u, layout, row, t)
+        end
+        return out[positions[eq.unknown]]
+    end
+    for eq in rows, term in eq.terms
+        prepare_step!(term, u, layout, unknown_id(layout, eq.unknown), t)
+    end
+    for _ in 1:length(rows)
+        for eq in rows
+            x = positions[eq.unknown]
+            s = layout.unknowns[unknown_id(layout, eq.unknown)].scale
+            u[x] .= 0
+            r0 = row_values(eq)
+            u[x] .= s
+            r1 = row_values(eq)
+            u[x] .= 2s
+            r2 = row_values(eq)
+            c = (r1 .- r0) ./ s
+            for i in eachindex(c)
+                magnitude = max(abs(r0[i]), abs(r1[i]), abs(r2[i]))
+                c[i] != 0 && abs(r2[i] - 2r1[i] + r0[i]) <= 1e-10 * magnitude ||
+                    throw(ArgumentError("the initial value of $(eq.unknown) comes from its equation, whose row " *
+                                        "must be linear in $(eq.unknown) and depend on it"))
+            end
+            u[x] .= .-r0 ./ c
+            coefficients[eq.unknown] = c
+        end
+        holds(eq) = all(abs(r) <= 1e-10 * abs(c) * max(abs(v), layout.unknowns[unknown_id(layout, eq.unknown)].scale)
+                        for (r, c, v) in zip(row_values(eq), coefficients[eq.unknown], u[positions[eq.unknown]]))
+        all(holds, rows) && return [eq.unknown for eq in rows]
+    end
+    throw(ArgumentError("the rows of $(join((eq.unknown for eq in rows), ", ")), which give their initial values, " *
+                        "read each other in a cycle"))
+end
+
+"""
     mass_matrix(system)
 
 Mass matrix `M`, constant: 1 in the rows with a time derivative, in the column of the
@@ -612,6 +690,93 @@ function _check_prescribed_operators(equations)
                                     "the Fokker-Planck term of that unknown, so the field-particle part does not " *
                                     "restore the momentum of its electron-electron part: give both the same settings"))
         end
+    end
+    return nothing
+end
+
+# Where a term of the cold bulk takes its temperature from: `(:unknown, name)` for an
+# unknown of the system, `(:fixed,)` for a prescribed or frozen value, `nothing` for a term
+# that reads no temperature of the bulk. Other terms, such as a Maxwellian source at a
+# temperature of its own, are not part of the bulk.
+_temperature_source(term) = nothing
+_temperature_source(term::FieldParticleTerm) = _source_temperature(term.plasma)
+# a Fokker-Planck term without a plasma whose operator has no collision coefficients (radial
+# transport alone, the layout the rebuilt terms ask for) reads no temperature
+_temperature_source(term::FokkerPlanckTerm) =
+    term.plasma === nothing && term.operator.coefficient_source[] === nothing ? nothing :
+    _source_temperature(term.plasma)
+_temperature_source(term::ConductivityTerm) = _source_temperature(term.model.plasma)
+_temperature_source(term::ParticleSourceTerm) = _limit_temperature(term.temperature)
+_temperature_source(term::Union{DensityMomentTerm,CurrentMomentTerm}) =
+    term.envelopes === nothing ? nothing : _region_temperature(term.envelopes.region.limit)
+_source_temperature(::Union{Nothing,PlasmaSource}) = (:fixed,)
+_source_temperature(source::PlasmaFromUnknowns) = (:unknown, source.temperature)
+_limit_temperature(temperature) = temperature isa Symbol ? (:unknown, temperature) : (:fixed,)
+_region_temperature(limit::ThermalMomentum) = _limit_temperature(limit.temperature)
+_region_temperature(limit) = nothing      # a limit in momentum reads no temperature
+
+# the temperature unknown that the terms of the cold bulk read, or nothing
+function _bulk_temperature_unknown(equations)
+    names = Set{Symbol}()
+    for equation in equations, term in equation.terms
+        source = _temperature_source(term)
+        source !== nothing && first(source) === :unknown && push!(names, last(source))
+    end
+    length(names) > 1 &&
+        throw(ArgumentError("the terms of the cold bulk read the temperature from the unknowns " *
+                            "$(join(sort!(collect(names)), " and ")): give them one temperature"))
+    return isempty(names) ? nothing : only(names)
+end
+
+# the kind of the plasma of a term, for the pairs whose coefficients must agree
+_plasma_kind(::Nothing) = (:frozen,)
+_plasma_kind(::PrescribedPlasma) = (:prescribed,)
+_plasma_kind(source::PlasmaFromUnknowns) = (:unknowns, source.temperature, source.density)
+
+# Terms that must agree take their plasma from the same source and in the same treatment,
+# explicit with explicit and implicit with implicit where both exist:
+# - one temperature for the terms of the cold bulk: all read the unknown when one does;
+# - the Fokker-Planck and the field-particle term of one unknown: the same kind of plasma,
+#   and lagged with lagged when it follows the unknowns, since the field-particle term is
+#   lagged only;
+# - a corrected conductivity that follows the temperature (implicit) with an implicit
+#   Fokker-Planck term only.
+function _check_plasma_pairings(equations)
+    temperature = _bulk_temperature_unknown(equations)
+    if temperature !== nothing
+        for equation in equations, term in equation.terms
+            _temperature_source(term) == (:fixed,) &&
+                throw(ArgumentError("a $(nameof(typeof(term))) in the equation of $(equation.unknown) takes a " *
+                                    "prescribed or fixed temperature, while other terms of the cold bulk read the " *
+                                    "unknown $temperature: give it the temperature of that unknown " *
+                                    "(PlasmaFromUnknowns, or the name of the unknown)"))
+        end
+    end
+    fokker_planck = [term for equation in equations for term in equation.terms if term isa FokkerPlanckTerm]
+    for equation in equations, term in equation.terms
+        term isa FieldParticleTerm || continue
+        for owner in fokker_planck
+            owner.unknown === term.unknown || continue
+            _plasma_kind(owner.plasma) == _plasma_kind(term.plasma) ||
+                throw(ArgumentError("the field-particle term of $(term.unknown) and the Fokker-Planck term of that " *
+                                    "unknown take their plasma from different sources, so the field-particle part " *
+                                    "does not restore the momentum of the electron-electron part: give both the " *
+                                    "same plasma"))
+            is_state_dependent(owner.plasma) && !_is_lagged(owner) &&
+                throw(ArgumentError("the field-particle term of $(term.unknown) follows the plasma of the unknowns " *
+                                    "lagged and the Fokker-Planck term of that unknown implicitly, so the " *
+                                    "field-particle part misses the change of the electron-electron part within a " *
+                                    "step (issue #70): use coefficients = :lagged for the Fokker-Planck term"))
+        end
+    end
+    lagged = [term for term in fokker_planck if _is_lagged(term)]
+    isempty(lagged) && return nothing
+    for equation in equations, term in equation.terms
+        term isa ConductivityTerm && term.model.kinetic !== :none && is_state_dependent(term.model.plasma) &&
+            throw(ArgumentError("the corrected conductivity in the equation of $(equation.unknown) follows the " *
+                                "temperature implicitly and the Fokker-Planck term of $(first(lagged).unknown) " *
+                                "lagged, so the correction and the current of the distribution belong to different " *
+                                "temperatures: use coefficients = :implicit for the Fokker-Planck term"))
     end
     return nothing
 end

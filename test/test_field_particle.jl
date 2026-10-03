@@ -189,4 +189,115 @@ const SPITZER_HARM = Dict(1 => 0.5816, 2 => 0.6833, 4 => 0.7849, 16 => 0.9225)
         @test_throws ArgumentError FieldParticleOperator(g, plasma, CollisionSettings(mode=:superthermal))
         @test_throws ArgumentError FieldParticleOperator(g, plasma, FIELD_PARTICLE_SETTINGS; modes=4)
     end
+
+    @testset "pitch grids per radius (#86)" begin
+        # The term is local to each radius, so on a grid whose pitch faces differ between
+        # radii each radius must give what it gives on a grid with its pitch faces at every
+        # radius. The p faces are shared, so the temperature is the same at every radius.
+        T = 10.0
+        theta = T / Constants.ELECTRON_REST_ENERGY
+        # pitch faces of a uniform grid with the interior faces moved by `shift` cell widths
+        shifted(nxi, shift) = vcat(-1.0, uniform_xi_faces(nxi)[2:end-1] .+ shift * 2 / nxi, 1.0)
+        grid_of(np_, faces) = cylindrical_grid([MomentumGrid(uniform_p_faces(np_, 0.0, 7 * sqrt(2theta)), x) for x in faces],
+                                               RadialGrid(uniform_r_faces(length(faces), 1.0)))
+        maxwellian(g, densities) = (f = [exp(-(sqrt(1 + p^2) - 1) / theta) for p in momentum_grid(g, 1).p_centers,
+                                         _ in 1:pitch_cell_count(g), _ in 1:radial_cell_count(g)];
+                                    f .* reshape(densities ./ density(g, f), 1, 1, :))
+        plasma_of(densities, E=0.0) = PlasmaState(; cold_electron_temperature=fill(T, length(densities)),
+                                                  ions=[IonSpecies("D", 1, 1, collect(densities))],
+                                                  electric_field=fill(E, length(densities)),
+                                                  magnetic_field=zeros(length(densities)))
+        A, B = uniform_xi_faces(6), shifted(6, 0.3)
+
+        @testset "conservation per radius" begin
+            g = grid_of(40, [A, B])
+            @test !has_shared_momentum_grid(g)
+            plasma = _field_particle_plasma(; nr_=2, Z=2)
+            electron_electron = electron_electron_operator(g, plasma, FIELD_PARTICLE_SETTINGS)
+            f = rand(Xoshiro(57), size(g)...)
+            dee = zeros(size(g))
+            Runes2P.apply!(dee, electron_electron, f)
+            # the e-e operator of each radius conserves the particles on the faces of that radius
+            @test maximum(abs, density(g, dee)) < 1e-12 * maximum(abs, density(g, abs.(dee)))
+            for modes in 1:3
+                op = FieldParticleOperator(g, plasma, FIELD_PARTICLE_SETTINGS; modes)
+                dfp = zeros(size(g))
+                Runes2P.apply!(dfp, op, f)
+                loss = parallel_momentum(op, dee)
+                @test all(abs.(loss) .> 1e-3 * maximum(abs, parallel_momentum(op, f)))
+                @test maximum(abs, parallel_momentum(op, dee .+ dfp) ./ loss) < 1e-11
+                @test maximum(abs, density(g, dfp)) < 1e-12 * maximum(abs, density(g, abs.(dfp)))
+            end
+        end
+
+        @testset "conductivity per radius" begin
+            densities = [1e20, 5e19]
+            function conductivity(faces)
+                g = grid_of(80, faces)
+                plasma = plasma_of(densities)
+                return kinetic_conductivity(fokker_planck_operator(g, plasma, FIELD_PARTICLE_SETTINGS);
+                                            field_particle=FieldParticleOperator(g, plasma, FIELD_PARTICLE_SETTINGS))
+            end
+            # identical to round-off (0 in the first run). The tolerance is a loose one: the
+            # conductivity does not depend on the pitch grid (A against B: 8e-15), so the short
+            # run below is the check that each radius uses its own pitch faces
+            mixed, on_A, on_B = conductivity([A, B]), conductivity([A, A]), conductivity([B, B])
+            @test mixed[1] ≈ on_A[1] rtol = 1e-5
+            @test mixed[2] ≈ on_B[2] rtol = 1e-5
+        end
+
+        @testset "errors and description" begin
+            g = grid_of(20, [A, B])
+            plasma = plasma_of([1e20, 5e19])
+            unequal = grid_of(20, [A, uniform_xi_faces(4)])
+            @test !has_same_cell_counts(unequal)
+            @test_throws ArgumentError FieldParticleOperator(unequal, plasma, FIELD_PARTICLE_SETTINGS)
+            # no cold electrons at a radius: wrong input data or settings (decision of the author, 2026-09-29)
+            without = PlasmaState(; cold_electron_temperature=fill(T, 2), ions=[IonSpecies("D", 1, 1, [1e20, 5e19])],
+                                  electric_field=zeros(2), magnetic_field=zeros(2), cold_electron_density=[1e20, 0.0])
+            thrown = try
+                FieldParticleOperator(g, without, FIELD_PARTICLE_SETTINGS)
+                nothing
+            catch e
+                e
+            end
+            @test thrown isa DomainError
+            @test occursin("no cold electrons at radius 2", sprint(showerror, thrown))
+            term = FieldParticleTerm(:f, FieldParticleOperator(g, plasma, FIELD_PARTICLE_SETTINGS))
+            record = describe(term, Runes2P.DescriptionContext())
+            @test record["operator"]["modes"] == 3
+            @test haskey(describe(g)["momentum_grids"], "radius_2")
+        end
+
+        @testset "short run on 11 radii" begin
+            # pitch grids alternating between radii, densities falling outwards, a field of
+            # 0.05 V/m for three steps of 1 μs: each radius against the run on the grid with
+            # its pitch faces at every radius
+            nr_ = 11
+            A4, B4 = uniform_xi_faces(4), shifted(4, 0.3)
+            densities = collect(range(1e20, 2e19; length=nr_))
+            function short_run(faces, linear_solver)
+                g = grid_of(20, faces)
+                op = FieldParticleOperator(g, plasma_of(densities), FIELD_PARTICLE_SETTINGS)
+                fp = fokker_planck_operator(g, plasma_of(densities, 0.05), FIELD_PARTICLE_SETTINGS)
+                layout = UnknownLayout(g.radial_grid, [KineticUnknown(:f, g; scale=1e20)])
+                system = EquationSystem(layout, [Equation(:f, TimeDerivative(), FokkerPlanckTerm(:f, fp),
+                                                          FieldParticleTerm(:f, op))]; time_scale=1e-6)
+                solution = integrate(system, vec(maxwellian(g, densities)), range(0.0, 3e-6; length=4);
+                                     solver=NewtonSolver(; linear_solver))
+                return current_density(g, reshape(solution.states[:, end], size(g)))
+            end
+            mixed_faces = [isodd(ir) ? A4 : B4 for ir in 1:nr_]
+            mixed = short_run(mixed_faces, SparseLU())
+            on_A, on_B = short_run(fill(A4, nr_), SparseLU()), short_run(fill(B4, nr_), SparseLU())
+            reference = [isodd(ir) ? on_A[ir] : on_B[ir] for ir in 1:nr_]
+            # radial lines off: they need one pitch grid
+            schur = short_run(mixed_faces, GMRES(; preconditioner=FluidSchurLU(; radial_lines=false)))
+            # first run: mixed against the reference 0, the Schur run 3e-13 from the direct one,
+            # while the currents of the two pitch grids differ by 3e-5
+            @test all(!iszero, mixed)
+            @test mixed ≈ reference rtol = 1e-8
+            @test schur ≈ mixed rtol = 1e-8
+        end
+    end
 end
