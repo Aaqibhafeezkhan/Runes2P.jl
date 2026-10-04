@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.26"
+const OUTPUT_FORMAT_VERSION = v"0.27"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -240,6 +240,8 @@ function describe(layout::UnknownLayout, context::DescriptionContext)
         u isa KineticUnknown && (entry["grid"] = grid_name!(context, u.grid))
         if u.lower_limit !== nothing
             entry["lower_limit_tolerance"] = u.lower_limit.tolerance
+            # recorded only when set, so that the records of earlier limits keep their content
+            iszero(u.lower_limit.value) || (entry["lower_limit_value"] = u.lower_limit.value)
             u.lower_limit.reference === nothing ||
                 (entry["lower_limit_reference"] = String(u.lower_limit.reference))
         end

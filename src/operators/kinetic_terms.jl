@@ -141,14 +141,16 @@ function add_synchrotron!(op::AdvectionDiffusion, plasma::PlasmaState)
 end
 
 """
-    fokker_planck_operator(grid, plasma, settings; synchrotron=false,
+    fokker_planck_operator(grid, plasma, settings; synchrotron=true,
                            scheme=:exponential_fitting, p_scheme=scheme, xi_scheme=scheme,
                            p_lower_boundary=:zero_flux, p_upper_boundary=:f_zero,
                            r_boundary=:zero_flux, electric_field=true)
 
 Kinetic operator for the hot electrons: electric field, slowing down, pitch-angle
-scattering, energy diffusion (`:full` mode) and optionally synchrotron losses, with
-`f = 0` beyond `p_max` as in DREAM's hot-tail equation. `scheme` is one of the schemes
+scattering, energy diffusion (`:full` mode) and synchrotron losses, with
+`f = 0` beyond `p_max` as in DREAM's hot-tail equation. The synchrotron loss
+([`add_synchrotron!`](@ref)) is on by default (decision of the author), and
+`synchrotron = false` leaves it out, as DREAM does by default. `scheme` is one of the schemes
 of [`AdvectionDiffusion`](@ref). The default, exponential fitting (decision of the
 author, 2026-09-25, replacing van Albada), keeps f non-negative at every resolution,
 holds the collisional Maxwellian's tail to second order where every limiter
@@ -178,7 +180,7 @@ and the coefficients of a unit field, and the term passes the field
 """
 function fokker_planck_operator(grid::KineticGrid, plasma::PlasmaState,
                                 settings::CollisionSettings=CollisionSettings();
-                                synchrotron::Bool=false, scheme::Symbol=:exponential_fitting,
+                                synchrotron::Bool=true, scheme::Symbol=:exponential_fitting,
                                 p_scheme::Symbol=scheme, xi_scheme::Symbol=scheme,
                                 p_lower_boundary::Symbol=:zero_flux,
                                 p_upper_boundary::Symbol=:f_zero, r_boundary::Symbol=:zero_flux,
@@ -212,7 +214,7 @@ function zero_coefficients!(op::AdvectionDiffusion)
 end
 
 """
-    set_fokker_planck_coefficients!(op, plasma, settings=CollisionSettings(); synchrotron=false,
+    set_fokker_planck_coefficients!(op, plasma, settings=CollisionSettings(); synchrotron=true,
                                     electric_field=true)
 
 Rebuild `op`'s coefficients in place from `plasma` and `settings`
@@ -224,7 +226,7 @@ out, for a field that is an unknown of the system.
 """
 function set_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaState,
                                          settings::CollisionSettings=CollisionSettings();
-                                         synchrotron::Bool=false, electric_field::Bool=true)
+                                         synchrotron::Bool=true, electric_field::Bool=true)
     radial_cell_count(plasma) == radial_cell_count(op.grid) ||
         throw(DimensionMismatch("plasma and grid radii differ"))
     zero_coefficients!(op)

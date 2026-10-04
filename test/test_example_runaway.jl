@@ -43,8 +43,8 @@ const DREAM_EXAMPLE_RUNAWAY_DATA = joinpath(@__DIR__, "data", "dream_example_run
                              ions=[IonSpecies("D", 1, 1, [density])], electric_field=[read(h5["E_field"])],
                              magnetic_field=[setting("radialgrid/B0")])
         settings = CollisionSettings(mode=:full, screening=:partial, coulomb_logarithm=:thermal,
-                                     ion_size_table=:dream)
-        op = fokker_planck_operator(g, plasma, settings; scheme=:upwind)
+                                     ion_size_table=:dream, bremsstrahlung=:neglect)
+        op = fokker_planck_operator(g, plasma, settings; scheme=:upwind, synchrotron=false)
         layout = UnknownLayout(rad, [KineticUnknown(:hot_tail_distribution, g; scale=density)])
         u0 = zeros(length(layout))
         kinetic_view(u0, layout, 1, 1) .= read(h5["f_hot_initial"])[:, :, 1]

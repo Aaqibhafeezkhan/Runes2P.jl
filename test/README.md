@@ -23,6 +23,8 @@ On a cluster the suite runs as an array job, one task per group.
 julia --project=. -e 'using Pkg; Pkg.test()'                                   # every group
 julia --project=. -e 'using Pkg; Pkg.test(test_args=["--tier", "quick"])'      # the unit tests
 julia --project=. -e 'using Pkg; Pkg.test(test_args=["quick-3", "full-1"])'    # named groups
+julia --project=test test/runtests.jl component                                # the component tests
+julia -O0 --project=test test/runtests.jl component                            # the same, compiled faster
 julia --project=test test/runtests.jl --files test_grids.jl,test_layout.jl     # named files
 ```
 
@@ -33,15 +35,33 @@ julia --project=test test/runtests.jl --files test_grids.jl,test_layout.jl     #
 
 ## Tiers
 
-- `quick`: the unit tests, the tests of each building block of the code (grids, operators, the equation system, solvers, time stepping, output, knock-on kernels).
+- The component tests, the group `component` of `groups.toml`: one building block in isolation.
+  They cover the grids, the layout, the knock-on kernels, the moments, the operator on a grid, the terms of the fluid equations on a radial grid and the step controllers on small systems.
+  They are the smoke tier: one process, run before a commit (decision of the author).
+  A file belongs to the group by what it tests, and `packed = false` keeps the group out of the packing.
+- `quick`: the unit tests.
+  These are the component tests and the system tests.
+  A system test checks an assembled kinetic system or the machinery of a run: the equation system, the plasma source, the populations, checkpoints, the preconditioner, the records.
   They run while one works on a module.
 - `full`: the physics validation against independent references (analytic limits, the literature, converged results) and the comparisons with DREAM.
   The full run is both tiers, and it passes before a change is merged.
 - A change in progress runs only the test files it adds or changes, and `test_settings.jl`, as one focused job.
   The full run follows once the whole change is done.
 
-The quick tier is defined by what a file tests, not by its run time.
-Several unit-test files take 10 to 20 minutes alone, most of it compilation.
+Every tier is defined by what a file tests, not by its run time.
+The times follow from it: assembling a kinetic system is what compiles.
+
+## Optimisation level
+
+`julia -O0` compiles the tests several times faster and runs them slower.
+On 2026-10-04 the whole suite took 7 minutes as an array at `-O0`, and the component tests 4.6 minutes as one process.
+
+- A run of a few files and the component tests run at `-O0`.
+- The full run uses the default level, the level of a production run.
+- Two kinds of assertion hold for optimised code alone.
+  Below `-O2` an assertion on allocations is skipped and reported as broken (`skip = !OPTIMIZED` in the test files).
+  The stored values of `test_regression_values.jl` are compared to 1e-12 in place of bit for bit, since the sums run in another order.
+- No other test of the suite failed at `-O0`.
 
 ## Rules for a test file
 
@@ -61,14 +81,35 @@ Several unit-test files take 10 to 20 minutes alone, most of it compilation.
 Each round of new test files from `dev` needs the same steps:
 
 1. Resolve `groups.toml` and the test environment: new files into groups, new packages into `test/Project.toml`, and `test/Manifest.toml` regenerated offline from the root manifest.
-2. Run every file alone, with `groups.toml` set to one group per file, to find definitions that a new file takes from another file.
-   This probe also gives the time of each file.
-3. Pack the groups again from those times, about 16 minutes each on a node.
-4. Run the full suite on the final commit, with a passing report.
+2. Put each new file into a group of its tier, or into the group `component` when it tests one building block in isolation.
+   The runner includes every file into a module of its own, so a definition taken from another file fails at once.
+3. Run the full suite on the final commit, with a passing report.
+4. Pack the groups again from the times of that run when a group has grown beyond about 15 minutes.
+   The next run then uses the packed groups.
 
 ## Why the files are slow
 
 Compilation, not the size of the problems.
-Run twice in one process, `test_fluid_schur_preconditioner.jl` takes 1 210 s and then 10 s, and `test_populations.jl` 940 s and then 9 s.
-Every new combination of terms, closures and solvers is a new type of `EquationSystem`, which compiles `integrate` and the Jacobian again.
+Run twice in one process, `test_fluid_schur_preconditioner.jl` took 1 210 s and then 10 s, and `test_populations.jl` 940 s and then 9 s (before the fixed tags of the Jacobians, below).
 The grids of the tests have 120 to 1 540 unknowns.
+
+The measurement, on `test_field_unknown.jl` cold in a process of its own:
+
+- Of 1 337 s, 1 328 s were compilation, and 1 096 s of it ten instances of the automatic Jacobian of a system, about 120 s each.
+- At `-O0` the file took 338 s, so about three quarters of the time was the optimisation by LLVM.
+- ForwardDiff's default tag gave every system dual numbers of a type of its own, and the code of every term was compiled again for each system.
+- Since then the Jacobians use the fixed tags `JacobianTag` and `OperatorJacobianTag`, and the file takes 441 s.
+  The summed time of the files of the suite fell from 327 to 242 minutes.
+
+`RUNES2P_JACOBIAN_CHUNK_SIZE=8` is recommended for the test suite.
+ForwardDiff chooses the chunk size of the dual numbers as the smaller of 12 and the number of colors of a system.
+Systems with 9, 10 and 11 colors then have three types of dual numbers, and the code of the terms is compiled for each, about 110 s per type.
+With the limit every kinetic system has the chunk size 8, and that code is compiled once.
+The values of the Jacobian do not depend on the chunk size, and a run without the variable keeps ForwardDiff's choice.
+A local run of the tests gets the same with `env RUNES2P_JACOBIAN_CHUNK_SIZE=8 julia ...`.
+An empty value switches the limit off: `env RUNES2P_JACOBIAN_CHUNK_SIZE= julia ...`.
+
+What is still compiled per case:
+
+- `integrate`, `rhs!`, the Jacobian operator and keyword calls, once per type of `EquationSystem`;
+- a Jacobian that a test file takes itself with `ForwardDiff.jacobian` of a closure, once per closure.

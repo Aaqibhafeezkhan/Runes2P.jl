@@ -76,8 +76,8 @@ const DREAM_PMAX_BOUNDARY_DATA = joinpath(@__DIR__, "data", "dream_pmax_boundary
                                      ions=ions, electric_field=E,
                                      magnetic_field=fill(setting("radialgrid/B0"), nr))
                 settings = CollisionSettings(mode=:full, screening=:partial, coulomb_logarithm=:thermal,
-                                             ion_size_table=:dream, screening_window=:dream)
-                op = fokker_planck_operator(g, plasma, settings; scheme, p_upper_boundary)
+                                             ion_size_table=:dream, screening_window=:dream, bremsstrahlung=:neglect)
+                op = fokker_planck_operator(g, plasma, settings; scheme, p_upper_boundary, synchrotron=false)
                 f_initial = read(grp["f_hot_initial"])
                 # f itself is O(1) (the raw ramp), not O(n_cold): scale the unknown to it,
                 # not to the density

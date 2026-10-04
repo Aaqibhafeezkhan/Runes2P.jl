@@ -34,7 +34,7 @@ const DREAM_FLUX_LIMITER_DATA = joinpath(@__DIR__, "data", "dream_flux_limiters.
         n, T, E = read(h5["n"]), read(h5["T"]), read(h5["E"])
         plasma = PlasmaState(cold_electron_temperature=[T], cold_electron_density=[n],
                              ions=[IonSpecies("D", 1, 1, [n])], electric_field=[E], magnetic_field=[5.0])
-        settings = CollisionSettings(mode=:full, screening=:partial, coulomb_logarithm=:thermal, ion_size_table=:dream)
+        settings = CollisionSettings(mode=:full, screening=:partial, coulomb_logarithm=:thermal, ion_size_table=:dream, bremsstrahlung=:neglect)
         times = read(h5["t"])
         dt = times[2] - times[1]
         f_initial = read(h5["f_initial"])   # (p, ξ)
@@ -45,7 +45,7 @@ const DREAM_FLUX_LIMITER_DATA = joinpath(@__DIR__, "data", "dream_flux_limiters.
             for (name, scheme, dream_code) in (("centred", :central, 1), ("quick", :quick, 5),
                                                ("upwind_second_order", :upwind_second_order, 3))
                 @test only(read(h5["$name/adv_interp/p1"])) == only(read(h5["$name/adv_interp/p2"])) == dream_code
-                op = fokker_planck_operator(g, plasma, settings; scheme)
+                op = fokker_planck_operator(g, plasma, settings; scheme, synchrotron=false)
                 layout = UnknownLayout(g.radial_grid, [KineticUnknown(:hot_tail_distribution, g; scale=n)])
                 system = EquationSystem(layout, [Equation(:hot_tail_distribution, TimeDerivative(),
                                                           FokkerPlanckTerm(:hot_tail_distribution, op))])
@@ -61,8 +61,8 @@ const DREAM_FLUX_LIMITER_DATA = joinpath(@__DIR__, "data", "dream_flux_limiters.
             # E-field advection on that face (observed 1.2e-14)
             @test only(read(h5["quick_superthermal/collfreq_mode"])) == 1   # SUPERTHERMAL
             superthermal = CollisionSettings(mode=:superthermal, screening=:partial, coulomb_logarithm=:thermal,
-                                             ion_size_table=:dream)
-            op = fokker_planck_operator(g, plasma, superthermal; scheme=:quick)
+                                             ion_size_table=:dream, bremsstrahlung=:neglect)
+            op = fokker_planck_operator(g, plasma, superthermal; scheme=:quick, synchrotron=false)
             @test all(!=(0), op.advection_p_times_p2_at_zero)
             layout = UnknownLayout(g.radial_grid, [KineticUnknown(:hot_tail_distribution, g; scale=n)])
             system = EquationSystem(layout, [Equation(:hot_tail_distribution, TimeDerivative(),
@@ -82,14 +82,14 @@ const DREAM_FLUX_LIMITER_DATA = joinpath(@__DIR__, "data", "dream_flux_limiters.
 
         @testset "flux limiters: DREAM's lagged steps" begin
             # observed: step 1 1.2e-11 (upwind), step 2 3e-12 to 3.3e-11
-            upwind = fokker_planck_operator(g, plasma, settings; scheme=:upwind)
+            upwind = fokker_planck_operator(g, plasma, settings; scheme=:upwind, synchrotron=false)
             first_step_upwind = frozen_step(upwind, reshape(f_initial, size(g)), nothing)
             for (name, dream_code) in (("smart", 6), ("muscl", 7), ("ospre", 8), ("tcdf", 9))
                 @test only(read(h5["$name/adv_interp/p1"])) == only(read(h5["$name/adv_interp/p2"])) == dream_code
                 f1, f2 = read(h5["$name/f_1"]), read(h5["$name/f_2"])
                 # DREAM's first rebuild of a flux limiter uses upwind weights
                 @test relative(first_step_upwind[:, :, 1], f1) < 1e-10
-                op = fokker_planck_operator(g, plasma, settings; scheme=Symbol(name))
+                op = fokker_planck_operator(g, plasma, settings; scheme=Symbol(name), synchrotron=false)
                 step = frozen_step(op, reshape(f1, size(g)), reshape(f1, size(g)))
                 @test relative(step[:, :, 1], f2) < 1e-10
                 # the limiter weights matter: frozen at the initial state instead, the step

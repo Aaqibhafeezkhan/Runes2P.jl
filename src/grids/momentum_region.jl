@@ -199,9 +199,20 @@ struct RegionEnvelopes{R<:MomentumRegion}
     limits::Vector{Float64}           # the limits of the values per radius, empty before the first evaluation
     time::Base.RefValue{Float64}      # the time of the last evaluation of a limit in time
 end
-RegionEnvelopes(region::MomentumRegion, grid::KineticGrid) =
-    RegionEnvelopes(region, [zeros(momentum_cell_count(grid, ir)) for ir in 1:radial_cell_count(grid)], Float64[],
-                    Ref(NaN))
+function RegionEnvelopes(region::MomentumRegion, grid::KineticGrid)
+    # The width Δp of the smooth step is that of the first cell above the limit, so the
+    # envelope jumps where the limit passes a cell centre between cells of different
+    # widths. With the temperature as an unknown the residual then jumps in it, and the
+    # Newton iteration can cycle.
+    region.envelope === :smooth && !isempty(region_temperature(region)) &&
+        any(ir -> !_uniform_widths(momentum_grid(grid, ir)), 1:radial_cell_count(grid)) &&
+        throw(ArgumentError("the :smooth envelope of a region that follows the temperature unknown " *
+                            "$(only(region_temperature(region))) jumps in the temperature on a momentum grid with " *
+                            "cells of different widths: use envelope = :interpolated or :cell_fraction"))
+    return RegionEnvelopes(region, [zeros(momentum_cell_count(grid, ir)) for ir in 1:radial_cell_count(grid)], Float64[],
+                           Ref(NaN))
+end
+_uniform_widths(m::MomentumGrid) = all(w -> isapprox(w, first(m.p_widths); rtol=1e-10), m.p_widths)
 RegionEnvelopes(::Nothing, grid::KineticGrid) = nothing
 
 # the envelope of the radius at the state u and the time t; nothing without a region

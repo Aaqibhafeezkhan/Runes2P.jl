@@ -290,7 +290,8 @@ function write_header(log::ProgressLog, settings::AbstractDict)
         println(io, "  ", name, ": ", unknown["kind"], haskey(unknown, "grid") ? " on $(unknown["grid"])" : "",
                 get(unknown, "components", 1) > 1 ? ", $(unknown["components"]) components" : "", ", scale ",
                 _number(unknown["scale"]), ", ", sum(unknown["sizes"]), " entries",
-                haskey(unknown, "lower_limit_tolerance") ? ", lower limit with tolerance $(_number(unknown["lower_limit_tolerance"]))" : "")
+                haskey(unknown, "lower_limit_tolerance") ? ", lower limit with tolerance $(_number(unknown["lower_limit_tolerance"]))" : "",
+                haskey(unknown, "lower_limit_value") ? " at $(_number(unknown["lower_limit_value"]))" : "")
     end
     println(io, "  ", get(layout, "unknown_count", "?"), " entries of the state in all")
     grids = _record(settings, "grids")

@@ -4,6 +4,9 @@
 # neutral Ar, the plasma of DREAM's thermalquench/iter.py (Mathias Hoppe, 2021: n_D 1e20,
 # n_Ar 3e19, B 5.3 T), on the momentum grids of iter.py (200 cells to p = 2, 5 pitch cells)
 # and runaway/basic.py (Mathias Hoppe, 300 cells to p = 1, 20 pitch cells).
+# The Maxwellian is the steady state of the collisions alone, so the operators of those
+# tests leave the radiation losses out. The test of the default scheme at the
+# end takes every default.
 
 using LinearAlgebra: I, dot
 using SparseArrays: findnz
@@ -97,8 +100,8 @@ negative_couplings(L) = (IJV = findnz(L); count(k -> IJV[1][k] != IJV[2][k] && I
             plasma = PlasmaState(cold_electron_temperature=[100.0], cold_electron_density=[1e20],
                                  ions=[IonSpecies("D", 1, 1, [1e20])], electric_field=[0.0], magnetic_field=[5.3])
             op = fokker_planck_operator(g, plasma, CollisionSettings(mode=:full, screening=:complete,
-                                                                     coulomb_logarithm=:thermal);
-                                        scheme, p_upper_boundary=:f_zero)
+                                                                     coulomb_logarithm=:thermal, bremsstrahlung=:neglect);
+                                        scheme, p_upper_boundary=:f_zero, synchrotron=false)
             L = operator_matrix(op)
             theta = 100.0 / Constants.ELECTRON_REST_ENERGY
             maxwellian = vec([exp(-(sqrt(1 + p^2) - 1) / theta) for p in mom.p_centers, _ in 1:4])

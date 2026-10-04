@@ -15,11 +15,11 @@ function regression_cases()
     g = cylindrical_grid(mom, RadialGrid(uniform_r_faces(2, 0.5)))
     cases = Pair{String,Any}[]
     # recorded with partial screening at all momenta
-    settings = (("full", CollisionSettings(screening_window=:dream)),
+    settings = (("full", CollisionSettings(screening_window=:dream, bremsstrahlung=:neglect)),
                 ("superthermal", CollisionSettings(mode=:superthermal, screening=:none,
-                                                   coulomb_logarithm=:energy_dependent)),
+                                                   coulomb_logarithm=:energy_dependent, bremsstrahlung=:neglect)),
                 ("ultra_relativistic", CollisionSettings(mode=:ultra_relativistic, screening=:complete,
-                                                         coulomb_logarithm=:relativistic)))
+                                                         coulomb_logarithm=:relativistic, bremsstrahlung=:neglect)))
     for (name, s) in settings
         model = CollisionModel(plasma, s)
         p = mom.p_faces
@@ -92,7 +92,10 @@ const REGRESSION_VALUES = Dict(
             if endswith(key, "_blas")
                 @test all(isapprox.(summary, REGRESSION_VALUES[key]; rtol=1e-13))
             else
-                @test isequal(summary, REGRESSION_VALUES[key])
+                # bit for bit at the optimisation level of the stored values; below -O2 the
+                # sums run in another order and agree to round-off
+                @test Base.JLOptions().opt_level >= 2 ? isequal(summary, REGRESSION_VALUES[key]) :
+                      all(isapprox.(summary, REGRESSION_VALUES[key]; rtol=1e-12))
             end
         end
     finally

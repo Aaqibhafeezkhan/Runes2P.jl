@@ -2,6 +2,8 @@
 # source with its magnitude as an unknown, the constraint it enforces, the flux through the
 # upper momentum boundary into the electrons above the grid, and the particle budget of a
 # run with the field as an unknown, the flux between the grids and the knock-on source.
+# The cases need a net flux out through the upper momentum boundary, which the radiation
+# losses reverse at 5 T, so the operators leave them out.
 using Random: Xoshiro
 
 # (1/V') Σ 𝒱' Δp Δξ g at the radius ir
@@ -132,7 +134,7 @@ end
     plasma = PlasmaState(cold_electron_temperature=fill(temperature, 2), cold_electron_density=fill(bulk_density, 2),
                          ions=[IonSpecies("D", 1, 1, fill(bulk_density, 2))], electric_field=zeros(2),
                          magnetic_field=fill(5.0, 2))
-    settings = CollisionSettings(mode=:full, screening=:complete, coulomb_logarithm=:relativistic)
+    settings = CollisionSettings(mode=:full, screening=:complete, coulomb_logarithm=:relativistic, bremsstrahlung=:neglect)
     hot = cylindrical_grid(MomentumGrid(biuniform_p_faces(56, 40, 0.0, 0.5, 2.5), uniform_xi_faces(8)), rad)
     runaway = runaway_grid(hot, uniform_p_faces(12, 2.5, 26.5)[2:end], uniform_xi_faces(8))
     hot_m, runaway_m = momentum_grid(hot), momentum_grid(runaway)
@@ -143,7 +145,7 @@ end
                                    (:central, :extrapolated_flux), (:exponential_fitting, :extrapolated_flux_consistent),
                                    (:tcdf, :extrapolated_flux_consistent))
         operator = fokker_planck_operator(runaway, plasma, settings; scheme, p_upper_boundary=boundary,
-                                          electric_field=false)
+                                          electric_field=false, synchrotron=false)
         term = FokkerPlanckTerm(:runaway_distribution, operator; electric_field=:electric_field)
         layout = UnknownLayout(rad, [RadialUnknown(:electric_field), RadialUnknown(:runaway_density_above_grid; scale=1e10),
                                      RadialUnknown(:runaway_current_above_grid; scale=1e10 * 4.8e-11),
@@ -209,9 +211,9 @@ end
     end
 
     @testset "checks of the boundary flux term" begin
-        operator = fokker_planck_operator(hot, plasma, settings; p_upper_boundary=:interface)
+        operator = fokker_planck_operator(hot, plasma, settings; p_upper_boundary=:interface, synchrotron=false)
         @test_throws ArgumentError MomentumBoundaryFluxTerm(:hot_tail_distribution, operator)
-        operator = fokker_planck_operator(hot, plasma, settings)
+        operator = fokker_planck_operator(hot, plasma, settings; synchrotron=false)
         @test_throws ArgumentError MomentumBoundaryFluxTerm(:hot_tail_distribution, operator; weight=:other)
         @test_throws ArgumentError MomentumBoundaryFluxTerm(:hot_tail_distribution, :operator)
         term = MomentumBoundaryFluxTerm(:hot_tail_distribution, operator)
@@ -239,9 +241,9 @@ end
         critical = critical_momentum(maximum(field), critical_electric_field)
         window = cutoff_window(thermal_momentum(temperature), critical)
         cutoff = choose_cutoff(hot_m.p_faces, window.lower, window.upper).p_cutoff
-        hot_operator = fokker_planck_operator(hot, plasma, settings; p_upper_boundary=:interface, electric_field=false)
+        hot_operator = fokker_planck_operator(hot, plasma, settings; p_upper_boundary=:interface, electric_field=false, synchrotron=false)
         runaway_operator = fokker_planck_operator(runaway, plasma, settings; p_lower_boundary=:interface,
-                                                  electric_field=false)
+                                                  electric_field=false, synchrotron=false)
         hot_term = FokkerPlanckTerm(:hot_tail_distribution, hot_operator; electric_field=:electric_field)
         runaway_term = FokkerPlanckTerm(:runaway_distribution, runaway_operator; electric_field=:electric_field)
         interface = MomentumInterfaceTerm(:hot_tail_distribution, :runaway_distribution, hot_term, runaway_operator)
@@ -367,7 +369,7 @@ end
         critical_electric_field = critical_field(free_density, coulomb_log)
         collision_time = thermal_collision_time(free_density, temperature,
                                                 thermal_coulomb_logarithm(temperature, free_density))
-        settings = CollisionSettings(mode=:full, screening=:complete, coulomb_logarithm=:relativistic)
+        settings = CollisionSettings(mode=:full, screening=:complete, coulomb_logarithm=:relativistic, bremsstrahlung=:neglect)
         theta = temperature / Constants.ELECTRON_REST_ENERGY
         maxwellian = [free_density * (2pi * theta)^(-1.5) * exp(-p^2 / (2theta)) for p in m.p_centers, _ in m.xi_centers]
         region = MomentumRegion(ThermalMomentum([temperature]))
@@ -378,7 +380,7 @@ end
             plasma = PlasmaState(cold_electron_temperature=[temperature], cold_electron_density=[free_density],
                                  ions=[IonSpecies("D", 1, 1, [free_density])], electric_field=[field],
                                  magnetic_field=[5.0])
-            operator = fokker_planck_operator(grid, plasma, settings; scheme=:central)
+            operator = fokker_planck_operator(grid, plasma, settings; scheme=:central, synchrotron=false)
             times = collect(range(0, collision_times * collision_time; length=61))
             term = FokkerPlanckTerm(:hot_tail_distribution, operator)
             if self_consistent

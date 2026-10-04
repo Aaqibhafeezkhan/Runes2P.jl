@@ -97,6 +97,17 @@ end
         cold = copy(u)
         radial_values(cold, layout, unknown_id(layout, :cold_electron_temperature)) .= 0.0
         @test_throws DomainError plasma_values(term.plasma, cold, layout, 0.0)
+        # the default floor is 0.5 eV: a temperature at it is refused, one above
+        # it is taken, and a source with a lower floor follows DREAM below it
+        @test term.plasma.temperature_floor == 0.5
+        radial_values(cold, layout, unknown_id(layout, :cold_electron_temperature)) .= 0.5
+        @test_throws DomainError plasma_values(term.plasma, cold, layout, 0.0)
+        radial_values(cold, layout, unknown_id(layout, :cold_electron_temperature)) .= 0.51
+        @test all(==(0.51), plasma_values(term.plasma, cold, layout, 0.0).cold_electron_temperature)
+        radial_values(cold, layout, unknown_id(layout, :cold_electron_temperature)) .= 0.1
+        low = PlasmaFromUnknowns(term.plasma.prescribed; temperature=term.plasma.temperature, density=term.plasma.density,
+                                 temperature_floor=0.01)
+        @test all(==(0.1), plasma_values(low, cold, layout, 0.0).cold_electron_temperature)
         @test_throws ArgumentError EquationSystem(layout, system.equations; time_scale=1e-6)
         lagged, lagged_term = _cold_system(g, u0; coefficients=:lagged)
         @test Runes2P.jacobian_kind(lagged_term) === :exact && !is_linear(lagged_term)
@@ -195,6 +206,20 @@ end
         # fails, and the step fails in place of a negative temperature
         sink, u_sink = energy_system(t -> -10 .* thermal(0.0) ./ dt)
         @test_throws TimeStepFailure integrate(sink, u_sink, times[1:2]; stepper=FixedSteps(; max_halvings=0))
+        # the floor of the plasma source is the lower limit of its temperature in the Newton
+        # iteration, with and without a limit declared on the unknown
+        for limits in (true, false)
+            floored, _ = energy_system(heating; limits)
+            @test Runes2P.temperature_floors(floored) == [:cold_electron_temperature => 0.5]
+            ws = NewtonWorkspace(floored)
+            entries = unknown_range(floored.layout, unknown_id(floored.layout, :cold_electron_temperature), 1)
+            @test all(i -> ws.limit_value[findfirst(==(i), ws.limited)] == 0.5, entries)
+        end
+        # the iterates of the sink stop at the floor: the failed solve leaves T above 0.5 eV
+        u_trial = copy(u_sink)
+        result = newton_solve!(u_trial, u_sink, NewtonWorkspace(sink), times[2], dt)
+        @test result.status !== :converged
+        @test all(>=(0.5), radial_values(u_trial, sink.layout, unknown_id(sink.layout, :cold_electron_temperature)))
     end
 
     @testset "the plasma columns against central differences" begin

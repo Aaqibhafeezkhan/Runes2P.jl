@@ -33,11 +33,12 @@ Defaults are those of DREAM's `CollisionHandler`.
   Ar²⁺ at p ≈ 0.03 to 0.06 (Hesslow et al. PRL 2017 and JPP 2019). `:dream` applies
   partial screening at all momenta, as DREAM does. The weight depends only on `p` and
   `I_j`, so it holds unchanged when the densities become unknowns.
-- `bremsstrahlung`: `:neglect`, or `:stopping_power`, the radiative energy loss of an
-  electron on the nuclei of all charge states as a slowing down (DREAM's
+- `bremsstrahlung`: `:stopping_power`, the radiative energy loss of an electron on the
+  nuclei of all charge states as a slowing down (DREAM's
   `BREMSSTRAHLUNG_MODE_STOPPING_POWER`): the non-screened formula 4BN of
   Koch and Motz (Rev. Mod. Phys. 31, 920, 1959), `ν_s = n Z² α r₀² c φ_rad(p)/β` per
-  charge state ([`bremsstrahlung_cross_section`](@ref)).
+  charge state ([`bremsstrahlung_cross_section`](@ref)). It is the default (decision of
+  the author). `:neglect` leaves the loss out, as DREAM does by default.
 """
 Base.@kwdef struct CollisionSettings
     mode::Symbol = :full
@@ -48,7 +49,7 @@ Base.@kwdef struct CollisionSettings
     screening_window::Symbol = :excitation_energy
     screening_window_start::Float64 = 1.0
     screening_window_end::Float64 = 4.0
-    bremsstrahlung::Symbol = :neglect
+    bremsstrahlung::Symbol = :stopping_power
     function CollisionSettings(mode, screening, coulomb_logarithm, screened_diffusion, ion_size_table,
                                screening_window, screening_window_start, screening_window_end, bremsstrahlung)
         mode in (:superthermal, :full, :ultra_relativistic) ||

@@ -26,7 +26,7 @@ const DREAM_SELF_CONSISTENT_DATA = joinpath(@__DIR__, "data", "dream_self_consis
         Z0s = read(h5["ions/Z0"])
         n = read(h5["ions/n"])
         ions = [IonSpecies(names[k], Zs[k], Z0s[k], n[:, k]) for k in eachindex(Zs)]
-        settings = CollisionSettings(ion_size_table=:dream, screening_window=:dream)
+        settings = CollisionSettings(ion_size_table=:dream, screening_window=:dream, bremsstrahlung=:neglect)
         fluid = (electric_field="E_field", poloidal_flux="psi_p", total_current_density="j_tot",
                  ohmic_current_density="j_ohm", hot_electron_current_density="j_hot",
                  runaway_current_density="j_re", hot_electron_density="n_hot", runaway_density="n_re",

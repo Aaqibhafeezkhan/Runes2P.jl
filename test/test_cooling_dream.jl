@@ -31,7 +31,7 @@ end
         plasma_at(t) = PlasmaState(cold_electron_temperature=[cooling_table_value(t_table, T_table, t)],
                                    cold_electron_density=[n], ions=[IonSpecies("D", 1, 1, [n])],
                                    electric_field=[field], magnetic_field=[magnetic])
-        settings = CollisionSettings(mode=:full, ion_size_table=:dream)
+        settings = CollisionSettings(mode=:full, ion_size_table=:dream, bremsstrahlung=:neglect)
         nt = Int(read(attributes(h5)["nt"]))
         t_end = read(attributes(h5)["t_end"])
         times = [t_end * k / nt for k in 0:nt]
@@ -53,7 +53,7 @@ end
                 layout = UnknownLayout(g.radial_grid, [KineticUnknown(:f, g; scale=maximum(f0))])
                 operator = AdvectionDiffusion(g; scheme, p_upper_boundary=:f_zero)
                 system = EquationSystem(layout, [Equation(:f, TimeDerivative(),
-                                                          PrescribedFokkerPlanckTerm(:f, operator, plasma_at; settings))])
+                                                          PrescribedFokkerPlanckTerm(:f, operator, plasma_at; settings, synchrotron=false))])
                 solution = integrate(system, vec(f0), times; save_times)
                 @test all(solution.statistics.accepted)
                 @test size(solution.states, 2) == length(saved)

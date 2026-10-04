@@ -5,26 +5,37 @@
 # ranges below and never computes offsets itself, so the order can change.
 
 """
-    LowerLimit(; tolerance=0, reference=nothing)
+    LowerLimit(; value=0, tolerance=0, reference=nothing)
 
 Lower limit of an unknown, enforced on Newton steps (DREAM #25, #91):
-every entry stays at or above `-tolerance` times the reference value, which is the radial
-unknown `reference` (one component) at the same radius, or the unknown's own scale when
-`reference` is `nothing`. Declared on the unknown with `nonnegative = true` (tolerance 0)
-or `nonnegative = LowerLimit(...)`, e.g. `RadialUnknown(:ion_densities; components=3,
+every entry stays at or above `value - tolerance * reference value`, where the reference
+value is the radial unknown `reference` (one component) at the same radius, or the
+unknown's own scale when `reference` is `nothing`. Declared on the unknown with
+`nonnegative = true` (value 0, tolerance 0) or `nonnegative = LowerLimit(...)`, e.g.
+`RadialUnknown(:ion_densities; components=3,
 nonnegative=LowerLimit(tolerance=1e-12, reference=:total_electron_density))`. Scalar
 unknowns take no reference. An unknown that can sit at exactly 0 (an empty charge state)
 needs a positive tolerance: with tolerance 0 a round-off negative update of an entry at
 its limit fails the Newton step (`:below_lower_limit`), and shorter time steps do not
 help.
+
+`value` is an absolute limit in the units of the unknown, such as the floor of a
+temperature: `RadialUnknown(:cold_electron_temperature; nonnegative=LowerLimit(value=0.5))`.
+A Newton update loses at most the fraction `max_reduction` of the distance
+to the limit, so an iterate approaches the floor and does not cross it, and a step whose
+solution lies below it does not converge and is refused. The temperature unknown of a
+[`PlasmaFromUnknowns`](@ref) takes the floor of that source as its limit without a
+declaration, and the larger of the two values where both exist.
 """
 struct LowerLimit
+    value::Float64
     tolerance::Float64
     reference::Union{Nothing,Symbol}
 end
-function LowerLimit(; tolerance::Real=0.0, reference::Union{Nothing,Symbol}=nothing)
+function LowerLimit(; value::Real=0.0, tolerance::Real=0.0, reference::Union{Nothing,Symbol}=nothing)
     tolerance >= 0 || throw(ArgumentError("the tolerance of a lower limit must be nonnegative"))
-    return LowerLimit(Float64(tolerance), reference)
+    isfinite(value) || throw(ArgumentError("the value of a lower limit must be finite"))
+    return LowerLimit(Float64(value), Float64(tolerance), reference)
 end
 
 _lower_limit(nonnegative::Bool) = nonnegative ? LowerLimit() : nothing

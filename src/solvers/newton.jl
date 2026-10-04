@@ -65,6 +65,10 @@ Settings of the Newton iteration of a backward-Euler step.
   that no limited entry loses more than the fraction `max_reduction` of its distance to
   its limit in one iteration. Only steps towards the limit are shortened, never growth
   (DREAM #91). `max_reduction = 0.9` is DREAM's value (`MaximalPhysicalStepLength`).
+  The temperature unknown of a [`PlasmaFromUnknowns`](@ref) has the floor of that source
+  as its limit, so an update that would cross the floor is damped and a step whose
+  solution lies below the floor is refused. DREAM damps towards zero and has
+  no floor.
 - `line_search = true` adds backtracking on `½‖F‖²` of the scaled residual (Armijo
   condition with `sufficient_decrease`, at most `max_backtracks` reductions), starting
   from the step length the lower limits allow (DREAM PR #460). Off by default, as in
@@ -159,6 +163,7 @@ struct NewtonWorkspace{T,S<:EquationSystem,L,C}
     matrix::SparseMatrixCSC{T,Int}
     diagonal_positions::Vector{Int}
     limited::Vector{Int}
+    limit_value::Vector{T}         # the absolute part of the limit, in the units of the entry
     limit_tolerance::Vector{T}
     limit_reference::Vector{Int}   # index of the reference entry, 0 for the own scale
     cache::C
@@ -198,7 +203,7 @@ function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver=NewtonS
     scales = T.(unknown_scales(layout))
     row_weights = zeros(T, n)
     absolute, relative = zeros(T, n), zeros(T, n)
-    limited, limit_tolerance, limit_reference = Int[], T[], Int[]
+    limited, limit_value, limit_tolerance, limit_reference = Int[], T[], T[], Int[]
     for (id, u) in enumerate(layout.unknowns)
         tol = tolerance(system, u.name)
         for range in _unknown_ranges(layout, id)
@@ -210,9 +215,25 @@ function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver=NewtonS
         reference = limit.reference === nothing ? 0 : unknown_id(layout, limit.reference)
         for (k, range) in enumerate(_unknown_ranges(layout, id))
             append!(limited, range)
+            append!(limit_value, fill(limit.value, length(range)))
             append!(limit_tolerance, fill(limit.tolerance, length(range)))
             ref_index = reference == 0 ? 0 : first(unknown_range(layout, reference, k))
             append!(limit_reference, fill(ref_index, length(range)))
+        end
+    end
+    # the floor of a plasma that follows the unknowns is the lower limit of its temperature:
+    # the larger value where the unknown declares a limit of its own
+    for (name, temperature_floor) in temperature_floors(system)
+        for i in Iterators.flatten(_unknown_ranges(layout, unknown_id(layout, name)))
+            k = findfirst(==(i), limited)
+            if k === nothing
+                push!(limited, i)
+                push!(limit_value, temperature_floor)
+                push!(limit_tolerance, zero(T))
+                push!(limit_reference, 0)
+            else
+                limit_value[k] = max(limit_value[k], temperature_floor)
+            end
         end
     end
     rate_tolerance = zeros(T, n)
@@ -243,7 +264,7 @@ function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver=NewtonS
                            zeros(T, n), zeros(T, n), zeros(T, n),
                            zeros(T, n), zeros(T, n), row_weights, scales, absolute, relative, rate_tolerance,
                            jacobian,
-                           matrix, diagonal_positions, limited, limit_tolerance, limit_reference, cache,
+                           matrix, diagonal_positions, limited, limit_value, limit_tolerance, limit_reference, cache,
                            Float64[], Float64[], Float64[], Ref(NaN), Ref(NaN), Ref(0))
 end
 
@@ -289,7 +310,7 @@ end
 @inline function _limit_value(ws::NewtonWorkspace, u, k)
     i = ws.limited[k]
     reference = ws.limit_reference[k]
-    return -ws.limit_tolerance[k] * (reference == 0 ? ws.scales[i] : abs(u[reference]))
+    return ws.limit_value[k] - ws.limit_tolerance[k] * (reference == 0 ? ws.scales[i] : abs(u[reference]))
 end
 
 # longest step length ≤ 1 by which no limited entry loses more than max_reduction of its

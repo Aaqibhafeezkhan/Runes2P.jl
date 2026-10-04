@@ -9,6 +9,10 @@ using SparseArrays: SparseMatrixCSC
 
 # Newton iterations with the dense Jacobian: the stored matrix plus every matrix-free
 # column, assembled by products with unit vectors. Returns the iterates.
+# an assertion on allocations holds for optimised code alone: it is skipped, and reported
+# as broken, in a development run at -O0 or -O1
+const OPTIMIZED = Base.JLOptions().opt_level >= 2
+
 function dense_newton_iterates(system, u_old, t, dt, iterations)
     n = length(system.layout)
     u = copy(u_old)
@@ -251,7 +255,7 @@ end
             newton_solve!(u, u0, ws, small.time_step, small.time_step)   # compiles and factorizes
             copyto!(u, u0)
             allocated = @allocated newton_solve!(u, u0, ws, small.time_step, small.time_step)
-            @test allocated < 1024
+            @test allocated < 1024 skip = !OPTIMIZED
         end
     end
 end

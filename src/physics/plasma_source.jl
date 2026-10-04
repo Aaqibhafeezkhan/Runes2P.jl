@@ -51,7 +51,7 @@ end
 
 """
     PlasmaFromUnknowns(prescribed; temperature=:cold_electron_temperature,
-                       density=:cold_electron_density, temperature_floor=0.01)
+                       density=:cold_electron_density, temperature_floor=0.5)
 
 A [`PlasmaSource`](@ref) whose cold-electron temperature [eV] and density [m⁻³] are the
 values of radial unknowns of the system at each radius, with the rest of
@@ -64,10 +64,15 @@ counts the hot and runaway electrons as well, where DREAM's target is the closur
 term hold numbers. Their derivatives enter the Jacobian as columns of their own.
 
 A temperature at or below `temperature_floor` [eV] raises a `DomainError`, which the
-Newton iteration reports as a failed solve and the stepper answers with a shorter step.
-The collision model needs the scaled Bessel functions of `mₑc²/T`, which fail above an
-argument of about 1e9, near 5e-4 eV. The default floor of 0.01 eV keeps a margin of 20 and
-lies below the temperatures of a disruption.
+Newton iteration reports as a failed solve and the stepper answers with a shorter step:
+a step that would end below the floor is refused. The default of 0.5 eV is the physical
+floor of the cold electrons (decision of the author): below it the plasma
+recombines and the model of a plasma does not hold. DREAM has no floor, so a comparison
+that follows DREAM below 0.5 eV sets a lower value. The floor is also the lower limit of
+the temperature unknown in the Newton iteration, which damps an update that would cross
+it ([`LowerLimit`](@ref), `NewtonSolver`). The numerical limit lies far below: the
+collision model needs the scaled Bessel functions of `mₑc²/T`, which fail above an
+argument of about 1e9, near 5e-4 eV.
 """
 struct PlasmaFromUnknowns{P<:PrescribedPlasma} <: PlasmaSource
     prescribed::P
@@ -76,7 +81,7 @@ struct PlasmaFromUnknowns{P<:PrescribedPlasma} <: PlasmaSource
     temperature_floor::Float64
 end
 function PlasmaFromUnknowns(prescribed; temperature::Symbol=:cold_electron_temperature,
-                            density::Union{Nothing,Symbol}=:cold_electron_density, temperature_floor::Real=0.01)
+                            density::Union{Nothing,Symbol}=:cold_electron_density, temperature_floor::Real=0.5)
     temperature_floor >= 0 || throw(ArgumentError("the temperature floor must not be negative"))
     return PlasmaFromUnknowns(PrescribedPlasma(prescribed), temperature, density, Float64(temperature_floor))
 end

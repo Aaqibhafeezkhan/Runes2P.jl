@@ -186,7 +186,8 @@ end
         built = fokker_planck_operator(g, _source_plasma(10.0), custom; synchrotron=true)
         term = FokkerPlanckTerm(:f, built; plasma=_cooling())
         @test term.settings == custom && term.synchrotron
-        prescribed = PrescribedFokkerPlanckTerm(:f, fokker_planck_operator(g, _source_plasma(10.0), custom), _cooling())
+        prescribed = PrescribedFokkerPlanckTerm(:f, fokker_planck_operator(g, _source_plasma(10.0), custom; synchrotron=false),
+                                                _cooling())
         @test prescribed.settings == custom && !prescribed.synchrotron
         @test FokkerPlanckTerm(:f, AdvectionDiffusion(g); plasma=_cooling()).settings == CollisionSettings()
         # a conductivity model of the discrete operator that reads the bare operator of a

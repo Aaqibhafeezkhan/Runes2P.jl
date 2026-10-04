@@ -3,21 +3,85 @@ import ForwardDiff
 _value(x::ForwardDiff.Dual) = _value(ForwardDiff.value(x))
 import DifferentiationInterface as DI
 using SparseConnectivityTracer: TracerSparsityDetector
-using SparseMatrixColorings: GreedyColoringAlgorithm
+using SparseMatrixColorings: ColoringProblem, GreedyColoringAlgorithm, coloring, ncolors
 using SparseArrays: SparseMatrixCSC, sparse
 
 """
-    sparse_ad_backend(; pattern=nothing)
+    JacobianTag
+
+Tag of the dual numbers of the automatic Jacobian of an [`EquationSystem`](@ref).
+ForwardDiff's default tag holds the type of the differentiated function, which
+holds the terms of the system. Every system then had dual numbers of a type of its own,
+and the right-hand side of every term was compiled again for each system: about 120 s per
+system in the tests. With this tag the dual numbers of all systems have one type, and the
+code of a term is compiled once.
+"""
+struct JacobianTag end
+
+"""
+    OperatorJacobianTag
+
+Tag of the dual numbers of the Jacobians of single operators and residual functions
+([`sparse_ad_backend`](@ref), [`SparseJacobian`](@ref), [`operator_matrix`](@ref),
+[`check_stencil_pattern`](@ref)), for the reason of [`JacobianTag`](@ref). It
+differs from the tag of the systems, so a Jacobian of an operator that a term of a system
+takes inside the automatic Jacobian of that system keeps its dual numbers apart.
+"""
+struct OperatorJacobianTag end
+
+"""
+    jacobian_chunk_limit()
+
+The upper limit of the chunk size of the dual numbers of the sparse Jacobians, from the
+environment variable `RUNES2P_JACOBIAN_CHUNK_SIZE`, or `nothing` without it.
+
+The chunk size is the number of colors that one evaluation of the residual carries.
+ForwardDiff takes up to 12 colors in one chunk, so systems with 9, 10 and 11 colors have
+dual numbers of three types, and the code of the terms is compiled once for
+each. Setting the limit to 8 gives every pattern with 8 colors or more the chunk size 8,
+one type of dual numbers and one compiled copy of the code, at the price of
+a second evaluation for a pattern of 9 to 12 colors (ForwardDiff splits 13 colors or more
+into two batches in any case). The values of the Jacobian do not
+depend on the chunk size. A run without the variable keeps ForwardDiff's choice, which
+needs the fewest evaluations.
+"""
+function jacobian_chunk_limit()
+    value = get(ENV, "RUNES2P_JACOBIAN_CHUNK_SIZE", "")
+    isempty(value) && return nothing
+    limit = tryparse(Int, value)
+    limit !== nothing && limit > 0 ||
+        throw(ArgumentError("RUNES2P_JACOBIAN_CHUNK_SIZE must be a positive integer, not \"$value\""))
+    return limit
+end
+
+# the chunk size for a pattern: the limit where the pattern has that many colors or more
+# (DifferentiationInterface refuses a chunk size above the number of colors), ForwardDiff's
+# choice otherwise
+function _chunk_size(pattern, limit)
+    (pattern === nothing || limit === nothing) && return nothing
+    problem = ColoringProblem(; structure=:nonsymmetric, partition=:column)
+    return ncolors(coloring(pattern, problem, GreedyColoringAlgorithm())) >= limit ? limit : nothing
+end
+
+"""
+    sparse_ad_backend(; pattern=nothing, tag=ForwardDiff.Tag{OperatorJacobianTag,Float64}(),
+                      chunk_limit=jacobian_chunk_limit())
 
 ForwardDiff with greedy column coloring. The sparsity pattern is taken from `pattern`
 when given, otherwise detected by operator tracing (slow for large grids). The number
 of Jacobian-vector products equals the number of colors, which stays bounded as the
-grid is refined for local stencils.
+grid is refined for local stencils. `tag` is the tag of the dual numbers, one type for
+every function that is differentiated ([`OperatorJacobianTag`](@ref)). `tag = nothing`
+takes ForwardDiff's own tag, which is needed for a function that itself takes a Jacobian
+with this backend of data that depend on its argument. `chunk_limit` caps the chunk size
+of the dual numbers for a given `pattern` ([`jacobian_chunk_limit`](@ref)).
 """
-function sparse_ad_backend(; pattern=nothing)
+function sparse_ad_backend(; pattern=nothing, tag=ForwardDiff.Tag{OperatorJacobianTag,Float64}(),
+                           chunk_limit::Union{Nothing,Integer}=jacobian_chunk_limit())
     detector = pattern === nothing ? TracerSparsityDetector() :
                KnownJacobianSparsityDetector(pattern)
-    return AutoSparse(AutoForwardDiff(); sparsity_detector=detector,
+    chunksize = _chunk_size(pattern, chunk_limit)
+    return AutoSparse(AutoForwardDiff(; chunksize, tag); sparsity_detector=detector,
                       coloring_algorithm=GreedyColoringAlgorithm())
 end
 
@@ -177,7 +241,9 @@ function check_stencil_pattern(op)
     end
     f0 = 0.5 .+ rand(size(op.grid)...)
     residual = x -> (y = zeros(eltype(x), size(op.grid)); apply!(y, op, reshape(x, size(op.grid))); vec(y))
-    M = ForwardDiff.jacobian(residual, vec(f0))
+    x = vec(f0)
+    config = ForwardDiff.JacobianConfig(residual, x, ForwardDiff.Chunk(x), ForwardDiff.Tag{OperatorJacobianTag,Float64}())
+    M = ForwardDiff.jacobian(residual, x, config, Val(false))
     return all(pattern[findall(!iszero, M)])
 end
 

@@ -1,6 +1,10 @@
 # Kinetic grids with a momentum grid per radius: shared detection, accessors,
 # operators that need the same cell counts refusing others, and the knock-on operator on
 # different momentum grids at different radii.
+# an assertion on allocations holds for optimised code alone: it is skipped, and reported
+# as broken, in a development run at -O0 or -O1
+const OPTIMIZED = Base.JLOptions().opt_level >= 2
+
 @testset "momentum grid per radius" begin
     rad = RadialGrid(uniform_r_faces(3, 0.6))
     m1 = MomentumGrid(biuniform_p_faces(24, 8, 0.0, 0.6, 4.0), uniform_xi_faces(10))
@@ -94,7 +98,7 @@
             @test_throws DimensionMismatch apply_at_radius!(zeros(3, 3), op, zeros(30, 8), 1e20, 1)
             df1, f1 = zeros(24, 10), ones(30, 8)
             apply_at_radius!(df1, op, f1, 1e20, 1)
-            @test (@allocated apply_at_radius!(df1, op, f1, 1e20, 1)) == 0
+            @test (@allocated apply_at_radius!(df1, op, f1, 1e20, 1)) == 0 skip = !OPTIMIZED
         end
     end
 end

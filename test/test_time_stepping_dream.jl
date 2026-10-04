@@ -24,8 +24,8 @@ const DREAM_TIME_STEPPING_DATA = joinpath(@__DIR__, "data", "dream_time_stepping
             # round-off level from the first step on
             "superthermal" => (CollisionSettings(mode=:superthermal, screening=:partial,
                                                  coulomb_logarithm=:energy_dependent, ion_size_table=:dream,
-                                                 screening_window=:dream), 1e-13),
-            "full" => (CollisionSettings(ion_size_table=:dream, screening_window=:dream), 1e-11),
+                                                 screening_window=:dream, bremsstrahlung=:neglect), 1e-13),
+            "full" => (CollisionSettings(ion_size_table=:dream, screening_window=:dream, bremsstrahlung=:neglect), 1e-11),
         )
         for (variant, (settings, rtol)) in variants
             @testset "$variant" begin
@@ -127,7 +127,7 @@ end
                 for k in eachindex(names)]
         dt0, t_max, reltol_step = read(h5["dt0"]), read(h5["t_max"]), read(h5["reltol_step"])
         settings = CollisionSettings(mode=:superthermal, screening=:partial, coulomb_logarithm=:energy_dependent,
-                                     ion_size_table=:dream, screening_window=:dream)
+                                     ion_size_table=:dream, screening_window=:dream, bremsstrahlung=:neglect)
         for variant in ("check_every_step",)
             @testset "$variant" begin
                 grp = h5[variant]

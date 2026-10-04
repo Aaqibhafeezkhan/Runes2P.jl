@@ -53,8 +53,8 @@ function avalanche_example(; momentum_cells::Integer=200, pitch_cells::Integer=2
                          electric_field=fill(field, nr), magnetic_field=fill(1e-6, nr))
     settings = CollisionSettings(mode=:superthermal, screening=:partial,
                                  coulomb_logarithm=:energy_dependent, ion_size_table=:dream,
-                                 screening_window=:dream)
-    fokker_planck = fokker_planck_operator(g, plasma, settings; scheme)
+                                 screening_window=:dream, bremsstrahlung=:neglect)
+    fokker_planck = fokker_planck_operator(g, plasma, settings; scheme, synchrotron=false)
     function initial_state(layout, id; density=1.0, temperature=1e5)
         theta = temperature / Constants.ELECTRON_REST_ENERGY
         f = [exp(-(sqrt(1 + p^2) - 1) / theta) for p in mom.p_centers, _ in 1:pitch_cell_count(mom), _ in 1:nr]

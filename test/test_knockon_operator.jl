@@ -3,6 +3,10 @@
 # path, and the production moment.
 using HDF5
 
+# an assertion on allocations holds for optimised code alone: it is skipped, and reported
+# as broken, in a development run at -O0 or -O1
+const OPTIMIZED = Base.JLOptions().opt_level >= 2
+
 const DREAM_KNOCKON_DATA = joinpath(@__DIR__, "data", "dream_knockon_operator.h5")
 
 # C[:, j, r] from the interpolated matrix of each momentum pair (reference path)
@@ -126,7 +130,7 @@ end
             opm = KnockOnOperator(gK, gP, 0.1; method)
             apply!(C, opm, fP, n_tot)
             apply!(C, opm, fP, n_tot)
-            @test (@allocated apply!(C, opm, fP, n_tot)) == 0
+            @test (@allocated apply!(C, opm, fP, n_tot)) == 0 skip = !OPTIMIZED
         end
         # large cutoffs (knock-on support shrinking to a few cells near ξ* → 1) build
         # without empty columns; this is the regime a time-dependent p_c sweeps

@@ -347,7 +347,8 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
     sparse_rhs! = let terms = automatic_tuple, layout = layout, time = time
         (du, u) -> (fill!(du, zero(eltype(du))); _add_terms!(du, terms, u, layout, time[]); nothing)
     end
-    backend = sparse_ad_backend(pattern=automatic_pattern)
+    # one type of dual numbers for every system (JacobianTag)
+    backend = sparse_ad_backend(pattern=automatic_pattern, tag=ForwardDiff.Tag{JacobianTag,T}())
     initial_state === nothing || length(initial_state) == n ||
         throw(DimensionMismatch("the initial state has $(length(initial_state)) entries, the layout $n"))
     x0 = initial_state === nothing ? zeros(T, n) : collect(T, initial_state)
@@ -761,6 +762,30 @@ end
 _plasma_kind(::Nothing) = (:frozen,)
 _plasma_kind(::PrescribedPlasma) = (:prescribed,)
 _plasma_kind(source::PlasmaFromUnknowns) = (:unknowns, source.temperature, source.density)
+
+# the plasma source of a term whose coefficients can follow the unknowns, or nothing
+_plasma_source(term) = nothing
+_plasma_source(term::Union{FokkerPlanckTerm,FieldParticleTerm}) = term.plasma
+_plasma_source(term::ConductivityTerm) = term.model.plasma
+
+"""
+    temperature_floors(system)
+
+The floor [eV] of every temperature unknown that a [`PlasmaFromUnknowns`](@ref) of the
+system reads, as pairs `name => floor`, with the largest floor where several sources read
+one unknown. The Newton iteration takes each as the lower limit of that unknown.
+"""
+function temperature_floors(equations::AbstractVector{Equation})
+    floors = Dict{Symbol,Float64}()
+    for equation in equations, term in equation.terms
+        source = _plasma_source(term)
+        source isa PlasmaFromUnknowns || continue
+        name = source.temperature
+        floors[name] = max(get(floors, name, -Inf), source.temperature_floor)
+    end
+    return sort!(collect(floors); by=first)
+end
+temperature_floors(system::EquationSystem) = temperature_floors(system.equations)
 
 # Terms that must agree take their plasma from the same source and in the same treatment,
 # explicit with explicit and implicit with implicit where both exist:

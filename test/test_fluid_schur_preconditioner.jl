@@ -7,6 +7,10 @@ using LinearAlgebra: I as IdentityMatrix, Diagonal, ldiv!
 using SparseArrays: sparse, findnz
 using Random: Xoshiro
 # GMRES of Krylov.jl, a dependency of Runes2P, also where the test project does not list it
+# an assertion on allocations holds for optimised code alone: it is skipped, and reported
+# as broken, in a development run at -O0 or -O1
+const OPTIMIZED = Base.JLOptions().opt_level >= 2
+
 const SCHUR_TEST_GMRES = Base.require(Runes2P, :Krylov).gmres
 
 @testset "FluidSchurLU" begin
@@ -86,7 +90,7 @@ const SCHUR_TEST_GMRES = Base.require(Runes2P, :Krylov).gmres
             ldiv!(py, factors, y)
             ldiv!(pxy, factors, 2 .* x .- 3 .* y)
             @test pxy ≈ 2 .* px .- 3 .* py rtol = 1e-10
-            @test (@allocated ldiv!(px, factors, x)) == 0
+            @test (@allocated ldiv!(px, factors, x)) == 0 skip = !OPTIMIZED
             # the Schur stage alone is the exact inverse of A without the kinetic couplings
             # between radii
             without_lines = Runes2P.preconditioner_factors(FluidSchurLU(; radial_lines=false), A, layout)

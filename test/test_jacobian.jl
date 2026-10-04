@@ -47,6 +47,42 @@ end
     @test check_stencil_pattern(op)
 end
 
+@testset "chunk limit of the dual numbers (issue #166)" begin
+    rng = Xoshiro(5)
+    mom = MomentumGrid(uniform_p_faces(6, 0.2, 2.0), uniform_xi_faces(5))
+    g = cylindrical_grid(mom, RadialGrid(uniform_r_faces(4, 1.0)))
+    op = AdvectionDiffusion(g; scheme=:central, r_boundary=:absorbing)
+    for A in (op.advection_p, op.advection_xi, op.advection_r, op.diffusion_p_xi, op.diffusion_xi_p)
+        A .= randn(rng, size(A))
+    end
+    pattern = stencil_pattern(op)
+    adaptive = sparse_ad_backend(; pattern, chunk_limit=nothing)
+    @test adaptive.dense_ad isa Runes2P.AutoForwardDiff{nothing}
+    reference = operator_matrix(op; backend=adaptive)
+    # the values of the Jacobian do not depend on the chunk size
+    for limit in (1, 4, 8)
+        backend = sparse_ad_backend(; pattern, chunk_limit=limit)
+        @test backend.dense_ad isa Runes2P.AutoForwardDiff{limit}
+        @test operator_matrix(op; backend) == reference
+    end
+    # a limit above the number of colors leaves ForwardDiff's choice, and so does a
+    # backend that detects its pattern
+    @test sparse_ad_backend(; pattern, chunk_limit=1000).dense_ad isa Runes2P.AutoForwardDiff{nothing}
+    @test sparse_ad_backend(; chunk_limit=4).dense_ad isa Runes2P.AutoForwardDiff{nothing}
+    # the environment variable, when set, is the default
+    withenv("RUNES2P_JACOBIAN_CHUNK_SIZE" => "4") do
+        @test Runes2P.jacobian_chunk_limit() == 4
+        @test sparse_ad_backend(; pattern).dense_ad isa Runes2P.AutoForwardDiff{4}
+    end
+    withenv("RUNES2P_JACOBIAN_CHUNK_SIZE" => nothing) do
+        @test Runes2P.jacobian_chunk_limit() === nothing
+        @test sparse_ad_backend(; pattern).dense_ad isa Runes2P.AutoForwardDiff{nothing}
+    end
+    withenv("RUNES2P_JACOBIAN_CHUNK_SIZE" => "zero") do
+        @test_throws ArgumentError Runes2P.jacobian_chunk_limit()
+    end
+end
+
 @testset "one stencil for the operator and the term" begin
     # stencil_pattern and the sparsity of FokkerPlanckTerm come from one function:
     # the term's entries are the operator's pattern, and the pattern covers the traced one

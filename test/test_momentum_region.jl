@@ -194,6 +194,20 @@ end
         cooling(t) = [10.0, 100.0, 1000.0] .* exp(-t / 1e-3)
         region = MomentumRegion(ThermalMomentum(cooling))
         fixed = MomentumRegion([0.05, 0.2, 0.7]; envelope=:cell_fraction)
+        # the smooth step with the temperature as an unknown: its width is that of
+        # the first cell above the limit, so the envelope jumps in the temperature between
+        # cells of different widths, and the term is refused on such a grid
+        following = MomentumRegion(ThermalMomentum(:cold_electron_temperature); envelope=:smooth)
+        @test_throws ArgumentError DensityMomentTerm(:hot_tail_distribution, grid; region=following)
+        @test_throws ArgumentError CurrentMomentTerm(:hot_tail_distribution, grid; region=following)
+        even = cylindrical_grid(MomentumGrid(uniform_p_faces(20, 0.0, 3.0), uniform_xi_faces(4)), rad)
+        @test DensityMomentTerm(:hot_tail_distribution, even; region=following) isa DensityMomentTerm
+        @test DensityMomentTerm(:hot_tail_distribution, grid; region=MomentumRegion(ThermalMomentum(cooling); envelope=:smooth)) isa
+              DensityMomentTerm
+        for envelope in (:interpolated, :cell_fraction)
+            allowed = MomentumRegion(ThermalMomentum(:cold_electron_temperature); envelope)
+            @test DensityMomentTerm(:hot_tail_distribution, grid; region=allowed) isa DensityMomentTerm
+        end
         layout = UnknownLayout(rad, [RadialUnknown(:hot_electron_density; scale=1e15),
                                      RadialUnknown(:hot_electron_current_density; scale=1e4),
                                      RadialUnknown(:ohmic_current_density; scale=1e4),

@@ -8,6 +8,10 @@ using SparseArrays: nnz
 
 # test terms: a nonlinear decay -c x² of a radial unknown, and a scalar that sums a radial
 # unknown over the radii with the volume weights V' Δr
+# an assertion on allocations holds for optimised code alone: it is skipped, and reported
+# as broken, in a development run at -O0 or -O1
+const OPTIMIZED = Base.JLOptions().opt_level >= 2
+
 struct QuadraticDecayTerm <: EquationTerm
     unknown::Symbol
     rate::Float64
@@ -255,12 +259,12 @@ end
                  for solver in (NewtonSolver(), NewtonSolver(linear_solver=GMRES()))]
         @test steps[1] ≈ steps[2] rtol = 1e-8
         residual!(Fl, u, u_old, lagged, 0.0, dt)
-        @test (@allocated residual!(Fl, u, u_old, lagged, 0.0, dt)) == 0
+        @test (@allocated residual!(Fl, u, u_old, lagged, 0.0, dt)) == 0 skip = !OPTIMIZED
 
         residual!(F, u, u_old, system, 0.0, dt)
-        @test (@allocated residual!(F, u, u_old, system, 0.0, dt)) == 0
+        @test (@allocated residual!(F, u, u_old, system, 0.0, dt)) == 0 skip = !OPTIMIZED
         rhs!(du, u, system, 0.0)
-        @test (@allocated rhs!(du, u, system, 0.0)) == 0
+        @test (@allocated rhs!(du, u, system, 0.0)) == 0 skip = !OPTIMIZED
     end
 
     @testset "checks on construction" begin

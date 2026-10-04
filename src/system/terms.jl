@@ -287,7 +287,7 @@ radius, which is DREAM's Jacobian of its `ElectricFieldTerm`.
 one ([`PrescribedPlasma`](@ref)). The coefficients of `operator` are rebuilt from it with
 `settings` and `synchrotron` ([`set_fokker_planck_coefficients!`](@ref)), and the scheme and
 the boundary conditions of `operator` are kept. Without them the term takes those that
-built `operator` ([`fokker_planck_operator`](@ref)), and `CollisionSettings()` and no
+built `operator` ([`fokker_planck_operator`](@ref)), and `CollisionSettings()` with the
 synchrotron loss for an operator built otherwise. The rebuild happens when the plasma values
 of any radius differ from those of the last rebuild ([`update_key!`](@ref)), not at every
 new time, and rebuilds all radii. Without `plasma` the coefficients of `operator` are
@@ -361,7 +361,7 @@ function FokkerPlanckTerm(unknown::Symbol, operator::AdvectionDiffusion{T}; jaco
     # rebuild with other settings would change the coefficients at the first refresh
     built = operator.coefficient_source[]
     settings === nothing && (settings = built === nothing ? CollisionSettings() : built.settings)
-    synchrotron === nothing && (synchrotron = built === nothing ? false : built.synchrotron)
+    synchrotron === nothing && (synchrotron = built === nothing ? true : built.synchrotron)
     plasma_from = plasma === nothing ? nothing : plasma_source(plasma)
     # the rebuild of the coefficients leaves the field out when it is an unknown
     plasma_from !== nothing && electric_field !== nothing && (operator.coefficient_source[] = nothing)

@@ -1,187 +1,158 @@
 # Groups of the test suite. Each group runs as one task of an array job on a cluster, and
 # every test file is in exactly one group (checked by runtests.jl). `tier = "quick"` marks
 # the unit tests: `Pkg.test(test_args=["--tier", "quick"])` runs them alone. The full tier
-# adds the physics validation and the DREAM comparisons. The groups are packed by the times
-# of each file run alone, at most about 16 minutes each on a loaded node.
-# A new test file goes into a group of its tier, or into a new group when it is slow.
+# adds the physics validation and the comparisons with DREAM.
+#
+# The group `component` holds the component tests: one building block in isolation
+# (grids, layout, knock-on kernels, moments, the operator on a grid, the terms of the fluid
+# equations on a radial grid, the step controllers on small systems). It is the smoke
+# tier, run as one process before a commit: `julia --project=test test/runtests.jl component`.
+# A file belongs to it by what it tests, so the group is not packed (`packed = false`).
+#
+# The other groups are packed from the times of the files in an array job. A new test file
+# goes into a group of its tier, or into the group `component`, until the next packing.
+
+[[group]]
+name = "component"
+tier = "quick"
+packed = false
+# 8.9 minutes, kept as defined
+files = ["test_knockon_kinematics.jl", "test_grids.jl", "test_knockon_implicit.jl", "test_knockon_cutoff.jl", "test_knockon_energy_kernel.jl", "test_pitch_overlap.jl", "test_energy_moment.jl", "test_adas.jl", "test_step_doubling.jl", "test_layout.jl", "test_advection_diffusion.jl", "test_legs.jl", "test_moments.jl", "test_per_radius_grids.jl", "test_energy_transfer.jl", "test_radiation.jl", "test_momentum_region.jl", "test_knockon_pairings.jl", "test_ion_energy.jl", "test_knockon_pitch_kernel.jl", "test_heat_transport.jl", "test_radial_profiles.jl", "test_discretization.jl", "test_induction.jl", "test_per_radius_pitch_grids.jl", "test_time_stepping.jl", "test_step_controller.jl", "test_jacobian.jl"]
 
 [[group]]
 name = "quick-1"
 tier = "quick"
-# 22.0 minutes in the probe
-files = ["test_field_unknown.jl"]
+# 8.4 minutes
+files = ["test_cold_unknowns.jl"]
 
 [[group]]
 name = "quick-2"
 tier = "quick"
-# 16.0 minutes in the probe
-files = ["test_knockon_pairings.jl", "test_pmax_boundary.jl"]
+# 8.0 minutes
+files = ["test_fluid_schur_preconditioner.jl", "test_initial_values.jl"]
 
 [[group]]
 name = "quick-3"
 tier = "quick"
-# 16.0 minutes in the probe
-files = ["test_populations.jl", "test_time_stepping.jl"]
+# 7.4 minutes
+files = ["test_checkpoint.jl", "test_sciml_extension.jl", "test_stop.jl"]
 
 [[group]]
 name = "quick-4"
 tier = "quick"
-# 16.0 minutes in the probe
-files = ["test_jacobian.jl", "test_moments.jl", "test_radial_transport.jl"]
+# 7.9 minutes
+files = ["test_equation_system.jl", "test_plasma_pairings.jl"]
 
 [[group]]
 name = "quick-5"
 tier = "quick"
-# 16.0 minutes in the probe
-files = ["test_knockon_energy_kernel.jl", "test_per_radius_grids.jl", "test_prescribed_fokker_planck.jl", "test_sciml_extension.jl"]
+# 6.6 minutes
+files = ["test_populations.jl"]
 
 [[group]]
 name = "quick-6"
 tier = "quick"
-# 16.0 minutes in the probe
-files = ["test_discretization.jl", "test_fluid_schur_preconditioner.jl", "test_radial_profiles.jl"]
+# 8.0 minutes
+files = ["test_prescribed_fokker_planck.jl", "test_newton_krylov.jl"]
 
 [[group]]
 name = "quick-7"
 tier = "quick"
-# 16.0 minutes in the probe
-files = ["test_advection_diffusion.jl", "test_equation_system.jl", "test_knockon_kinematics.jl", "test_per_radius_pitch_grids.jl"]
+# 7.6 minutes
+files = ["test_energy_budget.jl", "test_progress_log.jl"]
 
 [[group]]
 name = "quick-8"
 tier = "quick"
-# 16.0 minutes in the probe
-files = ["test_checkpoint.jl", "test_grids.jl", "test_newton_krylov.jl"]
+# 5.5 minutes
+files = ["test_jacobian_strategies.jl"]
 
 [[group]]
 name = "quick-9"
 tier = "quick"
-# 16.0 minutes in the probe
-files = ["test_induction.jl", "test_jacobian_strategies.jl", "test_knockon_cutoff.jl", "test_knockon_implicit.jl", "test_legs.jl", "test_momentum_region.jl", "test_pitch_overlap.jl", "test_settings.jl", "test_step_controller.jl", "test_step_doubling.jl"]
+# 5.3 minutes
+files = ["test_field_unknown.jl"]
 
 [[group]]
 name = "quick-10"
 tier = "quick"
-# 14.1 minutes in the probe
-files = ["test_knockon_pitch_kernel.jl", "test_layout.jl", "test_momentum_interface.jl", "test_progress_log.jl", "test_stop.jl"]
+# 7.7 minutes
+files = ["test_radial_transport.jl", "test_settings.jl"]
 
 [[group]]
 name = "quick-11"
 tier = "quick"
-# 4.1 minutes in the probe
-files = ["test_linear_reuse.jl"]
+# 4.6 minutes
+files = ["test_pmax_boundary.jl"]
 
 [[group]]
 name = "quick-12"
 tier = "quick"
-# about 4 minutes alone (a loaded node)
-files = ["test_plasma_source.jl"]
+# 7.8 minutes
+files = ["test_plasma_source.jl", "test_linear_reuse.jl"]
 
 [[group]]
 name = "quick-13"
 tier = "quick"
-# about 18 minutes alone (loaded nodes)
-files = ["test_cold_unknowns.jl"]
+# 4.2 minutes
+files = ["test_radiation_losses.jl"]
 
 [[group]]
 name = "quick-14"
 tier = "quick"
-# about 8 minutes alone (a node)
+# 4.1 minutes
 files = ["test_plasma_columns.jl"]
 
 [[group]]
 name = "quick-15"
 tier = "quick"
-# small radial systems
-files = ["test_initial_values.jl", "test_plasma_pairings.jl", "test_energy_moment.jl", "test_energy_budget.jl", "test_energy_transfer.jl"]
-
-[[group]]
-name = "quick-16"
-tier = "quick"
-# the reader and the interpolation of OpenADAS tables on synthetic data
-files = ["test_adas.jl", "test_radiation.jl"]
+# 3.9 minutes
+files = ["test_momentum_interface.jl"]
 
 [[group]]
 name = "full-1"
 tier = "full"
-# 15.9 minutes in the probe with test_conductivity.jl, which now has a group of its own
-files = ["test_example_avalanche.jl", "test_manufactured_solutions.jl"]
+# 11.2 minutes
+files = ["test_self_consistent_dream.jl"]
 
 [[group]]
 name = "full-2"
 tier = "full"
-# 15.9 minutes in the probe
-files = ["test_kinetic_operator_dream.jl", "test_knockon_operator.jl", "test_knockon_physics.jl", "test_physics.jl", "test_regression_values.jl", "test_runaway_rates.jl", "test_two_grid_physics.jl"]
+# 8.7 minutes
+files = ["test_conductivity.jl"]
 
 [[group]]
 name = "full-3"
 tier = "full"
-# 13.0 minutes in the probe
-files = ["test_collisions_dream.jl", "test_knockon_reference.jl", "test_self_consistent_dream.jl"]
+# 8.5 minutes
+files = ["test_flux_limiters.jl"]
 
 [[group]]
 name = "full-4"
 tier = "full"
-# 15.6 minutes in the probe
-files = ["test_flux_limiters.jl", "test_pitch_accuracy.jl"]
+# 8.0 minutes
+files = ["test_two_grid_physics.jl", "test_radial_transport_dream.jl", "test_adas_cache.jl", "test_regression_values.jl"]
 
 [[group]]
 name = "full-5"
 tier = "full"
-# 15.0 minutes in the probe
-files = ["test_time_stepping_dream.jl", "test_two_grids_dream.jl"]
+# 8.0 minutes
+files = ["test_field_particle.jl", "test_pitch_accuracy.jl", "test_runaway_physics.jl", "test_manufactured_solutions.jl"]
 
 [[group]]
 name = "full-6"
 tier = "full"
-# 12.8 minutes in the probe
-files = ["test_flux_limiters_dream.jl", "test_pmax_boundary_dream.jl"]
+# 8.0 minutes
+files = ["test_time_stepping_dream.jl", "test_two_grids_dream.jl", "test_exponential_fitting.jl", "test_pmax_boundary_dream.jl", "test_knockon_physics.jl"]
 
 [[group]]
 name = "full-7"
 tier = "full"
-# 14.0 minutes in the probe
-files = ["test_field_particle.jl", "test_radial_transport_dream.jl", "test_runaway_physics.jl"]
+# 7.9 minutes
+files = ["test_flux_limiters_dream.jl", "test_avalanche_dream.jl", "test_example_avalanche.jl", "test_runaway_rates.jl"]
 
 [[group]]
 name = "full-8"
 tier = "full"
-# 15.4 minutes in the probe
-files = ["test_avalanche_dream.jl", "test_cooling_dream.jl", "test_exponential_fitting.jl", "test_knockon_cutoff_physics.jl"]
-
-[[group]]
-name = "full-9"
-tier = "full"
-# 3.7 minutes in the probe, test_step_control_cascade.jl about 4 minutes alone
-files = ["test_example_runaway.jl", "test_step_control_cascade.jl"]
-
-[[group]]
-name = "full-10"
-tier = "full"
-# test_conductivity.jl alone since a run on two grids was added: 17 minutes on a shared
-# node, 11 minutes before
-files = ["test_conductivity.jl"]
-
-[[group]]
-name = "full-11"
-tier = "full"
-# the OpenADAS files of the cache, skipped without it
-files = ["test_adas_cache.jl", "test_cold_energy_dream.jl"]
-
-[[group]]
-name = "quick-17"
-tier = "quick"
-# heat transport of the cold electrons, with a kinetic reference on 400 x 8 cells
-files = ["test_heat_transport.jl"]
-
-[[group]]
-name = "quick-18"
-tier = "quick"
-# the thermal energy of the ions and its exchange
-files = ["test_ion_energy.jl"]
-
-[[group]]
-name = "quick-19"
-tier = "quick"
-# the radiative and bound-electron energy losses of the kinetic electrons
-files = ["test_radiation_losses.jl"]
+# 7.0 minutes
+files = ["test_example_runaway.jl", "test_step_control_cascade.jl", "test_cooling_dream.jl", "test_knockon_cutoff_physics.jl", "test_kinetic_operator_dream.jl", "test_cold_energy_dream.jl", "test_knockon_operator.jl", "test_collisions_dream.jl", "test_physics.jl", "test_knockon_reference.jl"]

@@ -25,7 +25,7 @@ using QuadGK: quadgk
         plasma = PlasmaState(; cold_electron_temperature=[10.0], ions=[IonSpecies("Ar", 18, 2, [1e18]), IonSpecies("D", 1, 1, [1e20])],
                              electric_field=[0.0], magnetic_field=[0.0])
         with = CollisionModel(plasma, CollisionSettings(bremsstrahlung=:stopping_power))
-        without = CollisionModel(plasma, CollisionSettings())
+        without = CollisionModel(plasma, CollisionSettings(bremsstrahlung=:neglect))
         for p in (0.5, 5.0, 50.0)
             beta = p / sqrt(1 + p^2)
             expected = (18^2 * 1e18 + 1e20) * alpha * r0^2 * c * bremsstrahlung_cross_section(p) / beta
@@ -75,8 +75,33 @@ using QuadGK: quadgk
                          plasma=PlasmaFromUnknowns(base), settings, synchrotron, coefficients)
     loss(term) = only(radial_values(Runes2P.rhs!(zeros(length(u)), term, u, layout, 2, 0.0), layout, 2))
 
+    @testset "both losses are on by default (issue #67)" begin
+        @test CollisionSettings().bremsstrahlung === :stopping_power
+        settings = CollisionSettings(mode=:full, screening=:complete)
+        default = fokker_planck_operator(grid, base, settings)
+        with = fokker_planck_operator(grid, base, settings; synchrotron=true)
+        without = fokker_planck_operator(grid, base, settings; synchrotron=false)
+        @test default.coefficient_source[].synchrotron
+        @test default.advection_p == with.advection_p && default.advection_xi == with.advection_xi
+        @test default.advection_p != without.advection_p
+        rebuilt = AdvectionDiffusion(grid; scheme=:exponential_fitting, p_upper_boundary=:f_zero)
+        set_fokker_planck_coefficients!(rebuilt, base, settings)
+        @test rebuilt.advection_p == with.advection_p
+        # a term that rebuilds a bare operator takes the same defaults, and one on a built
+        # operator the options that built it
+        bare = FokkerPlanckTerm(:f, AdvectionDiffusion(grid; scheme=:exponential_fitting, p_upper_boundary=:f_zero);
+                                plasma=PlasmaFromUnknowns(base))
+        @test bare.synchrotron && bare.settings.bremsstrahlung === :stopping_power
+        @test !FokkerPlanckTerm(:f, without; plasma=PlasmaFromUnknowns(base)).synchrotron
+        # the default slowing down holds the bremsstrahlung loss
+        plasma = PlasmaState(; cold_electron_temperature=[10.0], ions=[IonSpecies("Ar", 18, 2, [1e18])],
+                             electric_field=[0.0], magnetic_field=[0.0])
+        @test slowing_down_frequency(CollisionModel(plasma, CollisionSettings()), 1, 5.0) ==
+              slowing_down_frequency(CollisionModel(plasma, CollisionSettings(bremsstrahlung=:stopping_power)), 1, 5.0)
+    end
+
     @testset "the sinks of the hot electrons" begin
-        complete = CollisionSettings(mode=:full, screening=:complete)
+        complete = CollisionSettings(mode=:full, screening=:complete, bremsstrahlung=:neglect)
         # bremsstrahlung alone: m c² β p ν_s,brems per electron
         brems = KineticEnergyLossTerm(fp(CollisionSettings(mode=:full, screening=:complete, bremsstrahlung=:stopping_power));
                                       part=:sinks, coefficient=1)
@@ -92,7 +117,8 @@ using QuadGK: quadgk
         # no sink with complete screening, no radiation
         @test abs(loss(KineticEnergyLossTerm(fp(complete); part=:sinks, coefficient=1))) < 1e-10 * loss(sync)
         # the friction on bound electrons is a sink with partial screening
-        @test loss(KineticEnergyLossTerm(fp(CollisionSettings(mode=:full, screening=:partial)); part=:sinks, coefficient=1)) > 0
+        @test loss(KineticEnergyLossTerm(fp(CollisionSettings(mode=:full, screening=:partial, bremsstrahlung=:neglect)); part=:sinks,
+                                         coefficient=1)) > 0
         @test_throws ArgumentError KineticEnergyLossTerm(fp(complete); part=:other)
     end
 

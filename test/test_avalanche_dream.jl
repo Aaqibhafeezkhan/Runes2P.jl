@@ -39,8 +39,8 @@ const DREAM_AVALANCHE_KINETIC_DATA = joinpath(@__DIR__, "data", "dream_avalanche
         plasma = PlasmaState(cold_electron_temperature=[temperature], cold_electron_density=[density],
                              ions=[IonSpecies("D", 1, 1, [density])], electric_field=[field],
                              magnetic_field=[read(h5["B"])])
-        settings = CollisionSettings(mode=:full, screening=:complete, coulomb_logarithm=:relativistic)
-        operator = fokker_planck_operator(g, plasma, settings; scheme=:central)  # DREAM's centred interpolation
+        settings = CollisionSettings(mode=:full, screening=:complete, coulomb_logarithm=:relativistic, bremsstrahlung=:neglect)
+        operator = fokker_planck_operator(g, plasma, settings; scheme=:central, synchrotron=false)  # DREAM's centred interpolation
         knockon = KnockOnOperator(g, g, p_cutoff; dream_compatible=true, primary_pitch_points=1, table_size=80)
         layout = UnknownLayout(rad, [KineticUnknown(:hot_tail_distribution, g; scale=1e12)])
         system = EquationSystem(layout, [Equation(:hot_tail_distribution, TimeDerivative(),

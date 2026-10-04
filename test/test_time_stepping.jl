@@ -8,6 +8,35 @@ using HDF5
 # backward-Euler step of du/dt = -k √u: √u1 solves s² + k dt s - u0 = 0
 square_root_step(u0, k, dt) = ((-k * dt + sqrt((k * dt)^2 + 4u0)) / 2)^2
 
+# A sink that is constant above `top` and falls linearly to zero at `bottom`, refused at or
+# below `floor` with a DomainError, as the plasma of a temperature below its floor is.
+# The full Newton step from above `top` follows the constant sink and can
+# land below the floor, while the solution of the step lies between `bottom` and `top`.
+struct FloorSinkTerm <: EquationTerm
+    unknown::Symbol
+    rate::Float64
+    bottom::Float64
+    top::Float64
+    floor::Float64
+end
+Runes2P.dependencies(term::FloorSinkTerm) = [term.unknown]
+function Runes2P.rhs!(out, term::FloorSinkTerm, u, layout, row, t)
+    id = unknown_id(layout, term.unknown)
+    for ir in 1:radial_cell_count(layout),
+        (a, b) in zip(unknown_range(layout, row, ir), unknown_range(layout, id, ir))
+        u[b] > term.floor || throw(DomainError(u[b], "at or below the floor of the sink"))
+        out[a] -= term.rate * clamp((u[b] - term.bottom) / (term.top - term.bottom), 0, 1)
+    end
+    return out
+end
+function Runes2P.sparsity!(entries, term::FloorSinkTerm, layout, row)
+    id = unknown_id(layout, term.unknown)
+    for ir in 1:radial_cell_count(layout)
+        append!(entries, zip(unknown_range(layout, row, ir), unknown_range(layout, id, ir)))
+    end
+    return entries
+end
+
 @testset "Newton and backward-Euler time stepping" begin
     @testset "nonlinear step: quadratic convergence, lower limit" begin
         k, dt, u0 = 10.0, 1.0, [1.0]
@@ -95,6 +124,51 @@ square_root_step(u0, k, dt) = ((-k * dt + sqrt((k * dt)^2 + 4u0)) / 2)^2
                                                        RadialUnknown(:y; components=2)])
         @test_throws ArgumentError UnknownLayout(rad, [ScalarUnknown(:x; nonnegative=LowerLimit(reference=:y)),
                                                        RadialUnknown(:y)])
+    end
+
+    @testset "absolute lower limit: the floor of a temperature (issue #152)" begin
+        # dx/dt = -4.7 s(x) from x = 4 with dt = 1, s the ramp from 0 at 0.8 to 1 at 1: the
+        # backward-Euler solution is 22.8 / 24.5, above the floor 0.5 of the sink
+        sink = FloorSinkTerm(:x, 4.7, 0.8, 1.0, 0.5)
+        solution = 22.8 / 24.5
+        u0 = [4.0]
+        # the sink is not defined at the zero state, so the system takes the initial state
+        floor_system(limit) =
+            EquationSystem(UnknownLayout(RadialGrid(uniform_r_faces(1, 0.5)), [RadialUnknown(:x; nonnegative=limit)]),
+                           [Equation(:x, TimeDerivative(), sink)]; initial_state=u0)
+        # the limit at zero lets the first step fall to 10 % of 4, below the floor: the
+        # solve fails although the solution of the step is allowed
+        at_zero = floor_system(true)
+        u = copy(u0)
+        @test newton_solve!(u, u0, NewtonWorkspace(at_zero), 1.0, 1.0).status === :domain_error
+        # the limit at the floor damps the first step to 90 % of the distance to the floor,
+        # and the iteration converges
+        at_floor = floor_system(LowerLimit(value=0.5))
+        ws = NewtonWorkspace(at_floor)
+        u = copy(u0)
+        result = newton_solve!(u, u0, ws, 1.0, 1.0)
+        @test result.status === :converged
+        @test u[1] ≈ solution rtol = 1e-12
+        @test ws.step_lengths[1] ≈ 0.9 * 3.5 / 4.7
+        @test all(==(1.0), ws.step_lengths[2:end])
+        # dx/dt = -x - 3.6 from x = 4: the solution 0.2 of the step lies below the floor,
+        # the iterates approach the floor from above and the step is refused
+        below = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-1.0), ConstantSourceTerm(-3.6);
+                                      nonnegative=LowerLimit(value=0.5))
+        u = copy(u0)
+        @test newton_solve!(u, u0, NewtonWorkspace(below), 1.0, 1.0).status === :below_lower_limit
+        @test 0.5 <= u[1] < 0.5001
+        @test_throws TimeStepFailure integrate(below, u0, [0.0, 1.0]; stepper=FixedSteps(; max_halvings=0))
+        # the value with a tolerance: the limit is value - tolerance * scale
+        loose = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-1.0), ConstantSourceTerm(-3.6);
+                                      scale=2.0, nonnegative=LowerLimit(value=0.5, tolerance=0.1))
+        u = copy(u0)
+        @test newton_solve!(u, u0, NewtonWorkspace(loose), 1.0, 1.0).status === :below_lower_limit
+        @test 0.3 <= u[1] < 0.3001
+        # the record holds the value only where one is set
+        @test describe(at_floor.layout)["unknowns"]["x"]["lower_limit_value"] == 0.5
+        @test !haskey(describe(at_zero.layout)["unknowns"]["x"], "lower_limit_value")
+        @test_throws ArgumentError LowerLimit(value=Inf)
     end
 
     @testset "line search on the scaled residual (DREAM PR #460)" begin
