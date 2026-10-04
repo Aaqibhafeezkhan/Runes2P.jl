@@ -33,6 +33,11 @@ Defaults are those of DREAM's `CollisionHandler`.
   Ar²⁺ at p ≈ 0.03 to 0.06 (Hesslow et al. PRL 2017 and JPP 2019). `:dream` applies
   partial screening at all momenta, as DREAM does. The weight depends only on `p` and
   `I_j`, so it holds unchanged when the densities become unknowns.
+- `bremsstrahlung`: `:neglect`, or `:stopping_power`, the radiative energy loss of an
+  electron on the nuclei of all charge states as a slowing down (DREAM's
+  `BREMSSTRAHLUNG_MODE_STOPPING_POWER`): the non-screened formula 4BN of
+  Koch and Motz (Rev. Mod. Phys. 31, 920, 1959), `ν_s = n Z² α r₀² c φ_rad(p)/β` per
+  charge state ([`bremsstrahlung_cross_section`](@ref)).
 """
 Base.@kwdef struct CollisionSettings
     mode::Symbol = :full
@@ -43,8 +48,9 @@ Base.@kwdef struct CollisionSettings
     screening_window::Symbol = :excitation_energy
     screening_window_start::Float64 = 1.0
     screening_window_end::Float64 = 4.0
+    bremsstrahlung::Symbol = :neglect
     function CollisionSettings(mode, screening, coulomb_logarithm, screened_diffusion, ion_size_table,
-                               screening_window, screening_window_start, screening_window_end)
+                               screening_window, screening_window_start, screening_window_end, bremsstrahlung)
         mode in (:superthermal, :full, :ultra_relativistic) ||
             throw(ArgumentError("unknown collision frequency mode $mode"))
         screening in (:complete, :none, :partial) ||
@@ -60,12 +66,40 @@ Base.@kwdef struct CollisionSettings
         0 <= screening_window_start < screening_window_end ||
             throw(ArgumentError("the screening window needs 0 ≤ start < end, got " *
                                 "$screening_window_start and $screening_window_end"))
+        bremsstrahlung in (:neglect, :stopping_power) ||
+            throw(ArgumentError("unknown bremsstrahlung mode $bremsstrahlung"))
         return new(mode, screening, coulomb_logarithm, screened_diffusion, ion_size_table,
-                   screening_window, screening_window_start, screening_window_end)
+                   screening_window, screening_window_start, screening_window_end, bremsstrahlung)
     end
 end
 
 const COLLISION_PREFACTOR = 4pi * Constants.CLASSICAL_ELECTRON_RADIUS^2 * Constants.SPEED_OF_LIGHT
+
+# ∫₀^X ln(1 + x)/x dx = −Li₂(−X): the series below X = 1/2, the inversion
+# −Li₂(−X) = π²/6 + ½ ln²X + Li₂(−1/X) above X = 2, the quadrature between
+function _bremsstrahlung_integral(X::Real)
+    X <= 0.5 && return sum((-1)^(k + 1) * X^k / k^2 for k in 1:60)
+    X >= 2 && return π^2 / 6 + log(X)^2 / 2 + sum((-1)^k * X^(-k) / k^2 for k in 1:60)
+    return quadgk(x -> log1p(x) / x, 0, X; rtol=1e-14)[1]
+end
+
+"""
+    bremsstrahlung_cross_section(p)
+
+The radiative energy-loss cross section of an electron of momentum `p` (units of `mₑc`) on a
+bare nucleus, in units of `α r₀² Z²`: the formula 4BN of Koch and Motz (Rev. Mod. Phys. 31,
+920, 1959) without screening, as DREAM's `SlowingDownFrequency`. It tends to `16/3` for
+`p → 0` (Bethe and Heitler) and to `4(ln 2γ − 1/3)` for `γ ≫ 1` (Heitler).
+"""
+function bremsstrahlung_cross_section(p::Real)
+    p == 0 && return 16 / 3 * one(p)
+    gamma = sqrt(1 + p^2)
+    gp = gamma * p
+    log_term = log(gamma + p)
+    X = 2p * (gamma + p)
+    return (4 / 3) * (3gamma^2 + 1) / gp * log_term - (8gamma + 6p) / (3gp * p) * log_term^2 - 4 / 3 +
+           2 / gp * _bremsstrahlung_integral(X)
+end
 
 """
     mean_excitation_energy(Z, Z0)
@@ -298,7 +332,16 @@ function slowing_down_frequency(model::CollisionModel, ir, p)
                   _charge_state_density(model, state, ir)
         end
     end
-    return prefactor * nu
+    nu = prefactor * nu
+    if model.settings.bremsstrahlung === :stopping_power
+        # the radiative stopping on the nuclei of all charge states, ν_s = n Z² α r₀² c φ_rad/β
+        radiative = COLLISION_PREFACTOR * Constants.FINE_STRUCTURE_CONSTANT / (4π) * sqrt(1 + p^2) / p *
+                    bremsstrahlung_cross_section(p)
+        for state in model.charge_states
+            nu += radiative * state.nuclear_charge^2 * _charge_state_density(model, state, ir)
+        end
+    end
+    return nu
 end
 
 """

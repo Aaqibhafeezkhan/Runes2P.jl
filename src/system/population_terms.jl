@@ -235,6 +235,11 @@ field of the state.
 - `weight = :current`: the flux weighted with `e c ξ`, the current that the electrons carry
   when they leave, at the speed of light. With `TimeDerivative()` the row unknown is the
   current density of the electrons above the grid.
+- `weight = :energy`: the flux weighted with the kinetic energy `mₑc²(γ − 1)` of the last
+  momentum cell [W/m³], the energy that the discrete energy moment of the grid loses with
+  the electrons; the energy at the face itself differs by about Δp/(2p). With
+  `coefficient = −1` in the row of the temperature it is the energy that leaves the total
+  energy of the electrons on the hot-tail grid ([`total_energy_equation`](@ref)).
 
 The entries of the row are assembled directly, from the derivative of the flux of each
 pitch cell with respect to the cells at the boundary.
@@ -249,7 +254,8 @@ _coefficient_sources(term::MomentumBoundaryFluxTerm) = (term.source,)
 function MomentumBoundaryFluxTerm(kinetic::Symbol, source; weight::Symbol=:density, coefficient::Real=1.0)
     source isa Union{AdvectionDiffusion,FokkerPlanckTerm} ||
         throw(ArgumentError("the source of the flux is a Fokker-Planck term or an AdvectionDiffusion operator"))
-    weight in (:density, :current) || throw(ArgumentError("weight must be :density or :current, not $weight"))
+    weight in (:density, :current, :energy) ||
+        throw(ArgumentError("weight must be :density, :current or :energy, not $weight"))
     _operator_of(source).p_upper_boundary === :interface &&
         throw(ArgumentError("the flux through an interface belongs to the MomentumInterfaceTerm"))
     return MomentumBoundaryFluxTerm(kinetic, source, weight, Float64(coefficient))
@@ -288,6 +294,12 @@ end
 Base.@propagate_inbounds function _boundary_weight(term::MomentumBoundaryFluxTerm, m::MomentumGrid, rg::RadialGrid, j, ir)
     weight = term.coefficient * m.xi_widths[j] / rg.spatial_jacobian[ir]
     term.weight === :density && return weight
+    if term.weight === :energy
+        # the energy the discrete moment gives the electrons of the last cell, which the flux
+        # removes, so the total energy of the grid closes exactly (not the energy at the face)
+        p = m.p_centers[end]
+        return weight * Constants.ELECTRON_REST_ENERGY * Constants.ELEMENTARY_CHARGE * p^2 / (1 + sqrt(1 + p^2))
+    end
     return weight * Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT * m.xi_centers[j]
 end
 

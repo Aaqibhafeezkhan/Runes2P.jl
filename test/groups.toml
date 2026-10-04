@@ -93,7 +93,13 @@ files = ["test_plasma_columns.jl"]
 name = "quick-15"
 tier = "quick"
 # small radial systems
-files = ["test_initial_values.jl", "test_plasma_pairings.jl"]
+files = ["test_initial_values.jl", "test_plasma_pairings.jl", "test_energy_moment.jl", "test_energy_budget.jl", "test_energy_transfer.jl"]
+
+[[group]]
+name = "quick-16"
+tier = "quick"
+# the reader and the interpolation of OpenADAS tables on synthetic data
+files = ["test_adas.jl", "test_radiation.jl"]
 
 [[group]]
 name = "full-1"
@@ -155,3 +161,27 @@ tier = "full"
 # test_conductivity.jl alone since a run on two grids was added: 17 minutes on a shared
 # node, 11 minutes before
 files = ["test_conductivity.jl"]
+
+[[group]]
+name = "full-11"
+tier = "full"
+# the OpenADAS files of the cache, skipped without it
+files = ["test_adas_cache.jl", "test_cold_energy_dream.jl"]
+
+[[group]]
+name = "quick-17"
+tier = "quick"
+# heat transport of the cold electrons, with a kinetic reference on 400 x 8 cells
+files = ["test_heat_transport.jl"]
+
+[[group]]
+name = "quick-18"
+tier = "quick"
+# the thermal energy of the ions and its exchange
+files = ["test_ion_energy.jl"]
+
+[[group]]
+name = "quick-19"
+tier = "quick"
+# the radiative and bound-electron energy losses of the kinetic electrons
+files = ["test_radiation_losses.jl"]

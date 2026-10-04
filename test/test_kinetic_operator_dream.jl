@@ -83,6 +83,7 @@ end
                  joinpath(@__DIR__, "data", "dream_pmax_boundary.h5"),
                  joinpath(@__DIR__, "data", "dream_two_grids.h5"),
                  joinpath(@__DIR__, "data", "dream_radial_transport.h5"),
+                 joinpath(@__DIR__, "data", "dream_cold_energy.h5"),
                  joinpath(@__DIR__, "data", "dream_self_consistent_field.h5"))
         h5open(file) do h5
             attr = attributes(h5)

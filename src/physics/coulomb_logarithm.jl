@@ -30,6 +30,9 @@ function coulomb_logarithm(collision::Symbol, model::Symbol, p, T, n)
     thermal = thermal_coulomb_logarithm(T, n)
     model === :thermal && return thermal
     model === :energy_dependent || throw(ArgumentError("unknown Coulomb logarithm model $model"))
+    # the thermal value at p = 0, the limit of the formula below: its square root of zero has
+    # no derivative when p carries one (the plasma columns at the face p = 0)
+    _value(p) == 0 && return thermal
     thermal_p = sqrt(2 * T / Constants.ELECTRON_REST_ENERGY)
     x = if collision === :electron_electron
         gamma_minus_one = p^2 / (sqrt(1 + p^2) + 1)

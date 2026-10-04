@@ -1100,6 +1100,12 @@ function _check_run(system::EquationSystem, u0, times, save_times, options::RunO
             throw(ArgumentError("the update $(update_name(update)) changes at t = $t, which is not a time " *
                                 "point of the run"))
     end
+    # a term whose input switches in time (the level of a heat transport)
+    for equation in system.equations, term in equation.terms, t in forced_time_points(term)
+        first(times) < t < last(times) && !any(point -> isapprox(point, t; rtol=1e-12), times) &&
+            throw(ArgumentError("a $(nameof(typeof(term))) in the equation of $(equation.unknown) changes at " *
+                                "t = $t, which is not a time point of the run"))
+    end
     options.checkpoint === nothing || _require_hdf5(write_checkpoint, "writing checkpoints")
     return updates
 end

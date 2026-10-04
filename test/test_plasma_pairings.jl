@@ -47,6 +47,10 @@
         @test check(fp(), FokkerPlanckTerm(:f, AdvectionDiffusion(g))) === nothing
         @test_throws "prescribed or fixed temperature" check(fp(), FokkerPlanckTerm(:f, fokker_planck_operator(g, base(0.0),
                                                                                                              settings)))
+        # the moments of one hot region count the same electrons
+        hot(factor; side=:above) = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor); side)
+        @test check(fp(), DensityMomentTerm(:f, g; region=hot(5)), EnergyMomentTerm(:f, g; region=hot(5; side=:below))) === nothing
+        @test_throws "one region" check(fp(), DensityMomentTerm(:f, g; region=hot(5)), EnergyMomentTerm(:f, g; region=hot(7)))
         # a moment without a region reads no temperature
         @test check(fp(), DensityMomentTerm(:f, g)) === nothing
         # without a temperature unknown, fixed values stay free

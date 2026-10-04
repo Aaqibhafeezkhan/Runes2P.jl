@@ -53,20 +53,27 @@ function _electron_electron_deflection_frequency(model::CollisionModel, ir, p)
 end
 
 """
-    electron_electron_operator(grid, plasma, settings; scheme=:exponential_fitting)
+    electron_electron_operator(grid, plasma, settings; scheme=:exponential_fitting,
+                               p_lower_boundary=:zero_flux, p_upper_boundary=:outflow)
 
 Test-particle operator of the electron-electron collisions alone: slowing down, pitch-angle
-scattering and energy diffusion `Θγν_s` from the free electrons of `plasma`, with the
-thermal factors of `settings.mode = :full`. Bound electrons and ions are left out. Both
-ends of the momentum grid have no flux (the friction points inwards at `p_max`, and the
-full-mode slowing down vanishes at `p = 0`), so the operator conserves particles.
+scattering and, in `settings.mode = :full`, energy diffusion `Θγν_s`, from the free
+electrons of `plasma` with the thermal factors of the mode (`:full` or `:superthermal`).
+Bound electrons and ions are left out. Both ends of the momentum grid have no flux (the
+friction points inwards at `p_max`, and the slowing down vanishes at `p = 0`), so the
+operator conserves particles. The coefficients take the number type of the plasma, so a
+plasma with derivative parts gives the derivatives of the operator.
 """
 function electron_electron_operator(grid::KineticGrid, plasma::PlasmaState, settings::CollisionSettings;
-                                    scheme::Symbol=:exponential_fitting)
-    settings.mode === :full ||
-        throw(ArgumentError("the field-particle term needs collision mode :full (a Maxwellian bulk in f)"))
-    op = AdvectionDiffusion(grid; scheme, p_upper_boundary=:outflow)
+                                    scheme::Symbol=:exponential_fitting, p_lower_boundary::Symbol=:zero_flux,
+                                    p_upper_boundary::Symbol=:outflow)
+    settings.mode in (:full, :superthermal) ||
+        throw(ArgumentError("the electron-electron operator takes collision mode :full or :superthermal"))
+    op = AdvectionDiffusion(grid; scheme, p_lower_boundary, p_upper_boundary)
+    C = eltype(plasma.cold_electron_temperature)
+    C === Float64 || (op = similar_coefficients(op, C))
     model = CollisionModel(plasma, settings)
+    diffusion = settings.mode === :full
     np, nxi, nr = size(grid)
     for ir in 1:nr
         m = momentum_grid(grid, ir)
@@ -76,7 +83,7 @@ function electron_electron_operator(grid::KineticGrid, plasma::PlasmaState, sett
             nu = _electron_electron_slowing_down_frequency(model, ir, p)
             for j in 1:nxi
                 op.advection_p[k, j, ir] -= p * nu
-                op.diffusion_p_p[k, j, ir] += theta * sqrt(1 + p^2) * nu
+                diffusion && (op.diffusion_p_p[k, j, ir] += theta * sqrt(1 + p^2) * nu)
             end
         end
         nxi == 1 && continue
@@ -163,6 +170,8 @@ end
 function FieldParticleOperator(grid::KineticGrid{T}, plasma::PlasmaState,
                                settings::CollisionSettings=CollisionSettings(); modes::Integer=3,
                                scheme::Symbol=:exponential_fitting, pitch_rule::Symbol=:cell_center) where {T}
+    settings.mode === :full ||
+        throw(ArgumentError("the field-particle term needs collision mode :full (a Maxwellian bulk in f)"))
     has_same_cell_counts(grid) ||
         throw(ArgumentError("the field-particle operator needs the same momentum and pitch cell counts at every radius"))
     1 <= modes <= size(LIKE_SPECIES_FIELD_TO_TEST_RATIOS, 1) ||

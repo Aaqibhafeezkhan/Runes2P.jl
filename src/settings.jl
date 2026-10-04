@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.25"
+const OUTPUT_FORMAT_VERSION = v"0.26"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -508,6 +508,87 @@ function describe(term::LinearTerm, context::DescriptionContext)
     return record
 end
 
+settings_fields(::Type{<:RadiatedPowerTerm}) =
+    (described=(:plasma, :temperature, :density, :radiation, :extrapolation), derived=(:tables,))
+
+function describe(term::RadiatedPowerTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["temperature"] = String(term.temperature)
+    record["density"] = String(term.density)
+    record["radiation"] = String(term.radiation)
+    record["extrapolation"] = String(term.extrapolation)
+    # the ADF11 files of each element, by name: the cache itself is not part of the record
+    record["adf11_files"] = SettingsRecord(element => SettingsRecord(String(class) => basename(getproperty(tables, class).source)
+                                                                     for class in ADF11_CLASSES)
+                                           for (element, tables) in term.tables)
+    return _describe_plasma_source!(record, term.plasma, context)
+end
+
+settings_fields(::Type{<:HeatTransportTerm}) =
+    (described=(:temperature, :density, :model, :level, :level_in_time, :safety_factor, :major_radius, :edge,
+                :coefficient),
+     derived=(:faces, :time, :safety_factor_faces))
+
+function describe(term::HeatTransportTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["temperature"] = String(term.temperature)
+    record["density"] = String(term.density)
+    record["model"] = String(term.model)
+    record["edge"] = String(term.edge)
+    record["coefficient"] = term.coefficient
+    name = term.model === :prescribed ? "diffusion" : "delta_b_over_b"
+    record[name] = term.level_in_time ? _callable_name(term.level) :
+                   term.level isa Union{Real,AbstractVector} ? _plain(term.level) : _callable_name(term.level)
+    if term.model === :rechester_rosenbluth
+        record["major_radius"] = term.major_radius
+        record["safety_factor"] = term.safety_factor isa Union{Real,AbstractVector} ? _plain(term.safety_factor) :
+                                  _callable_name(term.safety_factor)
+    end
+    return record
+end
+
+settings_fields(::Type{<:IonEnergyExchangeTerm}) =
+    (described=(:plasma, :side, :ion_energy, :temperature, :density, :ion_ion, :masses), derived=())
+
+function describe(term::IonEnergyExchangeTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["side"] = String(term.side)
+    record["ion_energy"] = String(term.ion_energy)
+    record["temperature"] = String(term.temperature)
+    record["density"] = String(term.density)
+    record["ion_ion"] = term.ion_ion
+    record["masses"] = term.masses
+    return _describe_plasma_source!(record, term.plasma, context)
+end
+
+function describe(term::RunawayFluidEnergyTransferTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["runaway_density"] = String(term.runaway_density)
+    record["temperature"] = String(term.temperature)
+    record["density"] = String(term.density)
+    record["coulomb_logarithm"] = String(term.coulomb_logarithm)
+    return _describe_plasma_source!(record, term.plasma, context)
+end
+
+settings_fields(::Type{<:KineticEnergyLossTerm}) =
+    (described=(:kinetic, :source, :part, :coefficient, :envelopes), derived=(:lagged_plasma,))
+
+function describe(term::KineticEnergyLossTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["kinetic"] = String(term.kinetic)
+    record["part"] = String(term.part)
+    record["coefficient"] = term.coefficient
+    record["source"] = describe(term.source, context)
+    return _describe_region!(record, term.envelopes, context)
+end
+
+function describe(term::InterfaceEnergyFluxTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["coefficient"] = term.coefficient
+    record["interface"] = describe(term.interface, context)
+    return record
+end
+
 function describe(term::ProductTerm, context::DescriptionContext)
     record = _term_record(term)
     record["first"] = String(term.first)
@@ -554,6 +635,13 @@ end
 settings_fields(::Type{<:DensityMomentTerm}) = (described=(:kinetic, :coefficient, :envelopes), derived=())
 
 function describe(term::DensityMomentTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["kinetic"] = String(term.kinetic)
+    record["coefficient"] = term.coefficient
+    return _describe_region!(record, term.envelopes, context)
+end
+
+function describe(term::EnergyMomentTerm, context::DescriptionContext)
     record = _term_record(term)
     record["kinetic"] = String(term.kinetic)
     record["coefficient"] = term.coefficient

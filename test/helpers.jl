@@ -7,7 +7,7 @@ module TestHelpers
 using Runes2P
 using LinearAlgebra: I
 
-export SquareRootDecayTerm, ArctangentTerm, ConstantSourceTerm, ExchangeTerm, single_unknown_system,
+export write_adf11, SquareRootDecayTerm, ArctangentTerm, ConstantSourceTerm, ExchangeTerm, single_unknown_system,
        _checkpoint_plasma, _checkpoint_case, _same_statistics, _checkpoint_directory, RequestStop,
        ManufacturedSolution, BeamSolution, geometric_xi_faces, uniform_theta_xi_faces, biuniform_xi_faces,
        manufactured_errors, manufactured_step, iter_plasma_operator, _conservation_residual, max_rel_diff,
@@ -315,5 +315,28 @@ end
 
 # the backward-Euler step of the growth k x
 _growth_step(u, k, h) = u / (1 - k * h)
+
+# an ADF11 file in the layout of OpenADAS (from test_adas.jl): log₁₀ of the density [cm⁻³], of the temperature
+# [eV] and of the coefficients [cm³/s], eight numbers per line, one block per charge state
+function write_adf11(path, Z, log_density, log_temperature, blocks; iprt=1, closing_line=false)
+    open(path, "w") do io
+        println(io, lpad(Z, 5), lpad(length(log_density), 5), lpad(length(log_temperature), 5), lpad(1, 5), lpad(Z, 5),
+                "     /SYNTHETIC          /TEST")
+        println(io, "-"^80)
+        rows(values) = foreach(chunk -> println(io, join((lpad(string(round(v; digits=5)), 10) for v in chunk))),
+                               Iterators.partition(values, 8))
+        rows(log_density)
+        rows(log_temperature)
+        for (k, block) in enumerate(blocks)
+            println(io, "---------------------/ IGRD= 1  / IPRT= $iprt  /--------/ Z1= $k   / DATE= 03/10/26")
+            rows(vec(block))
+        end
+        closing_line && println(io, "-"^80)    # the dashed line after the last block of some files
+        println(io, " ")      # the blank line after the last block of some files
+        println(io, "C" * "-"^79)
+        println(io, "C synthetic table of the tests of Runes2P")
+    end
+    return path
+end
 
 end

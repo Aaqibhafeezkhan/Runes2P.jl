@@ -264,11 +264,10 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
                     throw(ArgumentError("the equation of $(eq.unknown) holds the time derivative of " *
                                         "$(eq.kind.of), which needs the same kind and sizes"))
                 # the unknown of the row is determined by its own row or, as the temperature by
-                # the energy in DREAM's pairing, by the equation of the unknown it differentiates
-                determined_by_of = any(other -> other.unknown === eq.kind.of &&
-                                                any(term -> treatment(term) === :implicit &&
-                                                            eq.unknown in dependencies(term), other.terms),
-                                       equations)
+                # the energy in DREAM's pairing, by the equation of the unknown it differentiates,
+                # directly or through algebraic rows (the total energy reads the
+                # energy of the cold electrons, whose row reads the temperature)
+                determined_by_of = _reaches(equations, eq.kind.of, eq.unknown)
                 holds_unknown || determined_by_of ||
                     throw(ArgumentError("the equation of $(eq.unknown) holds the time derivative of " *
                                         "$(eq.kind.of), and neither it nor the equation of $(eq.kind.of) has an " *
@@ -456,6 +455,25 @@ function residual!(F::AbstractVector, u::AbstractVector, u_old::AbstractVector,
     return F
 end
 
+# whether the equation of `from` depends implicitly on `target`, directly or through the
+# unknowns of algebraic equations that it depends on
+function _reaches(equations, from::Symbol, target::Symbol)
+    seen, queue = Set{Symbol}([from]), [from]
+    while !isempty(queue)
+        name = popfirst!(queue)
+        for equation in equations
+            equation.unknown === name || continue
+            name === from || equation.kind isa Algebraic || continue
+            for term in equation.terms, dependency in dependencies(term)
+                treatment(term) === :implicit || continue
+                dependency === target && return true
+                dependency in seen || (push!(seen, dependency); push!(queue, dependency))
+            end
+        end
+    end
+    return false
+end
+
 """
     fill_initial_values!(u, system, t; unknowns=nothing)
 
@@ -505,9 +523,15 @@ function fill_initial_values!(u::AbstractVector, system::EquationSystem, t::Real
             c = (r1 .- r0) ./ s
             for i in eachindex(c)
                 magnitude = max(abs(r0[i]), abs(r1[i]), abs(r2[i]))
-                c[i] != 0 && abs(r2[i] - 2r1[i] + r0[i]) <= 1e-10 * magnitude ||
+                # a row far larger than the unknown's scale times its coefficient loses the
+                # coefficient in round-off: the initial state is in other units than the scale
+                abs(c[i]) * s > 1e-6 * magnitude ||
+                    throw(ArgumentError("the row of $(eq.unknown), which gives its initial value, is $magnitude in " *
+                                        "magnitude against its unknown's scale $s: check the units of the initial " *
+                                        "state, or that the row depends on $(eq.unknown)"))
+                abs(r2[i] - 2r1[i] + r0[i]) <= 1e-10 * magnitude ||
                     throw(ArgumentError("the initial value of $(eq.unknown) comes from its equation, whose row " *
-                                        "must be linear in $(eq.unknown) and depend on it"))
+                                        "must be linear in $(eq.unknown)"))
             end
             u[x] .= .-r0 ./ c
             coefficients[eq.unknown] = c
@@ -707,7 +731,12 @@ _temperature_source(term::FokkerPlanckTerm) =
     _source_temperature(term.plasma)
 _temperature_source(term::ConductivityTerm) = _source_temperature(term.model.plasma)
 _temperature_source(term::ParticleSourceTerm) = _limit_temperature(term.temperature)
-_temperature_source(term::Union{DensityMomentTerm,CurrentMomentTerm}) =
+_temperature_source(term::HeatTransportTerm) = (:unknown, term.temperature)
+_temperature_source(term::IonEnergyExchangeTerm) = (:unknown, term.temperature)
+_temperature_source(term::RunawayFluidEnergyTransferTerm) = (:unknown, term.temperature)
+_temperature_source(term::KineticEnergyLossTerm) = _temperature_source(term.source)
+_temperature_source(term::RadiatedPowerTerm) = (:unknown, term.temperature)
+_temperature_source(term::Union{DensityMomentTerm,CurrentMomentTerm,EnergyMomentTerm}) =
     term.envelopes === nothing ? nothing : _region_temperature(term.envelopes.region.limit)
 _source_temperature(::Union{Nothing,PlasmaSource}) = (:fixed,)
 _source_temperature(source::PlasmaFromUnknowns) = (:unknown, source.temperature)
@@ -768,6 +797,38 @@ function _check_plasma_pairings(equations)
                                     "field-particle part misses the change of the electron-electron part within a " *
                                     "step (issue #70): use coefficients = :lagged for the Fokker-Planck term"))
         end
+    end
+    # the moments of the hot region of one temperature unknown count the same electrons: the
+    # density, the current and the energy of the hot electrons. The side may differ, since
+    # the regions above and below a threshold complement each other.
+    regions = [term.envelopes.region for equation in equations for term in equation.terms
+               if term isa Union{DensityMomentTerm,CurrentMomentTerm,EnergyMomentTerm} && term.envelopes !== nothing &&
+                  term.envelopes.region.limit isa ThermalMomentum{Symbol}]
+    for (k, a) in enumerate(regions), b in regions[k+1:end]
+        a.limit.temperature === b.limit.temperature || continue
+        (a.limit.factor, a.envelope, a.smooth_width) == (b.limit.factor, b.envelope, b.smooth_width) ||
+            throw(ArgumentError("two moments over the hot region of $(a.limit.temperature) take different thresholds " *
+                                "or envelopes (factor $(a.limit.factor) and $(b.limit.factor)), so they count different " *
+                                "electrons as hot: give them one region"))
+    end
+    # a term that reads the coefficients of a Fokker-Planck term or an interface of the
+    # system takes that term itself, not a copy with other coefficients
+    terms_of_system = [term for equation in equations for term in equation.terms]
+    for equation in equations, term in equation.terms
+        source = term isa KineticEnergyLossTerm ? term.source :
+                 term isa InterfaceEnergyFluxTerm ? term.interface : nothing
+        source === nothing || any(other -> other === source, terms_of_system) ||
+            throw(ArgumentError("a $(nameof(typeof(term))) in the equation of $(equation.unknown) reads a " *
+                                "$(nameof(typeof(source))) that is not a term of the system: give it the term of the system"))
+    end
+    # the energy exchange with the ions conserves energy only with both of its sides
+    exchanges = [term for equation in equations for term in equation.terms if term isa IonEnergyExchangeTerm]
+    for term in exchanges
+        other = term.side === :ions ? :electrons : :ions
+        any(t -> t.side === other && t.ion_energy === term.ion_energy && t.temperature === term.temperature &&
+                 t.density === term.density && _plasma_kind(t.plasma) == _plasma_kind(term.plasma), exchanges) ||
+            throw(ArgumentError("the energy exchange of the ions has its side :$(term.side) without the side :$other on " *
+                                "the same unknowns, so it does not conserve energy: give the system both sides"))
     end
     lagged = [term for term in fokker_planck if _is_lagged(term)]
     isempty(lagged) && return nothing

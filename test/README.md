@@ -37,6 +37,8 @@ julia --project=test test/runtests.jl --files test_grids.jl,test_layout.jl     #
   They run while one works on a module.
 - `full`: the physics validation against independent references (analytic limits, the literature, converged results) and the comparisons with DREAM.
   The full run is both tiers, and it passes before a change is merged.
+- A change in progress runs only the test files it adds or changes, and `test_settings.jl`, as one focused job.
+  The full run follows once the whole change is done.
 
 The quick tier is defined by what a file tests, not by its run time.
 Several unit-test files take 10 to 20 minutes alone, most of it compilation.

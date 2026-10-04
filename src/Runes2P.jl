@@ -10,6 +10,8 @@ include("physics/constants.jl")
 include("physics/atomic_data.jl")
 include("physics/plasma.jl")
 include("physics/plasma_source.jl")
+include("physics/adas.jl")
+include("physics/ionization_energies.jl")
 include("physics/coulomb_logarithm.jl")
 include("physics/conductivity.jl")
 include("physics/collision_frequencies.jl")
@@ -36,7 +38,11 @@ include("system/interface_term.jl")
 include("system/transport_terms.jl")
 include("system/population_terms.jl")
 include("system/energy_terms.jl")
+include("system/radiation_terms.jl")
+include("system/heat_transport_terms.jl")
+include("system/ion_energy_terms.jl")
 include("operators/field_particle.jl")
+include("system/energy_transfer_terms.jl")
 include("system/conductivity_terms.jl")
 include("system/equation_system.jl")
 include("system/induction_terms.jl")
@@ -67,10 +73,12 @@ export phase_space_jacobian_r_faces, phase_space_jacobian_over_p2_at_zero
 export momentum_cell_count, pitch_cell_count, radial_cell_count, cell_count
 export AdvectionDiffusion, apply!, momentum_flux, with_scheme
 export Constants, IonSpecies, PlasmaState, free_electron_density, bound_electron_density
+export ADF11Table, read_adf11, adas_coefficient, adf11_file_name, adas_cache_directory, read_adas
+export IONIZATION_ENERGIES, ionization_energy
 export PlasmaSource, PrescribedPlasma, PlasmaFromUnknowns, plasma_values, is_state_dependent
 export coulomb_logarithm, thermal_coulomb_logarithm, relativistic_coulomb_logarithm
 export CollisionSettings, CollisionModel, slowing_down_frequency, deflection_frequency
-export parallel_diffusion_frequency, p3_slowing_down_frequency_at_zero
+export parallel_diffusion_frequency, p3_slowing_down_frequency_at_zero, bremsstrahlung_cross_section
 export mean_excitation_energy, ion_size
 export add_electric_field!, add_slowing_down!, add_pitch_scattering!, add_energy_diffusion!
 export add_synchrotron!, fokker_planck_operator, zero_coefficients!, set_fokker_planck_coefficients!
@@ -97,7 +105,11 @@ export PrescribedValueTerm
 export MomentumRegion, ThermalMomentum, momentum_limit, momentum_envelope, momentum_envelope!, is_time_dependent
 export PoloidalFluxDiffusionTerm, CrossSectionIntegralTerm, cross_section_weights, edge_to_wall_inductance
 export InductionNames, induction_unknowns, induction_equations, initial_poloidal_flux
-export ProductTerm, THERMAL_ENERGY_FACTOR, thermal_energy_equation, set_thermal_energy!
+export ProductTerm, THERMAL_ENERGY_FACTOR, thermal_energy_equation, set_thermal_energy!, EnergyMomentTerm
+export ohmic_heating_term, RadiatedPowerTerm, radiated_power
+export HeatTransportTerm, heat_flux_through_edge
+export IonEnergyExchangeTerm, set_ion_thermal_energy!, ion_temperatures, ion_mass
+export total_energy_equation, RunawayFluidEnergyTransferTerm, FreeElectronEnergyTransferTerm, KineticEnergyLossTerm, InterfaceEnergyFluxTerm
 export FokkerPlanckTerm, PrescribedFokkerPlanckTerm, KnockOnTerm, LinearTerm, DensityMomentTerm, CurrentMomentTerm, MaxwellianSourceTerm, LayoutKineticArray, kinetic_array
 export Equation, TimeDerivative, Algebraic, Constraint, EquationSystem, Tolerance, tolerance
 export ParticleSourceTerm, source_shape, MomentumBoundaryFluxTerm

@@ -212,7 +212,7 @@ end
         operator = fokker_planck_operator(hot, plasma, settings; p_upper_boundary=:interface)
         @test_throws ArgumentError MomentumBoundaryFluxTerm(:hot_tail_distribution, operator)
         operator = fokker_planck_operator(hot, plasma, settings)
-        @test_throws ArgumentError MomentumBoundaryFluxTerm(:hot_tail_distribution, operator; weight=:energy)
+        @test_throws ArgumentError MomentumBoundaryFluxTerm(:hot_tail_distribution, operator; weight=:other)
         @test_throws ArgumentError MomentumBoundaryFluxTerm(:hot_tail_distribution, :operator)
         term = MomentumBoundaryFluxTerm(:hot_tail_distribution, operator)
         layout = UnknownLayout(rad, [RadialUnknown(:runaway_density), ScalarUnknown(:plasma_current),
