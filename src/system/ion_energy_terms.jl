@@ -34,7 +34,9 @@ temperature and the free-electron density (`CoulombLogarithm.cpp`).
 A system needs both sides on the same unknowns, so the exchange conserves energy (refused
 otherwise). `masses` overrides the masses of [`ion_mass`](@ref) per species.
 The densities of the ions come from the prescribed `plasma`, a [`PlasmaState`](@ref) or a
-function of time; a species of zero density is skipped. A Newton iterate with a negative
+function of time; a species of zero density is skipped. A species of zero total density
+exchanges nothing and gets no derivative there: the exchange goes as the square root of the
+density, whose derivative at zero is singular. A Newton iterate with a negative
 ion energy makes the denominator non-positive, where the exchange is zero with a zero
 derivative: declare the unknown non-negative, `RadialUnknown(:ion_thermal_energy;
 components, nonnegative = true)`.
@@ -47,26 +49,32 @@ struct IonEnergyExchangeTerm{S<:PrescribedPlasma} <: EquationTerm
     density::Symbol
     ion_ion::Bool
     masses::Vector{Float64}
+    ions::Union{Nothing,Symbol}
 end
 
 function IonEnergyExchangeTerm(plasma; side::Symbol, ion_energy::Symbol=:ion_thermal_energy,
                                temperature::Symbol=:cold_electron_temperature,
                                density::Symbol=:cold_electron_density, ion_ion::Bool=true, masses=nothing,
-                               initial_time::Real=0.0)
+                               ions::Union{Nothing,Symbol}=nothing, initial_time::Real=0.0)
     side in (:ions, :electrons) || throw(ArgumentError("side must be :ions or :electrons, not $side"))
     source = plasma isa PrescribedPlasma ? plasma : PrescribedPlasma(plasma)
-    ions = plasma_values(source, nothing, nothing, initial_time).ions
-    mass_values = masses === nothing ? [ion_mass(species) for species in ions] : collect(Float64, masses)
-    length(mass_values) == length(ions) ||
-        throw(DimensionMismatch("need one mass per ion species ($(length(ions))), got $(length(mass_values))"))
+    species_list = plasma_values(source, nothing, nothing, initial_time).ions
+    mass_values = masses === nothing ? [ion_mass(species) for species in species_list] : collect(Float64, masses)
+    length(mass_values) == length(species_list) ||
+        throw(DimensionMismatch("need one mass per ion species ($(length(species_list))), got $(length(mass_values))"))
     all(>(0), mass_values) || throw(ArgumentError("the ion masses must be positive"))
-    return IonEnergyExchangeTerm(source, side, ion_energy, temperature, density, ion_ion, mass_values)
+    return IonEnergyExchangeTerm(source, side, ion_energy, temperature, density, ion_ion, mass_values, ions)
 end
 
-dependencies(term::IonEnergyExchangeTerm) = [term.ion_energy, term.temperature, term.density]
+dependencies(term::IonEnergyExchangeTerm) =
+    [term.ion_energy; term.temperature; term.density; term.ions === nothing ? Symbol[] : [term.ions]]
+jacobian_assembly(term::IonEnergyExchangeTerm) = term.ions === nothing ? :automatic : :direct
+add_jacobian!(J, term::IonEnergyExchangeTerm, u, layout, row, t) = add_local_jacobian!(J, term, u, layout, row, t)
 
 function validate(term::IonEnergyExchangeTerm, layout, row, t)
-    species = length(plasma_values(term.plasma, nothing, nothing, t).ions)
+    plasma = plasma_values(term.plasma, nothing, nothing, t)
+    species = length(plasma.ions)
+    term.ions === nothing || _check_ion_unknown(layout, unknown_id(layout, term.ions), IonComposition(plasma))
     id = unknown_id(layout, term.ion_energy)
     layout.kinds[id] === :radial && layout.sizes[id, 1] == species ||
         throw(ArgumentError("the ion energy $(term.ion_energy) needs one component per ion species ($species)"))
@@ -123,7 +131,7 @@ function _ion_exchange(term::IonEnergyExchangeTerm, plasma::PlasmaState, W, T_e,
 end
 
 function rhs!(out, term::IonEnergyExchangeTerm, u, layout, row, t)
-    plasma = plasma_values(term.plasma, u, layout, t)
+    plasma = _term_plasma(plasma_values(term.plasma, u, layout, t), term.ions, u, layout)
     id = unknown_id(layout, term.ion_energy)
     T = radial_values(u, layout, unknown_id(layout, term.temperature))
     n = radial_values(u, layout, unknown_id(layout, term.density))
@@ -151,6 +159,7 @@ function sparsity!(entries, term::IonEnergyExchangeTerm, layout, row)
         for name in (term.temperature, term.density)
             push!(entries, (r, first(unknown_range(layout, unknown_id(layout, name), ir))))
         end
+        term.ions === nothing || append!(entries, ((r, c) for c in unknown_range(layout, unknown_id(layout, term.ions), ir)))
     end
     return entries
 end

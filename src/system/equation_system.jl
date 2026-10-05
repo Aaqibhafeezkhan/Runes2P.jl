@@ -86,14 +86,23 @@ Equation(unknown::Symbol, kind, terms::EquationTerm...; scale::Union{Nothing,Rea
     Equation(unknown, kind, terms; scale, initial_value)
 
 """
-    Tolerance(absolute, relative)
+    Tolerance(absolute, relative; group=0)
 
 Convergence tolerance of one unknown: an entry passes when `|δ| ≤ absolute + relative |x|`,
-with `absolute` in the unknown's physical units.
+with `absolute` in the unknown's physical units. `group` adds `group Σ |x_k|` over the
+components `k` of the entry's group at its radius ([`component_groups`](@ref)): the
+tolerance of a charge state relative to the density of its species, so that a trace
+impurity is converged on its own scale (DREAM tests the norm of the whole ion block with
+an absolute tolerance of 0).
 """
 struct Tolerance
     absolute::Float64
     relative::Float64
+    group::Float64
+    function Tolerance(absolute::Real, relative::Real; group::Real=0.0)
+        group >= 0 || throw(ArgumentError("the group part of a tolerance must be nonnegative"))
+        return new(Float64(absolute), Float64(relative), Float64(group))
+    end
 end
 
 # a term bound to the id of its row unknown
@@ -658,14 +667,21 @@ end
 
 [`Tolerance`](@ref) of the unknown `name` for Newton convergence (`kind = :newton`) or
 time-step error control (`kind = :time_step`); by default `relative = 1e-10` and
-`absolute = 1e-10` times the unknown's reference scale.
+`absolute = 1e-10` times the unknown's reference scale. A radial unknown with more than one
+group of components ([`component_groups`](@ref), the ion densities) takes `group = 1e-10`
+and `absolute = 1e-20` times its scale for the Newton iteration: each species is converged
+relative to its own density, and the absolute part only covers a species absent at a
+radius.
 """
 function tolerance(system::EquationSystem, name::Symbol; kind::Symbol=:newton)
     settings = kind === :newton ? system.newton_tolerances :
                kind === :time_step ? system.time_step_tolerances :
                throw(ArgumentError("kind must be :newton or :time_step"))
     haskey(settings, name) && return settings[name]
-    return Tolerance(1e-10 * unknown(system.layout, name).scale, 1e-10)
+    u = unknown(system.layout, name)
+    kind === :newton && u isa RadialUnknown && length(component_groups(u)) > 1 &&
+        return Tolerance(1e-20 * u.scale, 1e-10; group=1e-10)
+    return Tolerance(1e-10 * u.scale, 1e-10)
 end
 
 """

@@ -10,7 +10,10 @@
 Lower limit of an unknown, enforced on Newton steps (DREAM #25, #91):
 every entry stays at or above `value - tolerance * reference value`, where the reference
 value is the radial unknown `reference` (one component) at the same radius, or the
-unknown's own scale when `reference` is `nothing`. Declared on the unknown with
+unknown's own scale when `reference` is `nothing`, or the sum of the magnitudes of the
+components of the entry's group at the same radius when `reference` is `:group` (the
+charge states of one ion species, [`RadialUnknown`](@ref) with `groups`).
+Declared on the unknown with
 `nonnegative = true` (value 0, tolerance 0) or `nonnegative = LowerLimit(...)`, e.g.
 `RadialUnknown(:ion_densities; components=3,
 nonnegative=LowerLimit(tolerance=1e-12, reference=:total_electron_density))`. Scalar
@@ -56,22 +59,49 @@ ScalarUnknown(name::Symbol; scale::Real=1.0, nonnegative::Union{Bool,LowerLimit}
     ScalarUnknown(name, Float64(scale), _lower_limit(nonnegative))
 
 """
-    RadialUnknown(name; components=1, scale=1, nonnegative=false)
+    RadialUnknown(name; components=1, scale=1, nonnegative=false, groups=nothing)
 
 Unknown with `components` values at each radius (e.g. `:electric_field`, or
-`:ion_densities` with one component per charge state).
+`:ion_densities` with one component per charge state). `groups` splits the components into
+consecutive ranges, such as the charge states of each ion species
+([`component_groups`](@ref)).
 """
 struct RadialUnknown
     name::Symbol
     components::Int
     scale::Float64
     lower_limit::Union{Nothing,LowerLimit}
+    groups::Vector{UnitRange{Int}}
 end
 function RadialUnknown(name::Symbol; components::Integer=1, scale::Real=1.0,
-                       nonnegative::Union{Bool,LowerLimit}=false)
+                       nonnegative::Union{Bool,LowerLimit}=false, groups=nothing)
     components >= 1 || throw(ArgumentError("a radial unknown needs at least one component"))
-    return RadialUnknown(name, Int(components), Float64(scale), _lower_limit(nonnegative))
+    groups = groups === nothing ? [1:Int(components)] : UnitRange{Int}[g for g in groups]
+    _splits(groups, components) ||
+        throw(ArgumentError("the groups of $name must split its components 1:$components into consecutive ranges"))
+    return RadialUnknown(name, Int(components), Float64(scale), _lower_limit(nonnegative), groups)
 end
+
+# whether the ranges split 1:n into consecutive nonempty ranges
+function _splits(groups, n)
+    next = 1
+    for g in groups
+        (isempty(g) || first(g) != next) && return false
+        next = last(g) + 1
+    end
+    return next == n + 1
+end
+
+"""
+    component_groups(unknown::RadialUnknown)
+
+The groups of the components of a radial unknown, consecutive ranges that split
+`1:components`: the charge states of each ion species for the ion densities
+([`ion_densities_unknown`](@ref)), one group of all components otherwise. A [`LowerLimit`](@ref)
+with `reference = :group` and a [`Tolerance`](@ref) with a `group` part are relative to the
+sum over the group of an entry.
+"""
+component_groups(u::RadialUnknown) = u.groups
 
 """
     KineticUnknown(name, grid; scale=1, nonnegative=false)
@@ -138,6 +168,12 @@ function UnknownLayout(radial_grid::RadialGrid{T}, unknowns::AbstractVector;
         (limit === nothing || limit.reference === nothing) && continue
         u isa ScalarUnknown &&
             throw(ArgumentError("the lower limit of scalar unknown $(u.name) cannot take a reference"))
+        if limit.reference === :group
+            u isa RadialUnknown ||
+                throw(ArgumentError("the lower limit of $(u.name) is relative to a group of components, which only " *
+                                    "a radial unknown has"))
+            continue
+        end
         id = get(ids, limit.reference, 0)
         id != 0 && list[id] isa RadialUnknown && list[id].components == 1 ||
             throw(ArgumentError("the lower-limit reference of $(u.name) must be a radial unknown " *

@@ -51,7 +51,7 @@ end
 
 """
     PlasmaFromUnknowns(prescribed; temperature=:cold_electron_temperature,
-                       density=:cold_electron_density, temperature_floor=0.5)
+                       density=:cold_electron_density, ions=nothing, temperature_floor=0.5)
 
 A [`PlasmaSource`](@ref) whose cold-electron temperature [eV] and density [m⁻³] are the
 values of radial unknowns of the system at each radius, with the rest of
@@ -62,6 +62,13 @@ the free-electron density: in a fully kinetic case the target of the e-e collisi
 counts the hot and runaway electrons as well, where DREAM's target is the closure
 `n_cold = n_free − n_hot − n_re`. The values are taken without their derivative parts, so the coefficients of a
 term hold numbers. Their derivatives enter the Jacobian as columns of their own.
+
+`ions` names the radial unknown of the densities of the ion charge states,
+whose components follow the species of `prescribed` in their order
+([`IonComposition`](@ref), [`ion_densities_unknown`](@ref)); the densities of the prescribed ions are
+then ignored. A plasma whose ions are unknowns takes its density from an unknown too: the
+free-electron density changes with the charge states, and the prescribed density would not
+follow it.
 
 A temperature at or below `temperature_floor` [eV] raises a `DomainError`, which the
 Newton iteration reports as a failed solve and the stepper answers with a shorter step:
@@ -79,11 +86,18 @@ struct PlasmaFromUnknowns{P<:PrescribedPlasma} <: PlasmaSource
     temperature::Symbol
     density::Union{Nothing,Symbol}
     temperature_floor::Float64
+    ions::Union{Nothing,Symbol}
+    composition::Base.RefValue{Any}   # (layout, the species of the ions) after the check against that layout
 end
 function PlasmaFromUnknowns(prescribed; temperature::Symbol=:cold_electron_temperature,
-                            density::Union{Nothing,Symbol}=:cold_electron_density, temperature_floor::Real=0.5)
+                            density::Union{Nothing,Symbol}=:cold_electron_density,
+                            ions::Union{Nothing,Symbol}=nothing, temperature_floor::Real=0.5)
     temperature_floor >= 0 || throw(ArgumentError("the temperature floor must not be negative"))
-    return PlasmaFromUnknowns(PrescribedPlasma(prescribed), temperature, density, Float64(temperature_floor))
+    ions !== nothing && density === nothing &&
+        throw(ArgumentError("a plasma whose ions are the unknown $ions takes its density from an unknown: the " *
+                            "prescribed density does not follow the charge states"))
+    return PlasmaFromUnknowns(PrescribedPlasma(prescribed), temperature, density, Float64(temperature_floor), ions,
+                              Ref{Any}(nothing))
 end
 
 """
@@ -102,10 +116,97 @@ is_state_dependent(::PlasmaFromUnknowns) = true
 The names of the unknowns a [`PlasmaSource`](@ref) reads.
 """
 source_dependencies(::Union{Nothing,PlasmaSource}) = ()
+# the ions need the density as an unknown (constructor)
 source_dependencies(source::PlasmaFromUnknowns) =
-    source.density === nothing ? (source.temperature,) : (source.temperature, source.density)
+    source.density === nothing ? (source.temperature,) :
+    source.ions === nothing ? (source.temperature, source.density) : (source.temperature, source.density, source.ions)
 
-function plasma_values(source::PlasmaFromUnknowns, u, layout, t)
+"""
+    ion_dependency(source)
+
+The name of the unknown of the ion densities that a [`PlasmaSource`](@ref) reads, or
+`nothing`.
+"""
+ion_dependency(::Union{Nothing,PlasmaSource}) = nothing
+ion_dependency(source::PlasmaFromUnknowns) = source.ions
+
+"""
+    with_state_ions(plasma::PlasmaState, u, layout, name)
+
+The plasma with the densities of its ion charge states taken from the radial unknown
+`name` of the state `u`, in the number type of `u`: a term that
+evaluates its residual with dual numbers keeps their derivative parts, so its Jacobian
+holds the columns of the ion densities. The species are those of `plasma`, in its order
+([`IonComposition`](@ref)).
+"""
+function with_state_ions(plasma::PlasmaState, u::AbstractVector, layout, name::Symbol)
+    id = unknown_id(layout, name)
+    composition = IonComposition(plasma.ions)
+    _check_ion_unknown(layout, id, composition)
+    T = promote_type(eltype(plasma.cold_electron_temperature), eltype(u))
+    nr = radial_cell_count(layout)
+    ions = IonSpecies{T}[]
+    for (s, species) in enumerate(plasma.ions)
+        densities = Matrix{T}(undef, species.nuclear_charge + 1, nr)
+        for ir in 1:nr
+            values = radial_view(u, layout, id, ir)
+            for (j, c) in enumerate(species_components(composition, s))
+                densities[j, ir] = values[c]
+            end
+        end
+        push!(ions, IonSpecies(species.name, species.nuclear_charge, densities))
+    end
+    return PlasmaState{T}(T.(plasma.cold_electron_temperature), T.(plasma.cold_electron_density), ions,
+                          T.(plasma.electric_field), T.(plasma.magnetic_field), plasma.cold_density_given)
+end
+
+# the plasma of a term with the ion densities of the state when it reads them
+_term_plasma(plasma::PlasmaState, ::Nothing, u, layout) = plasma
+_term_plasma(plasma::PlasmaState, ions::Symbol, u, layout) = with_state_ions(plasma, u, layout, ions)
+
+# the ion species of `ions` with the charge-state densities of the unknown `name` of the
+# state u, without their derivative parts
+function _ions_from_unknowns(ions::Vector{IonSpecies{T}}, u, layout, name::Symbol,
+                             cache::Base.RefValue{Any}) where {T}
+    id = unknown_id(layout, name)
+    # the composition is checked against the unknown once per layout: the species of a
+    # plasma do not change in time
+    checked = cache[]
+    if checked isa Tuple && first(checked) === layout
+        composition = last(checked)::IonComposition
+    else
+        composition = IonComposition(ions)
+        _check_ion_unknown(layout, id, composition)
+        cache[] = (layout, composition)
+    end
+    nr = radial_cell_count(layout)
+    species = IonSpecies{T}[]
+    for (k, s) in enumerate(ions)
+        densities = Matrix{T}(undef, s.nuclear_charge + 1, nr)
+        for ir in 1:nr
+            values = radial_view(u, layout, id, ir)
+            for (j, c) in enumerate(species_components(composition, k))
+                densities[j, ir] = _value(values[c])
+            end
+        end
+        push!(species, IonSpecies(s.name, s.nuclear_charge, densities))
+    end
+    return species
+end
+
+# the unknown `id` holds the charge states of `composition`, one group per species
+function _check_ion_unknown(layout, id, composition::IonComposition)
+    u = layout.unknowns[id]
+    u isa RadialUnknown && u.components == component_count(composition) ||
+        throw(ArgumentError("the ion densities $(u.name) need $(component_count(composition)) components, one per " *
+                            "charge state of $(join(composition.names, ", "))"))
+    component_groups(u) == [species_components(composition, s) for s in 1:length(composition)] ||
+        throw(ArgumentError("the ion densities $(u.name) need one group of components per species " *
+                            "(ion_densities_unknown)"))
+    return nothing
+end
+
+function plasma_values(source::PlasmaFromUnknowns, u, layout, t; ion_state=u)
     u === nothing && throw(ArgumentError("a plasma from the unknowns $(join(source_dependencies(source), " and ")) " *
                                          "needs the state of the system"))
     base = plasma_values(source.prescribed, u, layout, t)
@@ -126,23 +227,37 @@ function plasma_values(source::PlasmaFromUnknowns, u, layout, t)
         density = radial_values(u, layout, unknown_id(layout, source.density))
         T[_value(density[ir]) for ir in 1:nr]
     end
-    return PlasmaState{T}(temperatures, densities, base.ions, base.electric_field, base.magnetic_field)
+    ions = source.ions === nothing ? base.ions : _ions_from_unknowns(base.ions, ion_state, layout, source.ions,
+                                                                                 source.composition)
+    return PlasmaState{T}(temperatures, densities, ions, base.electric_field, base.magnetic_field,
+                          base.cold_density_given || source.density !== nothing)
 end
 
-# the values of the unknowns a source reads, for the key of a cache
+# the values of the unknowns a source reads, all components, for the key of a cache
+function _each_source_value(f, source::PlasmaFromUnknowns, u, layout)
+    for name in source_dependencies(source)
+        id = unknown_id(layout, name)
+        for ir in 1:radial_cell_count(layout), x in radial_view(u, layout, id, ir)
+            f(Float64(_value(x)))
+        end
+    end
+    return nothing
+end
+
 function _source_state!(values::Vector{Float64}, source::PlasmaFromUnknowns, u, layout)
     empty!(values)
-    for name in source_dependencies(source), x in radial_values(u, layout, unknown_id(layout, name))
-        push!(values, _value(x))
-    end
+    _each_source_value(x -> push!(values, x), source, u, layout)
     return values
 end
 
 function _same_source_state(stored::Vector{Float64}, source::PlasmaFromUnknowns, u, layout)
     k = 0
-    for name in source_dependencies(source), x in radial_values(u, layout, unknown_id(layout, name))
-        k += 1
-        (k <= length(stored) && isequal(stored[k], Float64(_value(x)))) || return false
+    for name in source_dependencies(source)
+        id = unknown_id(layout, name)
+        for ir in 1:radial_cell_count(layout), x in radial_view(u, layout, id, ir)
+            k += 1
+            (k <= length(stored) && isequal(stored[k], Float64(_value(x)))) || return false
+        end
     end
     return k == length(stored)
 end
@@ -237,12 +352,15 @@ _key_current(key::PlasmaKey, source::PlasmaFromUnknowns, time, u, layout) =
 The plasma of `source` at the state `u` and the time `t` when its values differ from those
 of `key` ([`update_key!`](@ref), which stores them), and `nothing` when they do not. A
 prescribed source is compared once per time, so the evaluations of a term at one time
-cost no comparison.
+cost no comparison. `ion_state` is the state the ion densities of a
+[`PlasmaFromUnknowns`](@ref) are taken from, the start of the step for a term that lags them.
 """
-function changed_plasma!(key::PlasmaKey, source::PlasmaSource, u, layout, t; electric_field::Bool=true)
+function changed_plasma!(key::PlasmaKey, source::PlasmaSource, u, layout, t; electric_field::Bool=true,
+                         ion_state=u)
     time = Float64(_value(t))
-    _key_current(key, source, time, u, layout) && return nothing
-    plasma = plasma_values(source, u, layout, t)
+    # ions of another state (lagged): the shortcut compares the unknowns of `u` alone
+    ion_state === u && _key_current(key, source, time, u, layout) && return nothing
+    plasma = ion_state === u ? plasma_values(source, u, layout, t) : plasma_values(source, u, layout, t; ion_state)
     changed = update_key!(key, plasma; electric_field)
     key.time[] = time
     is_state_dependent(source) && _source_state!(key.state, source, u, layout)
@@ -262,20 +380,54 @@ reset_key!(key::Vector{Float64}) = empty!(key)
 struct PlasmaColumnTag end
 
 """
-    dual_plasma(plasma::PlasmaState, with_density::Bool)
+    dual_plasma(plasma::PlasmaState, with_density::Bool, with_ions::Bool=false)
 
 The plasma with the cold-electron temperature as a dual number of partial 1 at every
-radius, and with `with_density` the cold-electron density as partial 2; the ions and the
-fields hold zero partials. The coefficients at a radius depend only on the plasma of that
+radius, with `with_density` the cold-electron density as partial 2, and with `with_ions`
+the densities of the charge states as the partials after them, in the order of the
+components of the ion densities ([`IonComposition`](@ref)); the rest
+holds zero partials. The coefficients at a radius depend only on the plasma of that
 radius, so partial `k` of a coefficient at radius `ir` is its derivative with respect to
 plasma scalar `k` at `ir`, for all radii in one evaluation.
+[`plasma_columns`](@ref) gives the entries of the state of the partials.
 """
-function dual_plasma(plasma::PlasmaState{Float64}, with_density::Bool)
-    K = with_density ? 2 : 1
+function dual_plasma(plasma::PlasmaState{Float64}, with_density::Bool, with_ions::Bool=false)
+    scalars = with_density ? 2 : 1
+    K = scalars + (with_ions ? component_count(IonComposition(plasma.ions)) : 0)
+    return _dual_plasma(plasma, with_density, with_ions, Val(K))
+end
+
+function _dual_plasma(plasma::PlasmaState{Float64}, with_density::Bool, with_ions::Bool, ::Val{K}) where {K}
     D = ForwardDiff.Dual{PlasmaColumnTag,Float64,K}
-    seeded(x, k) = D(x, ForwardDiff.Partials(ntuple(i -> Float64(i == k), K)))
+    seeded(x, k) = D(x, ForwardDiff.Partials(ntuple(i -> Float64(i == k), Val(K))))
     temperature = [seeded(x, 1) for x in plasma.cold_electron_temperature]
     density = with_density ? [seeded(x, 2) for x in plasma.cold_electron_density] : D.(plasma.cold_electron_density)
-    ions = IonSpecies{D}[IonSpecies(s.name, s.nuclear_charge, D.(s.charge_state_densities)) for s in plasma.ions]
-    return PlasmaState{D}(temperature, density, ions, D.(plasma.electric_field), D.(plasma.magnetic_field))
+    ions = IonSpecies{D}[]
+    k = with_density ? 2 : 1
+    for s in plasma.ions
+        densities = D.(s.charge_state_densities)
+        if with_ions
+            for Z0 in 0:s.nuclear_charge
+                k += 1
+                densities[Z0+1, :] .= [seeded(x, k) for x in s.charge_state_densities[Z0+1, :]]
+            end
+        end
+        push!(ions, IonSpecies(s.name, s.nuclear_charge, densities))
+    end
+    return PlasmaState{D}(temperature, density, ions, D.(plasma.electric_field), D.(plasma.magnetic_field),
+                          plasma.cold_density_given)
+end
+
+"""
+    plasma_columns(source::PlasmaFromUnknowns, layout, ir; ions=true)
+
+The entries of the state at radius `ir` that the partials of [`dual_plasma`](@ref) belong
+to: the temperature, the density when the source reads it, and with `ions` the components
+of the ion densities when the source reads them.
+"""
+function plasma_columns(source::PlasmaFromUnknowns, layout, ir; ions::Bool=true)
+    columns = [first(unknown_range(layout, unknown_id(layout, source.temperature), ir))]
+    source.density === nothing || push!(columns, first(unknown_range(layout, unknown_id(layout, source.density), ir)))
+    ions && source.ions !== nothing && append!(columns, unknown_range(layout, unknown_id(layout, source.ions), ir))
+    return columns
 end

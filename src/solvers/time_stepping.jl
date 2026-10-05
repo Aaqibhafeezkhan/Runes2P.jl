@@ -495,7 +495,12 @@ over `absolute + relative |u|`, with the [`Tolerance`](@ref) the system holds fo
 time-step error (`time_step_tolerances` of [`EquationSystem`](@ref)); an unknown without
 one gets `relative_tolerance` and the absolute tolerance `relative_tolerance` times its
 scale, a floor that keeps entries near zero (the tail of a distribution, a density before
-its source acts) from holding the step. An unknown with both tolerances zero is left out.
+its source acts) from holding the step. A radial unknown with more than one group of
+components ([`component_groups`](@ref), the charge states of the ion species) gets no
+absolute part and the `group` part `relative_tolerance` in its place: each entry is
+measured against `relative_tolerance` times the sum over its group, the density of its
+species, so a trace impurity is controlled on its own scale. An unknown
+with all tolerances zero is left out.
 The error of the step is the largest over the unknowns; the step is accepted when it is
 at most 1.
 
@@ -652,15 +657,21 @@ mutable struct StepControllerState{T}
     const tail_errors::Vector{Float64}                 # per unknown, the error of the tail moments, NaN without
     const tail_floor::Float64                          # the tail floor relative to the density of the grid electrons
     const grid_density::Vector{Float64}                # per radius, the density of the electrons on all kinetic grids
+    const group::Vector{Float64}      # per unknown: the tolerance relative to the sum over a group of components
 end
 
 function stepper_state(stepper::StepController, system::EquationSystem{T}, times, t, record::AbstractDict) where {T}
     layout = system.layout
-    absolute, relative = Float64[], Float64[]
+    absolute, relative, group = Float64[], Float64[], Float64[]
     for u in layout.unknowns
         tolerance = get(system.time_step_tolerances, u.name, nothing)
-        push!(absolute, tolerance === nothing ? stepper.relative_tolerance * u.scale : tolerance.absolute)
+        # the charge states of the ion species: each relative to the density of its species,
+        # so that a trace impurity is not measured against the scale of the main one
+        grouped = u isa RadialUnknown && length(component_groups(u)) > 1
+        push!(absolute, tolerance !== nothing ? tolerance.absolute :
+                        grouped ? 0.0 : stepper.relative_tolerance * u.scale)
         push!(relative, tolerance === nothing ? stepper.relative_tolerance : tolerance.relative)
+        push!(group, tolerance !== nothing ? tolerance.group : grouped ? stepper.relative_tolerance : 0.0)
     end
     stepper.order == 2 && _warn_first_order_terms(system)
     n = length(layout)
@@ -673,7 +684,7 @@ function stepper_state(stepper::StepController, system::EquationSystem{T}, times
     state(dt, step, step2, error_old, failures, previous, previous2) =
         StepControllerState{T}(dt, step, step2, error_old, failures, 0, previous, previous2, absolute, relative,
                                zeros(T, n), zeros(T, n), zeros(T, n), fill(NaN, count), tail_region, tail_weights,
-                               fill(NaN, count), stepper.tail_floor, zeros(radial_cell_count(layout)))
+                               fill(NaN, count), stepper.tail_floor, zeros(radial_cell_count(layout)), group)
     if get(record, "type", "") == "StepController"
         previous = haskey(record, "previous_state") ? Vector{T}(record["previous_state"]) : T[]
         if length(previous) == n
@@ -724,18 +735,34 @@ function _controller_errors!(state::StepControllerState, layout, u, a, b, factor
     largest = 0.0
     _grid_density!(state, layout, u)
     for id in eachindex(layout.unknowns)
-        absolute, relative = state.absolute[id], state.relative[id]
+        absolute, relative, group = state.absolute[id], state.relative[id], state.group[id]
         state.tail_errors[id] = NaN
-        if absolute == 0 && relative == 0
+        if absolute == 0 && relative == 0 && group == 0
             state.errors[id] = NaN
             continue
         end
         sum_squares, count = 0.0, 0
-        for range in _unknown_ranges(layout, id), i in range
-            scale = absolute + relative * abs(u[i])
-            scale == 0 && continue
-            sum_squares += (factor * (a[i] - b[i]) / scale)^2
-            count += 1
+        groups = iszero(group) ? nothing : component_groups(layout.unknowns[id])
+        for range in _unknown_ranges(layout, id)
+            if groups === nothing
+                for i in range
+                    scale = absolute + relative * abs(u[i])
+                    scale == 0 && continue
+                    sum_squares += (factor * (a[i] - b[i]) / scale)^2
+                    count += 1
+                end
+            else
+                for g in groups
+                    entries = range[g]
+                    total = group * _magnitude(u, entries)
+                    for i in entries
+                        scale = absolute + relative * abs(u[i]) + total
+                        scale == 0 && continue
+                        sum_squares += (factor * (a[i] - b[i]) / scale)^2
+                        count += 1
+                    end
+                end
+            end
         end
         error = count == 0 ? 0.0 : sqrt(sum_squares / count)
         if !isempty(state.tail_weights[id])

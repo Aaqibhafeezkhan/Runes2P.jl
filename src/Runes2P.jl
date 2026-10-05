@@ -12,6 +12,7 @@ include("physics/plasma.jl")
 include("physics/plasma_source.jl")
 include("physics/adas.jl")
 include("physics/ionization_energies.jl")
+include("physics/ionization_cross_sections.jl")
 include("physics/coulomb_logarithm.jl")
 include("physics/conductivity.jl")
 include("physics/collision_frequencies.jl")
@@ -44,6 +45,8 @@ include("system/ion_energy_terms.jl")
 include("operators/field_particle.jl")
 include("system/energy_transfer_terms.jl")
 include("system/conductivity_terms.jl")
+include("system/ion_terms.jl")
+include("system/kinetic_ionization.jl")
 include("system/equation_system.jl")
 include("system/induction_terms.jl")
 include("solvers/linear_solver.jl")
@@ -73,8 +76,15 @@ export phase_space_jacobian_r_faces, phase_space_jacobian_over_p2_at_zero
 export momentum_cell_count, pitch_cell_count, radial_cell_count, cell_count
 export AdvectionDiffusion, apply!, momentum_flux, with_scheme
 export Constants, IonSpecies, PlasmaState, free_electron_density, bound_electron_density
+export IonComposition, component_count, species_components, species_index, component_groups
+export WeightedSumTerm, free_electron_weights, ion_densities_unknown, set_ion_densities!, ion_densities
+export deposit_neutrals!, population_equations, IonRateTerm, ion_rate_matrix, coronal_equilibrium
+export with_state_ions, add_local_jacobian!, plasma_columns
+export KineticIonizationTerm, threshold_split, fluid_ionization_coefficient, kinetic_ionization_rates
+export IonDiffusionTerm, lags_in_ode_form
+export SECONDARY_SPECTRUM_WIDTHS, mean_secondary_energy, SecondaryHeatingTerm, ionization_energy_flows
 export ADF11Table, read_adf11, adas_coefficient, adf11_file_name, adas_cache_directory, read_adas
-export IONIZATION_ENERGIES, ionization_energy
+export IONIZATION_ENERGIES, ionization_energy, KINETIC_IONIZATION_FITS, ionization_cross_section
 export PlasmaSource, PrescribedPlasma, PlasmaFromUnknowns, plasma_values, is_state_dependent
 export coulomb_logarithm, thermal_coulomb_logarithm, relativistic_coulomb_logarithm
 export CollisionSettings, CollisionModel, slowing_down_frequency, deflection_frequency

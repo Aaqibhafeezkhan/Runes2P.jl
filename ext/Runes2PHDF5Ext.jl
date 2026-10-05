@@ -154,14 +154,20 @@ function _read_layout(group)
         kind, scale = read(entry["kind"]), read(entry["scale"])
         limit = if haskey(entry, "lower_limit_tolerance")
             reference = haskey(entry, "lower_limit_reference") ? Symbol(read(entry["lower_limit_reference"])) : nothing
-            LowerLimit(tolerance=read(entry["lower_limit_tolerance"]), reference=reference)
+            value = haskey(entry, "lower_limit_value") ? read(entry["lower_limit_value"]) : 0.0
+            LowerLimit(; value, tolerance=read(entry["lower_limit_tolerance"]), reference)
         else
             false
         end
         if kind == "scalar"
             ScalarUnknown(Symbol(name); scale, nonnegative=limit)
         elseif kind == "radial"
-            RadialUnknown(Symbol(name); components=read(entry["components"]), scale, nonnegative=limit)
+            components = read(entry["components"])
+            groups = if haskey(entry, "group_starts")
+                starts = read(entry["group_starts"])
+                [starts[k]:(k == length(starts) ? components : starts[k+1] - 1) for k in eachindex(starts)]
+            end
+            RadialUnknown(Symbol(name); components, scale, nonnegative=limit, groups)
         elseif version == 1
             grids = [MomentumGrid(read(entry["p_faces"][string(ir)]), read(entry["xi_faces"][string(ir)]))
                      for ir in 1:nr]

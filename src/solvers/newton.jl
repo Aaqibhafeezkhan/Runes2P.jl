@@ -165,7 +165,9 @@ struct NewtonWorkspace{T,S<:EquationSystem,L,C}
     limited::Vector{Int}
     limit_value::Vector{T}         # the absolute part of the limit, in the units of the entry
     limit_tolerance::Vector{T}
-    limit_reference::Vector{Int}   # index of the reference entry, 0 for the own scale
+    limit_reference::Vector{UnitRange{Int}}  # the entries whose magnitudes sum to the reference, empty for the own scale
+    group_tolerance::Vector{T}     # the group part of the tolerance per entry, 0 outside groups
+    group_ranges::Vector{UnitRange{Int}}     # the entries of the group of each entry with a group part
     cache::C
     residual_norms::Vector{Float64}
     update_norms::Vector{Float64}
@@ -203,22 +205,37 @@ function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver=NewtonS
     scales = T.(unknown_scales(layout))
     row_weights = zeros(T, n)
     absolute, relative = zeros(T, n), zeros(T, n)
-    limited, limit_value, limit_tolerance, limit_reference = Int[], T[], T[], Int[]
+    limited, limit_value, limit_tolerance, limit_reference = Int[], T[], T[], UnitRange{Int}[]
+    group_tolerance, group_ranges = zeros(T, n), [1:0 for _ in 1:n]
     for (id, u) in enumerate(layout.unknowns)
         tol = tolerance(system, u.name)
         for range in _unknown_ranges(layout, id)
             absolute[range] .= tol.absolute
             relative[range] .= tol.relative
+            # the group of each entry: the components of its group at its radius
+            if !iszero(tol.group) && u isa RadialUnknown
+                for g in component_groups(u)
+                    entries = range[g]
+                    group_tolerance[entries] .= tol.group
+                    group_ranges[entries] .= Ref(entries)
+                end
+            end
         end
         limit = u.lower_limit
         limit === nothing && continue
-        reference = limit.reference === nothing ? 0 : unknown_id(layout, limit.reference)
+        reference = limit.reference in (nothing, :group) ? 0 : unknown_id(layout, limit.reference)
         for (k, range) in enumerate(_unknown_ranges(layout, id))
             append!(limited, range)
             append!(limit_value, fill(limit.value, length(range)))
             append!(limit_tolerance, fill(limit.tolerance, length(range)))
-            ref_index = reference == 0 ? 0 : first(unknown_range(layout, reference, k))
-            append!(limit_reference, fill(ref_index, length(range)))
+            if limit.reference === :group
+                for g in component_groups(u), _ in g
+                    push!(limit_reference, range[g])
+                end
+            else
+                ref_index = reference == 0 ? (1:0) : (r = first(unknown_range(layout, reference, k)); r:r)
+                append!(limit_reference, fill(ref_index, length(range)))
+            end
         end
     end
     # the floor of a plasma that follows the unknowns is the lower limit of its temperature:
@@ -230,7 +247,7 @@ function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver=NewtonS
                 push!(limited, i)
                 push!(limit_value, temperature_floor)
                 push!(limit_tolerance, zero(T))
-                push!(limit_reference, 0)
+                push!(limit_reference, 1:0)
             else
                 limit_value[k] = max(limit_value[k], temperature_floor)
             end
@@ -264,7 +281,8 @@ function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver=NewtonS
                            zeros(T, n), zeros(T, n), zeros(T, n),
                            zeros(T, n), zeros(T, n), row_weights, scales, absolute, relative, rate_tolerance,
                            jacobian,
-                           matrix, diagonal_positions, limited, limit_value, limit_tolerance, limit_reference, cache,
+                           matrix, diagonal_positions, limited, limit_value, limit_tolerance, limit_reference,
+                           group_tolerance, group_ranges, cache,
                            Float64[], Float64[], Float64[], Ref(NaN), Ref(NaN), Ref(0))
 end
 
@@ -310,7 +328,16 @@ end
 @inline function _limit_value(ws::NewtonWorkspace, u, k)
     i = ws.limited[k]
     reference = ws.limit_reference[k]
-    return ws.limit_value[k] - ws.limit_tolerance[k] * (reference == 0 ? ws.scales[i] : abs(u[reference]))
+    return ws.limit_value[k] - ws.limit_tolerance[k] * (isempty(reference) ? ws.scales[i] : _magnitude(u, reference))
+end
+
+# Σ |u_k| over the entries k
+@inline function _magnitude(u, entries)
+    total = zero(eltype(u))
+    @inbounds for k in entries
+        total += abs(u[k])
+    end
+    return total
 end
 
 # longest step length ≤ 1 by which no limited entry loses more than max_reduction of its
@@ -462,7 +489,8 @@ function newton_solve!(u::AbstractVector, u_old::AbstractVector, ws::NewtonWorks
         push!(ws.step_lengths, step)
         residual_small = last(ws.residual_norms) <= solver.residual_tolerance
         update_converged = all(eachindex(u)) do i
-            abs(ws.update[i]) <= ws.absolute[i] + ws.relative[i] * abs(u[i]) + ws.rate_tolerance[i] / dt
+            abs(ws.update[i]) <= ws.absolute[i] + ws.relative[i] * abs(u[i]) + ws.rate_tolerance[i] / dt +
+                                 (iszero(ws.group_tolerance[i]) ? 0.0 : ws.group_tolerance[i] * _magnitude(u, ws.group_ranges[i]))
         end
         # A linear system with the exact matrix and an accurate solve: once the update
         # (the error estimate of the previous iterate) passes, no further iteration can

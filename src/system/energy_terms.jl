@@ -233,34 +233,41 @@ struct RunawayFluidEnergyTransferTerm{S<:PrescribedPlasma} <: EquationTerm
     temperature::Symbol
     density::Symbol
     coulomb_logarithm::Symbol
+    ions::Union{Nothing,Symbol}
 end
 function RunawayFluidEnergyTransferTerm(plasma; runaway_density::Symbol=:runaway_density,
                                         temperature::Symbol=:cold_electron_temperature,
                                         density::Symbol=:cold_electron_density,
-                                        coulomb_logarithm::Symbol=:energy_dependent)
+                                        coulomb_logarithm::Symbol=:energy_dependent, ions::Union{Nothing,Symbol}=nothing)
     coulomb_logarithm in (:energy_dependent, :thermal, :relativistic) ||
         throw(ArgumentError("coulomb_logarithm must be :energy_dependent, :thermal or :relativistic"))
     source = plasma isa PrescribedPlasma ? plasma : PrescribedPlasma(plasma)
-    return RunawayFluidEnergyTransferTerm(source, runaway_density, temperature, density, coulomb_logarithm)
+    return RunawayFluidEnergyTransferTerm(source, runaway_density, temperature, density, coulomb_logarithm, ions)
 end
 
-dependencies(term::RunawayFluidEnergyTransferTerm) = [term.runaway_density, term.temperature, term.density]
+dependencies(term::RunawayFluidEnergyTransferTerm) =
+    [term.runaway_density; term.temperature; term.density; term.ions === nothing ? Symbol[] : [term.ions]]
+jacobian_assembly(term::RunawayFluidEnergyTransferTerm) = term.ions === nothing ? :automatic : :direct
+add_jacobian!(J, term::RunawayFluidEnergyTransferTerm, u, layout, row, t) = add_local_jacobian!(J, term, u, layout, row, t)
 
-function validate(term::RunawayFluidEnergyTransferTerm, layout, row)
+function validate(term::RunawayFluidEnergyTransferTerm, layout, row, t)
     for id in (unknown_id(layout, term.runaway_density), unknown_id(layout, term.temperature),
                unknown_id(layout, term.density), row)
         layout.kinds[id] === :radial && layout.sizes[id, 1] == 1 ||
             throw(ArgumentError("RunawayFluidEnergyTransferTerm takes and adds to radial unknowns with one " *
                                 "component, not $(layout.unknowns[id].name)"))
     end
+    term.ions === nothing ||
+        _check_ion_unknown(layout, unknown_id(layout, term.ions), IonComposition(plasma_values(term.plasma, nothing, nothing, t)))
     return nothing
 end
+validate(term::RunawayFluidEnergyTransferTerm, layout, row) = validate(term, layout, row, 0.0)
 
 const RUNAWAY_FLUID_ENERGY_PREFACTOR = 4π * Constants.CLASSICAL_ELECTRON_RADIUS^2 * Constants.ELECTRON_MASS *
                                        Constants.SPEED_OF_LIGHT^3
 
 function rhs!(out, term::RunawayFluidEnergyTransferTerm, u, layout, row, t)
-    plasma = plasma_values(term.plasma, u, layout, t)
+    plasma = _term_plasma(plasma_values(term.plasma, u, layout, t), term.ions, u, layout)
     n_re = radial_values(u, layout, unknown_id(layout, term.runaway_density))
     T = radial_values(u, layout, unknown_id(layout, term.temperature))
     n = radial_values(u, layout, unknown_id(layout, term.density))
@@ -273,7 +280,8 @@ end
 
 function sparsity!(entries, term::RunawayFluidEnergyTransferTerm, layout, row)
     for ir in 1:radial_cell_count(layout), name in dependencies(term)
-        push!(entries, (first(unknown_range(layout, row, ir)), first(unknown_range(layout, unknown_id(layout, name), ir))))
+        r = first(unknown_range(layout, row, ir))
+        append!(entries, ((r, c) for c in unknown_range(layout, unknown_id(layout, name), ir)))
     end
     return entries
 end

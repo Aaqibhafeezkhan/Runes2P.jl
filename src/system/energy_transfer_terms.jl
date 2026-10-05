@@ -33,7 +33,11 @@ operators of the plasma, collision settings, scheme and boundaries of `source`:
   `coefficient = −1` and the hot region of the total energy as `region` it is the loss of
   that total, so the cold electrons receive exactly the free-electron part of what the hot
   electrons lose. Both operators are applied, since the weights of exponential fitting
-  depend on all coefficients of an operator.
+  depend on all coefficients of an operator. The friction on bound electrons holds the
+  energy of the kinetic ionization ([`KineticIonizationTerm`](@ref)): the ionization
+  potentials, which the ions store and release at recombination, and the energy of the
+  secondaries, which [`SecondaryHeatingTerm`](@ref) gives back to the cold electrons
+  ([`ionization_energy_flows`](@ref)).
 
 The term takes the plasma of `source` in the same treatment: implicit, with the columns of
 the temperature and density unknowns, or lagged at the state of the start of the step. A
@@ -65,6 +69,7 @@ the runaway grid to the cold electrons.
 """
 FreeElectronEnergyTransferTerm(source::FokkerPlanckTerm) = KineticEnergyLossTerm(source; part=:free_electrons)
 
+lags_in_ode_form(term::KineticEnergyLossTerm) = lags_in_ode_form(term.source)
 _follows_unknowns(term::KineticEnergyLossTerm) = is_state_dependent(term.source.plasma) && !_is_lagged(term.source)
 _loss_plasma_unknowns(term::KineticEnergyLossTerm) =
     _follows_unknowns(term) ? collect(Symbol, source_dependencies(term.source.plasma)) : Symbol[]
@@ -101,7 +106,7 @@ function _transfer_plasma(term::KineticEnergyLossTerm, u, layout, t)
     plasma = term.source.plasma
     plasma === nothing && return term.source.operator.coefficient_source[].plasma
     _is_lagged(term.source) && term.lagged_plasma[] !== nothing && return term.lagged_plasma[]::PlasmaState
-    return plasma_values(plasma, u, layout, t)
+    return _fokker_planck_plasma(term.source, u, layout, t)
 end
 
 # the operators C_a and C_b of the part, with the scheme and the boundaries of the source
@@ -182,16 +187,16 @@ function add_jacobian!(J, term::KineticEnergyLossTerm, u, layout, row, t)
     end
     f = kinetic_array(u, layout, id)
     # the columns of the plasma unknowns: the operators of a plasma with derivative parts
-    names = _loss_plasma_unknowns(term)
-    if !isempty(names)
-        dual = dual_plasma(plasma, length(names) == 2)
+    if _follows_unknowns(term)
+        source = term.source.plasma
+        with_ions = ion_dependency(source) !== nothing && !_lags_ions(term.source)
+        dual = dual_plasma(plasma, source.density !== nothing, with_ions)
         df = _loss_change(_loss_operators(term, grid, dual), f)
         for ir in 1:nr
             partials = ForwardDiff.partials(-term.coefficient * sum(_loss_weights(term, grid, ir, u, layout, t) .*
                                                                      view(df, :, :, ir)))
-            for (k, name) in enumerate(names)
-                _add_entry!(J, first(unknown_range(layout, row, ir)),
-                            first(unknown_range(layout, unknown_id(layout, name), ir)), partials[k])
+            for (k, column) in enumerate(plasma_columns(source, layout, ir; ions=with_ions))
+                _add_entry!(J, first(unknown_range(layout, row, ir)), column, partials[k])
             end
         end
     end
@@ -228,7 +233,7 @@ function sparsity!(entries, term::KineticEnergyLossTerm, layout, row)
             push!(entries, (r, s))
         end
         for name in others
-            push!(entries, (r, first(unknown_range(layout, unknown_id(layout, name), ir))))
+            append!(entries, ((r, c) for c in unknown_range(layout, unknown_id(layout, name), ir)))
         end
     end
     return entries

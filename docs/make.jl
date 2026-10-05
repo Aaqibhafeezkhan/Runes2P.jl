@@ -36,7 +36,7 @@ const CATEGORIES = [
     (slug = "physics", title = "Physics", directory = "physics",
      summary = "The plasma state, the Coulomb logarithm, collision frequencies, conductivity, runaway rates and the physical constants.",
      subpages = [
-         ("plasma", "Plasma state and atomic data", ["physics/plasma.jl", "physics/plasma_source.jl", "physics/atomic_data.jl", "physics/adas.jl", "physics/ionization_energies.jl"]),
+         ("plasma", "Plasma state and atomic data", ["physics/plasma.jl", "physics/plasma_source.jl", "physics/atomic_data.jl", "physics/adas.jl", "physics/ionization_energies.jl", "physics/ionization_cross_sections.jl"]),
          ("collisions", "Collisions", ["physics/coulomb_logarithm.jl", "physics/collision_frequencies.jl"]),
          ("conductivity", "Conductivity and runaway rates", ["physics/conductivity.jl", "physics/runaway_rates.jl"]),
          ("constants", "Physical constants", ["physics/constants.jl"]),
@@ -59,7 +59,8 @@ const CATEGORIES = [
          ("terms", "Equation terms", ["system/terms.jl", "system/interface_term.jl", "system/transport_terms.jl",
                                       "system/population_terms.jl", "system/energy_terms.jl",
                                       "system/radiation_terms.jl",
-                                      "system/heat_transport_terms.jl", "system/ion_energy_terms.jl"]),
+                                      "system/heat_transport_terms.jl", "system/ion_energy_terms.jl",
+                                      "system/ion_terms.jl", "system/kinetic_ionization.jl"]),
          ("conductivity_induction", "Conductivity and induction", ["system/conductivity_terms.jl", "system/induction_terms.jl"]),
          ("energy_transfer", "Energy transfer between the distributions", ["system/energy_transfer_terms.jl"]),
          ("equation_system", "Equations and the system", ["system/equation_system.jl"]),

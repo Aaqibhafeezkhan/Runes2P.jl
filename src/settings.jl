@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.27"
+const OUTPUT_FORMAT_VERSION = v"0.28"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -237,6 +237,8 @@ function describe(layout::UnknownLayout, context::DescriptionContext)
         entry = SettingsRecord("kind" => String(layout.kinds[id]), "scale" => u.scale, "position" => id,
                                "sizes" => u isa ScalarUnknown ? [1] : layout.sizes[id, :])
         u isa RadialUnknown && (entry["components"] = u.components)
+        # the first component of each group, recorded only for more than one group
+        u isa RadialUnknown && length(u.groups) > 1 && (entry["group_starts"] = first.(u.groups))
         u isa KineticUnknown && (entry["grid"] = grid_name!(context, u.grid))
         if u.lower_limit !== nothing
             entry["lower_limit_tolerance"] = u.lower_limit.tolerance
@@ -434,9 +436,10 @@ end
 describe(term::EquationTerm) = describe(term, DescriptionContext())
 
 settings_fields(::Type{<:FokkerPlanckTerm}) =
-    (described=(:unknown, :operator, :jacobian, :electric_field, :plasma, :settings, :synchrotron, :coefficients),
+    (described=(:unknown, :operator, :jacobian, :electric_field, :plasma, :settings, :synchrotron, :coefficients,
+                :lagged),
      derived=(:stored_operator, :values, :correction, :dual_input, :dual_output, :field_values, :dual_field,
-              :plasma_key, :rebuilds, :dual_operator, :dual_columns))
+              :plasma_key, :rebuilds, :dual_operator, :dual_columns, :ion_state))
 
 function describe(term::FokkerPlanckTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -452,6 +455,8 @@ function describe(term::FokkerPlanckTerm, context::DescriptionContext)
         record["collision_settings"] = describe(term.settings)
         record["synchrotron"] = term.synchrotron
         is_state_dependent(term.plasma) && (record["coefficients"] = String(term.coefficients))
+        # recorded only when set, so that the records of other terms keep their content
+        isempty(term.lagged) || (record["lagged"] = String.(collect(term.lagged)))
         _describe_plasma_source!(record, term.plasma, context)
     end
     return record
@@ -459,7 +464,7 @@ end
 
 settings_fields(::Type{<:PrescribedPlasma}) = (described=(:plasma_at,), derived=(:time, :state))
 settings_fields(::Type{<:PlasmaFromUnknowns}) =
-    (described=(:prescribed, :temperature, :density, :temperature_floor), derived=())
+    (described=(:prescribed, :temperature, :density, :temperature_floor, :ions), derived=(:composition,))
 
 # a plasma from the unknowns: their names, the floor, and the prescribed rest
 function _describe_plasma_source!(record, source::PlasmaFromUnknowns, context::DescriptionContext)
@@ -467,6 +472,8 @@ function _describe_plasma_source!(record, source::PlasmaFromUnknowns, context::D
                                                "density" => source.density === nothing ? "prescribed" :
                                                             String(source.density),
                                                "temperature_floor" => source.temperature_floor)
+    # recorded only when set, so that the records of plasmas with prescribed ions keep their content
+    source.ions === nothing || (record["plasma_unknowns"]["ions"] = String(source.ions))
     return _describe_plasma_source!(record, source.prescribed, context)
 end
 
@@ -511,7 +518,7 @@ function describe(term::LinearTerm, context::DescriptionContext)
 end
 
 settings_fields(::Type{<:RadiatedPowerTerm}) =
-    (described=(:plasma, :temperature, :density, :radiation, :extrapolation), derived=(:tables,))
+    (described=(:plasma, :temperature, :density, :radiation, :extrapolation, :ions, :kinetic), derived=(:tables,))
 
 function describe(term::RadiatedPowerTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -519,11 +526,77 @@ function describe(term::RadiatedPowerTerm, context::DescriptionContext)
     record["density"] = String(term.density)
     record["radiation"] = String(term.radiation)
     record["extrapolation"] = String(term.extrapolation)
+    term.ions === nothing || (record["ions"] = String(term.ions))
+    term.kinetic === nothing || (record["kinetic_ionization"] = describe(term.kinetic, context))
     # the ADF11 files of each element, by name: the cache itself is not part of the record
     record["adf11_files"] = SettingsRecord(element => SettingsRecord(String(class) => basename(getproperty(tables, class).source)
                                                                      for class in ADF11_CLASSES)
                                            for (element, tables) in term.tables)
     return _describe_plasma_source!(record, term.plasma, context)
+end
+
+settings_fields(::Type{<:IonRateTerm}) =
+    (described=(:composition, :ions, :temperature, :density, :extrapolation, :kinetic), derived=(:tables,))
+
+function describe(term::IonRateTerm, context::DescriptionContext)
+    record = _term_record(term)
+    c = term.composition
+    record["species"] = c.names
+    record["nuclear_charges"] = c.nuclear_charges
+    for field in (:ions, :temperature, :density, :extrapolation)
+        record[String(field)] = String(getfield(term, field))
+    end
+    term.kinetic === nothing || (record["kinetic_ionization"] = describe(term.kinetic, context))
+    # the ADF11 files of each element, by name: the cache itself is not part of the record
+    record["adf11_files"] = SettingsRecord(name => SettingsRecord(String(class) => basename(getproperty(tables, class).source)
+                                                                  for class in (:scd, :acd))
+                                           for (name, tables) in zip(c.names, term.tables))
+    return record
+end
+
+settings_fields(::Type{<:KnockOnTerm}) =
+    (described=(:primary, :operator, :target_density, :treatment),
+     derived=(:lagged, :prepared, :prepared_from, :preparations))
+
+settings_fields(::Type{<:IonDiffusionTerm}) =
+    (described=(:composition, :ions, :level, :level_in_time, :states, :edge), derived=(:faces, :time))
+
+function describe(term::IonDiffusionTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["species"] = term.composition.names
+    record["nuclear_charges"] = term.composition.nuclear_charges
+    record["ions"] = String(term.ions)
+    record["states"] = String(term.states)
+    record["edge"] = String(term.edge)
+    record["diffusion"] = term.level_in_time ? _callable_name(term.level) :
+                          term.level isa Union{Real,AbstractVector} ? _plain(term.level) : _callable_name(term.level)
+    return record
+end
+
+settings_fields(::Type{<:SecondaryHeatingTerm}) =
+    (described=(:kinetic, :temperature, :widths), derived=(:energies,))
+
+function describe(term::SecondaryHeatingTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["kinetic_ionization"] = describe(term.kinetic, context)
+    record["temperature"] = String(term.temperature)
+    record["widths"] = SettingsRecord(name => width for (name, width) in zip(term.kinetic.composition.names, term.widths))
+    return record
+end
+
+settings_fields(::Type{<:KineticIonizationTerm}) =
+    (described=(:composition, :kinetic, :grid, :ions, :envelopes), derived=(:rates, :weights))
+
+function describe(term::KineticIonizationTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["species"] = term.composition.names
+    record["nuclear_charges"] = term.composition.nuclear_charges
+    record["kinetic"] = String(term.kinetic)
+    record["grid"] = grid_name!(context, term.grid)
+    record["ions"] = String(term.ions)
+    record["cross_sections"] = "Burgess-Chidichimo with Garland's extension, DREAM's fits"
+    term.envelopes === nothing || (record["region"] = describe(term.envelopes.region))
+    return record
 end
 
 settings_fields(::Type{<:HeatTransportTerm}) =
@@ -550,7 +623,7 @@ function describe(term::HeatTransportTerm, context::DescriptionContext)
 end
 
 settings_fields(::Type{<:IonEnergyExchangeTerm}) =
-    (described=(:plasma, :side, :ion_energy, :temperature, :density, :ion_ion, :masses), derived=())
+    (described=(:plasma, :side, :ion_energy, :temperature, :density, :ion_ion, :masses, :ions), derived=())
 
 function describe(term::IonEnergyExchangeTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -560,6 +633,7 @@ function describe(term::IonEnergyExchangeTerm, context::DescriptionContext)
     record["density"] = String(term.density)
     record["ion_ion"] = term.ion_ion
     record["masses"] = term.masses
+    term.ions === nothing || (record["ions"] = String(term.ions))
     return _describe_plasma_source!(record, term.plasma, context)
 end
 
@@ -569,6 +643,7 @@ function describe(term::RunawayFluidEnergyTransferTerm, context::DescriptionCont
     record["temperature"] = String(term.temperature)
     record["density"] = String(term.density)
     record["coulomb_logarithm"] = String(term.coulomb_logarithm)
+    term.ions === nothing || (record["ions"] = String(term.ions))
     return _describe_plasma_source!(record, term.plasma, context)
 end
 
@@ -588,6 +663,13 @@ function describe(term::InterfaceEnergyFluxTerm, context::DescriptionContext)
     record = _term_record(term)
     record["coefficient"] = term.coefficient
     record["interface"] = describe(term.interface, context)
+    return record
+end
+
+function describe(term::WeightedSumTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["unknown"] = String(term.unknown)
+    record["weights"] = term.weights
     return record
 end
 
@@ -852,8 +934,12 @@ settings_fields(::Type{<:EquationSystem}) =
               :linear, :mass, :mass_columns, :row_scales, :pattern, :sparse_rhs!, :preparation, :backend, :prototype, :time, :buffer,
               :product))
 
-describe(tolerance::Tolerance) =
-    SettingsRecord("absolute" => tolerance.absolute, "relative" => tolerance.relative)
+function describe(tolerance::Tolerance)
+    record = SettingsRecord("absolute" => tolerance.absolute, "relative" => tolerance.relative)
+    # recorded only when set, so that the records of other tolerances keep their content
+    iszero(tolerance.group) || (record["group"] = tolerance.group)
+    return record
+end
 
 """
     describe(system::EquationSystem, context=DescriptionContext())

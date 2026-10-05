@@ -305,6 +305,14 @@ and is not linear. `coefficients` selects the state its coefficients are built f
   SciML interface) `prepare_step!` sees the state itself, so a lagged term is implicit
   there.
 
+`lagged = (:ion_densities,)` lags one group of plasma scalars alone: with
+`coefficients = :implicit` the ion densities of a plasma that
+reads them come from the start of the step, and the temperature and the density from the
+iterate. The stored Jacobian then has the columns of the temperature and the density and
+none of the charge states, and the residual is consistent within the step. DREAM's
+reference case drops these columns from its Jacobian alone (`enableIonJacobian(False)`).
+Without the lag the columns of the charge states are part of the plasma columns.
+
 `jacobian` selects what the stored Jacobian block holds for a flux-limiter scheme (DREAM's
 `ad_jac` setting of `AdvectionInterpolation`). The residual is always the operator's own, so
 every mode converges to the same solution:
@@ -347,6 +355,8 @@ struct FokkerPlanckTerm{T,P} <: EquationTerm
     coefficients::Symbol                     # :implicit or :lagged, for a plasma that reads unknowns
     dual_operator::Base.RefValue{Any}        # the coefficients in dual numbers, for the plasma columns
     dual_columns::Base.RefValue{Any}         # the term in dual numbers, for the plasma columns
+    lagged::Tuple{Vararg{Symbol}}            # the groups of plasma scalars taken at the start of the step
+    ion_state::Vector{Float64}               # the state at the start of the step, for lagged ions
 end
 
 const LINEAR_JACOBIAN_SCHEMES = (:upwind, :central, :exponential_fitting, :quick, :upwind_second_order)
@@ -354,9 +364,10 @@ const LINEAR_JACOBIAN_SCHEMES = (:upwind, :central, :exponential_fitting, :quick
 function FokkerPlanckTerm(unknown::Symbol, operator::AdvectionDiffusion{T}; jacobian::Symbol=:exact,
                           electric_field::Union{Nothing,Symbol}=nothing, plasma=nothing,
                           settings::Union{Nothing,CollisionSettings}=nothing, synchrotron::Union{Nothing,Bool}=nothing,
-                          coefficients::Symbol=:implicit) where {T}
+                          coefficients::Symbol=:implicit, lagged=()) where {T}
     coefficients in (:implicit, :lagged) ||
         throw(ArgumentError("coefficients must be :implicit or :lagged, not $coefficients"))
+    lagged = Tuple(Symbol(name) for name in lagged)
     # the settings that built the operator, before the field branch below forgets them: a
     # rebuild with other settings would change the coefficients at the first refresh
     built = operator.coefficient_source[]
@@ -386,7 +397,19 @@ function FokkerPlanckTerm(unknown::Symbol, operator::AdvectionDiffusion{T}; jaco
     return FokkerPlanckTerm{T,typeof(plasma_from)}(unknown, operator, jacobian, electric_field, stored, zeros(T, dims),
                                               zeros(T, dims), zeros(D, dims), zeros(D, dims), zeros(T, radii),
                                               zeros(D, radii), plasma_from, settings, synchrotron, PlasmaKey(), Ref(0),
-                                              coefficients, Ref{Any}(nothing), Ref{Any}(nothing))
+                                              coefficients, Ref{Any}(nothing), Ref{Any}(nothing), lagged, Float64[])
+end
+
+lags_in_ode_form(term::FokkerPlanckTerm) = _is_lagged(term) || _lags_ions(term)
+
+# whether the term takes the ion densities of its plasma from the start of the step
+_lags_ions(term::FokkerPlanckTerm) = ion_dependency(term.plasma) !== nothing && ion_dependency(term.plasma) in term.lagged
+# the state of the ion densities of the plasma of a term
+_ion_state(term::FokkerPlanckTerm, u) = _lags_ions(term) && !isempty(term.ion_state) ? term.ion_state : u
+# the plasma of the term at the state u, with lagged ions from the start of the step
+function _fokker_planck_plasma(term::FokkerPlanckTerm, u, layout, t)
+    state = _ion_state(term, u)
+    return state === u ? plasma_values(term.plasma, u, layout, t) : plasma_values(term.plasma, u, layout, t; ion_state=state)
 end
 
 """
@@ -410,7 +433,8 @@ _is_lagged(term::FokkerPlanckTerm) = term.coefficients === :lagged && is_state_d
 function _rebuild_coefficients!(term::FokkerPlanckTerm, u, layout, t)
     term.plasma === nothing && return term.operator
     field = term.electric_field === nothing
-    plasma = changed_plasma!(term.plasma_key, term.plasma, u, layout, t; electric_field=field)
+    plasma = changed_plasma!(term.plasma_key, term.plasma, u, layout, t; electric_field=field,
+                             ion_state=_ion_state(term, u))
     plasma === nothing && return term.operator
     try
         set_fokker_planck_coefficients!(term.operator, plasma, term.settings; synchrotron=term.synchrotron,
@@ -433,9 +457,25 @@ has_plasma_source(::Any) = false
 
 # a lagged term takes the plasma of the state at the start of the step
 function prepare_step!(term::FokkerPlanckTerm, u_old, layout, row, t)
+    if _lags_ions(term)
+        resize!(term.ion_state, length(u_old))
+        term.ion_state .= _value.(u_old)
+    end
     _is_lagged(term) && _rebuild_coefficients!(term, u_old, layout, t)
     return nothing
 end
+
+"""
+    lags_in_ode_form(term)
+
+Whether a term takes a part of its residual at the state of [`prepare_step!`](@ref), the
+start of the step: a knock-on term with a lagged primary, a Fokker-Planck term with lagged
+coefficients or lagged ions, the energy loss of such a term, a field-particle term whose
+plasma reads unknowns. In the ODE form ([`rhs!`](@ref) of the system) that state is the
+state itself, so the stored Jacobian, which treats the lagged part as fixed, is not the
+Jacobian of the ODE, and `ode_function` passes none.
+"""
+lags_in_ode_form(::Any) = false
 
 """
     has_plasma_columns(term)
@@ -457,8 +497,7 @@ Push the entries of the plasma columns of a term with [`has_plasma_columns`](@re
 cell of the row unknown at a radius against each plasma unknown of that radius.
 """
 function plasma_column_sparsity!(entries, term::FokkerPlanckTerm, layout, row)
-    for ir in 1:radial_cell_count(layout), name in source_dependencies(term.plasma)
-        column = first(unknown_range(layout, unknown_id(layout, name), ir))
+    for ir in 1:radial_cell_count(layout), column in plasma_columns(term.plasma, layout, ir; ions=!_lags_ions(term))
         append!(entries, ((r, column) for r in unknown_range(layout, row, ir)))
     end
     return entries
@@ -475,9 +514,9 @@ own face weights, the Péclet number of exponential fitting included. The scheme
 operator's own, as is the residual, whatever `jacobian` selects for the block in `f`.
 """
 function add_plasma_columns!(J, term::FokkerPlanckTerm, u, layout, row, t)
-    plasma = plasma_values(term.plasma, u, layout, t)
-    names = source_dependencies(term.plasma)
-    dual = dual_plasma(plasma, length(names) == 2)
+    plasma = _fokker_planck_plasma(term, u, layout, t)
+    with_ions = ion_dependency(term.plasma) !== nothing && !_lags_ions(term)
+    dual = dual_plasma(plasma, term.plasma.density !== nothing, with_ions)
     D = eltype(dual.cold_electron_temperature)
     op = _dual_operator!(term, D)
     with_field = term.electric_field === nothing
@@ -489,7 +528,7 @@ function add_plasma_columns!(J, term::FokkerPlanckTerm, u, layout, row, t)
     apply!(df, op, f; electric_field=_field_values(term.electric_field, u, layout))
     np, nxi, nr = size(df)
     for ir in 1:nr
-        columns = ntuple(k -> first(unknown_range(layout, unknown_id(layout, names[k]), ir)), length(names))
+        columns = plasma_columns(term.plasma, layout, ir; ions=with_ions)
         for j in 1:nxi, i in 1:np
             r = _kinetic_index(layout, row, ir, i, j)
             partials = ForwardDiff.partials(df[i, j, ir])
@@ -549,10 +588,43 @@ function validate(term::FokkerPlanckTerm, layout, row)
         layout.kinds[field] === :radial && layout.sizes[field, 1] == 1 ||
             throw(ArgumentError("the electric field of a FokkerPlanckTerm is a radial unknown with one component"))
     end
+    for name in term.lagged
+        name === ion_dependency(term.plasma) ||
+            throw(ArgumentError("the FokkerPlanckTerm of $(term.unknown) lags $name, which is not the ion densities " *
+                                "of its plasma"))
+    end
     for name in source_dependencies(term.plasma)
         id = unknown_id(layout, name)
+        if name === ion_dependency(term.plasma)
+            _check_ion_unknown(layout, id, IonComposition(plasma_values(term.plasma.prescribed, nothing, nothing, 0.0)))
+            continue
+        end
         layout.kinds[id] === :radial && layout.sizes[id, 1] == 1 ||
             throw(ArgumentError("the plasma unknown $name of a FokkerPlanckTerm is a radial unknown with one component"))
+    end
+    return nothing
+end
+
+# The target of the e-e collisions in a system that holds the cold density as an unknown,
+# the closure n_cold = n_free − n_hot − n_re: a plasma that keeps the density
+# of its prescribed part, or a prescribed plasma in the fully kinetic mode whose cold
+# density is the free-electron default, would count the electrons of the grids twice, once
+# in the target and once as f.
+function validate(term::FokkerPlanckTerm, layout, row, t)
+    validate(term, layout, row)
+    haskey(layout.ids, :cold_electron_density) || return nothing
+    source = term.plasma
+    if source isa PlasmaFromUnknowns
+        source.density === nothing &&
+            throw(ArgumentError("the plasma of the FokkerPlanckTerm of $(term.unknown) keeps the density of its " *
+                                "prescribed part (density = nothing), while the system has the unknown " *
+                                "cold_electron_density: read it with density = :cold_electron_density (issue #154)"))
+    elseif source isa PrescribedPlasma && term.settings.mode === :full
+        plasma_values(source, nothing, nothing, t).cold_density_given ||
+            throw(ArgumentError("the prescribed plasma of the FokkerPlanckTerm of $(term.unknown) takes the " *
+                                "free-electron density as the cold density, which counts the electrons of the " *
+                                "grids twice in a system with the unknown cold_electron_density: give the cold " *
+                                "density, or read it from the unknown (issue #154)"))
     end
     return nothing
 end
@@ -717,6 +789,8 @@ struct KnockOnTerm{T,D} <: EquationTerm
     treatment::Symbol
     lagged::Vector{Matrix{T}}              # :explicit_primary: the source per unit target density, per radius
     prepared::Base.RefValue{Bool}
+    prepared_from::Vector{Matrix{T}}       # the primary of the last preparation, per radius
+    preparations::Base.RefValue{Int}       # the applications of the kernel by prepare_step!
 end
 
 function KnockOnTerm(primary::Symbol, operator::KnockOnOperator{T}; target_density,
@@ -728,12 +802,14 @@ function KnockOnTerm(primary::Symbol, operator::KnockOnOperator{T}; target_densi
     lagged = treatment === :explicit_primary && target_density isa Symbol ?
              [zeros(T, momentum_cell_count(grid, ir), pitch_cell_count(grid, ir)) for ir in 1:radial_cell_count(grid)] :
              Matrix{T}[]
-    return KnockOnTerm(primary, operator, target_density, treatment, lagged, Ref(false))
+    prepared_from = [similar(source) for source in lagged]
+    return KnockOnTerm(primary, operator, target_density, treatment, lagged, Ref(false), prepared_from, Ref(0))
 end
 
 # the primary lagged and the target density an unknown: the term is the target density
 # times a source fixed for the step
 _lagged_primary(term::KnockOnTerm) = term.treatment === :explicit_primary && term.target_density isa Symbol
+lags_in_ode_form(term::KnockOnTerm) = _lagged_primary(term)
 
 # linear in the primary with a prescribed target density; bilinear when it is an unknown
 is_linear(term::KnockOnTerm) = _lagged_primary(term) || !(term.target_density isa Symbol)
@@ -773,16 +849,36 @@ _target_density(term::KnockOnTerm{T,Symbol}, u, layout, ir) where {T} =
     radial_view(u, layout, unknown_id(layout, term.target_density), ir)[1]
 _target_density(term::KnockOnTerm, u, layout, ir) = term.target_density[ir]
 
+# The kernel is O(N_p²) per radius: it is applied once per start state, not at every
+# residual of the Newton iteration and its line search. The primary of the last
+# preparation is kept, and a residual at the same start state reuses the source.
 function prepare_step!(term::KnockOnTerm, u_old, layout, row, t)
     _lagged_primary(term) || return nothing
     primary = unknown_id(layout, term.primary)
+    if term.prepared[]
+        same = true
+        for ir in 1:radial_cell_count(layout)
+            _same_primary(term.prepared_from[ir], kinetic_view(u_old, layout, primary, ir)) || (same = false; break)
+        end
+        same && return nothing
+    end
     for ir in 1:radial_cell_count(layout)
         source = term.lagged[ir]
+        f = kinetic_view(u_old, layout, primary, ir)
         fill!(source, zero(eltype(source)))
-        apply_at_radius!(source, term.operator, kinetic_view(u_old, layout, primary, ir), one(eltype(source)), ir)
+        apply_at_radius!(source, term.operator, f, one(eltype(source)), ir)
+        term.prepared_from[ir] .= _value.(f)
     end
+    term.preparations[] += 1
     term.prepared[] = true
     return nothing
+end
+
+function _same_primary(stored, f)
+    @inbounds for k in eachindex(stored, f)
+        isequal(stored[k], _value(f[k])) || return false
+    end
+    return true
 end
 
 function rhs!(out, term::KnockOnTerm, u, layout, row, t)
@@ -845,6 +941,53 @@ function jacobian_vector_product!(out, term::KnockOnTerm, u, v, layout, row, t)
         end
     end
     return out
+end
+
+# tag of the dual numbers of the local columns of a term
+struct LocalColumnTag end
+
+"""
+    add_local_jacobian!(J, term, u, layout, row, t)
+
+Add the Jacobian of a term whose rows at a radius read only the radial unknowns of that
+radius (its [`dependencies`](@ref)) to `J`, by one evaluation of its `rhs!` with dual numbers:
+partial `k` is seeded on the `k`-th component of the dependencies at every radius at once,
+so that the partials of a row at radius `ir` are its derivatives with respect to the
+unknowns at `ir`. A term with a row that reads all charge states of a radius (the radiated
+power, the conductivity, the energy exchange with the ions) assembles its
+block this way, so that the coloring of the automatic Jacobian does not need a color per
+charge state. The tag is fixed, so the code compiles once per number of local columns.
+"""
+function add_local_jacobian!(J, term::EquationTerm, u, layout, row, t)
+    ids = [unknown_id(layout, name) for name in dependencies(term)]
+    all(id -> layout.kinds[id] === :radial, ids) ||
+        throw(ArgumentError("the local Jacobian of a $(nameof(typeof(term))) needs radial unknowns alone"))
+    count = sum(id -> layout.sizes[id, 1], ids)
+    return _add_local_jacobian!(J, term, u, layout, row, t, ids, Val(count))
+end
+
+function _add_local_jacobian!(J, term, u, layout, row, t, ids, ::Val{K}) where {K}
+    D = ForwardDiff.Dual{LocalColumnTag,Float64,K}
+    seeded = D.(u)
+    for ir in 1:radial_cell_count(layout)
+        k = 0
+        for id in ids, i in unknown_range(layout, id, ir)
+            k += 1
+            seeded[i] = D(u[i], ForwardDiff.Partials(ntuple(m -> Float64(m == k), Val(K))))
+        end
+    end
+    out = zeros(D, length(u))
+    rhs!(out, term, seeded, layout, row, t)
+    for ir in 1:radial_cell_count(layout)
+        columns = [i for id in ids for i in unknown_range(layout, id, ir)]
+        for r in unknown_range(layout, row, ir)
+            partials = ForwardDiff.partials(out[r])
+            for k in 1:K
+                _add_entry!(J, r, columns[k], partials[k])
+            end
+        end
+    end
+    return J
 end
 
 """

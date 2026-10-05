@@ -361,6 +361,8 @@ coupling(::FieldParticleTerm) = :matrix_free
 has_low_rank_jacobian(::FieldParticleTerm) = true
 is_linear(term::FieldParticleTerm) = !is_state_dependent(term.plasma)
 
+lags_in_ode_form(term::FieldParticleTerm) = is_state_dependent(term.plasma)
+
 function validate(term::FieldParticleTerm, layout, row)
     id = unknown_id(layout, term.unknown)
     layout.kinds[id] === :kinetic && id == row ||

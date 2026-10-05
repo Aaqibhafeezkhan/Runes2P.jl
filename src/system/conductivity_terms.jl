@@ -286,7 +286,11 @@ _coefficient_sources(term::ConductivityTerm) = term.model.operator === nothing ?
 # Karney depends on the temperature, the effective charge and the free-electron density,
 # and the last two come from the ions, which are prescribed
 _conductivity_unknowns(model::ConductivityModel) =
-    model.plasma isa PlasmaFromUnknowns ? (model.plasma.temperature,) : ()
+    model.plasma isa PlasmaFromUnknowns ?
+    (model.plasma.ions === nothing ? (model.plasma.temperature,) : (model.plasma.temperature, model.plasma.ions)) : ()
+# with the ion densities the row reads every charge state of a radius
+jacobian_assembly(term::ConductivityTerm) = ion_dependency(term.model.plasma) === nothing ? :automatic : :direct
+add_jacobian!(J, term::ConductivityTerm, u, layout, row, t) = add_local_jacobian!(J, term, u, layout, row, t)
 
 dependencies(term::ConductivityTerm) = [term.electric_field; collect(Symbol, _conductivity_unknowns(term.model))]
 is_linear(term::ConductivityTerm) = isempty(_conductivity_unknowns(term.model))
@@ -303,6 +307,7 @@ function validate(term::ConductivityTerm, layout, row, t)
         throw(ArgumentError("ConductivityTerm adds to a radial unknown with one component"))
     for name in _conductivity_unknowns(term.model)
         id = unknown_id(layout, name)
+        name === ion_dependency(term.model.plasma) && continue
         layout.kinds[id] === :radial && layout.sizes[id, 1] == 1 ||
             throw(ArgumentError("the temperature of a ConductivityTerm is a radial unknown with one component"))
     end
@@ -355,7 +360,7 @@ end
 # gives the column of the temperature
 function _add_state_conductivity!(out, term::ConductivityTerm, u, layout, row, t)
     model = term.model
-    base = plasma_values(model.plasma.prescribed, u, layout, t)
+    base = _term_plasma(plasma_values(model.plasma.prescribed, u, layout, t), model.plasma.ions, u, layout)
     temperature = radial_values(u, layout, unknown_id(layout, model.plasma.temperature))
     field = radial_values(u, layout, unknown_id(layout, term.electric_field))
     for ir in 1:radial_cell_count(layout)
@@ -376,7 +381,7 @@ function sparsity!(entries, term::ConductivityTerm, layout, row)
         r = first(unknown_range(layout, row, ir))
         push!(entries, (r, first(unknown_range(layout, field, ir))))
         for name in _conductivity_unknowns(term.model)
-            push!(entries, (r, first(unknown_range(layout, unknown_id(layout, name), ir))))
+            append!(entries, ((r, c) for c in unknown_range(layout, unknown_id(layout, name), ir)))
         end
     end
     return entries

@@ -1,0 +1,484 @@
+# The ionization of the ions by the electrons of a distribution: the rate
+# of each charge state is a moment of f with the weight v σ(p) of the cross sections of
+# physics/ionization_cross_sections.jl, above the threshold of a momentum region, and the
+# split of the ionization at that threshold between this term and the fluid ADAS rate of
+# the cold electrons below it.
+
+"""
+    KineticIonizationTerm(composition, kinetic, grid; ions=:ion_densities, region=nothing)
+
+The ionization of the charge states of `composition` ([`IonComposition`](@ref)) by the
+electrons of the kinetic unknown `kinetic` on `grid`, in the rows of the ion densities
+`ions` (DREAM's `IonKineticIonizationTerm`):
+
+```math
+\\frac{dn_j}{dt} = K_{j-1} n_{j-1} - K_j n_j, \\qquad
+K_j = \\frac{1}{V'} \\sum_{\\text{cells}} e(p)\\, v σ_j(p)\\, 𝒱' Δp Δξ\\, f,
+```
+
+with the cross sections [`ionization_cross_section`](@ref) of DREAM's fits, tabulated at
+the cell centres of the momentum grid of each radius (DREAM tabulates the grid of radius 0
+alone), and the envelope `e(p)` of the [`MomentumRegion`](@ref) `region`: the hot
+electrons above a threshold that may follow the temperature unknown, or the whole grid
+without a region. Each species is conserved.
+
+Paired with an [`IonRateTerm`](@ref) through its `kinetic` keyword, the electrons below the
+threshold ionize at the fluid coefficient of [`fluid_ionization_coefficient`](@ref), so a
+Maxwellian `f` ionizes at the ADAS rate for every threshold. The term has no energy of its
+own: the friction on bound electrons of the Fokker-Planck term already takes energy from
+`f` for the inelastic collisions.
+
+The Jacobian is assembled directly: the columns of `f` (every cell of a radius, the block
+DREAM's reference case drops), of the charge states, and of the temperature through the
+threshold of the region.
+"""
+struct KineticIonizationTerm{E} <: EquationTerm
+    composition::IonComposition
+    kinetic::Symbol
+    grid::KineticGrid{Float64}
+    ions::Symbol
+    envelopes::E
+    rates::Vector{Matrix{Float64}}     # per radius: v σ [m³/s] per momentum cell and component
+    weights::Vector{Matrix{Float64}}   # per radius: 𝒱' Δp Δξ / V' per cell, the weight of a density moment
+end
+
+function KineticIonizationTerm(c::IonComposition, kinetic::Symbol, grid::KineticGrid{Float64};
+                               ions::Symbol=:ion_densities, region::Union{Nothing,MomentumRegion}=nothing)
+    states = [(name, Z0) for (name, Z) in zip(c.names, c.nuclear_charges) for Z0 in 0:Z]
+    rates = Matrix{Float64}[]
+    weights = Matrix{Float64}[]
+    for ir in 1:radial_cell_count(grid)
+        m = momentum_grid(grid, ir)
+        speed(p) = Constants.SPEED_OF_LIGHT * p / sqrt(1 + p^2)
+        push!(rates, [speed(p) * ionization_cross_section(name, Z0, p) for p in m.p_centers, (name, Z0) in states])
+        jacobian = phase_space_jacobian(grid, ir)
+        push!(weights, [jacobian[i, j] * m.p_widths[i] * m.xi_widths[j] / grid.radial_grid.spatial_jacobian[ir]
+                        for i in 1:momentum_cell_count(m), j in 1:pitch_cell_count(m)])
+    end
+    return KineticIonizationTerm(c, kinetic, grid, ions, RegionEnvelopes(region, grid), rates, weights)
+end
+
+dependencies(term::KineticIonizationTerm) =
+    unique([term.ions; term.kinetic; collect(Symbol, _region_unknowns(term.envelopes))])
+jacobian_assembly(::KineticIonizationTerm) = :direct
+
+function validate(term::KineticIonizationTerm, layout, row)
+    id = unknown_id(layout, term.ions)
+    id == row || throw(ArgumentError("KineticIonizationTerm adds to the rows of its ion densities $(term.ions)"))
+    _check_ion_unknown(layout, id, term.composition)
+    kinetic = unknown_id(layout, term.kinetic)
+    layout.kinds[kinetic] === :kinetic || throw(ArgumentError("KineticIonizationTerm needs a kinetic unknown"))
+    _same_momentum_grids(term.grid, kinetic_grid(layout, kinetic)) ||
+        throw(DimensionMismatch("the grid of the kinetic ionization does not match $(term.kinetic)"))
+    _check_envelopes(term.envelopes, term.grid)
+    return nothing
+end
+
+# the momentum moment Σ_ξ w f per momentum cell of radius ir, in the number type of f
+function _pitch_moment(term::KineticIonizationTerm, f, ir)
+    w = term.weights[ir]
+    return [sum(w[i, j] * f[i, j] for j in axes(w, 2)) for i in axes(w, 1)]
+end
+
+"""
+    kinetic_ionization_rates(term::KineticIonizationTerm, u, layout, t, ir)
+
+The rate coefficients `K` [1/s] of all charge states at radius `ir`, the moments of `f`
+of the state `u` with `v σ` above the threshold of the region, one per component of the ion
+densities.
+"""
+function kinetic_ionization_rates(term::KineticIonizationTerm, u, layout, t, ir)
+    f = kinetic_view(u, layout, unknown_id(layout, term.kinetic), ir)
+    g = _pitch_moment(term, f, ir)
+    envelope = _moment_envelope(term.envelopes, term.grid, ir, u, layout, t)
+    rates = term.rates[ir]
+    return [sum(_envelope_value(envelope, i) * rates[i, c] * g[i] for i in axes(rates, 1)) for c in axes(rates, 2)]
+end
+
+function rhs!(out, term::KineticIonizationTerm, u, layout, row, t)
+    c = term.composition
+    for ir in 1:radial_cell_count(layout)
+        K = kinetic_ionization_rates(term, u, layout, t, ir)
+        n = radial_view(u, layout, row, ir)
+        rows = unknown_range(layout, row, ir)
+        for s in 1:length(c)
+            components = species_components(c, s)
+            for k in components[1:end-1]
+                flow = K[k] * n[k]
+                out[rows[k]] -= flow
+                out[rows[k+1]] += flow
+            end
+        end
+    end
+    return out
+end
+
+function add_jacobian!(J, term::KineticIonizationTerm, u, layout, row, t)
+    c = term.composition
+    kinetic = unknown_id(layout, term.kinetic)
+    temperature = _region_unknowns(term.envelopes)
+    for ir in 1:radial_cell_count(layout)
+        m = momentum_grid(term.grid, ir)
+        rows = unknown_range(layout, row, ir)
+        n = radial_view(u, layout, row, ir)
+        K = kinetic_ionization_rates(term, u, layout, t, ir)
+        envelope = _envelope_at(term.envelopes, term.grid, ir, u, layout, t)
+        rates, w = term.rates[ir], term.weights[ir]
+        # the derivative of the rates in the temperature, through the threshold of the region
+        dK = if isempty(temperature)
+            nothing
+        else
+            D = ForwardDiff.Dual{PlasmaColumnTag,Float64,1}
+            T = radial_values(u, layout, unknown_id(layout, only(temperature)))[ir]
+            p0 = term.envelopes.region.limit.factor * sqrt(2 * D(T, ForwardDiff.Partials((1.0,))) /
+                                                          Constants.ELECTRON_REST_ENERGY)
+            dual_envelope = momentum_envelope!(zeros(D, momentum_cell_count(m)), term.envelopes.region, m, p0)
+            g = _pitch_moment(term, kinetic_view(u, layout, kinetic, ir), ir)
+            [sum(ForwardDiff.partials(dual_envelope[i], 1) * rates[i, k] * g[i] for i in axes(rates, 1))
+             for k in axes(rates, 2)]
+        end
+        T_column = isempty(temperature) ? 0 : first(unknown_range(layout, unknown_id(layout, only(temperature)), ir))
+        for s in 1:length(c), k in species_components(c, s)[1:end-1]
+            # the flow K_k n_k from state k to k + 1
+            _add_entry!(J, rows[k], rows[k], -K[k])
+            _add_entry!(J, rows[k+1], rows[k], K[k])
+            for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
+                value = n[k] * _envelope_value(envelope, i) * rates[i, k] * w[i, j]
+                column = _kinetic_index(layout, kinetic, ir, i, j)
+                _add_entry!(J, rows[k], column, -value)
+                _add_entry!(J, rows[k+1], column, value)
+            end
+            if dK !== nothing
+                _add_entry!(J, rows[k], T_column, -n[k] * dK[k])
+                _add_entry!(J, rows[k+1], T_column, n[k] * dK[k])
+            end
+        end
+    end
+    return J
+end
+
+function sparsity!(entries, term::KineticIonizationTerm, layout, row)
+    c = term.composition
+    kinetic = unknown_id(layout, term.kinetic)
+    temperature = _region_unknowns(term.envelopes)
+    for ir in 1:radial_cell_count(layout)
+        rows = unknown_range(layout, row, ir)
+        cells = unknown_range(layout, kinetic, ir)
+        T_column = isempty(temperature) ? 0 : first(unknown_range(layout, unknown_id(layout, only(temperature)), ir))
+        for s in 1:length(c)
+            components = species_components(c, s)
+            for k in components
+                r = rows[k]
+                k > first(components) && push!(entries, (r, rows[k-1]))
+                push!(entries, (r, rows[k]))
+                append!(entries, ((r, cell) for cell in cells))
+                T_column == 0 || push!(entries, (r, T_column))
+            end
+        end
+    end
+    return entries
+end
+
+"""
+    threshold_split(term::KineticIonizationTerm, ir, u, layout, t)
+
+The parts of a Maxwellian at the cold temperature of radius `ir` above the threshold of
+the region of `term`, on its momentum grid, for [`fluid_ionization_coefficient`](@ref): the
+fraction `f_>` of its density and the rate coefficient `A_>` [m³/s] of each charge state,
+`Σ e(p) v σ(p) M w / Σ M w` with the envelope `e`, the cell weights `w` of a density moment
+and the relativistic Maxwellian `M = exp(−(γ − 1)/Θ)` at the cell centres. The sums run over
+the cells of the grid, the quadrature of the term itself. The temperature is that of the
+region's unknown in the state `u`, in its number type.
+"""
+function threshold_split(term::KineticIonizationTerm, ir, u, layout, t)
+    temperature = _region_unknowns(term.envelopes)
+    isempty(temperature) &&
+        throw(ArgumentError("the split of the ionization needs a region whose threshold follows the temperature unknown"))
+    T = radial_values(u, layout, unknown_id(layout, only(temperature)))[ir]
+    m = momentum_grid(term.grid, ir)
+    theta = T / Constants.ELECTRON_REST_ENERGY
+    W = vec(sum(term.weights[ir]; dims=2))
+    maxwellian = [exp(-p^2 / (sqrt(1 + p^2) + 1) / theta) * W[i] for (i, p) in enumerate(m.p_centers)]
+    total = sum(maxwellian)
+    envelope = _moment_envelope(term.envelopes, term.grid, ir, u, layout, t)
+    above = sum(_envelope_value(envelope, i) * maxwellian[i] for i in eachindex(maxwellian)) / total
+    rates = term.rates[ir]
+    coefficients = [sum(_envelope_value(envelope, i) * rates[i, k] * maxwellian[i] for i in eachindex(maxwellian)) / total
+                    for k in axes(rates, 2)]
+    return (term=term, fraction=above, coefficients=coefficients)
+end
+
+"""
+    fluid_ionization_coefficient(adas, fraction, coefficient)
+
+The ionization coefficient of the cold electrons below the threshold of a kinetic
+ionization: `(I − A_>)/(1 − f_>)`, the ADAS coefficient `I` of the whole
+Maxwellian less its part above the threshold, `A_>`, per electron below it, with the
+fraction `f_>` of the Maxwellian above the threshold ([`threshold_split`](@ref)). With the
+closure `n_cold = n_M (1 − f_>)` and the kinetic rate `n_M A_>` of a Maxwellian `f` of
+density `n_M`, the two add up to `n_M I` for every threshold.
+
+The coefficient has no floor. `A_>` comes from DREAM's fits of the cross sections and `I`
+from ADAS, and the fits deviate from ADAS by up to about 1.6 for a state of argon; at
+thresholds of two thermal momenta and above `A_>` stays far below `I`, so the
+coefficient stays positive in every case tested. Which part of the ionization the fit
+describes is an open question.
+"""
+fluid_ionization_coefficient(adas, fraction, coefficient) = (adas - coefficient) / (1 - fraction)
+
+# the fluid coefficient of charge state Z0 of species s with the split of a radius
+function _fluid_ionization(split, s, Z0, adas)
+    k = species_components(split.term.composition, s)[Z0+1]
+    return fluid_ionization_coefficient(adas, split.fraction, split.coefficients[k])
+end
+
+"""
+    SECONDARY_SPECTRUM_WIDTHS
+
+The width `Ē` [eV] of the energy spectrum of the secondary electrons of electron-impact
+ionization, `dσ/dE_s ∝ 1/(1 + (E_s/Ē)²)`, per element, from Table II of C. B. Opal, W. K.
+Peterson and E. C. Beaty, J. Chem. Phys. 55, 4100 (1971), doi:10.1063/1.1676707, measured on
+neutral gases with primaries of 500 eV:
+helium 15.8, neon 24.2, argon 10.0, krypton 9.6 and xenon 8.7 eV; hydrogen, deuterium and
+tritium take the 8.3 eV of H₂. The authors call their fits to argon, krypton and xenon
+poor, so that "the values of Ē are not very significant for these gases"; Ē varies by
+about 15 % over primary energies of 100 to 2000 eV (their Table I). Other elements take
+their width from the `widths` of [`SecondaryHeatingTerm`](@ref).
+"""
+const SECONDARY_SPECTRUM_WIDTHS = Dict{String,Float64}("H" => 8.3, "D" => 8.3, "T" => 8.3, "He" => 15.8, "Ne" => 24.2,
+                                                       "Ar" => 10.0, "Kr" => 9.6, "Xe" => 8.7)
+
+"""
+    mean_secondary_energy(width, E, I, cut)
+
+The mean kinetic energy [eV] of the secondary electron of an ionization with the ionization
+potential `I` by an electron of kinetic energy `E`, with the spectrum of Opal et al. of
+width `width` ([`SECONDARY_SPECTRUM_WIDTHS`](@ref)) up to the smaller of `(E − I)/2` (the
+slower of the two electrons is the secondary) and `cut`:
+`(Ē/2) ln(1 + (E_top/Ē)²) / arctan(E_top/Ē)`. Zero below the threshold.
+"""
+function mean_secondary_energy(width, E, I, cut)
+    top = min((E - I) / 2, cut)
+    top > 0 || return zero(top)
+    return width / 2 * log(1 + (top / width)^2) / atan(top / width)
+end
+
+# the kinetic energy [eV] of the threshold of the region at the temperature T (or of a fixed
+# limit), the cut of the secondaries that heat the cold electrons
+function _threshold_energy(term::KineticIonizationTerm, T)
+    limit = term.envelopes.region.limit
+    p0 = limit isa ThermalMomentum ? limit.factor * sqrt(2 * T / Constants.ELECTRON_REST_ENERGY) : limit
+    return (sqrt(1 + p0^2) - 1) * Constants.ELECTRON_REST_ENERGY
+end
+
+# the envelope of the region of a kinetic ionization at radius ir at the temperature T, in
+# the number type of T
+function _envelope_at_temperature(term::KineticIonizationTerm, ir, T)
+    m = momentum_grid(term.grid, ir)
+    limit = term.envelopes.region.limit
+    p0 = limit isa ThermalMomentum ? limit.factor * sqrt(2 * T / Constants.ELECTRON_REST_ENERGY) : limit
+    return momentum_envelope!(zeros(typeof(float(p0)), momentum_cell_count(m)), term.envelopes.region, m, p0)
+end
+
+"""
+    SecondaryHeatingTerm(kinetic::KineticIonizationTerm; widths=SECONDARY_SPECTRUM_WIDTHS,
+                         temperature=:cold_electron_temperature)
+
+The heating [W/m³] of the cold electrons by the secondary electrons of the kinetic
+ionization `kinetic`, for the row of their temperature:
+
+```math
+Q = e \\sum_{s,j} n_{s,j} \\frac{1}{V'} \\sum_{\\text{cells}} e(p)\\, v σ_j(p)\\,
+⟨E_s⟩_j(E, E_c)\\, 𝒱' Δp Δξ\\, f,
+```
+
+with the rates of `kinetic` and the mean energy of the secondary below the hot threshold `E_c`
+([`mean_secondary_energy`](@ref)) with the widths `widths` per element. A kinetically ionized
+electron joins the cold electrons through the closure of the cold density; without this
+term it is born at zero energy. The friction of the Fokker-Planck term on bound electrons
+takes the energy of the ionization from `f` already, so in the total energy of the electrons
+the term moves the energy of the secondaries from that sink to the cold
+electrons. That holds where the friction takes the energy. With the default screening window
+of the collisions (`screening_window = :excitation_energy`) the friction on bound
+electrons is zero from the ionization potential up to the mean excitation energy of the
+state (about 190 eV for Ar⁰, more for the higher states): there `f` ionizes without paying,
+and this term adds the energy of the secondaries on top. `screening_window = :dream` narrows
+that band; a friction on bound electrons tied to the ionization, not yet implemented, would
+close it. DREAM has no such term: `kinetic` alone is DREAM's model. The region of `kinetic`
+sets `E_c`; its threshold follows the temperature unknown `temperature` or is fixed.
+"""
+struct SecondaryHeatingTerm{K<:KineticIonizationTerm} <: EquationTerm
+    kinetic::K
+    temperature::Symbol
+    widths::Vector{Float64}           # per species of the composition of `kinetic`
+    energies::Vector{Vector{Float64}} # per radius: the kinetic energy [eV] of each momentum cell
+end
+
+function SecondaryHeatingTerm(kinetic::KineticIonizationTerm; widths=SECONDARY_SPECTRUM_WIDTHS,
+                              temperature::Symbol=:cold_electron_temperature)
+    kinetic.envelopes === nothing &&
+        throw(ArgumentError("the heating by secondaries needs the region of the kinetic ionization: its threshold " *
+                            "is the cut of the secondaries"))
+    limit = kinetic.envelopes.region.limit
+    limit isa Real || limit isa ThermalMomentum{Symbol} ||
+        throw(ArgumentError("the heating by secondaries needs a threshold at a fixed momentum or at a multiple of the " *
+                            "thermal momentum of the temperature unknown"))
+    table = merge(SECONDARY_SPECTRUM_WIDTHS, Dict{String,Float64}(String(k) => Float64(v) for (k, v) in widths))
+    names = kinetic.composition.names
+    for name in names
+        haskey(table, name) ||
+            throw(ArgumentError("no width of the spectrum of the secondary electrons for the element $name: give it " *
+                                "with widths = Dict(\"$name\" => Ē in eV) (issue #177)"))
+        table[name] > 0 || throw(ArgumentError("the width of the secondary spectrum of $name must be positive"))
+    end
+    energies = [[(sqrt(1 + p^2) - 1) * Constants.ELECTRON_REST_ENERGY for p in momentum_grid(kinetic.grid, ir).p_centers]
+                for ir in 1:radial_cell_count(kinetic.grid)]
+    return SecondaryHeatingTerm(kinetic, temperature, [table[name] for name in names], energies)
+end
+
+_region_temperature_name(term::SecondaryHeatingTerm) = _region_unknowns(term.kinetic.envelopes)
+dependencies(term::SecondaryHeatingTerm) =
+    unique([term.kinetic.ions; term.kinetic.kinetic; collect(Symbol, _region_temperature_name(term))])
+jacobian_assembly(::SecondaryHeatingTerm) = :direct
+
+function validate(term::SecondaryHeatingTerm, layout, row)
+    validate(term.kinetic, layout, unknown_id(layout, term.kinetic.ions))
+    layout.kinds[row] === :radial && layout.sizes[row, 1] == 1 ||
+        throw(ArgumentError("SecondaryHeatingTerm adds to a radial unknown with one component"))
+    return nothing
+end
+
+# the weight e ⟨E_s⟩ v σ [J m³/s] of each momentum cell and component of radius ir at the
+# temperature T
+function _secondary_weights(term::SecondaryHeatingTerm, ir, T)
+    kinetic = term.kinetic
+    c = kinetic.composition
+    cut = _threshold_energy(kinetic, T)
+    rates = kinetic.rates[ir]
+    energies = term.energies[ir]
+    weights = zeros(typeof(float(cut)), size(rates))
+    for s in 1:length(c), (j, k) in enumerate(species_components(c, s))
+        j > c.nuclear_charges[s] && continue
+        I = ionization_energy(c.names[s], j - 1)
+        for i in axes(rates, 1)
+            rates[i, k] == 0 && continue
+            weights[i, k] = Constants.ELEMENTARY_CHARGE * rates[i, k] *
+                            mean_secondary_energy(term.widths[s], energies[i], I, cut)
+        end
+    end
+    return weights
+end
+
+# the heating at radius ir from the pitch moment g of f, the densities n of the charge states
+# and the temperature T, in their number types
+function _secondary_heating(term::SecondaryHeatingTerm, ir, g, n, T)
+    weights = _secondary_weights(term, ir, T)
+    envelope = _envelope_at_temperature(term.kinetic, ir, T)
+    total = zero(eltype(weights)) * zero(eltype(g)) * zero(eltype(n))
+    for k in axes(weights, 2)
+        moment = zero(total)
+        for i in axes(weights, 1)
+            moment += envelope[i] * weights[i, k] * g[i]
+        end
+        total += n[k] * moment
+    end
+    return total
+end
+
+_radius_temperature(term::SecondaryHeatingTerm, u, layout, ir) =
+    isempty(_region_temperature_name(term)) ? 0.0 :
+    radial_values(u, layout, unknown_id(layout, only(_region_temperature_name(term))))[ir]
+
+function rhs!(out, term::SecondaryHeatingTerm, u, layout, row, t)
+    kinetic = term.kinetic
+    id = unknown_id(layout, kinetic.kinetic)
+    for ir in 1:radial_cell_count(layout)
+        g = _pitch_moment(kinetic, kinetic_view(u, layout, id, ir), ir)
+        n = radial_view(u, layout, unknown_id(layout, kinetic.ions), ir)
+        out[first(unknown_range(layout, row, ir))] += _secondary_heating(term, ir, g, n, _radius_temperature(term, u, layout, ir))
+    end
+    return out
+end
+
+function add_jacobian!(J, term::SecondaryHeatingTerm, u, layout, row, t)
+    kinetic = term.kinetic
+    id = unknown_id(layout, kinetic.kinetic)
+    ions = unknown_id(layout, kinetic.ions)
+    temperature = _region_temperature_name(term)
+    for ir in 1:radial_cell_count(layout)
+        r = first(unknown_range(layout, row, ir))
+        T = _radius_temperature(term, u, layout, ir)
+        f = kinetic_view(u, layout, id, ir)
+        g = _pitch_moment(kinetic, f, ir)
+        n = radial_view(u, layout, ions, ir)
+        weights = _secondary_weights(term, ir, T)
+        envelope = _envelope_at_temperature(kinetic, ir, T)
+        w = kinetic.weights[ir]
+        # the cells of f: Σ_k n_k e(p) weight_k(p) times the cell weight
+        for i in axes(weights, 1)
+            per_cell = envelope[i] * sum(n[k] * weights[i, k] for k in axes(weights, 2))
+            for j in axes(w, 2)
+                _add_entry!(J, r, _kinetic_index(layout, id, ir, i, j), per_cell * w[i, j])
+            end
+        end
+        # the charge states
+        for (k, column) in enumerate(unknown_range(layout, ions, ir))
+            _add_entry!(J, r, column, sum(envelope[i] * weights[i, k] * g[i] for i in axes(weights, 1)))
+        end
+        # the temperature, through the threshold and the cut of the secondaries
+        if !isempty(temperature)
+            derivative = ForwardDiff.derivative(x -> _secondary_heating(term, ir, g, n, x), T)
+            _add_entry!(J, r, first(unknown_range(layout, unknown_id(layout, only(temperature)), ir)), derivative)
+        end
+    end
+    return J
+end
+
+function sparsity!(entries, term::SecondaryHeatingTerm, layout, row)
+    kinetic = term.kinetic
+    for ir in 1:radial_cell_count(layout)
+        r = first(unknown_range(layout, row, ir))
+        for name in dependencies(term)
+            append!(entries, ((r, c) for c in unknown_range(layout, unknown_id(layout, name), ir)))
+        end
+    end
+    return entries
+end
+
+"""
+    ionization_energy_flows(kinetic::KineticIonizationTerm, u, layout, t; widths=SECONDARY_SPECTRUM_WIDTHS)
+
+The energy [W/m³ per radius] that the kinetic ionization `kinetic` takes from `f` at the
+state `u`, in two parts:
+
+- `potential`: the ionization potentials, `e Σ I_j K_j n_j`, stored in the ions and released
+  at recombination (the gain of `RadiatedPowerTerm(...; radiation = :recombination)`);
+- `secondaries`: the kinetic energy of the secondary electrons below the hot threshold,
+  which [`SecondaryHeatingTerm`](@ref) gives to the cold electrons; `nothing` when an
+  element of the composition has no width of the secondary spectrum
+  ([`SECONDARY_SPECTRUM_WIDTHS`](@ref)), since `potential` needs none.
+
+Both are part of the sink of `f` through the friction on bound electrons
+([`KineticEnergyLossTerm`](@ref) with `part = :sinks`), so an energy diagnostic that books
+that sink as lost and the recombination radiation as radiated counts `potential` twice: it
+is the share of the sink that goes to the potential energy of the ions.
+"""
+function ionization_energy_flows(kinetic::KineticIonizationTerm, u, layout, t; widths=SECONDARY_SPECTRUM_WIDTHS)
+    c = kinetic.composition
+    nr = radial_cell_count(layout)
+    potential = zeros(nr)
+    for ir in 1:nr
+        K = kinetic_ionization_rates(kinetic, u, layout, t, ir)
+        n = radial_view(u, layout, unknown_id(layout, kinetic.ions), ir)
+        for s in 1:length(c), (j, k) in enumerate(species_components(c, s))
+            j > c.nuclear_charges[s] && continue
+            potential[ir] += Constants.ELEMENTARY_CHARGE * ionization_energy(c.names[s], j - 1) * K[k] * n[k]
+        end
+    end
+    table = merge(SECONDARY_SPECTRUM_WIDTHS, Dict{String,Float64}(String(k) => Float64(v) for (k, v) in widths))
+    all(name -> haskey(table, name), c.names) || return (potential=potential, secondaries=nothing)
+    heating = SecondaryHeatingTerm(kinetic; widths)
+    row = unknown_id(layout, heating.temperature)
+    secondaries = radial_values(rhs!(zeros(length(u)), heating, u, layout, row, t), layout, row)
+    return (potential=potential, secondaries=collect(secondaries))
+end
