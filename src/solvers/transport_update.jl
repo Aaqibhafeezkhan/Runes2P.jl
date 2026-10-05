@@ -31,6 +31,19 @@ end
     history.values[searchsortedlast(history.switch_times, t + 1e-12 * abs(t)) + 1]
 
 """
+    level_over_step(level, t)
+
+The level of a function of time over a step that ends at `t`, for a term that evaluates it
+in the residual of an implicit step: for a [`PiecewiseConstant`](@ref) the value of the
+interval that ends at `t` (its limit from the left, so the step that ends at a switch time
+keeps the value before the switch, as the interval updates of the kinetic transport do),
+for any other function its value at `t`.
+"""
+level_over_step(level, t) = level(t)
+level_over_step(history::PiecewiseConstant, t::Real) =
+    history.values[searchsortedfirst(history.switch_times, t - 1e-12 * abs(t))]
+
+"""
     forced_time_points(update)
     forced_time_points(function_of_time)
 

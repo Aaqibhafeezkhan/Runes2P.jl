@@ -149,7 +149,7 @@ end
 Kinetic operator for the hot electrons: electric field, slowing down, pitch-angle
 scattering, energy diffusion (`:full` mode) and synchrotron losses, with
 `f = 0` beyond `p_max` as in DREAM's hot-tail equation. The synchrotron loss
-([`add_synchrotron!`](@ref)) is on by default (decision of the author), and
+([`add_synchrotron!`](@ref)) is on by default (decision of the author, 2026-10-04), and
 `synchrotron = false` leaves it out, as DREAM does by default. `scheme` is one of the schemes
 of [`AdvectionDiffusion`](@ref). The default, exponential fitting (decision of the
 author, 2026-09-25, replacing van Albada), keeps f non-negative at every resolution,
@@ -222,7 +222,8 @@ Rebuild `op`'s coefficients in place from `plasma` and `settings`
 [`fokker_planck_operator`](@ref)), for a Fokker-Planck term whose plasma state changes
 with time ([`PrescribedFokkerPlanckTerm`](@ref)). `op`'s scheme and
 boundary conditions are unchanged. `electric_field = false` leaves the field of the plasma
-out, for a field that is an unknown of the system.
+out, for a field that is an unknown of the system. The synchrotron loss is on by default, as
+in [`fokker_planck_operator`](@ref) (decision of the author, 2026-10-04).
 """
 function set_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaState,
                                          settings::CollisionSettings=CollisionSettings();

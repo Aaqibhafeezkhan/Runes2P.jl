@@ -1,15 +1,17 @@
 # The thermal energy of the ions and its collisional exchange with the cold electrons and
 # between the ion species (DREAM's W_i and
-# MaxwellianCollisionalEnergyTransferTerm). The ion densities are prescribed; the energy
-# of each species is a component of one radial unknown.
+# MaxwellianCollisionalEnergyTransferTerm). The ion densities are prescribed or read
+# from the unknown of the charge states; the energy of each species is a
+# component of one radial unknown.
 
 """
     IonEnergyExchangeTerm(plasma; side, ion_energy=:ion_thermal_energy,
                           temperature=:cold_electron_temperature, density=:cold_electron_density,
-                          ion_ion=true, masses=nothing, initial_time=0.0)
+                          ion_ion=true, masses=nothing, ions=nothing, initial_time=0.0)
 
 The collisional exchange of thermal energy between Maxwellian species (DREAM's
-`MaxwellianCollisionalEnergyTransferTerm`), in W/m³: the power that species `a` receives
+`src/Equations/Fluid/MaxwellianCollisionalEnergyTransferTerm.cpp`, the prefactor at line
+49), in W/m³: the power that species `a` receives
 from species `b`,
 
 ```math
@@ -17,14 +19,16 @@ Q_{ab} = \\sqrt{3/π}\\,\\frac{(e^2/ε_0)^2 \\sqrt{m_a m_b}}{4π} \\ln Λ\\,
          \\sqrt{N_a N_b}\\, (nZ^2)_a (nZ^2)_b\\, \\frac{N_a W_b − N_b W_a}{(m_b N_b W_a + m_a N_a W_b)^{3/2}},
 ```
 
-the two-temperature relaxation of Spitzer, `Q_{ab} = (3/2) N_a ν_ε (T_b − T_a)` with the
-energy relaxation rate of the NRL formulary. For the electrons `N = (nZ²) = n_e` and `W =
+the two-temperature relaxation of Spitzer (L. Spitzer, Physics of Fully Ionized Gases, 2nd
+ed., Interscience, 1962), `Q_{ab} = (3/2) N_a ν_ε (T_b − T_a)` with the energy relaxation
+rate of the NRL Plasma Formulary (J. D. Huba, Naval Research Laboratory). For the electrons `N = (nZ²) = n_e` and `W =
 3/2 e n_e T_e` from the unknowns `density` and `temperature`; for an ion species `N` is its
 total density, `(nZ²) = Σ n_{Z₀} Z₀²` (neutrals hold energy and exchange none), and `W` the
 component of the unknown `ion_energy` (J/m³, one component per species of `plasma`, in its
 order). The logarithms are DREAM's: the thermal one for electrons and ions, and for ions
 among themselves `17.3 − ½ ln(n_free/10²⁰) + 3/2 ln(T_e/1 keV)` with the electron
-temperature and the free-electron density (`CoulombLogarithm.cpp`).
+temperature and the free-electron density (`src/Equations/CoulombLogarithm.cpp:107-113`,
+with no source named there; checked against DREAM only).
 
 - `side = :ions`, in the row of `ion_energy`: each component receives `Q_{i,e}` and, with
   `ion_ion`, `Σ_j Q_{ij}`.
@@ -34,7 +38,10 @@ temperature and the free-electron density (`CoulombLogarithm.cpp`).
 A system needs both sides on the same unknowns, so the exchange conserves energy (refused
 otherwise). `masses` overrides the masses of [`ion_mass`](@ref) per species.
 The densities of the ions come from the prescribed `plasma`, a [`PlasmaState`](@ref) or a
-function of time; a species of zero density is skipped. A species of zero total density
+function of time, or with `ions` from that radial unknown of the charge states, whose
+columns the term then assembles directly; a species of zero density is
+skipped. `ion_ion = true` adds the exchange among the ion species, as DREAM does whenever
+the ion energies are evolved (`src/Settings/Equations/T_i.cpp:109`). A species of zero total density
 exchanges nothing and gets no derivative there: the exchange goes as the square root of the
 density, whose derivative at zero is singular. A Newton iterate with a negative
 ion energy makes the denominator non-positive, where the exchange is zero with a zero

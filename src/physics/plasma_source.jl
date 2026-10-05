@@ -73,7 +73,7 @@ follow it.
 A temperature at or below `temperature_floor` [eV] raises a `DomainError`, which the
 Newton iteration reports as a failed solve and the stepper answers with a shorter step:
 a step that would end below the floor is refused. The default of 0.5 eV is the physical
-floor of the cold electrons (decision of the author): below it the plasma
+floor of the cold electrons (decision of the author, 2026-10-04): below it the plasma
 recombines and the model of a plasma does not hold. DREAM has no floor, so a comparison
 that follows DREAM below 0.5 eV sets a lower value. The floor is also the lower limit of
 the temperature unknown in the Newton iteration, which damps an update that would cross

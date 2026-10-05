@@ -192,9 +192,11 @@ The ionization and recombination of the charge states of `composition`
 ```
 
 for each species and charge state `j = 0, …, Z`, with the ionization coefficients `I`
-(ADF11 SCD) and the recombination coefficients `R` (ACD) of OpenADAS at the electron
+(ADF11 SCD) and the recombination coefficients `R` (ACD) of OpenADAS (H. P. Summers, The ADAS User Manual, version 2.6 (2004), http://www.adas.ac.uk, with the data of OpenADAS, https://open.adas.ac.uk) at the electron
 density `n_e` and temperature of the radial unknowns `density` and `temperature`
-([`adas_coefficient`](@ref), with `extrapolation`). The species are named by their element,
+([`adas_coefficient`](@ref), with `extrapolation`, whose default `:dream` is a
+decision of the author, 2026-10-04), as DREAM's
+`src/Equations/Fluid/IonRateEquation.cpp`. The species are named by their element,
 whose tables are read from `directory` when the term is built ([`read_adas`](@ref)).
 
 The sum over the charge states of a species is zero, so the term moves particles between
@@ -416,7 +418,7 @@ function _diffusion_faces(term::IonDiffusionTerm, rg::RadialGrid, t)
     if term.level_in_time
         time = Float64(_value(t))
         term.time[] == time && !isempty(term.faces[]) && return term.faces[]
-        values = collect(Float64, radial_values(term.level(time), rg.r_faces))
+        values = collect(Float64, radial_values(level_over_step(term.level, time), rg.r_faces))
         term.time[] = time
     else
         isempty(term.faces[]) || return term.faces[]

@@ -64,9 +64,17 @@ end
             plasma = PlasmaState(; cold_electron_temperature=[T], ions=[IonSpecies("Ar", 18, reshape(1e17 .* fractions, :, 1))],
                                  electric_field=[0.0], magnetic_field=[0.0])
             term = RadiatedPowerTerm(plasma; radiation=:recombination)
-            radiation = only(radiated_power(term, [T, n_e], layout, 0.0).radiation)
+            power = radiated_power(term, [T, n_e], layout, 0.0)
+            radiation = only(power.radiation)
             ratio = radiation / (n_e * 1e17) / reference
             @test 0.5 < ratio < 2
+            # in coronal equilibrium the ionization of each state balances the recombination
+            # onto the next, so the binding energy vanishes; a charge-state slip of SCD, ACD or
+            # the ionization energy (DREAM #140) leaves a remainder of the size of the
+            # ionization power
+            ionization_power = sum(Constants.ELEMENTARY_CHARGE * ionization_energy("Ar", Z0) * n_e * 1e17 *
+                                   fractions[Z0+1] * adas_coefficient(argon.scd, Z0, n_e, T) for Z0 in 0:17)
+            @test abs(only(power.binding)) < 1e-10 * ionization_power
         end
     end
 end

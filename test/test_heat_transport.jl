@@ -123,6 +123,11 @@ const BESSEL_J0_FIRST_ZERO = 2.404825557695773
                 rhs!(F_down, down, system, 0.0)
                 @test Vector(J[:, column]) ≈ (F_up .- F_down) ./ (2h) rtol = 1e-6
             end
+            # a profile is recorded by its values on the faces
+            record = Runes2P.describe(term, Runes2P.DescriptionContext())
+            level = record[term.model === :prescribed ? "diffusion" : "delta_b_over_b"]
+            term.model === :prescribed && @test level["faces"] ≈ 1 .+ 4 .* layout.radial_grid.r_faces
+            term.model === :prescribed || @test record["safety_factor"]["faces"] ≈ 1 .+ 3 .* layout.radial_grid.r_faces .^ 2
         end
     end
 
@@ -150,6 +155,13 @@ const BESSEL_J0_FIRST_ZERO = 2.404825557695773
         # the record names the history
         record = describe(term, Runes2P.DescriptionContext())
         @test record["model"] == "rechester_rosenbluth" && record["edge"] == "absorbing"
+        @test record["delta_b_over_b"]["switch_times"] == [1e-4]
+        # the step that ends at the switch time keeps the level before it, the next one takes
+        # the level after it
+        @test history(1e-4) == 1e-5
+        @test Runes2P.level_over_step(history, 1e-4) == 1e-3
+        @test Runes2P.level_over_step(history, 1.5e-4) == 1e-5
+        @test Runes2P.level_over_step(history, 5e-5) == 1e-3
     end
 
     @testset "refusals and the guard" begin
@@ -158,6 +170,8 @@ const BESSEL_J0_FIRST_ZERO = 2.404825557695773
         @test_throws ArgumentError HeatTransportTerm(; delta_b_over_b=1e-3)
         @test_throws ArgumentError HeatTransportTerm(; diffusion=1.0, edge=:other)
         @test_throws "two radii" Runes2P.validate(HeatTransportTerm(; diffusion=1.0, edge=:constant_gradient_dream),
+                                               heat_layout(1), 1)
+        @test_throws "two radii" Runes2P.validate(HeatTransportTerm(; diffusion=1.0, edge=:absorbing_dream),
                                                heat_layout(1), 1)
         @test_throws "must not be negative" Runes2P.validate(HeatTransportTerm(; diffusion=-1.0), heat_layout(2), 1)
         @test Runes2P._temperature_source(HeatTransportTerm(; diffusion=1.0)) == (:unknown, :cold_electron_temperature)

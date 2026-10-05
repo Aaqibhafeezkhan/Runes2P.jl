@@ -6,6 +6,7 @@
 # cache (scripts/fetch_adas.py).
 using SparseArrays: sparse
 using ForwardDiff
+using QuadGK: quadgk
 
 const KINETIC_IONIZATION_COMPOSITION = IonComposition(["D" => 1, "Ar" => 18])
 
@@ -202,6 +203,15 @@ end
             top = (1000.0 - 15.8) / 2
             @test mean_secondary_energy(24.2, 1000.0, 15.8, Inf) ≈ 12.1 * log(1 + (top / 24.2)^2) / atan(top / 24.2)
             @test mean_secondary_energy(24.2, 1000.0, 15.8, 50.0) < mean_secondary_energy(24.2, 1000.0, 15.8, 100.0)
+            # independent of the closed form: the mean energy of the spectrum of Opal et al.,
+            # σ(E_s) ∝ 1/(1 + (E_s/w)²), by quadrature up to the smaller of (E − I)/2 and the cut
+            for (w, E, I, cut) in ((24.2, 1000.0, 15.8, Inf), (10.0, 300.0, 15.76, 40.0), (8.3, 60.0, 13.6, Inf),
+                                   (15.8, 5.0e4, 24.6, 120.0))
+                top = min((E - I) / 2, cut)
+                spectrum(x) = 1 / (1 + (x / w)^2)
+                mean = quadgk(x -> x * spectrum(x), 0, top; rtol=1e-12)[1] / quadgk(spectrum, 0, top; rtol=1e-12)[1]
+                @test mean_secondary_energy(w, E, I, cut) ≈ mean rtol = 1e-10
+            end
             layout, kinetic, u = _ionization_case()
             n = length(u)
             # the widths of Opal et al. (1971), Table II: H₂ for deuterium, argon 10.0 eV

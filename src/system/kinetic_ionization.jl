@@ -219,10 +219,14 @@ closure `n_cold = n_M (1 − f_>)` and the kinetic rate `n_M A_>` of a Maxwellia
 density `n_M`, the two add up to `n_M I` for every threshold.
 
 The coefficient has no floor. `A_>` comes from DREAM's fits of the cross sections and `I`
-from ADAS, and the fits deviate from ADAS by up to about 1.6 for a state of argon; at
-thresholds of two thermal momenta and above `A_>` stays far below `I`, so the
-coefficient stays positive in every case tested. Which part of the ionization the fit
-describes is an open question.
+from ADAS, and the fits exceed ADAS by up to about 1.6 for a state of argon.
+Where the threshold lies below the ionization energy of a state, almost all of its
+Maxwellian ionization comes from above the threshold, so `A_> > I` and the coefficient is
+negative. On the grid of the tests (`n_e = 5e19 m⁻³`, 5 to 50 eV) it is negative for the
+dominant argon states at threshold factors 2 and 3, by 3 to 18 % of `I`, and for no state with
+a coronal fraction above 1e-17 at factors 5 and 7. With a Maxwellian `f` the sum with the
+kinetic rate is `n_M I` whatever the sign. Whether to keep it non-negative is an open
+question.
 """
 fluid_ionization_coefficient(adas, fraction, coefficient) = (adas - coefficient) / (1 - fraction)
 
@@ -242,7 +246,9 @@ neutral gases with primaries of 500 eV:
 helium 15.8, neon 24.2, argon 10.0, krypton 9.6 and xenon 8.7 eV; hydrogen, deuterium and
 tritium take the 8.3 eV of H₂. The authors call their fits to argon, krypton and xenon
 poor, so that "the values of Ē are not very significant for these gases"; Ē varies by
-about 15 % over primary energies of 100 to 2000 eV (their Table I). Other elements take
+about 15 % over primary energies of 100 to 2000 eV (their Table I). The widths were measured
+on neutral atoms and are applied to every charge state, where Ē/I of their Table II
+suggests a width that grows with the ionization energy. Other elements take
 their width from the `widths` of [`SecondaryHeatingTerm`](@ref).
 """
 const SECONDARY_SPECTRUM_WIDTHS = Dict{String,Float64}("H" => 8.3, "D" => 8.3, "T" => 8.3, "He" => 15.8, "Ne" => 24.2,
@@ -255,7 +261,10 @@ The mean kinetic energy [eV] of the secondary electron of an ionization with the
 potential `I` by an electron of kinetic energy `E`, with the spectrum of Opal et al. of
 width `width` ([`SECONDARY_SPECTRUM_WIDTHS`](@ref)) up to the smaller of `(E − I)/2` (the
 slower of the two electrons is the secondary) and `cut`:
-`(Ē/2) ln(1 + (E_top/Ē)²) / arctan(E_top/Ē)`. Zero below the threshold.
+`(Ē/2) ln(1 + (E_top/Ē)²) / arctan(E_top/Ē)`. Zero below the threshold. This is the mean
+of the secondaries below the top, conditional on lying there: [`SecondaryHeatingTerm`](@ref)
+gives it to every secondary, those above the hot threshold included, which also join the cold
+electrons through the closure.
 """
 function mean_secondary_energy(width, E, I, cut)
     top = min((E - I) / 2, cut)

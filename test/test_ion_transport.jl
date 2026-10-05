@@ -85,8 +85,15 @@ _content(layout, u, c) = sum(layout.radial_grid.spatial_jacobian[ir] * layout.ra
         states = solution.states
         early = spread(states[:, 2]) / spread(states[:, 1])
         late = spread(states[:, 5]) / spread(states[:, 4])
+        # the step that ends at the switch keeps the diffusivity before it
+        at_switch = spread(states[:, 3]) / spread(states[:, 2])
         @test early < 0.5
+        @test at_switch < 0.5
         @test 0.9 < late < 0.97
-        @test Runes2P.describe(term, Runes2P.DescriptionContext())["diffusion"] == "PiecewiseConstant"
+        # the record keeps the levels and the switch time of the history
+        record = Runes2P.describe(term, Runes2P.DescriptionContext())["diffusion"]
+        @test record["type"] == "PiecewiseConstant"
+        @test record["values"] == [1000.0, 10.0]
+        @test record["switch_times"] == [1e-3]
     end
 end

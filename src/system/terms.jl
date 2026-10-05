@@ -265,7 +265,7 @@ struct JacobianCorrectionTag end
 """
     FokkerPlanckTerm(unknown, operator::AdvectionDiffusion; jacobian=:exact, electric_field=nothing,
                      plasma=nothing, settings=nothing, synchrotron=nothing,
-                     coefficients=:implicit)
+                     coefficients=:implicit, lagged=())
 
 Advection-diffusion (Fokker-Planck) operator applied to the kinetic unknown `unknown`,
 added to the equation of the row unknown (normally the same). Stored sparse, with the
@@ -288,10 +288,11 @@ one ([`PrescribedPlasma`](@ref)). The coefficients of `operator` are rebuilt fro
 `settings` and `synchrotron` ([`set_fokker_planck_coefficients!`](@ref)), and the scheme and
 the boundary conditions of `operator` are kept. Without them the term takes those that
 built `operator` ([`fokker_planck_operator`](@ref)), and `CollisionSettings()` with the
-synchrotron loss for an operator built otherwise. The rebuild happens when the plasma values
-of any radius differ from those of the last rebuild ([`update_key!`](@ref)), not at every
-new time, and rebuilds all radii. Without `plasma` the coefficients of `operator` are
-fixed. [`PrescribedFokkerPlanckTerm`](@ref) builds such a term from a function of time.
+synchrotron loss for an operator built otherwise, which is on by default (decision of the
+author, 2026-10-04). The rebuild happens when the plasma values of any radius differ from
+those of the last rebuild ([`update_key!`](@ref)), not at every new time, and rebuilds all
+radii. Without `plasma` the coefficients of `operator` are fixed.
+[`PrescribedFokkerPlanckTerm`](@ref) builds such a term from a function of time.
 
 With a plasma that reads unknowns ([`PlasmaFromUnknowns`](@ref)) the term depends on them
 and is not linear. `coefficients` selects the state its coefficients are built from:

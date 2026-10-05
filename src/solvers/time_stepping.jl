@@ -628,10 +628,10 @@ function _warn_first_order_terms(system::EquationSystem)
                          "implicit terms only, the explicit and lagged ones stay of first order"
     return first_order
 end
-_first_order_term(term) = false
-_first_order_term(term::FokkerPlanckTerm) = _is_lagged(term)
-_first_order_term(term::KnockOnTerm) = _lagged_primary(term)
-_first_order_term(term::FieldParticleTerm) = is_state_dependent(term.plasma)
+# the terms that take a part of their residual at the start of the step: lagged coefficients
+# or ions of a Fokker-Planck term, the energy loss of such a term, a lagged knock-on primary,
+# a field-particle term that follows the unknowns
+_first_order_term(term) = lags_in_ode_form(term)
 
 # the state of StepController: the step length, the two last accepted states before the
 # current one and their steps (NaN before there is one; the second only for BDF2), the

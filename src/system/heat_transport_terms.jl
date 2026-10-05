@@ -16,11 +16,15 @@ eV, for the row of their temperature. The flux through the face between two cell
 takes the density and the temperature interpolated linearly between the two cells
 (DREAM's `deltaRadialFlux`). No heat crosses the axis. One of two models:
 
-- a diffusivity `D` [m²/s], `χ = 3/2 e D n` (DREAM's `HeatTransportDiffusion`): `diffusion`
+- a diffusivity `D` [m²/s], `χ = 3/2 e D n` (DREAM's
+  `src/Equations/Fluid/HeatTransportDiffusion.cpp:85-87`): `diffusion`
   a radial profile ([`radial_values`](@ref) on the faces), or `diffusion_at` a function of
   time that returns one;
-- the heat diffusivity of Rechester and Rosenbluth in stochastic field lines (DREAM's
-  `HeatTransportRechesterRosenbluth`, cylinder),
+- the heat diffusivity of Rechester and Rosenbluth in stochastic field lines (A. B.
+  Rechester and M. N. Rosenbluth, Phys. Rev. Lett. 40, 38 (1978),
+  doi:10.1103/PhysRevLett.40.38; DREAM's
+  `src/Equations/Fluid/HeatTransportRechesterRosenbluth.cpp:80` for `3√(2π) c e` and `:105`
+  for `(1 − 5Θ/8)`, cylinder),
   ```math
   χ = 3\\sqrt{2π}\\, e\\, c\\, q R_0 (δB/B)^2\\, n \\sqrt{Θ} (1 − 5Θ/8),\\qquad Θ = T/m_ec^2,
   ```
@@ -29,7 +33,12 @@ takes the density and the temperature interpolated linearly between the two cell
   profile, or `delta_b_over_b_at` a function of time such as the
   [`PiecewiseConstant`](@ref) transport history of a [`RechesterRosenbluthUpdate`](@ref).
   The same object in both keeps the kinetic and the heat transport on one level. The
-  major radius `R₀` and the safety factor `q` are inputs, as for the kinetic operator.
+  major radius `R₀` and the safety factor `q` are inputs, as for the kinetic operator. The
+  default `q = 1` is DREAM's, which fixes it (`HeatTransportRechesterRosenbluth.cpp:98-100`,
+  marked as a TODO there).
+
+A [`PiecewiseConstant`](@ref) level takes, in the step that ends at a switch time, the value
+before the switch ([`level_over_step`](@ref)).
 
 Its switch times must be time points of the run ([`forced_time_points`](@ref)), so that a
 step does not straddle a change.
@@ -89,8 +98,10 @@ function validate(term::HeatTransportTerm, layout, row)
             throw(ArgumentError("HeatTransportTerm takes and adds to radial unknowns with one component, not " *
                                 "$(layout.unknowns[id].name)"))
     end
-    term.edge === :constant_gradient_dream && radial_cell_count(layout) < 2 &&
-        throw(ArgumentError("the edge :constant_gradient_dream needs two radii at least, as in DREAM"))
+    # both edges of DREAM take the distance of the last two centres (with one radius
+    # :absorbing_dream took a distance of 1 m)
+    term.edge in (:constant_gradient_dream, :absorbing_dream) && radial_cell_count(layout) < 2 &&
+        throw(ArgumentError("the edge $(term.edge) needs two radii at least, as in DREAM"))
     term.level_in_time || _heat_level_faces(term, layout.radial_grid, 0.0)
     return nothing
 end
@@ -100,7 +111,7 @@ end
 function _heat_level_faces(term::HeatTransportTerm, rg::RadialGrid, t)
     if term.level_in_time
         term.time[] == t && !isempty(term.faces[]) && return term.faces[]
-        values = collect(Float64, radial_values(term.level(t), rg.r_faces))
+        values = collect(Float64, radial_values(level_over_step(term.level, t), rg.r_faces))
         term.time[] = t
     else
         isempty(term.faces[]) || return term.faces[]
@@ -144,7 +155,7 @@ function _heat_flux(term::HeatTransportTerm, rg::RadialGrid, levels, q, T, n, k)
     if term.edge === :absorbing
         distance, outside = rg.r_faces[nr+1] - rg.r_centers[nr], zero(eltype(T))
     else
-        distance = nr > 1 ? rg.r_centers[nr] - rg.r_centers[nr-1] : one(eltype(rg.r_centers))
+        distance = rg.r_centers[nr] - rg.r_centers[nr-1]
         outside = if term.edge === :absorbing_dream
             zero(eltype(T))
         else

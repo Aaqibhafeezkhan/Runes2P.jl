@@ -7,8 +7,10 @@
     IONIZATION_ENERGIES
 
 The ionization energy [eV] of each charge state, `IONIZATION_ENERGIES[element][Z0 + 1]` for
-the ion of charge `Z0 = 0, …, Z − 1` (NIST ASD, through DREAM's
-`nistdata_ionization.cpp`). Deuterium and tritium take the energy of hydrogen.
+the ion of charge `Z0 = 0, …, Z − 1`: A. Kramida, Yu. Ralchenko, J. Reader and the NIST ASD
+Team, NIST Atomic Spectra Database, https://physics.nist.gov/asd, doi:10.18434/T4W30F, as
+retrieved on 2023-04-28 by DREAM's `tools/get_nist.py` into its
+`src/Atomics/nistdata_ionization.cpp`. Deuterium and tritium take the energy of hydrogen.
 """
 const IONIZATION_ENERGIES = Dict{String,Vector{Float64}}(
     "H" => [13.5984345997],
@@ -37,22 +39,44 @@ function ionization_energy(element::AbstractString, Z0::Integer)
     return energies[Z0+1]
 end
 
-# DREAM's masses of the ions (IonHandler.cpp, Constants.cpp): the standard atomic masses in
-# atomic mass units for Z ≤ 40, 2.3 Z beyond, and the nuclear masses of the hydrogen isotopes
+"""
+    ATOMIC_MASS_UNIT
+
+The unified atomic mass unit [kg], CODATA 2018 (1.66053906660e-27) rounded as DREAM's
+`src/Constants.cpp` (`mu`).
+"""
 const ATOMIC_MASS_UNIT = 1.660539067e-27
+
+"""
+    ATOMIC_MASSES
+
+The standard atomic weights of the elements Z = 1 to 40 [u], DREAM's `atomicMassInMu`
+(`src/IonHandler.cpp`, the table above its constructor), the IUPAC standard atomic weights
+(CIAAW, https://www.ciaaw.org), which DREAM does not name.
+"""
 const ATOMIC_MASSES = [1.008, 4.0026, 6.94, 9.0122, 10.81, 12.011, 14.007, 15.999, 18.998, 20.180,
                        22.990, 24.305, 26.982, 28.085, 30.974, 32.06, 35.45, 39.95, 39.098, 40.078,
                        44.956, 47.867, 50.942, 51.996, 54.938, 55.845, 58.933, 58.693, 63.546, 65.38,
                        69.723, 72.63, 74.922, 78.971, 79.904, 83.798, 85.468, 87.62, 88.906, 91.224]
+"""
+    HYDROGEN_ISOTOPE_MASSES
+
+The masses [kg] of the hydrogen isotopes, DREAM's `mH`, `mD` and `mT` (`src/Constants.cpp`):
+the proton and the deuteron mass of CODATA 2018, and for tritium the atomic mass of ³H
+(3.01604928 u), which exceeds the triton mass of CODATA 2018 (5.0073567446e-27 kg) by about
+one electron mass.
+"""
 const HYDROGEN_ISOTOPE_MASSES = Dict("H" => 1.67262192369e-27, "D" => 3.3435837724e-27, "T" => 5.00826765e-27)
 
 """
     ion_mass(species)
 
-The mass [kg] of an ion species as DREAM takes it (`IonHandler.cpp`): for nuclear charge 1
-the nuclear mass of hydrogen, deuterium (the default, as in DREAM) or tritium by the name
-`"H"`, `"D"` or `"T"`; the standard atomic mass for Z ≤ 40; and `2.3 Z` atomic mass units
-beyond, which DREAM uses for heavier species (tungsten: 170 u against 183.84 u).
+The mass [kg] of an ion species as DREAM takes it (`src/IonHandler.cpp:163-169`): for
+nuclear charge 1 the mass of hydrogen, deuterium (the default, as in DREAM) or tritium by
+the name `"H"`, `"D"` or `"T"` ([`HYDROGEN_ISOTOPE_MASSES`](@ref)); the standard atomic mass
+for Z ≤ 40 ([`ATOMIC_MASSES`](@ref)); and `2.3 Z` atomic mass units beyond, which DREAM uses
+for heavier species (tungsten: 170 u against 183.84 u). A species of charge 1 with another
+name takes the mass of deuterium.
 """
 function ion_mass(species::IonSpecies)
     Z = species.nuclear_charge

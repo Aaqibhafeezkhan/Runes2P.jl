@@ -77,6 +77,9 @@ _hold(name, value) = Equation(name, Algebraic(), PrescribedValueTerm(value), Lin
                      _hold(:cold_electron_temperature, [5.0, 3.0]), Equation(:f, TimeDerivative(), fp)]
         system = EquationSystem(layout, equations; initial_state=u)
         @test Runes2P.has_plasma_columns(fp)
+        # BDF2 warns of the first order of a term with lagged ions and of its energy loss
+        @test Runes2P._first_order_term(fp)
+        @test Runes2P._first_order_term(KineticEnergyLossTerm(fp; part=:sinks))
         J = jacobian_prototype(system)
         rhs!(zeros(length(u)), u, system, 0.0)
         jacobian!(J, system, u, 0.0)

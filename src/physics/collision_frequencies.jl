@@ -37,8 +37,7 @@ Defaults are those of DREAM's `CollisionHandler`.
   nuclei of all charge states as a slowing down (DREAM's
   `BREMSSTRAHLUNG_MODE_STOPPING_POWER`): the non-screened formula 4BN of
   Koch and Motz (Rev. Mod. Phys. 31, 920, 1959), `ν_s = n Z² α r₀² c φ_rad(p)/β` per
-  charge state ([`bremsstrahlung_cross_section`](@ref)). It is the default (decision of
-  the author). `:neglect` leaves the loss out, as DREAM does by default.
+  charge state ([`bremsstrahlung_cross_section`](@ref)). It is the default (decision of the author, 2026-10-04). `:neglect` leaves the loss out, as DREAM does by default.
 """
 Base.@kwdef struct CollisionSettings
     mode::Symbol = :full
@@ -88,9 +87,17 @@ end
     bremsstrahlung_cross_section(p)
 
 The radiative energy-loss cross section of an electron of momentum `p` (units of `mₑc`) on a
-bare nucleus, in units of `α r₀² Z²`: the formula 4BN of Koch and Motz (Rev. Mod. Phys. 31,
-920, 1959) without screening, as DREAM's `SlowingDownFrequency`. It tends to `16/3` for
-`p → 0` (Bethe and Heitler) and to `4(ln 2γ − 1/3)` for `γ ≫ 1` (Heitler).
+bare nucleus, in units of `α r₀² Z²`: the formula 4BN of H. W. Koch and J. W. Motz, Rev. Mod.
+Phys. 31, 920 (1959), doi:10.1103/RevModPhys.31.920, without screening, as DREAM's
+`src/Equations/SlowingDownFrequency.cpp:194-237`. It tends to `16/3` for `p → 0` (H. Bethe and
+W. Heitler, Proc. R. Soc. Lond. A 146, 83 (1934), doi:10.1098/rspa.1934.0140) and to
+`4(ln 2γ − 1/3)` for `γ ≫ 1` (W. Heitler, The Quantum Theory of Radiation, 3rd ed., 1954).
+
+DREAM's line 234 writes the constant `4/3` of the formula as an integer division, which is 1
+in C++, so DREAM's stopping power is 6.3 to 6.5 % above this one for `p ≤ 1`, 3.1 % at
+`p = 10` and 1.7 % at `p = 100`.
+Runes2P keeps `4/3`. DREAM
+returns 0 at `p = 0`; the limit is `16/3`, and the slowing-down frequency is 0 there anyway.
 """
 function bremsstrahlung_cross_section(p::Real)
     p == 0 && return 16 / 3 * one(p)
@@ -317,7 +324,10 @@ end
     slowing_down_frequency(model, ir, p)
 
 Slowing-down frequency `ν_s` [s⁻¹] at radius index `ir` and momentum `p`; the collisional
-friction is `Aᵖ = -p ν_s`.
+friction is `Aᵖ = -p ν_s`. With `bremsstrahlung = :stopping_power` it adds, per charge state
+of density `n` and nuclear charge `Z`, `n Z² α r₀² c φ(p) γ/p` with the cross section `φ` of
+[`bremsstrahlung_cross_section`](@ref), as DREAM's `src/Equations/SlowingDownFrequency.cpp:204-207`
+and `:236` (where DREAM's `φ` differs by its integer division, see there).
 """
 function slowing_down_frequency(model::CollisionModel, ir, p)
     p == 0 && return zero(p * model.scaled_bessel_k0[ir])

@@ -200,6 +200,16 @@ threshold, and the threshold that moves with the temperature are then exact for 
 stepper, since the time derivative acts on the energy of the hot region itself. DREAM's
 fully kinetic mode has none of them (`T_cold.cpp:313-321`).
 
+Every other change of the energy of the hot region is charged to the cold electrons, since
+`W_cold = W_tot − W_hot`. The row must therefore list each term of the equation of
+`distribution` that moves energy out of the electrons: [`KineticEnergyLossTerm`](@ref) with
+`part = :sinks` for the bremsstrahlung, the synchrotron loss and the friction on bound
+electrons, `MomentumBoundaryFluxTerm(...; weight = :energy)` for an outflow at `p_max`, and
+[`InterfaceEnergyFluxTerm`](@ref) for the runaway grid. Radial transport of `distribution`
+and knock-on secondaries on its grid have no such term yet: their energy comes out of the
+cold electrons of the radius where it is moved. No check
+refuses these systems so far.
+
 `total` takes its initial value from the row, after the energy of the cold electrons.
 """
 total_energy_equation(distribution::Symbol, grid::KineticGrid; region::MomentumRegion,
@@ -211,11 +221,12 @@ total_energy_equation(distribution::Symbol, grid::KineticGrid; region::MomentumR
     RunawayFluidEnergyTransferTerm(plasma; runaway_density=:runaway_density,
                                    temperature=:cold_electron_temperature,
                                    density=:cold_electron_density,
-                                   coulomb_logarithm=:energy_dependent)
+                                   coulomb_logarithm=:energy_dependent, ions=nothing)
 
 DREAM's heating of the cold electrons by the friction of fluid runaways when there is no
-runaway grid (`CollisionalEnergyTransferREFluidTerm`), in W/m³ for the row of the
-temperature:
+runaway grid (`include/DREAM/Equations/Fluid/CollisionalEnergyTransferREFluidTerm.hpp`, the
+momentum 20 at line 26, used in `src/Settings/Equations/T_cold.cpp`), in W/m³ for the row of
+the temperature:
 
 ```math
 e c E_c n_\\mathrm{re} = 4π r_0^2 m_e c^3 \\ln Λ_{ee}(p = 20)\\, n_\\mathrm{cold} n_\\mathrm{re},
@@ -223,8 +234,12 @@ e c E_c n_\\mathrm{re} = 4π r_0^2 m_e c^3 \\ln Λ_{ee}(p = 20)\\, n_\\mathrm{co
 
 the friction at the speed of light on runaways of momentum `20 mₑc`. The Coulomb logarithm
 of electrons takes the temperature unknown and the free-electron density of the prescribed
-ions in `plasma` (a [`PlasmaState`](@ref) or a function of time); `coulomb_logarithm` is the
-model of [`coulomb_logarithm`](@ref). The DREAM-compatible mode of the energy
+ions in `plasma` (a [`PlasmaState`](@ref) or a function of time), or with `ions` of that
+radial unknown of the charge states; `coulomb_logarithm` is the model of
+[`coulomb_logarithm`](@ref). DREAM evaluates the logarithm with the model of its collision
+settings, whose code default is the thermal one, independent of `p`; the default
+`:energy_dependent` here is the setting of DREAM's disruption example
+(`examples/Disruptions/generate.py:145`). The DREAM-compatible mode of the energy
 equation.
 """
 struct RunawayFluidEnergyTransferTerm{S<:PrescribedPlasma} <: EquationTerm

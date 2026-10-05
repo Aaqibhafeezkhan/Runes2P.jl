@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.28"
+const OUTPUT_FORMAT_VERSION = v"0.29"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -568,8 +568,19 @@ function describe(term::IonDiffusionTerm, context::DescriptionContext)
     record["ions"] = String(term.ions)
     record["states"] = String(term.states)
     record["edge"] = String(term.edge)
-    record["diffusion"] = term.level_in_time ? _callable_name(term.level) :
-                          term.level isa Union{Real,AbstractVector} ? _plain(term.level) : _callable_name(term.level)
+    record["diffusion"] = _describe_radial_level(term.level, term.level_in_time, term.faces[], context)
+    return record
+end
+
+# the record of the level of a radial transport term: a number or a vector as given, a
+# history in time by its levels at the time points of the context (a `PiecewiseConstant` by
+# its values and switch times), a profile by its source and its values on the faces
+# (the name alone lost the levels of a transport history)
+function _describe_radial_level(level, in_time::Bool, faces, context)
+    level isa Union{Real,AbstractVector} && return _plain(level)
+    in_time && return describe_prescribed_levels(level, context)
+    record = SettingsRecord("profile" => _describe_profile(level))
+    isempty(faces) || (record["faces"] = _plain(faces))
     return record
 end
 
@@ -595,8 +606,7 @@ function describe(term::KineticIonizationTerm, context::DescriptionContext)
     record["grid"] = grid_name!(context, term.grid)
     record["ions"] = String(term.ions)
     record["cross_sections"] = "Burgess-Chidichimo with Garland's extension, DREAM's fits"
-    term.envelopes === nothing || (record["region"] = describe(term.envelopes.region))
-    return record
+    return _describe_region!(record, term.envelopes, context)
 end
 
 settings_fields(::Type{<:HeatTransportTerm}) =
@@ -612,12 +622,10 @@ function describe(term::HeatTransportTerm, context::DescriptionContext)
     record["edge"] = String(term.edge)
     record["coefficient"] = term.coefficient
     name = term.model === :prescribed ? "diffusion" : "delta_b_over_b"
-    record[name] = term.level_in_time ? _callable_name(term.level) :
-                   term.level isa Union{Real,AbstractVector} ? _plain(term.level) : _callable_name(term.level)
+    record[name] = _describe_radial_level(term.level, term.level_in_time, term.faces[], context)
     if term.model === :rechester_rosenbluth
         record["major_radius"] = term.major_radius
-        record["safety_factor"] = term.safety_factor isa Union{Real,AbstractVector} ? _plain(term.safety_factor) :
-                                  _callable_name(term.safety_factor)
+        record["safety_factor"] = _describe_radial_level(term.safety_factor, false, term.safety_factor_faces[], context)
     end
     return record
 end

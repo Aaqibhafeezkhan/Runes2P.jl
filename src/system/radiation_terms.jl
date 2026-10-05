@@ -16,19 +16,45 @@ takes the treatment of the equation that sets the current (the conductivity of a
 ohmic_heating_term(; electric_field::Symbol=:electric_field, current::Symbol=:ohmic_current_density) =
     ProductTerm(electric_field, current)
 
-# the bremsstrahlung of Gould (Astrophys. J. 238, 1980) with a relativistic correction, as
-# DREAM's RadiatedPowerTerm.cpp: (32/3) α r₀² c √(2 mₑc² e/π), the 1.69e-38 W m³ eV^-1/2
-# of the NRL formulary
+"""
+    GOULD_BREMSSTRAHLUNG_PREFACTOR
+
+The prefactor of the bremsstrahlung power of a Maxwellian plasma in the mode `:dream` of
+[`RadiatedPowerTerm`](@ref), `(32/3) α r₀² c √(2 mₑc² e/π)` [W m³ eV^-1/2], the 1.69e-38 of
+the NRL Plasma Formulary: R. J. Gould, "Thermal bremsstrahlung from high-temperature
+plasmas", Astrophys. J. 238, 1026 (1980), ADS 1980ApJ...238.1026G (erratum Astrophys. J. 243,
+677 (1981)), as DREAM's `src/Equations/Fluid/RadiatedPowerTerm.cpp` (lines 47-52 and 174-189,
+the 1.69e-38 named at line 179).
+"""
 const GOULD_BREMSSTRAHLUNG_PREFACTOR =
     (32 / 3) * Constants.FINE_STRUCTURE_CONSTANT * Constants.CLASSICAL_ELECTRON_RADIUS^2 * Constants.SPEED_OF_LIGHT *
     sqrt(2 * Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT^2 * Constants.ELEMENTARY_CHARGE / π)
+"""
+    GOULD_ION_CORRECTION
+
+The first-order relativistic correction `19/24` of the electron-ion bremsstrahlung of a
+Maxwellian plasma, the coefficient of `T/mₑc²` in the power of
+[`GOULD_BREMSSTRAHLUNG_PREFACTOR`](@ref) (Gould 1980, cited there), as DREAM's
+`src/Equations/Fluid/RadiatedPowerTerm.cpp:51` ("relativistic-maxwellian correction").
+Checked against DREAM only.
+"""
 const GOULD_ION_CORRECTION = 19 / 24
+
+"""
+    GOULD_ELECTRON_CORRECTION
+
+The electron-electron bremsstrahlung of a Maxwellian plasma relative to the electron-ion
+one of charge 1, `5(44 − 3π²)/(8√2)` times `T/mₑc²` (Gould 1980, cited at
+[`GOULD_BREMSSTRAHLUNG_PREFACTOR`](@ref)), as DREAM's
+`src/Equations/Fluid/RadiatedPowerTerm.cpp:52` ("e-e brems correction"). Checked against
+DREAM only.
+"""
 const GOULD_ELECTRON_CORRECTION = 5 / (8 * sqrt(2)) * (44 - 3 * π^2)
 
 """
     RadiatedPowerTerm(plasma; radiation=:recombination, temperature=:cold_electron_temperature,
-                      density=:cold_electron_density, ions=nothing, extrapolation=:dream,
-                      directory=adas_cache_directory(), initial_time=0.0)
+                      density=:cold_electron_density, ions=nothing, kinetic=nothing,
+                      extrapolation=:dream, directory=adas_cache_directory(), initial_time=0.0)
 
 The power that the cold electrons lose to the ions, `−P` [W/m³] in the row of their
 temperature (which holds the time derivative of their energy), at every radius:
@@ -49,17 +75,21 @@ charge states ([`add_local_jacobian!`](@ref)). With `kinetic`, the
 of the ionization is that of the cold electrons below its threshold, at the fluid
 coefficient of [`fluid_ionization_coefficient`](@ref).
 
-- `radiation = :recombination` (the default of Runes2P): the line radiation `L = PLT + PRB`
-  with the recombination radiation and bremsstrahlung, the binding energy that ionization
-  takes, `I(Z_0) SCD`, and the one recombination returns, `−I(Z_0 − 1) ACD`, with the
-  ionization energies `I` of NIST ([`ionization_energy`](@ref)). DREAM's mode with
-  recombination takes `I(Z_0)` in the gain from its second radial cell on.
+- `radiation = :recombination` (the default of Runes2P while the choice is open): the line
+  radiation `L = PLT + PRB` with the recombination radiation and bremsstrahlung, the binding
+  energy that ionization takes, `I(Z_0) SCD`, and the one recombination returns,
+  `−I(Z_0 − 1) ACD`, with the ionization energies `I` of NIST ([`ionization_energy`](@ref)).
+  DREAM's mode with recombination takes `I(Z_0)` in the gain from its second radial cell on.
 - `radiation = :dream`: DREAM's default, `L = PLT`, the ionization loss alone, and the
   bremsstrahlung of Gould with a relativistic correction, `C √T (Σ n Z_0² + (19/24 Σ n Z_0²
-  + κ n_e) T/mₑc²) n_e`, `C = 1.69e-38 W m³ eV^{-1/2}`, `κ = 5(44 − 3π²)/(8√2)`. The ion sum
-  is that of the prescribed ions, `n_e` the unknown.
+  + κ n_e) T/mₑc²) n_e`, `C = 1.69e-38 W m³ eV^{-1/2}`, `κ = 5(44 − 3π²)/(8√2)`
+  ([`GOULD_BREMSSTRAHLUNG_PREFACTOR`](@ref), [`GOULD_ION_CORRECTION`](@ref),
+  [`GOULD_ELECTRON_CORRECTION`](@ref)). The ion sum is that of the charge states the term
+  reads, `n_e` the unknown.
 
-`extrapolation` goes to [`adas_coefficient`](@ref). The derivatives with respect to the
+The coefficients are those of ADAS (H. P. Summers, The ADAS User Manual, version 2.6 (2004), http://www.adas.ac.uk, with the data of OpenADAS, https://open.adas.ac.uk), DREAM's
+`src/Equations/Fluid/RadiatedPowerTerm.cpp`. `extrapolation` goes to
+[`adas_coefficient`](@ref); `:dream` is the default (decision of the author, 2026-10-04). The derivatives with respect to the
 temperature and the density are exact through ForwardDiff. [`radiated_power`](@ref) gives
 the radiation and the binding energy apart.
 """

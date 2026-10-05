@@ -217,12 +217,14 @@ electron density `n` [m⁻³] and temperature `T` [eV], in m³/s (W m³ for `:pl
 `:prb`). Zero where the class has no such charge state (recombination of the neutral,
 ionization of the bare nucleus) and at `n ≤ 0` or `T ≤ 0`, as in DREAM.
 
-The interpolation is DREAM's (`ADASRateInterpolator.cpp`): GSL's bicubic interpolation of
+The coefficients are those of ADAS (H. P. Summers, The ADAS User Manual, version 2.6 (2004), http://www.adas.ac.uk, with the data of OpenADAS, https://open.adas.ac.uk).
+The interpolation is DREAM's (`src/ADASRateInterpolator.cpp`): GSL's bicubic interpolation of
 log₁₀ of the coefficient in log₁₀ n and log₁₀ T inside the table, and outside it the
 bilinear interpolation of the edge cell, continued linearly (`extrapolation = :dream`).
 `extrapolation = :clamp_density` takes the density at the nearest edge of the table and
 extrapolates in the temperature alone: at low densities the coefficients tend to their
-coronal limit, which does not depend on the density.
+coronal limit, which does not depend on the density. Below the tables `:dream` stays the
+default (decision of the author, 2026-10-04).
 
 Derivatives with respect to `n` and `T` are exact through ForwardDiff, in place of DREAM's
 one-sided differences.
@@ -252,7 +254,8 @@ end
     ADAS_FILES
 
 The ADF11 file of each element and class (DREAM's `tools/elements.json`): a year, which
-names the file `<class><yy>_<element>.dat` of OpenADAS, or a file name. Deuterium and
+names the file `<class><yy>_<element>.dat` of OpenADAS, or a file name. The data are those
+of ADAS: H. P. Summers, The ADAS User Manual, version 2.6 (2004), http://www.adas.ac.uk, with the data of OpenADAS, https://open.adas.ac.uk. Deuterium and
 tritium take the files of hydrogen, except charge exchange. The high-density files of
 hydrogen are not served by OpenADAS; DREAM's cache carries them.
 """
