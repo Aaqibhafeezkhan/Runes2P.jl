@@ -51,4 +51,14 @@ using SciMLBase: SciMLBase
     jacobian!(J2, with_knockon, u, t)
     G.jvp(Jv, v, u, nothing, t)
     @test Jv ≈ jacobian_operator(J2, with_knockon, u, t) * v rtol = 1e-14
+
+    # a stored block of another scheme is not ∂f/∂u, so only the Jacobian-vector product,
+    # which adds the correction, is offered
+    approximate = EquationSystem(layout, [Equation(:hot_tail_distribution, TimeDerivative(),
+                                                   FokkerPlanckTerm(:hot_tail_distribution, with_scheme(fp, :central);
+                                                                    jacobian=:upwind)),
+                                          density_equation])
+    @test !approximate.stored_jacobian_exact
+    H = ode_function(approximate)
+    @test !SciMLBase.has_jac(H) && SciMLBase.has_jvp(H)
 end

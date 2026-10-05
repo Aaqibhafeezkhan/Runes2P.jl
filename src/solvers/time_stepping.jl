@@ -456,7 +456,9 @@ function advance!(stepper::StepDoubling, state::StepDoublingState, run, options,
     _record!(run.stats, t_next, h, result, run.ws, wall; accepted, error)
     # DREAM: dt = safety dt / error^exponent, from the step just measured
     state.dt = error == 0 ? Inf : stepper.safety * h / error^stepper.exponent
-    state.steps_since_check = 0
+    # DREAM redoes a rejected step as a new doubling (`TimeStepperAdaptive.cpp:152-155`), so the
+    # unchecked steps start only after an accepted check
+    state.steps_since_check = accepted ? 0 : stepper.check_every
     state.failures = 0
     if !accepted
         log = options.log

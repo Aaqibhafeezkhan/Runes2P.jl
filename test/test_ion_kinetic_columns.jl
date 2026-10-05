@@ -41,6 +41,19 @@ end
 _hold(name, value) = Equation(name, Algebraic(), PrescribedValueTerm(value), LinearTerm(name; coefficient=-1))
 
 @testset "ion kinetic columns" begin
+    @testset "the composition is read at the initial time" begin
+        # a prescribed part defined only from t = 1 on: the check of the ion unknown reads
+        # it at the initial time of the system, not at t = 0
+        layout, fp, u = _kinetic_ion_case()
+        prescribed = Runes2P.plasma_values(fp.plasma.prescribed, nothing, nothing, 0.0)
+        from_one(t) = t >= 1 ? prescribed : throw(ArgumentError("no plasma state before t = 1"))
+        late = FokkerPlanckTerm(:f, fp.operator; plasma=PlasmaFromUnknowns(from_one; ions=:ion_densities),
+                                settings=fp.settings)
+        row = unknown_id(layout, :f)
+        @test Runes2P.validate(late, layout, row, 1.0) === nothing
+        @test_throws ArgumentError Runes2P.validate(late, layout, row, 0.0)
+    end
+
     @testset "Fokker-Planck columns of the charge states" begin
         layout, fp, u = _kinetic_ion_case()
         equations = [Equation(:ion_densities, TimeDerivative()), population_equations(KINETIC_COMPOSITION)...,

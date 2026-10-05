@@ -270,6 +270,12 @@ function describe(plasma::PlasmaState)
     record["ions"] = SettingsRecord("species_$k" => describe(s) for (k, s) in enumerate(plasma.ions))
     return record
 end
+# whether the cold density was given or is the free-electron default: the record holds the
+# density itself, which is what the results depend on; the flag only lets a check
+# refuse a system before it runs
+settings_fields(::Type{<:PlasmaState}) =
+    (described=(:cold_electron_temperature, :cold_electron_density, :electric_field, :magnetic_field, :ions),
+     derived=(:cold_density_given,))
 
 function _callable_name(f)
     name = String(nameof(f isa Function ? f : typeof(f)))

@@ -599,6 +599,10 @@ using HDF5
         @test joined.times == whole.times
         @test joined.states == whole.states
         @test _same_statistics(joined.statistics, whole.statistics)
+        # segments in the wrong order, or a run joined with itself from the same start,
+        # are refused
+        @test_throws ArgumentError read_output(resumed_file, file)
+        @test_throws ArgumentError read_output(file, file)
         rm(resumed_file)
 
         # the last saved state by default, by file name

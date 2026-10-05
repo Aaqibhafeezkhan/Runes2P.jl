@@ -301,6 +301,10 @@ end
         @test tolerance(custom, :temperature) == Tolerance(1e-3, 1e-8)
         @test tolerance(custom, :temperature; kind=:time_step) == Tolerance(1e-10 * 100, 1e-10)
         @test_throws ArgumentError tolerance(custom, :temperature; kind=:other)
+        # a group part on a kinetic unknown is refused
+        grouped = Dict(:hot_tail_distribution => Tolerance(0, 1e-3; group=1e-3))
+        @test_throws ArgumentError EquationSystem(layout, equations(:implicit); newton_tolerances=grouped)
+        @test_throws ArgumentError EquationSystem(layout, equations(:implicit); time_step_tolerances=grouped)
     end
 
     @testset "system on different momentum grids at different radii" begin

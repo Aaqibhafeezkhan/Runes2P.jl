@@ -87,6 +87,10 @@ _is_plain(x) = false
             @test isempty(intersect(fields.described, fields.derived))
             @test Set(union(fields.described, fields.derived)) == Set(fieldnames(T))
         end
+        # the hand-written record of a plasma state holds exactly its described fields
+        state = PlasmaState(cold_electron_temperature=[10.0], ions=[IonSpecies("D", 1, 1, [1e20])],
+                            electric_field=[0.0], magnetic_field=[5.0])
+        @test Set(keys(describe(state))) == Set(["type"; String.(collect(settings_fields(PlasmaState).described))])
         # the terms and solvers of the package are all in the list above
         package_types(S) = [T for T in subtypes(S) if parentmodule(T) === Runes2P]
         @test issubset(package_types(EquationTerm), types)

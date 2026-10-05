@@ -205,11 +205,16 @@ Chidichimo, Mon. Not. R. Astron. Soc. 203, 1269 (1983), doi:10.1093/mnras/203.4.
 σ_{BC} = C π a_0^2 \\left(\\frac{R_y}{I}\\right)^2 \\frac{\\ln(U)^{1 + β^*/U}}{U}
 ```
 
-with `U = E/I` and the kinetic energy `E`, blended into the relativistic Bethe form of
-N. A. Garland et al., Phys. Plasmas 27, 040702 (2020), doi:10.1063/5.0003638,
-`C π a₀² α² (R_y/I) (ln(p²/2I) − β²)` with `I` in units of `mₑc²`, by the weight
-`S = 1/(1 + exp(1 − E/100 keV))` of DREAM's code. Zero below the threshold `U < 1` and for the bare
-nucleus. The parameters are those of [`KINETIC_IONIZATION_FITS`](@ref).
+with `U = E/I` and the kinetic energy `E`, blended into DREAM's form of the relativistic
+Bethe formula of N. A. Garland et al., Phys. Plasmas 27, 040702 (2020),
+doi:10.1063/5.0003638, `C π a₀² α² (R_y/I) (ln(p²/2I) − β²)` with `I` in units of `mₑc²`
+(`IonKineticIonizationTerm.cpp:221-223`), by the weight `S = 1/(1 + exp(1 − E/100 keV))`
+of DREAM's code (`:224`). That form lacks the factor `1/β²` of a Bethe cross section: it is
+`β²` times the continuation that joins the large-`U` limit of `σ_{BC}`, so it is about 1e-4
+of `σ_{BC}` at thermal energies, while `S` gives it the weight 0.27 already at `E = 0`. The
+fitted `C` absorbs that weight at the energies of the fit, and the shape at hot-tail and
+runaway energies differs from a consistent blend. Zero below the threshold `U < 1` and for
+the bare nucleus. The parameters are those of [`KINETIC_IONIZATION_FITS`](@ref).
 """
 function ionization_cross_section(element::AbstractString, Z0::Integer, p::Real)
     haskey(KINETIC_IONIZATION_FITS, element) ||

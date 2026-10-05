@@ -22,9 +22,12 @@ thermal_momentum(T) = sqrt(2 * T / Constants.ELECTRON_REST_ENERGY)
 """
     critical_field(density, coulomb_log)
 
-Connor-Hastie critical field `E_c = n e³ lnΛ / (4π ε₀² mₑ c²)` [V/m] for an electron density
-`n` [m⁻³] (free electrons without screening, total electrons with complete screening) and
-a Coulomb logarithm `lnΛ`.
+Connor-Hastie critical field `E_c = n e³ lnΛ / (4π ε₀² mₑ c²)` [V/m] (Connor and Hastie, Nucl.
+Fusion 15, 415 (1975), doi:10.1088/0029-5515/15/3/007) for an electron density `n` [m⁻³]
+and a Coulomb logarithm `lnΛ`. In the limit of complete screening `n` is the density of the
+free electrons, and without screening the free plus the bound electrons (Hesslow et al.,
+Nucl. Fusion 59, 084004 (2019), doi:10.1088/1741-4326/ab26c2; DREAM's `Ec_free` and
+`Ec_tot`, `src/Equations/RunawayFluid.cpp:208-209`).
 """
 critical_field(density, coulomb_log) =
     density * coulomb_log * Constants.ELEMENTARY_CHARGE^3 /
@@ -91,8 +94,8 @@ end
 # The cutoff rule of `cutoff_target`:
 # both bounds as energies, the cutoff at the logarithmic midpoint between them, which
 # makes the smaller of the two margins as large as it can be. DREAM keeps one cutoff
-# (`pCutAvalanche`) for a run; Runes2P applies the rule at every requested time point and
-# per radius (`KnockOnCutoffUpdate`).
+# (`pCutAvalanche`) for a run; Runes2P applies the rule after every accepted step and per
+# radius (`KnockOnCutoffUpdate`).
 
 """
     kinetic_energy(p)

@@ -153,8 +153,9 @@ resolution (to 1e-5). With `:linear`, the moment of [`current_density`](@ref), i
 converges to the same value at second order in the pitch cell width. The normalization of
 `f_M` cancels. On a pitch grid symmetric about `ξ = 0` the term vanishes on any `f` even
 in `ξ`. Needs collision mode `:full`, where the bulk is part of `f`, and cold electrons at
-every radius. The momentum and pitch grids may differ between radii, with the
-same cell counts at every radius.
+every radius. The pitch grids may differ between radii, with the same cell
+counts at every radius. The momentum faces are the same at every radius, as
+[`AdvectionDiffusion`](@ref) requires.
 """
 struct FieldParticleOperator{T}
     grid::KineticGrid{T}

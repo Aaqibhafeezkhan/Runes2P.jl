@@ -101,6 +101,11 @@ end
         @test all(stats.accepted[4:5])
         @test stats.kind[6:8] == [:half_step, :half_step, :step]
         @test stats.time_step[8] ≈ h1
+        # the check at row 8 rejects its step, which is redone as a new doubling, as in DREAM
+        @test !stats.accepted[8]
+        @test stats.error[8] ≈ _doubling_error(k, h1, rel)
+        @test stats.kind[9:11] == [:half_step, :half_step, :step]
+        @test stats.time_step[11] ≈ 0.95 * h1 / stats.error[8]
         @test solution.states[1, end] ≈ foldl((u, h) -> _decay_step(u, k, h), stats.time_step[stats.accepted]; init=1.0)
     end
 

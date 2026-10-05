@@ -1,17 +1,17 @@
-# Updates of the setup between the intervals of a run. `integrate`
-# applies them at every requested time point, before the interval that starts there, so
-# a step that is halved keeps the setup of its interval. What an update changes in time is
+# Updates of the setup during a run. `integrate` applies them at the
+# start of the run and after every accepted step, at the state and the time where that
+# step ends, before the step that follows. What an update changes in time is
 # state of the run: a checkpoint stores it and a resume restores it.
 
 """
     IntervalUpdate
 
-Supertype of the updates [`integrate`](@ref) applies at the start of every interval
-(`updates`). An update implements
+Supertype of the updates [`integrate`](@ref) applies at the start of the run and after
+every accepted step (`updates`), at the state and the time where that step ends. An update implements
 
 - `update_name(update)`: its name, unique among the updates of a run;
-- `apply_update!(update, u, layout, t)`: apply it for the interval that starts at the time
-  `t` with the state `u`; returns whether the setup changed;
+- `apply_update!(update, u, layout, t)`: apply it for the steps that start at the time `t`
+  with the state `u`; returns whether the setup changed;
 - `update_state(update)`: the numbers the update has set, as a vector, stored with every
   saved state and in every checkpoint;
 - `restore_update!(update, state)`: set the setup back to a stored state;
@@ -68,9 +68,9 @@ end
 
 Knock-on cutoff that follows the plasma `plasma_at(t)`, or
 a [`PlasmaSource`](@ref) such as [`PlasmaFromUnknowns`](@ref), which it reads at the state of
-the start of each interval (a system whose bulk reads the temperature from an
+the start of each step (a system whose bulk reads the temperature from an
 unknown refuses a prescribed temperature here):
-at the start of every interval the cutoff of each radius of `operator` is set to a face
+at the start of the run and after every accepted step the cutoff of each radius of `operator` is set to a face
 of the knock-on momentum grid. The cutoff per radius is the state of the update.
 `critical_momentum_at(plasma, ir)` gives the runaway threshold.
 
@@ -97,7 +97,7 @@ that one is a face the rule keeps. Without the update the cutoff is fixed, as in
 
 `electric_field` names the radial unknown of the electric field when the field is an
 unknown of the system: the runaway threshold then takes the field of the
-state at the start of the interval in place of the field of the prescribed plasma.
+state at the start of the step in place of the field of the prescribed plasma.
 
 `linked` lists further knock-on operators that take the cutoff of `operator` at every
 change. With a hot-tail and a runaway grid `operator` is the pairing
@@ -259,7 +259,7 @@ function check_update(update::KnockOnCutoffUpdate, system)
         throw(ArgumentError("the knock-on cutoff update $(update.name) takes a prescribed temperature, while the " *
                             "terms of the cold bulk read the unknown $temperature: give it " *
                             "PlasmaFromUnknowns(plasma_at; temperature = :$temperature), which it reads at the " *
-                            "start of each interval"))
+                            "start of each step"))
     return nothing
 end
 

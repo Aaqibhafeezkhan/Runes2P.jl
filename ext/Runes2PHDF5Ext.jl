@@ -421,6 +421,10 @@ function Runes2P.read_output(filenames::AbstractString...)
     times = empty(first_part.times)
     columns = Matrix{eltype(first_part.states)}[]
     statistics = SolverStatistics()
+    # the segments of one run start one after the other, and each saved time appears once:
+    # segments in the wrong order, or of two runs from the same start, are refused
+    all(k -> _start_time(parts[k]) >= _start_time(parts[k-1]), 2:length(parts)) ||
+        throw(ArgumentError("the files are not the segments of one run in order: a segment starts before the one given before it"))
     # a segment without a saved state has no update states either
     names = Set{String}()
     foreach(part -> union!(names, keys(part.update_states)), parts)
@@ -451,7 +455,7 @@ function Runes2P.read_output(filenames::AbstractString...)
             push!(updates[name], states[:, kept])
         end
     end
-    issorted(times) || throw(ArgumentError("the files are not the segments of one run in order"))
+    all(>(0), diff(times)) || throw(ArgumentError("the files are not the segments of one run in order"))
     states = isempty(columns) ? zeros(eltype(first_part.states), length(first_part.layout), 0) : reduce(hcat, columns)
     return TimeSolution(first_part.layout, times, states, statistics, last(parts).settings,
                         Dict(name => reduce(hcat, parts) for (name, parts) in updates if !isempty(parts)))

@@ -17,7 +17,8 @@ unknown of the equation. Faraday's law is of this form: the equation of
 the electric field is `dψ/dt = 2π E`, with the poloidal flux as `of`, and the equation of
 the flux is Ampère's law, which is algebraic. Every algebraic row then holds its own
 unknown. The unknown of an equation with the derivative of another unknown must appear in
-the terms of that equation.
+the terms of that equation, or the equation of `of` must reach it through algebraic rows:
+the temperature in DREAM's pairing of the energy of the cold electrons.
 """
 struct TimeDerivative
     of::Union{Nothing,Symbol}
@@ -93,7 +94,8 @@ with `absolute` in the unknown's physical units. `group` adds `group Σ |x_k|` o
 components `k` of the entry's group at its radius ([`component_groups`](@ref)): the
 tolerance of a charge state relative to the density of its species, so that a trace
 impurity is converged on its own scale (DREAM tests the norm of the whole ion block with
-an absolute tolerance of 0).
+an absolute tolerance of 0). A `group` part needs a radial
+unknown: [`EquationSystem`](@ref) refuses it on a kinetic or scalar unknown.
 """
 struct Tolerance
     absolute::Float64
@@ -237,6 +239,12 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
     end
     missing_equations = [layout.unknowns[id].name for id in 1:count if rows[id] == 0]
     isempty(missing_equations) || throw(ArgumentError("no equation for $(join(missing_equations, ", "))"))
+    # a group part needs the component groups of a radial unknown: Newton would skip it on
+    # another unknown, and the step controller would fail at its first estimate
+    for tolerances in (newton_tolerances, time_step_tolerances), (name, tol) in tolerances
+        iszero(tol.group) || unknown(layout, name) isa RadialUnknown ||
+            throw(ArgumentError("the tolerance of $name has a group part, which only a radial unknown has"))
+    end
 
     _check_conductivity_correction(equations)
     _check_prescribed_operators(equations)

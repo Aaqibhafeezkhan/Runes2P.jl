@@ -231,6 +231,19 @@ _count(pattern, text) = length(collect(eachmatch(pattern, text)))
                        "status domain_error and is retried with half the time step", text)
         @test occursin("steps   3 accepted of 4 attempted since the last entry (1 failed, 0 rejected, 0 half steps", text)
         @test occursin("events  since the last entry: 1 × step failed", text)
+        # a half step of a doubling that fails counts as failed and not as a half step, so the
+        # count of rejected steps stays at zero
+        doubling = single_unknown_system(TimeDerivative(), BoundedGrowthTerm(:x, 0.25, 15.5))
+        log = ProgressLog(io=io, on_signal=false, milestones=[1.0])
+        solution = integrate(doubling, [9.0], [0.0, 2.0]; stepper=StepDoubling(initial_step=100.0, max_failures=2), log)
+        @test solution.statistics.status[2] === :domain_error
+        text = String(take!(io))
+        # the rejected count of the entry is that of the rejection events
+        counts = match(r"\((\d+) failed, (-?\d+) rejected, (\d+) half steps", text)
+        events = match(r"(\d+) × step rejected", text)
+        @test counts !== nothing && events !== nothing
+        @test parse(Int, counts[2]) == parse(Int, events[1])
+        @test parse(Int, counts[1]) == count(s -> s !== :converged, solution.statistics.status)
         # a run that fails
         log = ProgressLog(io=io, on_signal=false)
         @test_throws TimeStepFailure integrate(system, [0.2], [0.0, 0.24, 0.26]; max_step_halvings=0, log)

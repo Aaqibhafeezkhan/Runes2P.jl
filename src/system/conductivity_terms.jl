@@ -31,8 +31,8 @@ particle source with the shape of a relativistic Maxwellian at the cold temperat
 holds the density, so the conductivity is that which such a run with this operator, this
 grid and these collision settings reaches in the steady state of a small field. The
 current of the run exceeds it by a term of the order of the square of the field: 1.7e-7 of
-it at a thousandth of the Dreicer field (5 critical fields at 10 eV), 1.7e-5 at a
-hundredth.
+it at a ten-thousandth of the Dreicer field (5 critical fields at 10 eV), 1.7e-5 at a
+thousandth.
 
 `operator` holds coefficients built without a field, by `fokker_planck_operator(...;
 electric_field = false)` or from a plasma without a field, knows its plasma

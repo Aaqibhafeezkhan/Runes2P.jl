@@ -1,6 +1,6 @@
 # Checkpoints and segments of a run.
 # A run that does not fit one allocation is a chain of segments. Each segment writes a
-# checkpoint at requested time points and its own output file, flushed with every
+# checkpoint after accepted steps and its own output file, rewritten with every
 # checkpoint. The files are HDF5 and written by the package extension `Runes2PHDF5Ext`.
 
 """
@@ -13,9 +13,9 @@ Checkpoints of a run called `name`, written to `directory`:
 - `<name>.segment<k>.h5` (`k` with four digits), the output of segment `k`, holding the
   states the segment saved up to its last checkpoint.
 
-A checkpoint is written at a requested time point when `interval` seconds of wall time
-have passed since the last one (0 writes one at every time point), and always at the end
-of the segment. Files are written to a temporary file, synced and renamed.
+A checkpoint is written after an accepted step when `interval` seconds of wall time have
+passed since the last one (0 writes one after every accepted step), and always at the end
+of the segment. Each checkpoint rewrites the output file of the segment. Files are written to a temporary file, synced and renamed.
 
 A run refuses to replace the segment file of another run unless `overwrite` is true.
 A run continued with `resume = true` replaces the file with the number of its segment:
@@ -184,7 +184,10 @@ The [`TimeSolution`](@ref) of one output file, or of the segments of a run in or
 joined. The layout is rebuilt from the file's layout record. Of a segment that went on
 after its last checkpoint and was followed by another, the states and statistics after
 the start of the following segment are left out, since that segment repeats them. The
-settings are those of the last file. Defined by the package extension `Runes2PHDF5Ext`,
+settings are those of the last file. Segments in the wrong order, or whose joined times
+repeat one (two runs from the same start), are refused with an `ArgumentError`. The
+check cannot tell the stale higher segments of an earlier run under the same name from
+those of the current one. Defined by the package extension `Runes2PHDF5Ext`,
 which loads with HDF5.
 """
 function read_output end

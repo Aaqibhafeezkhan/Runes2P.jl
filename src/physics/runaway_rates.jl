@@ -83,8 +83,11 @@ end
 Avalanche growth rate `Γ = 4π r₀² c n_tot / p_c²` [s⁻¹] of a runaway population, the
 Rosenbluth-Putvinski estimate written with an explicit critical momentum `p_c` (in units
 of `mₑc`): every knock-on above `p_c` runs away, and the production per runaway is the
-Møller rate above `p_c`, which is `4π r₀² c n_tot / p_c²` in the limit of an infinitely
-energetic primary.
+Møller rate above `p_c`. For an infinitely energetic primary that rate is
+`2π r₀² c n_tot / (γ_c − 1) = (γ_c + 1)/2 · 4π r₀² c n_tot / p_c²`
+([`moller_total_rate`](@ref) with `p1 = Inf`; Embréus, Stahl and Fülöp, J. Plasma Phys. 84,
+905840102 (2018), doi:10.1017/S002237781700099X), so the formula keeps its leading term
+for `p_c ≪ 1`; at `p_c = 1` the exact rate is 21 % above the formula.
 
 `p_c` is the ambiguous part of the formula (DREAM #40), so it is an argument, not computed
 here: [`critical_momentum`](@ref) gives the test-particle value `1/√(E/E_c - 1)` used by
@@ -92,8 +95,8 @@ Rosenbluth-Putvinski, while DREAM's fluid mode uses the effective critical momen
 Hesslow et al. 2019, which includes screening and pitch-angle scattering and is larger, so
 its growth rate is lower. State which one a comparison uses.
 
-DREAM: `RunawayFluid::CalculateGrowthRates`, `avalancheGrowthRate = n_tot constPreFactor /
-p_c²` with `constPreFactor = 4π r₀² c`.
+DREAM: `avalancheGrowthRate = n_tot constPreFactor / p_c²` (`src/Equations/RunawayFluid.cpp:353`)
+with `constPreFactor = 4π r₀² c` (`include/DREAM/Equations/RunawayFluid.hpp:25-26`).
 """
 avalanche_growth_rate(total_density, critical_momentum) =
     4pi * Constants.CLASSICAL_ELECTRON_RADIUS^2 * Constants.SPEED_OF_LIGHT * total_density /

@@ -29,7 +29,10 @@ takes the density and the temperature interpolated linearly between the two cell
   χ = 3\\sqrt{2π}\\, e\\, c\\, q R_0 (δB/B)^2\\, n \\sqrt{Θ} (1 − 5Θ/8),\\qquad Θ = T/m_ec^2,
   ```
   the energy moment of the kinetic diffusion `π q R₀ |v_∥| (δB/B)²` of
-  [`add_rechester_rosenbluth_diffusion!`](@ref) on a Maxwellian: `delta_b_over_b` a
+  [`add_rechester_rosenbluth_diffusion!`](@ref) on a Maxwellian of uniform density. The
+  part of that moment in `∂_r n` is dropped, as in DREAM, whose derivation assumes
+  `∂n_cold/∂r = 0` because the cold electrons are not transported
+  (`doc/notes/heat-transport.tex:236-245`). `delta_b_over_b` is a
   profile, or `delta_b_over_b_at` a function of time such as the
   [`PiecewiseConstant`](@ref) transport history of a [`RechesterRosenbluthUpdate`](@ref).
   The same object in both keeps the kinetic and the heat transport on one level. The

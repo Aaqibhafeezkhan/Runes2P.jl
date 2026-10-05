@@ -410,9 +410,10 @@ function write_entry(log::ProgressLog, reason::AbstractString, u::AbstractVector
         accepted_steps = findall(@view stats.accepted[attempts])
         time_step = isempty(accepted_steps) ? NaN : stats.time_step[attempts[last(accepted_steps)]]
         # an attempt that did not converge failed; one that converged and was not accepted
-        # was rejected by the stepper on its error, or was a half step of a doubling
+        # was rejected by the stepper on its error, or was a half step of a doubling; a half step
+        # that did not converge counts as failed only, so the four counts add up to the attempts
         failed = count(s -> s !== :converged, @view stats.status[attempts])
-        half = count(==(:half_step), @view stats.kind[attempts])
+        half = count(i -> stats.kind[i] === :half_step && stats.status[i] === :converged, attempts)
         rejected = length(attempts) - accepted - failed - half
         println(io, "  steps   ", accepted, " accepted of ", length(attempts), " attempted since the last entry (",
                 failed, " failed, ", rejected, " rejected, ", half, " half steps, ",

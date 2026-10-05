@@ -38,8 +38,11 @@ end
     return (M, 0.0)
 end
 
-# TCDF (Zhang et al., J. Comput. Phys. 302, 114 (2015), C¹ and piecewise), OSPRE and
-# van Albada as ψ(r) with its derivative ψ'(r). OSPRE is DREAM's formula for every r,
+# TCDF (Zhang et al., J. Comput. Phys. 302, 114 (2015), in DREAM's form,
+# `AdvectionInterpolationCoefficient.cpp:239-251`), OSPRE and van Albada as ψ(r) with its
+# derivative ψ'(r). TCDF is C¹ for r > 0 (ψ' = 3/4 on both sides of r = 1/2 and r = 2),
+# but ψ' jumps from 1 to 2 at r = 0, where DREAM's comment calls it C¹; its r < 0 branch is
+# DREAM's and is not checked against the paper. OSPRE is smooth for every r. OSPRE is DREAM's formula for every r,
 # without a cutoff at r ≤ 0 (ψ < 0 for -1 < r < 0, ψ → 1.5 for r → -∞), which the
 # round-off agreement with DREAM needs. Van Albada is Runes2P's own and is zero for r ≤ 0.
 @inline function _limiter(scheme, r)

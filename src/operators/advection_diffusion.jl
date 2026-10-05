@@ -680,6 +680,9 @@ counted in the same normalization as [`density`](@ref), so a runaway rate measur
 a surface above the critical momentum is directly comparable with
 [`connor_hastie_rate`](@ref). Face 1 is the flux through `p = p_min` (the `p = 0` limit or
 the prescribed boundary flux) and face `momentum_cell_count + 1` the flux out of the grid.
+A face with an `:interface` boundary (face 1 under `p_lower_boundary = :interface`, the
+last face under `p_upper_boundary = :interface`) reads zero: this operator carries no flux
+there, and [`interface_flux`](@ref) gives the flux between the grids.
 `electric_field` (one value per radius) is the field of an operator that takes it as an
 argument ([`apply!`](@ref)).
 """

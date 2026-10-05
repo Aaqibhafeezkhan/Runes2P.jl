@@ -375,8 +375,10 @@ end
 """
     copy_unknowns!(u_to, layout_to, u_from, layout_from)
 
-Copy the values of every unknown present in both layouts, matched by name; the sizes must
-agree. Returns the names copied. This is how a state is carried to a layout with another
+Copy the values of every unknown present in both layouts, matched by name. The sizes, the
+radial grid, the momentum grids of a kinetic unknown and the component groups of a radial
+unknown (the ion species) must agree. Two species with the same count of charge states
+that trade places are not detected. Returns the names copied. This is how a state is carried to a layout with another
 order or with unknowns added or removed (restarts).
 """
 function copy_unknowns!(u_to::AbstractVector, layout_to::UnknownLayout,
@@ -394,6 +396,12 @@ function copy_unknowns!(u_to::AbstractVector, layout_to::UnknownLayout,
         else
             layout_from.sizes[id_from, :] == layout_to.sizes[id_to, :] ||
                 throw(DimensionMismatch("$name has different sizes in the two layouts"))
+            layout_from.radial_grid.r_faces == layout_to.radial_grid.r_faces ||
+                throw(ArgumentError("$name lives on different radial grids in the two layouts"))
+            if layout_from.kinds[id_from] === :radial
+                component_groups(layout_from.unknowns[id_from]) == component_groups(layout_to.unknowns[id_to]) ||
+                    throw(ArgumentError("$name has other component groups in the two layouts"))
+            end
             if layout_from.kinds[id_from] === :kinetic
                 grid_from = layout_from.unknowns[id_from].grid
                 grid_to = layout_to.unknowns[id_to].grid

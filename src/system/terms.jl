@@ -575,7 +575,11 @@ jacobian_kind(term::FokkerPlanckTerm) = _scheme_jacobian_kind(term)
 is_linear(term::FokkerPlanckTerm) =
     term.electric_field === nothing && !is_state_dependent(term.plasma) && is_linear(term.operator)
 
-function validate(term::FokkerPlanckTerm, layout, row)
+validate(term::FokkerPlanckTerm, layout, row) = _check_fokker_planck(term, layout, row, 0.0)
+
+# the checks of the grid, the field and the plasma unknowns; the composition of the ions is
+# read at the time `t`, the start of the run, where the prescribed part is defined
+function _check_fokker_planck(term::FokkerPlanckTerm, layout, row, t)
     id = unknown_id(layout, term.unknown)
     layout.kinds[id] === :kinetic && layout.kinds[row] === :kinetic ||
         throw(ArgumentError("FokkerPlanckTerm acts on and adds to kinetic unknowns"))
@@ -597,7 +601,7 @@ function validate(term::FokkerPlanckTerm, layout, row)
     for name in source_dependencies(term.plasma)
         id = unknown_id(layout, name)
         if name === ion_dependency(term.plasma)
-            _check_ion_unknown(layout, id, IonComposition(plasma_values(term.plasma.prescribed, nothing, nothing, 0.0)))
+            _check_ion_unknown(layout, id, IonComposition(plasma_values(term.plasma.prescribed, nothing, nothing, t)))
             continue
         end
         layout.kinds[id] === :radial && layout.sizes[id, 1] == 1 ||
@@ -612,7 +616,7 @@ end
 # density is the free-electron default, would count the electrons of the grids twice, once
 # in the target and once as f.
 function validate(term::FokkerPlanckTerm, layout, row, t)
-    validate(term, layout, row)
+    _check_fokker_planck(term, layout, row, t)
     haskey(layout.ids, :cold_electron_density) || return nothing
     source = term.plasma
     if source isa PlasmaFromUnknowns

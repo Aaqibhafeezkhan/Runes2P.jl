@@ -143,5 +143,15 @@ using ForwardDiff: Dual
         other_grid = cylindrical_grid(MomentumGrid(uniform_p_faces(2, 0.0, 1.0), uniform_xi_faces(2)), rad)
         swapped = UnknownLayout(rad, [KineticUnknown(:runaway_distribution, other_grid)])
         @test_throws ArgumentError copy_unknowns!(zeros(length(swapped)), swapped, u_last, layout)
+        # the same counts of radii and components on another radial grid, or with other
+        # component groups (ion species in another order), are refused
+        wider = RadialGrid(uniform_r_faces(3, 0.7))
+        from = UnknownLayout(rad, [RadialUnknown(:electric_field)])
+        @test_throws ArgumentError copy_unknowns!(zeros(3), UnknownLayout(wider, [RadialUnknown(:electric_field)]),
+                                                  zeros(3), from)
+        ions_from = UnknownLayout(rad, [RadialUnknown(:ion_densities; components=13, groups=[1:2, 3:13])])
+        ions_to = UnknownLayout(rad, [RadialUnknown(:ion_densities; components=13, groups=[1:11, 12:13])])
+        @test_throws ArgumentError copy_unknowns!(zeros(length(ions_to)), ions_to, zeros(length(ions_from)), ions_from)
+        @test copy_unknowns!(zeros(length(ions_from)), ions_from, ones(length(ions_from)), ions_from) == [:ion_densities]
     end
 end
