@@ -415,6 +415,102 @@ using HDF5
                                              updates=(case.update(),), checkpoint, resume=stored)
     end
 
+    @testset "segments of an earlier run under the same name" begin
+        # two segments of a run, to the fifth time point and from there
+        directory = _checkpoint_directory()
+        checkpoint = CheckpointSettings("earlier"; directory, interval=0)
+        stop = 5
+        case = _checkpoint_case()
+        integrate(case.system, case.u0, case.times[1:stop]; save_times=filter(<=(case.times[stop]), case.save_times),
+                  updates=(case.update(),), checkpoint)
+        case = _checkpoint_case()
+        @test_logs (:warn, r"changed settings") integrate(case.system, case.u0, case.times; save_times=case.save_times,
+                                                         updates=(case.update(),), checkpoint, resume=true)
+        first_file, second_file = Runes2P.segment_file(checkpoint, 1), Runes2P.segment_file(checkpoint, 2)
+        @test Runes2P.segment_files(checkpoint) == [first_file, second_file]
+        joined = read_output(checkpoint)
+        @test joined.times == case.save_times
+
+        # a fresh run under the same name refuses to start while the second segment of the
+        # earlier run exists, with overwrite as well, and deletes no file
+        again = CheckpointSettings("earlier"; directory, interval=0, overwrite=true)
+        case = _checkpoint_case()
+        refusal = try
+            integrate(case.system, case.u0, case.times; save_times=case.save_times, checkpoint=again)
+            nothing
+        catch error
+            error
+        end
+        @test refusal isa ArgumentError
+        @test occursin(second_file, refusal.msg)
+        @test Runes2P.segment_files(checkpoint) == [first_file, second_file]
+        @test read_output(checkpoint).states == joined.states
+
+        # the reader refuses a segment after a first one with another setup (other save
+        # times): start times and joined times alone would pass
+        case = _checkpoint_case()
+        other = integrate(case.system, case.u0, case.times[1:stop]; save_times=case.times[1:stop],
+                          updates=(case.update(),))
+        @test other.settings["setup_hash"] != read_settings(first_file)["setup_hash"]
+        other_file = tempname() * ".h5"
+        write_output(other_file, other)
+        refusal = try
+            read_output(other_file, second_file)
+            nothing
+        catch error
+            error
+        end
+        @test refusal isa ArgumentError
+        @test occursin("another setup", refusal.msg)
+
+        # and a segment that resumed from another segment than the one before it: the third
+        # segment of a run, resumed from the first state of the second, after the first
+        case = _checkpoint_case()
+        third = integrate(case.system, case.u0, case.times; save_times=case.save_times, updates=(case.update(),),
+                          resume=read_state(second_file; time_index=1))
+        @test third.settings["segment"]["resumed_from_segment"] == 2
+        third_file = tempname() * ".h5"
+        write_output(third_file, third)
+        refusal = try
+            read_output(first_file, third_file)
+            nothing
+        catch error
+            error
+        end
+        @test refusal isa ArgumentError
+        @test occursin("resumed from segment 2", refusal.msg)
+        @test read_output(first_file, second_file, third_file).times == case.save_times
+        rm(other_file)
+        rm(third_file)
+
+        # without overwrite, and with the first segment gone, the second still refuses a
+        # fresh run
+        aside = tempname() * ".h5"
+        mv(first_file, aside)
+        case = _checkpoint_case()
+        @test_throws r"earlier\.segment0002" integrate(case.system, case.u0, case.times; save_times=case.save_times,
+                                                       checkpoint)
+        mv(aside, first_file)
+
+        # a run resumed from the first segment would write a second segment before the third
+        # of the earlier continuation, and refuses as well
+        third_segment = Runes2P.segment_file(checkpoint, 3)
+        write_output(third_segment, third)
+        case = _checkpoint_case()
+        @test_throws r"earlier\.segment0003" integrate(case.system, case.u0, case.times; save_times=case.save_times,
+                                                       updates=(case.update(),), checkpoint=again,
+                                                       resume=read_state(first_file; time_index=2))
+        rm(third_segment)
+
+        # without the earlier segments above the first the fresh run starts, and replaces
+        # the first
+        rm(second_file)
+        case = _checkpoint_case()
+        fresh = integrate(case.system, case.u0, case.times; save_times=case.save_times, checkpoint=again)
+        @test Runes2P.segment_files(checkpoint) == [first_file]
+        @test read_output(checkpoint).states == fresh.states
+    end
+
     @testset "checkpoint interval and segment files" begin
         case = _checkpoint_case()
         directory = _checkpoint_directory()

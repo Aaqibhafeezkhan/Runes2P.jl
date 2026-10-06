@@ -369,3 +369,115 @@ function sparsity!(entries, term::MomentumBoundaryFluxTerm, layout, row)
     end
     return entries
 end
+
+# the benchmark source, which keeps a thermal bulk (moved from terms.jl)
+"""
+    MaxwellianSourceTerm(kinetic, grid, temperature; target_density, rate,
+                         bulk_momentum=Inf)
+
+Source with the shape of a non-relativistic Maxwellian `exp(-p²/2Θ)`, `Θ = T/mₑc²`, at
+`temperature` [eV] (DREAM's `ParticleSourceTerm` uses the relativistic one), whose
+magnitude drives the density of the kinetic unknown `kinetic` back to `target_density` (a
+number, or one value per radius) at the rate `rate` [1/s]:
+
+    S(p, ξ) = rate (n_target - n(f)) f_M(p) / n_M,
+
+with `f_M` the Maxwellian on `grid` and `n_M` its density, so the source adds
+`rate (n_target - n(f))` particles per second and per unit volume and nothing else.
+`kinetic` and the row unknown both live on `grid`. It keeps a thermal bulk from draining
+into the runaway region, which is what the published Dreicer rates assume; with
+`rate = 1/Δt` a step restores the particles the previous step lost.
+
+`n(f)` counts the cells below `bulk_momentum`, and `n_target` is the density of the bulk
+there. The bound matters: with the whole grid counted, particles moving from the bulk into
+the runaway tail leave the total unchanged, the source sees no deficit, and the bulk still
+drains. Set it below the critical momentum and above the thermal momentum.
+
+The term is `:explicit` (evaluated at the previous time level), so the density moment it
+reads adds nothing to the Jacobian and the sparsity stays local. This is a benchmark
+device, not the self-consistent particle source: DREAM's `ParticleSourceTerm` fixes the
+magnitude from the cold-electron density through quasi-neutrality, which needs the fluid
+unknowns.
+"""
+struct MaxwellianSourceTerm{T,D} <: EquationTerm
+    kinetic::Symbol
+    grid::KineticGrid{T}
+    shape::Vector{Matrix{T}}   # normalized Maxwellian per radius, density 1
+    bulk_cells::Vector{Int}    # per radius: momentum cells counted, 1:bulk_cells
+    target_density::D
+    rate::Float64
+    temperature::Float64       # [eV], of the shape
+    bulk_momentum::Float64
+end
+
+function MaxwellianSourceTerm(kinetic::Symbol, grid::KineticGrid{T}, temperature::Real;
+                              target_density, rate::Real, bulk_momentum::Real=Inf) where {T}
+    temperature > 0 || throw(ArgumentError("the temperature must be positive"))
+    rate > 0 || throw(ArgumentError("the rate must be positive"))
+    target_density isa Union{Real,AbstractVector} ||
+        throw(ArgumentError("target_density must be a number or one value per radius"))
+    bulk_momentum > 0 || throw(ArgumentError("bulk_momentum must be positive"))
+    theta = T(temperature) / T(Constants.ELECTRON_REST_ENERGY)
+    bulk_cells = map(1:radial_cell_count(grid)) do ir
+        m = momentum_grid(grid, ir)
+        count(<=(bulk_momentum), m.p_centers)
+    end
+    all(>(0), bulk_cells) || throw(ArgumentError("bulk_momentum is below the first momentum cell"))
+    shape = map(1:radial_cell_count(grid)) do ir
+        m = momentum_grid(grid, ir)
+        values = [exp(-p^2 / (2theta)) for p in m.p_centers, _ in 1:pitch_cell_count(m)]
+        jacobian = phase_space_jacobian(grid, ir)
+        norm = sum(jacobian[i, j] * m.p_widths[i] * m.xi_widths[j] * values[i, j]
+                   for i in 1:momentum_cell_count(m), j in 1:pitch_cell_count(m)) /
+               grid.radial_grid.spatial_jacobian[ir]
+        values ./ norm
+    end
+    return MaxwellianSourceTerm{T,typeof(target_density)}(kinetic, grid, shape, bulk_cells, target_density,
+                                                         Float64(rate), Float64(temperature),
+                                                         Float64(bulk_momentum))
+end
+
+dependencies(term::MaxwellianSourceTerm) = [term.kinetic]
+treatment(::MaxwellianSourceTerm) = :explicit
+
+function validate(term::MaxwellianSourceTerm, layout, row)
+    id = unknown_id(layout, term.kinetic)
+    layout.kinds[id] === :kinetic && layout.kinds[row] === :kinetic ||
+        throw(ArgumentError("MaxwellianSourceTerm reads and adds to kinetic unknowns"))
+    # the density is counted on the grid of `kinetic` and the source added on the row's
+    for k in (id, row)
+        _same_momentum_grids(term.grid, kinetic_grid(layout, k)) ||
+            throw(DimensionMismatch("the term's grid does not match $(layout.unknowns[k].name)"))
+    end
+    term.target_density isa AbstractVector && length(term.target_density) != radial_cell_count(layout) &&
+        throw(DimensionMismatch("target_density needs one value per radius"))
+    return nothing
+end
+
+_target(term::MaxwellianSourceTerm, ir) =
+    term.target_density isa AbstractVector ? term.target_density[ir] : term.target_density
+
+function rhs!(out, term::MaxwellianSourceTerm, u, layout, row, t)
+    id = unknown_id(layout, term.kinetic)
+    grid = kinetic_grid(layout, id)
+    for ir in 1:radial_cell_count(layout)
+        m = momentum_grid(grid, ir)
+        jacobian = phase_space_jacobian(grid, ir)
+        f = kinetic_view(u, layout, id, ir)
+        n = zero(eltype(out))
+        @inbounds for j in 1:pitch_cell_count(m), i in 1:term.bulk_cells[ir]
+            n += jacobian[i, j] * m.p_widths[i] * m.xi_widths[j] * f[i, j]
+        end
+        n /= grid.radial_grid.spatial_jacobian[ir]
+        magnitude = term.rate * (_target(term, ir) - n)
+        shape = term.shape[ir]
+        added = kinetic_view(out, layout, row, ir)
+        @inbounds for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
+            added[i, j] += magnitude * shape[i, j]
+        end
+    end
+    return out
+end
+
+# explicit terms carry no Jacobian block
+sparsity!(entries, ::MaxwellianSourceTerm, layout, row) = entries

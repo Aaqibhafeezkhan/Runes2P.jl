@@ -2,59 +2,6 @@
 # perturbation as a function of time, set at the start of the run and after every accepted step.
 
 """
-    PiecewiseConstant(values, switch_times)
-
-Function of time that holds `values[k]` from `switch_times[k-1]` up to `switch_times[k]`
-(`values[1]` before the first switch time, the last value from the last switch time on).
-At a switch time it has the value of the interval that starts there. `values` are numbers
-or vectors. A typical transport history of a disruption run is of this form: a level of δB/B
-for the first milliseconds and a hundredth of it afterwards,
-`PiecewiseConstant([1e-3, 1e-5], [1e-3])`.
-
-An update that takes such a function requires its switch times to be time points of the
-run ([`forced_time_points`](@ref)), so that no interval holds a switch.
-"""
-struct PiecewiseConstant{V}
-    values::Vector{V}
-    switch_times::Vector{Float64}
-    function PiecewiseConstant(values::AbstractVector, switch_times::AbstractVector{<:Real})
-        length(values) == length(switch_times) + 1 ||
-            throw(ArgumentError("need one value more than switch times, got $(length(values)) values and " *
-                                "$(length(switch_times)) switch times"))
-        issorted(switch_times; lt=<=) || throw(ArgumentError("the switch times must be strictly increasing"))
-        return new{eltype(values)}(collect(values), collect(Float64, switch_times))
-    end
-end
-
-# a time point within round-off below a switch time counts as the switch time
-(history::PiecewiseConstant)(t::Real) =
-    history.values[searchsortedlast(history.switch_times, t + 1e-12 * abs(t)) + 1]
-
-"""
-    level_over_step(level, t)
-
-The level of a function of time over a step that ends at `t`, for a term that evaluates it
-in the residual of an implicit step: for a [`PiecewiseConstant`](@ref) the value of the
-interval that ends at `t` (its limit from the left, so the step that ends at a switch time
-keeps the value before the switch, as the interval updates of the kinetic transport do),
-for any other function its value at `t`.
-"""
-level_over_step(level, t) = level(t)
-level_over_step(history::PiecewiseConstant, t::Real) =
-    history.values[searchsortedfirst(history.switch_times, t - 1e-12 * abs(t))]
-
-"""
-    forced_time_points(update)
-    forced_time_points(function_of_time)
-
-Times at which the setup of an update changes abruptly. [`integrate`](@ref) requires those
-inside the run to be among its time points. Empty by default, the switch times of a
-[`PiecewiseConstant`](@ref).
-"""
-forced_time_points(x) = Float64[]
-forced_time_points(history::PiecewiseConstant) = history.switch_times
-
-"""
     RechesterRosenbluthUpdate(operator, delta_b_over_b_at; major_radius, safety_factor=1,
                               name="radial_transport")
 
@@ -139,75 +86,9 @@ function restore_update!(update::RechesterRosenbluthUpdate, state::AbstractVecto
     return update
 end
 
-settings_fields(::Type{<:PiecewiseConstant}) = (described=(:values, :switch_times), derived=())
 settings_fields(::Type{<:RechesterRosenbluthUpdate}) =
     (described=(:name, :operator, :delta_b_over_b_at, :major_radius, :safety_factor, :safety_factor_profile),
      derived=(:delta_b_over_b,))
-
-function describe(history::PiecewiseConstant)
-    record = SettingsRecord("type" => "PiecewiseConstant", "switch_times" => _plain(history.switch_times))
-    if any(_is_radial_profile, history.values)
-        # profiles on points of their own, one record per interval
-        record["profiles"] = SettingsRecord("interval_$k" => _is_radial_profile(v) ? _describe_profile(v) :
-                                                             _describe_value(v)
-                                            for (k, v) in enumerate(history.values))
-    else
-        record["values"] = _plain(stack(history.values))
-    end
-    return record
-end
-
-"""
-    describe_prescribed_levels(levels_at, context; points=nothing)
-
-Record of a level prescribed as a function of time (a number or one value per radial
-face): the record of a [`PiecewiseConstant`](@ref), or the values at the time points of
-`context`, thinned as the tables of the prescribed plasma are. With `points`, the function
-may return a callable of r ([`radial_values`](@ref)): the values are those at `points`, and
-`profile` records the callable (an interpolator by its points), or `profiles` one per
-sampled time where it changes in time.
-"""
-function describe_prescribed_levels(levels_at, context::DescriptionContext; points=nothing)
-    levels_at isa PiecewiseConstant && return describe(levels_at)
-    record = SettingsRecord("type" => "prescribed levels", "source" => _callable_name(levels_at))
-    function incomplete(reason)
-        record["described"] = false
-        record["reason"] = reason
-        return record
-    end
-    isempty(context.times) && return incomplete("no time points to sample the function at")
-    values = try
-        first_value = levels_at(first(context.times))
-        width = points !== nothing && _is_radial_profile(first_value) ? length(points) : length(first_value)
-        max_samples = context.max_table_bytes ÷ (8 * width)
-        indices = _sample_indices(length(context.times), max_samples)
-        record["times"] = context.times[indices]
-        record["thinned"] = length(indices) < length(context.times)
-        sampled = [levels_at(t) for t in context.times[indices]]
-        profiles = points === nothing ? [] : filter(_is_radial_profile, sampled)
-        if !isempty(profiles)
-            if all(p -> p == first(profiles), profiles)
-                record["profile"] = _describe_profile(first(profiles))
-            else
-                record["profiles"] = SettingsRecord("sample_$k" => _is_radial_profile(v) ? _describe_profile(v) :
-                                                                   _describe_value(v)
-                                                    for (k, v) in enumerate(sampled))
-            end
-        end
-        # numbers and values are recorded as given, profiles by their values at the points
-        [collect(Float64, isempty(profiles) ? vcat(v) : radial_values(v, points)) for v in sampled]
-    catch error
-        return incomplete("the function failed at a time point: " * sprint(showerror, error))
-    end
-    record["time_count"] = length(context.times)
-    record["values"] = _plain(stack(values))
-    return record
-end
-
-# record of a radial profile given as a callable: an interpolator by its points (extension),
-# a function by its name
-_describe_profile(profile) = hasmethod(describe, Tuple{typeof(profile)}) ? describe(profile) :
-                             SettingsRecord("type" => "callable", "source" => _callable_name(profile))
 
 function describe(update::RechesterRosenbluthUpdate, context::DescriptionContext)
     record = SettingsRecord("type" => "RechesterRosenbluthUpdate", "name" => update.name,

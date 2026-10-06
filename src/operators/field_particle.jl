@@ -3,40 +3,9 @@
 # the electrons give to each other; a model field-particle term returns it to the bulk as
 # a shifted Maxwellian, with heat-flux corrections. The term has rank 1 to 3 per radius, is
 # applied matrix-free and enters the block preconditioners and the direct solver through a
-# Woodbury update (linear_solver.jl, krylov.jl).
-# Included after system/terms.jl, since it defines an EquationTerm.
-
-"""
-    LowRankBlock(rows, columns, left, right)
-
-Part `left * right'` of a term's Jacobian, with rows `rows` and columns `columns` of the
-state vector (contiguous ranges). `left` is `length(rows) × k`, `right` is
-`length(columns) × k`, `k` the rank.
-"""
-struct LowRankBlock{T}
-    rows::UnitRange{Int}
-    columns::UnitRange{Int}
-    left::Matrix{T}
-    right::Matrix{T}
-end
-
-"""
-    low_rank_jacobian(term, u, layout, row, t)
-
-For a `:matrix_free` term whose Jacobian at the state `u` is a sum of low-rank blocks:
-the vector of [`LowRankBlock`](@ref)s. `nothing` (the default) for any other term. The
-block preconditioners of [`GMRES`](@ref) and the direct solver [`SparseLU`](@ref) add
-the blocks by a Woodbury update, so the term needs no stored Jacobian.
-"""
-low_rank_jacobian(::EquationTerm, u, layout, row, t) = nothing
-
-"""
-    has_low_rank_jacobian(term)
-
-Whether [`low_rank_jacobian`](@ref) returns the whole Jacobian of `term` (false by
-default). A direct solver takes such matrix-free terms by a Woodbury update.
-"""
-has_low_rank_jacobian(::EquationTerm) = false
+# Woodbury update (linear_solver.jl, block_preconditioners.jl).
+# Included after system/terms.jl, since it defines an EquationTerm and implements the
+# low-rank interface defined there (`LowRankBlock`, `low_rank_jacobian`).
 
 # electron-electron parts of the collision frequencies: the free (cold) electrons as
 # targets, without the bound electrons and the ions, which take the momentum they receive

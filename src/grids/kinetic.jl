@@ -409,3 +409,18 @@ function total_particles(grid::KineticGrid{T}, f::AbstractArray{S,3}) where {T,S
     end
     return total
 end
+
+# the envelopes of a momentum region on a kinetic grid (moved from momentum_region.jl)
+"""
+    momentum_envelope(region, grid::KineticGrid, ir, t=0)
+
+Envelope of the region on the momentum cells of the radius index `ir` at the time `t`.
+"""
+momentum_envelope(region::MomentumRegion, grid::KineticGrid, ir::Integer, t=0.0) =
+    momentum_envelope(region, momentum_grid(grid, ir),
+                      momentum_limit(region, ir, t; radii=radial_cell_count(grid)))
+
+# the envelopes of a moment at all radii: nothing without a region
+_momentum_envelopes(::Nothing, grid::KineticGrid, t) = nothing
+_momentum_envelopes(region::MomentumRegion, grid::KineticGrid, t) =
+    [momentum_envelope(region, grid, ir, t) for ir in 1:radial_cell_count(grid)]

@@ -1,7 +1,8 @@
 # Radial profiles on points of their own: a number, one value per point, or a
 # callable of r, evaluated on the cell centres or the faces of the run's radial grid when
 # the run is built. Interpolator objects of Interpolations.jl are callables and work here;
-# the extension Runes2PInterpolationsExt evaluates them and records their points.
+# the extension Runes2PInterpolationsExt evaluates them and records their points. The levels
+# that are piecewise constant in time, whose values may be such profiles, are at the end.
 
 """
     radial_values(profile, points)
@@ -73,3 +74,58 @@ IonSpecies(name::AbstractString, Z::Integer, Z0::Integer, profile, grid::Kinetic
     IonSpecies(name, Z, Z0, profile, grid.radial_grid)
 IonSpecies(name::AbstractString, Z::Integer, profiles::AbstractVector, grid::KineticGrid) =
     IonSpecies(name, Z, profiles, grid.radial_grid)
+
+# levels that are piecewise constant in time (moved from solvers/transport_update.jl)
+
+"""
+    PiecewiseConstant(values, switch_times)
+
+Function of time that holds `values[k]` from `switch_times[k-1]` up to `switch_times[k]`
+(`values[1]` before the first switch time, the last value from the last switch time on).
+At a switch time it has the value of the interval that starts there. `values` are numbers
+or vectors. A typical transport history of a disruption run is of this form: a level of δB/B
+for the first milliseconds and a hundredth of it afterwards,
+`PiecewiseConstant([1e-3, 1e-5], [1e-3])`.
+
+An update that takes such a function requires its switch times to be time points of the
+run ([`forced_time_points`](@ref)), so that no interval holds a switch.
+"""
+struct PiecewiseConstant{V}
+    values::Vector{V}
+    switch_times::Vector{Float64}
+    function PiecewiseConstant(values::AbstractVector, switch_times::AbstractVector{<:Real})
+        length(values) == length(switch_times) + 1 ||
+            throw(ArgumentError("need one value more than switch times, got $(length(values)) values and " *
+                                "$(length(switch_times)) switch times"))
+        issorted(switch_times; lt=<=) || throw(ArgumentError("the switch times must be strictly increasing"))
+        return new{eltype(values)}(collect(values), collect(Float64, switch_times))
+    end
+end
+
+# a time point within round-off below a switch time counts as the switch time
+(history::PiecewiseConstant)(t::Real) =
+    history.values[searchsortedlast(history.switch_times, t + 1e-12 * abs(t)) + 1]
+
+"""
+    level_over_step(level, t)
+
+The level of a function of time over a step that ends at `t`, for a term that evaluates it
+in the residual of an implicit step: for a [`PiecewiseConstant`](@ref) the value of the
+interval that ends at `t` (its limit from the left, so the step that ends at a switch time
+keeps the value before the switch, as the interval updates of the kinetic transport do),
+for any other function its value at `t`.
+"""
+level_over_step(level, t) = level(t)
+level_over_step(history::PiecewiseConstant, t::Real) =
+    history.values[searchsortedfirst(history.switch_times, t - 1e-12 * abs(t))]
+
+"""
+    forced_time_points(update)
+    forced_time_points(function_of_time)
+
+Times at which the setup of an update changes abruptly. [`integrate`](@ref) requires those
+inside the run to be among its time points. Empty by default, the switch times of a
+[`PiecewiseConstant`](@ref).
+"""
+forced_time_points(x) = Float64[]
+forced_time_points(history::PiecewiseConstant) = history.switch_times

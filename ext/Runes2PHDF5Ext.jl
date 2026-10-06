@@ -425,6 +425,21 @@ function Runes2P.read_output(filenames::AbstractString...)
     # segments in the wrong order, or of two runs from the same start, are refused
     all(k -> _start_time(parts[k]) >= _start_time(parts[k-1]), 2:length(parts)) ||
         throw(ArgumentError("the files are not the segments of one run in order: a segment starts before the one given before it"))
+    # each segment resumed from the one before it, where both records say so: a fresh run
+    # under the name of an earlier one leaves the higher segments of that run
+    for k in 2:length(parts)
+        record = get(parts[k].settings, "segment", Dict{String,Any}())
+        index = get(get(parts[k-1].settings, "segment", Dict{String,Any}()), "index", nothing)
+        from = get(record, "resumed_from_segment", nothing)
+        from === nothing || index === nothing || from == index ||
+            throw(ArgumentError("$(filenames[k]) resumed from segment $from, and $(filenames[k-1]) is segment " *
+                                "$index: the files are not the segments of one run"))
+        hash = get(record, "previous_setup_hash", "unknown")
+        previous = get(parts[k-1].settings, "setup_hash", nothing)
+        hash == "unknown" || previous === nothing || hash == previous ||
+            throw(ArgumentError("$(filenames[k]) resumed from a segment with another setup than " *
+                                "$(filenames[k-1]): the files are not the segments of one run"))
+    end
     # a segment without a saved state has no update states either
     names = Set{String}()
     foreach(part -> union!(names, keys(part.update_states)), parts)

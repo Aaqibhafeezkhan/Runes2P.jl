@@ -20,47 +20,6 @@ every accepted step (`updates`), at the state and the time where that step ends.
 abstract type IntervalUpdate end
 
 """
-    free_critical_momentum(plasma, ir)
-
-Critical momentum at radius `ir` from the Connor-Hastie critical field of the cold
-electrons with the relativistic Coulomb logarithm (DREAM's `Ec_free`,
-`RunawayFluid.cpp`), [`critical_momentum`](@ref) of `|E|`. Screening and pitch-angle
-scattering raise the critical momentum, so this is a lower estimate.
-
-The Coulomb logarithm takes the free electron density, the cold, hot and runaway
-electrons together, as DREAM's `lnLambdaC` does (agreement to 1e-8).
-Before the thermal quench of a fully kinetic run most electrons are hot, and the cold
-density alone overstates the logarithm.
-"""
-function free_critical_momentum(plasma::PlasmaState, ir::Integer)
-    logarithm = relativistic_coulomb_logarithm(plasma.cold_electron_temperature[ir],
-                                               free_electron_density(plasma, ir))
-    field = critical_field(plasma.cold_electron_density[ir], logarithm)
-    return critical_momentum(abs(plasma.electric_field[ir]), field)
-end
-
-"""
-    total_critical_momentum(plasma, ir)
-
-Critical momentum at radius `ir` from the Connor-Hastie critical field of all electrons,
-free and bound, with the relativistic Coulomb logarithm of the free electrons (DREAM's
-`Ec_tot`, `RunawayFluid.cpp`), [`critical_momentum`](@ref) of `|E|`. `Inf` where the
-field is below that critical field.
-
-It is not DREAM's effective critical momentum (`other/fluid/pCrit`, Hesslow et al.), which
-takes the partial screening of the ions into account in the slowing down and the
-pitch-angle scattering of the fast electrons. The free critical field ([`free_critical_momentum`](@ref)) can give a threshold
-in a hot plasma where the effective one has none, below the thermal momentum. DREAM's effective critical momentum is not
-in Runes2P yet.
-"""
-function total_critical_momentum(plasma::PlasmaState, ir::Integer)
-    free = free_electron_density(plasma, ir)
-    logarithm = relativistic_coulomb_logarithm(plasma.cold_electron_temperature[ir], free)
-    field = critical_field(free + bound_electron_density(plasma, ir), logarithm)
-    return critical_momentum(abs(plasma.electric_field[ir]), field)
-end
-
-"""
     KnockOnCutoffUpdate(operator, plasma_at; name="knockon_cutoff", placement=:energy_midpoint,
                         no_ceiling_factor=10, per_radius=true, thermal_factor=4,
                         critical_momentum_at=total_critical_momentum, linked=[],

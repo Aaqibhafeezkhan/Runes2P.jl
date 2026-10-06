@@ -17,13 +17,13 @@ name = "component"
 tier = "quick"
 packed = false
 # 8.9 minutes, kept as defined
-files = ["test_knockon_kinematics.jl", "test_grids.jl", "test_knockon_implicit.jl", "test_knockon_cutoff.jl", "test_knockon_energy_kernel.jl", "test_pitch_overlap.jl", "test_energy_moment.jl", "test_adas.jl", "test_step_doubling.jl", "test_layout.jl", "test_advection_diffusion.jl", "test_legs.jl", "test_moments.jl", "test_per_radius_grids.jl", "test_energy_transfer.jl", "test_radiation.jl", "test_momentum_region.jl", "test_knockon_pairings.jl", "test_ion_energy.jl", "test_knockon_pitch_kernel.jl", "test_heat_transport.jl", "test_radial_profiles.jl", "test_discretization.jl", "test_induction.jl", "test_per_radius_pitch_grids.jl", "test_time_stepping.jl", "test_step_controller.jl", "test_jacobian.jl", "test_ion_unknowns.jl", "test_ion_rates.jl", "test_ion_columns.jl", "test_ion_transport.jl"]
+files = ["test_knockon_kinematics.jl", "test_grids.jl", "test_knockon_implicit.jl", "test_knockon_cutoff.jl", "test_knockon_energy_kernel.jl", "test_pitch_overlap.jl", "test_energy_moment.jl", "test_adas.jl", "test_step_doubling.jl", "test_layout.jl", "test_advection_diffusion.jl", "test_legs.jl", "test_moments.jl", "test_per_radius_grids.jl", "test_energy_transfer.jl", "test_radiation.jl", "test_momentum_region.jl", "test_knockon_pairings.jl", "test_ion_energy.jl", "test_knockon_pitch_kernel.jl", "test_heat_transport.jl", "test_radial_profiles.jl", "test_discretization.jl", "test_induction.jl", "test_per_radius_pitch_grids.jl", "test_time_stepping.jl", "test_step_controller.jl", "test_jacobian.jl", "test_ion_unknowns.jl", "test_ion_rates.jl", "test_ion_columns.jl", "test_ion_transport.jl", "test_include_order.jl"]
 
 [[group]]
 name = "quick-1"
 tier = "quick"
 # 8.4 minutes
-files = ["test_cold_unknowns.jl", "test_knockon_target.jl", "test_ion_kinetic_columns.jl", "test_kinetic_ionization.jl"]
+files = ["test_cold_unknowns.jl", "test_knockon_target.jl", "test_ion_kinetic_columns.jl", "test_kinetic_ionization.jl", "test_dual_flux_types.jl"]
 
 [[group]]
 name = "quick-2"

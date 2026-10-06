@@ -997,6 +997,106 @@ Base.@kwdef struct RunOptions{S<:NewtonSolver,P<:TimeStepper,U,C<:Union{Nothing,
     description::D = Dict{String,Any}()
 end
 
+# the record of a run (moved from settings.jl)
+
+"Sections of the settings that define the setup of a run, covered by `setup_hash`."
+const SETUP_SECTIONS = ("grids", "layout", "system", "updates", "prescribed", "solver", "time", "run")
+
+_has_undescribed(record::AbstractDict) =
+    get(record, "described", true) === false || any(_has_undescribed, values(record))
+_has_undescribed(value) = false
+
+function _describe_time(times, save_times, stepper)
+    record = SettingsRecord("time_count" => length(times), "save_count" => length(save_times),
+                            "stepper" => describe(stepper))
+    isempty(times) || (record["times"] = collect(Float64, times))
+    isempty(save_times) || (record["save_times"] = collect(Float64, save_times))
+    return record
+end
+
+"""
+    run_settings(system; solver=NewtonSolver(), stepper=FixedSteps(), times=Float64[],
+                 save_times=times, description=Dict(), updates=(), checkpoint=nothing,
+                 stop=nothing, log=nothing)
+    run_settings(system, times, options::RunOptions)
+
+The record of a run, written by [`write_output`](@ref) as the `settings` group. Sections:
+
+- `grids`: the kinetic grids by name, with their faces;
+- `layout`: the unknowns, their order, sizes, scales and lower limits;
+- `system`: the equations with every term and its options, the tolerances;
+- `updates`: the interval updates by name ([`IntervalUpdate`](@ref));
+- `prescribed`: the tables of the prescribed functions of time, sampled at the time
+  points ([`describe_prescribed_plasma`](@ref)), which the terms refer to by name. They
+  are a section of their own so that the hash of `system` does not change with the time
+  points;
+- `solver`: the Newton and linear solver settings;
+- `time`: the time points, the save times and the stepper ([`TimeStepper`](@ref);
+  `max_step_halvings = n` stands for `stepper = FixedSteps(max_halvings=n)`);
+- `run`: `description`, what the caller adds (a name, the origin of the initial state,
+  the parameters a hand-built coefficient came from), as plain values;
+- `code`: [`code_version`](@ref), with the commit of Runes2P;
+- `environment`: [`run_environment`](@ref);
+- `checkpoint`: the checkpoint settings, or the type `none`;
+- `stop`: the stop condition, or the type `none`;
+- `log`: the settings of the progress log, or the type `none`;
+- `hashes`: [`settings_hash`](@ref) of each of the first eight sections, and
+  `setup_hash` of the eight together. `code`, `environment`, `checkpoint`, `stop` and
+  `log` are outside the hashes, so the same setup has the same hash on another machine
+  and commit;
+- `complete`: false when some object of the run has no record of its own (a term defined
+  outside the package, a prescribed function that fails at a time point).
+
+[`integrate`](@ref) builds the record at its start and returns it in the solution, with
+the record of the segment added under `segment`: its number, its start time, the number
+of states saved before it, its status (`running`, `stopped` or `finished`) with the time
+reached, the intervals done and the reason of a stop, and for a resumed segment the file
+it resumed from, the commit and setup hash of the run that wrote it and the sections whose
+hash changed.
+"""
+function run_settings(system::EquationSystem; solver::NewtonSolver=NewtonSolver(),
+                      times::AbstractVector=Float64[], save_times::AbstractVector=times,
+                      stepper=nothing, max_step_halvings::Union{Nothing,Integer}=nothing,
+                      description=SettingsRecord(),
+                      updates=(), checkpoint=nothing, stop=nothing, log=nothing,
+                      max_table_bytes::Integer=MAX_PRESCRIBED_TABLE_BYTES)
+    if max_step_halvings !== nothing
+        stepper === nothing || throw(ArgumentError("give max_step_halvings or stepper, not both"))
+        stepper = FixedSteps(; max_halvings=max_step_halvings)
+    end
+    stepper === nothing && (stepper = FixedSteps())
+    context = DescriptionContext(; times, max_table_bytes)
+    record = SettingsRecord()
+    record["layout"] = describe(system.layout, context)
+    record["system"] = describe(system, context)
+    record["updates"] = SettingsRecord(update_name(update) => describe(update, context)
+                                       for update in _checked_updates(updates))
+    # after the layout, the terms and the updates have named their grids and tables
+    record["grids"] = describe(context)
+    record["prescribed"] = describe_tables(context)
+    record["solver"] = describe(solver)
+    record["time"] = _describe_time(times, save_times, stepper)
+    record["run"] = _plain(description)
+    record["complete"] = !_has_undescribed(record)
+    record["hashes"] = SettingsRecord(section => settings_hash(record[section]) for section in SETUP_SECTIONS)
+    record["setup_hash"] = settings_hash(SettingsRecord(section => record[section] for section in SETUP_SECTIONS))
+    record["code"] = code_version()
+    record["environment"] = run_environment()
+    record["checkpoint"] = checkpoint === nothing ? SettingsRecord("type" => "none") : describe(checkpoint)
+    record["stop"] = stop === nothing ? SettingsRecord("type" => "none") : describe(stop)
+    record["log"] = log === nothing ? SettingsRecord("type" => "none") : describe(log)
+    return record
+end
+
+"""
+    read_settings(filename)
+
+The `settings` group of an output file as a plain record, equal to the record written
+([`run_settings`](@ref)); empty for a file without the group. Defined by the package
+extension `Runes2PHDF5Ext`, which loads with HDF5 (`using HDF5`).
+"""
+function read_settings end
+
 # the record of a run with these options
 run_settings(system::EquationSystem, times::AbstractVector, options::RunOptions) =
     run_settings(system; options.solver, options.stepper, times,
@@ -1176,6 +1276,15 @@ function _start_segment!(u_old, layout, times, save_times, updates, settings, st
         isfile(file) && !checkpoint.overwrite && options.resume !== true &&
             throw(ArgumentError("the segment file $file exists; continue the run with resume = true, choose " *
                                 "another name or set overwrite = true in the checkpoint settings"))
+        # Segment files of the name with higher numbers than this segment belong to an
+        # earlier run under the same name, or to a continuation of a segment before this
+        # one that this run replaces, and read_output would join them to its output. The
+        # run deletes no file: it refuses to start while they exist.
+        stale = filter(f -> segment_number(f) > segment, segment_files(checkpoint))
+        isempty(stale) ||
+            throw(ArgumentError("the segment files $(join(stale, ", ")) of the name $(checkpoint.name) follow " *
+                                "segment $segment of this run, and read_output would join them to it: remove " *
+                                "them or choose another name"))
     end
     if stored !== nothing && settings["segment"]["settings_changed"]
         @warn "resuming $(stored.source) with changed settings" sections = settings["segment"]["changed_sections"]

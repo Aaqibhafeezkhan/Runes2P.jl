@@ -404,13 +404,27 @@ Base.@propagate_inbounds function _p_interior_gamma(op::AdvectionDiffusion, f, k
     return F
 end
 
+"""
+    _flux_eltype(op::AdvectionDiffusion, f, field=nothing)
+
+The element type of the fluxes of `op` applied to `f` with the electric field `field` (one
+value per radius, `nothing` for none): that of `f` promoted with those of the coefficients
+and of the field, so that every branch of a flux returns one type. With dual coefficients (the
+plasma columns) and a Float64 `f`, the element type of `f` alone made the
+fluxes return `Union{Float64, Dual}`, and [`apply!`](@ref) returned wrong partials under
+exponential fitting at the default optimization level, though not at `-O0`, with 23 partials
+on Julia 1.13.1.
+"""
+_flux_eltype(::AdvectionDiffusion{<:Any,C}, f, field=nothing) where {C} =
+    field === nothing ? promote_type(eltype(f), C) : promote_type(eltype(f), C, eltype(field))
+
 # Flux Γᵖ through p face `k` (between cells k-1 and k), multiplied by 𝒱'. `state` gives the
 # limiter weights of a frozen limiter (`nothing`: the limiter at f itself).
 Base.@propagate_inbounds function _p_flux(op::AdvectionDiffusion, f, k, j, ir, state=nothing, field=nothing)
     m = op.momentum_grids[ir]
     np = momentum_cell_count(m)
     V = op.jacobian_p_faces[k, j, ir]
-    T = eltype(f)
+    T = _flux_eltype(op, f, field)
     if k == 1
         if m.p_faces[1] == 0
             # p²Aᵖ times the face value, which is f₁ for the two-point schemes and the
@@ -418,9 +432,9 @@ Base.@propagate_inbounds function _p_flux(op::AdvectionDiffusion, f, k, j, ir, s
             # second-order upwind (DREAM AdvectionTerm, F1PSqAtZero with the p = 0 deltas)
             face = is_four_point_scheme(op.p_scheme) && np >= 3 ?
                    _p_four_point_face(op, f, state, _advection_p(op, field, 1, j, ir), 1, j, ir) : f[1, j, ir]
-            return op.jacobian_over_p2_at_zero[j, ir] * op.advection_p_times_p2_at_zero[j, ir] * face
+            return T(op.jacobian_over_p2_at_zero[j, ir] * op.advection_p_times_p2_at_zero[j, ir] * face)
         end
-        return op.p_lower_boundary === :prescribed ? V * op.p_flux_at_lower_boundary[j, ir] : zero(T)
+        return op.p_lower_boundary === :prescribed ? T(V * op.p_flux_at_lower_boundary[j, ir]) : zero(T)
     end
     V == 0 && return zero(T)
     A = _advection_p(op, field, k, j, ir)
@@ -481,7 +495,7 @@ end
 # Flux Γᵠ through ξ face `k` (between cells k-1 and k), multiplied by 𝒱'.
 Base.@propagate_inbounds function _xi_flux(op::AdvectionDiffusion, f, i, k, ir, state=nothing, field=nothing)
     m = op.momentum_grids[ir]
-    T = eltype(f)
+    T = _flux_eltype(op, f, field)
     (k == 1 || k == pitch_cell_count(m) + 1) && return zero(T)
     V = op.jacobian_xi_faces[i, k, ir]
     V == 0 && return zero(T)
@@ -535,7 +549,7 @@ end
 Base.@propagate_inbounds function _r_edge_flux(op::AdvectionDiffusion, f, i, j, k)
     rg = op.grid.radial_grid
     nr = radial_cell_count(rg)
-    T = eltype(f)
+    T = _flux_eltype(op, f)
     V = op.jacobian_r_faces[i, j, k]
     (V == 0 || op.r_boundary === :zero_flux) && return zero(T)
     # absorbing edge: f = 0 on the face, or half a cell outside it (DREAM)
@@ -554,7 +568,7 @@ Base.@propagate_inbounds _r_flux(op::AdvectionDiffusion, f, i, j, ir, k, state=n
     _r_flux(op, f, i, j, ir, k, state, _RadialOverlap())
 
 Base.@propagate_inbounds function _r_flux(op::AdvectionDiffusion, f, i, j, ir, k, state, mode::_RadialTwoPoint)
-    T = eltype(f)
+    T = _flux_eltype(op, f)
     k == 1 && return zero(T)
     rg = op.grid.radial_grid
     k == radial_cell_count(rg) + 1 && return _r_edge_flux(op, f, i, j, k)
@@ -568,7 +582,7 @@ Base.@propagate_inbounds function _r_flux(op::AdvectionDiffusion, f, i, j, ir, k
 end
 
 Base.@propagate_inbounds function _r_flux(op::AdvectionDiffusion, f, i, j, ir, k, state, ::_RadialFourPoint)
-    T = eltype(f)
+    T = _flux_eltype(op, f)
     k == 1 && return zero(T)
     rg = op.grid.radial_grid
     k == radial_cell_count(rg) + 1 && return _r_edge_flux(op, f, i, j, k)
@@ -583,7 +597,7 @@ end
 Base.@propagate_inbounds function _r_flux(op::AdvectionDiffusion, f, i, j, ir, k, state, ::_RadialOverlap)
     rg = op.grid.radial_grid
     nr = radial_cell_count(rg)
-    T = eltype(f)
+    T = _flux_eltype(op, f)
     k == 1 && return zero(T)
     k == nr + 1 && return _r_edge_flux(op, f, i, j, k)
     overlap = op.radial_overlaps[k]
@@ -691,7 +705,7 @@ function momentum_flux(op::AdvectionDiffusion, f::AbstractArray{<:Any,3}, face::
     m = momentum_grid(op.grid, ir)
     1 <= face <= momentum_cell_count(m) + 1 ||
         throw(ArgumentError("momentum face $face outside the grid (1 to $(momentum_cell_count(m) + 1))"))
-    total = zero(electric_field === nothing ? eltype(f) : promote_type(eltype(f), eltype(electric_field)))
+    total = zero(_flux_eltype(op, f, electric_field))
     @inbounds for j in 1:pitch_cell_count(m)
         total += m.xi_widths[j] * _p_flux(op, f, face, j, ir, nothing, electric_field)
     end

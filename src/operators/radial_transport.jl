@@ -72,7 +72,7 @@ function radial_particle_flux(op::AdvectionDiffusion, f::AbstractArray{<:Any,3},
     nr = radial_cell_count(op.grid)
     1 <= face <= nr + 1 || throw(ArgumentError("radial face $face outside the grid (1 to $(nr + 1))"))
     size(f) == size(op.grid) || throw(DimensionMismatch("f must have the grid size"))
-    total = zero(eltype(f))
+    total = zero(_flux_eltype(op, f))
     face == 1 && return total
     ir = face - 1   # the radius inside the face
     m = op.momentum_grids[ir]

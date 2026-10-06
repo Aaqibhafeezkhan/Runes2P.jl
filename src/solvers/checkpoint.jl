@@ -21,6 +21,10 @@ A run refuses to replace the segment file of another run unless `overwrite` is t
 A run continued with `resume = true` replaces the file with the number of its segment:
 the output is written before the checkpoint, so an attempt of the segment that was killed
 between the two leaves its file behind, and the checkpoint still names the segment before.
+A run refuses to start while segment files of its name with higher numbers than its
+segment exist, with `overwrite = true` as well: [`read_output`](@ref) would join those of
+an earlier run under the name, or of a continuation that the run replaces, to its output.
+The run deletes no file.
 """
 struct CheckpointSettings
     name::String
@@ -44,6 +48,9 @@ previous_checkpoint_file(settings::CheckpointSettings) =
 "Output file of segment `k`."
 segment_file(settings::CheckpointSettings, k::Integer) =
     joinpath(settings.directory, settings.name * ".segment" * lpad(k, 4, '0') * ".h5")
+
+"The number of a segment output file `<name>.segment<k>.h5`."
+segment_number(file::AbstractString) = parse(Int, match(r"\.segment(\d+)\.h5$", file).captures[1])
 
 """
     segment_files(settings::CheckpointSettings)
@@ -185,10 +192,13 @@ joined. The layout is rebuilt from the file's layout record. Of a segment that w
 after its last checkpoint and was followed by another, the states and statistics after
 the start of the following segment are left out, since that segment repeats them. The
 settings are those of the last file. Segments in the wrong order, or whose joined times
-repeat one (two runs from the same start), are refused with an `ArgumentError`. The
-check cannot tell the stale higher segments of an earlier run under the same name from
-those of the current one. Defined by the package extension `Runes2PHDF5Ext`,
-which loads with HDF5.
+repeat one (two runs from the same start), are refused with an `ArgumentError`. So is a
+segment that did not resume from the one before it: its `resumed_from_segment` must be the
+index of that segment and its `previous_setup_hash` the setup hash of that segment, where
+both records hold them. The higher segments of an earlier run under the same
+name with the same setup pass this check; a run refuses to start while segment files with
+higher numbers than its own exist ([`CheckpointSettings`](@ref)). Defined by the package extension `Runes2PHDF5Ext`, which
+loads with HDF5.
 """
 function read_output end
 

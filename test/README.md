@@ -31,6 +31,7 @@ julia --project=test test/runtests.jl --files test_grids.jl,test_layout.jl     #
 - Without arguments every group runs, in the order of `groups.toml`.
 - `--results <path>` writes a summary of the run: the commit, local changes, the counts and the time per file.
 - On a cluster the full run is the array job, about 20 minutes against 70 to 160 minutes as one process.
+  On a workstation the groups run side by side in separate processes.
   As one process the suite runs only after a change of `runtests.jl` or `helpers.jl`, where files of one process could affect each other.
 
 ## Tiers

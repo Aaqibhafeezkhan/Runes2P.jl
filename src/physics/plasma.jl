@@ -1,3 +1,7 @@
+# value of a number without its derivative parts (a method for ForwardDiff's dual numbers
+# is defined in system/jacobian.jl)
+_value(x::Real) = x
+
 """
     IonSpecies{T}
 

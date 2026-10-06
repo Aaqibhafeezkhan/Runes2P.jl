@@ -87,14 +87,6 @@ name, or an empty tuple (also for `nothing`).
 region_temperature(region::MomentumRegion) = region.limit isa ThermalMomentum{Symbol} ? (region.limit.temperature,) : ()
 region_temperature(::Nothing) = ()
 
-# the limits per radius of a region that follows the temperature unknown, in the number type
-# of the state
-function _state_limits(region::MomentumRegion, u, layout)
-    limit = region.limit
-    temperature = radial_values(u, layout, unknown_id(layout, limit.temperature))
-    return [limit.factor * sqrt(2 * temperature[ir] / Constants.ELECTRON_REST_ENERGY) for ir in eachindex(temperature)]
-end
-
 """
     is_time_dependent(region::MomentumRegion)
 
@@ -170,85 +162,6 @@ function momentum_envelope!(values::AbstractVector, region::MomentumRegion, m::M
 end
 momentum_envelope(region::MomentumRegion, m::MomentumGrid, limit::Real) =
     momentum_envelope!(zeros(momentum_cell_count(m)), region, m, limit)
-
-"""
-    momentum_envelope(region, grid::KineticGrid, ir, t=0)
-
-Envelope of the region on the momentum cells of the radius index `ir` at the time `t`.
-"""
-momentum_envelope(region::MomentumRegion, grid::KineticGrid, ir::Integer, t=0.0) =
-    momentum_envelope(region, momentum_grid(grid, ir),
-                      momentum_limit(region, ir, t; radii=radial_cell_count(grid)))
-
-# the envelopes of a moment at all radii: nothing without a region
-_momentum_envelopes(::Nothing, grid::KineticGrid, t) = nothing
-_momentum_envelopes(region::MomentumRegion, grid::KineticGrid, t) =
-    [momentum_envelope(region, grid, ir, t) for ir in 1:radial_cell_count(grid)]
-
-"""
-    RegionEnvelopes(region, grid)
-
-The envelopes of a region on a kinetic grid, per radius, kept by a term. A limit that
-depends on time is evaluated once per time, and the envelopes are rebuilt when the limit of
-a radius changes. The evaluations of a term share them, so a term with a
-region allocates nothing between the changes.
-"""
-struct RegionEnvelopes{R<:MomentumRegion}
-    region::R
-    values::Vector{Vector{Float64}}   # per radius, per momentum cell
-    limits::Vector{Float64}           # the limits of the values per radius, empty before the first evaluation
-    time::Base.RefValue{Float64}      # the time of the last evaluation of a limit in time
-end
-function RegionEnvelopes(region::MomentumRegion, grid::KineticGrid)
-    # The width Δp of the smooth step is that of the first cell above the limit, so the
-    # envelope jumps where the limit passes a cell centre between cells of different
-    # widths. With the temperature as an unknown the residual then jumps in it, and the
-    # Newton iteration can cycle.
-    region.envelope === :smooth && !isempty(region_temperature(region)) &&
-        any(ir -> !_uniform_widths(momentum_grid(grid, ir)), 1:radial_cell_count(grid)) &&
-        throw(ArgumentError("the :smooth envelope of a region that follows the temperature unknown " *
-                            "$(only(region_temperature(region))) jumps in the temperature on a momentum grid with " *
-                            "cells of different widths: use envelope = :interpolated or :cell_fraction"))
-    return RegionEnvelopes(region, [zeros(momentum_cell_count(grid, ir)) for ir in 1:radial_cell_count(grid)], Float64[],
-                           Ref(NaN))
-end
-_uniform_widths(m::MomentumGrid) = all(w -> isapprox(w, first(m.p_widths); rtol=1e-10), m.p_widths)
-RegionEnvelopes(::Nothing, grid::KineticGrid) = nothing
-
-# the envelope of the radius at the state u and the time t; nothing without a region
-@inline _envelope_at(::Nothing, grid, ir, u, layout, t) = nothing
-function _envelope_at(envelopes::RegionEnvelopes, grid::KineticGrid, ir, u, layout, t)
-    _refresh!(envelopes, grid, u, layout, t)
-    return envelopes.values[ir]
-end
-
-function _refresh!(envelopes::RegionEnvelopes, grid::KineticGrid, u, layout, t)
-    time = Float64(_value(t))
-    built = !isempty(envelopes.limits)
-    radii = radial_cell_count(grid)
-    if !isempty(region_temperature(envelopes.region))
-        # a limit that follows the state is compared at every evaluation
-        u === nothing && throw(ArgumentError("a region that follows the temperature unknown needs the state"))
-        values = [_value(x) for x in _state_limits(envelopes.region, u, layout)]
-    else
-        built && (!is_time_dependent(envelopes.region) || envelopes.time[] == time) && return envelopes
-        values = _limit_values(envelopes.region.limit, time)
-    end
-    limits = values isa Real ? Iterators.repeated(values, radii) : values
-    values isa Real || length(values) == radii ||
-        throw(DimensionMismatch("the limit of the momentum region has $(length(values)) values for $radii radii"))
-    envelopes.time[] = time
-    update_key!(envelopes.limits, limits) || return envelopes
-    try
-        for ir in 1:radii
-            momentum_envelope!(envelopes.values[ir], envelopes.region, momentum_grid(grid, ir), envelopes.limits[ir])
-        end
-    catch
-        reset_key!(envelopes.limits)
-        rethrow()
-    end
-    return envelopes
-end
 
 @inline _envelope_value(::Nothing, i) = true
 Base.@propagate_inbounds _envelope_value(envelope::AbstractVector, i) = envelope[i]

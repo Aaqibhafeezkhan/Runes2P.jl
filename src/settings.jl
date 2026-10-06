@@ -1,9 +1,9 @@
 # Records of a run's settings. Every object
 # a run is built from has a `describe` method that returns a plain record: a dictionary
 # with string keys whose values are strings, booleans, integers, floating-point numbers,
-# arrays of numbers, lists of strings, or records. `run_settings` collects them into the
-# `settings` group of the output file, with the code version, the environment and a hash
-# per section.
+# arrays of numbers, lists of strings, or records. `run_settings` (solvers/time_stepping.jl)
+# collects them into the `settings` group of the output file, with the code version, the
+# environment and a hash per section.
 
 using SHA: sha256
 using LibGit2: LibGit2
@@ -578,6 +578,72 @@ function describe(term::IonDiffusionTerm, context::DescriptionContext)
     return record
 end
 
+settings_fields(::Type{<:PiecewiseConstant}) = (described=(:values, :switch_times), derived=())
+function describe(history::PiecewiseConstant)
+    record = SettingsRecord("type" => "PiecewiseConstant", "switch_times" => _plain(history.switch_times))
+    if any(_is_radial_profile, history.values)
+        # profiles on points of their own, one record per interval
+        record["profiles"] = SettingsRecord("interval_$k" => _is_radial_profile(v) ? _describe_profile(v) :
+                                                             _describe_value(v)
+                                            for (k, v) in enumerate(history.values))
+    else
+        record["values"] = _plain(stack(history.values))
+    end
+    return record
+end
+
+"""
+    describe_prescribed_levels(levels_at, context; points=nothing)
+
+Record of a level prescribed as a function of time (a number or one value per radial
+face): the record of a [`PiecewiseConstant`](@ref), or the values at the time points of
+`context`, thinned as the tables of the prescribed plasma are. With `points`, the function
+may return a callable of r ([`radial_values`](@ref)): the values are those at `points`, and
+`profile` records the callable (an interpolator by its points), or `profiles` one per
+sampled time where it changes in time.
+"""
+function describe_prescribed_levels(levels_at, context::DescriptionContext; points=nothing)
+    levels_at isa PiecewiseConstant && return describe(levels_at)
+    record = SettingsRecord("type" => "prescribed levels", "source" => _callable_name(levels_at))
+    function incomplete(reason)
+        record["described"] = false
+        record["reason"] = reason
+        return record
+    end
+    isempty(context.times) && return incomplete("no time points to sample the function at")
+    values = try
+        first_value = levels_at(first(context.times))
+        width = points !== nothing && _is_radial_profile(first_value) ? length(points) : length(first_value)
+        max_samples = context.max_table_bytes ÷ (8 * width)
+        indices = _sample_indices(length(context.times), max_samples)
+        record["times"] = context.times[indices]
+        record["thinned"] = length(indices) < length(context.times)
+        sampled = [levels_at(t) for t in context.times[indices]]
+        profiles = points === nothing ? [] : filter(_is_radial_profile, sampled)
+        if !isempty(profiles)
+            if all(p -> p == first(profiles), profiles)
+                record["profile"] = _describe_profile(first(profiles))
+            else
+                record["profiles"] = SettingsRecord("sample_$k" => _is_radial_profile(v) ? _describe_profile(v) :
+                                                                   _describe_value(v)
+                                                    for (k, v) in enumerate(sampled))
+            end
+        end
+        # numbers and values are recorded as given, profiles by their values at the points
+        [collect(Float64, isempty(profiles) ? vcat(v) : radial_values(v, points)) for v in sampled]
+    catch error
+        return incomplete("the function failed at a time point: " * sprint(showerror, error))
+    end
+    record["time_count"] = length(context.times)
+    record["values"] = _plain(stack(values))
+    return record
+end
+
+# record of a radial profile given as a callable: an interpolator by its points (extension),
+# a function by its name
+_describe_profile(profile) = hasmethod(describe, Tuple{typeof(profile)}) ? describe(profile) :
+                             SettingsRecord("type" => "callable", "source" => _callable_name(profile))
+
 # the record of the level of a radial transport term: a number or a vector as given, a
 # history in time by its levels at the time points of the context (a `PiecewiseConstant` by
 # its values and switch times), a profile by its source and its values on the faces
@@ -1107,104 +1173,3 @@ function settings_hash(record::AbstractDict)
     _canonical!(io, record)
     return bytes2hex(sha256(take!(io)))
 end
-
-# ---------------------------------------------------------------------------------------
-# the record of a run
-
-"Sections of the settings that define the setup of a run, covered by `setup_hash`."
-const SETUP_SECTIONS = ("grids", "layout", "system", "updates", "prescribed", "solver", "time", "run")
-
-_has_undescribed(record::AbstractDict) =
-    get(record, "described", true) === false || any(_has_undescribed, values(record))
-_has_undescribed(value) = false
-
-function _describe_time(times, save_times, stepper)
-    record = SettingsRecord("time_count" => length(times), "save_count" => length(save_times),
-                            "stepper" => describe(stepper))
-    isempty(times) || (record["times"] = collect(Float64, times))
-    isempty(save_times) || (record["save_times"] = collect(Float64, save_times))
-    return record
-end
-
-"""
-    run_settings(system; solver=NewtonSolver(), stepper=FixedSteps(), times=Float64[],
-                 save_times=times, description=Dict(), updates=(), checkpoint=nothing,
-                 stop=nothing, log=nothing)
-    run_settings(system, times, options::RunOptions)
-
-The record of a run, written by [`write_output`](@ref) as the `settings` group. Sections:
-
-- `grids`: the kinetic grids by name, with their faces;
-- `layout`: the unknowns, their order, sizes, scales and lower limits;
-- `system`: the equations with every term and its options, the tolerances;
-- `updates`: the interval updates by name ([`IntervalUpdate`](@ref));
-- `prescribed`: the tables of the prescribed functions of time, sampled at the time
-  points ([`describe_prescribed_plasma`](@ref)), which the terms refer to by name. They
-  are a section of their own so that the hash of `system` does not change with the time
-  points;
-- `solver`: the Newton and linear solver settings;
-- `time`: the time points, the save times and the stepper ([`TimeStepper`](@ref);
-  `max_step_halvings = n` stands for `stepper = FixedSteps(max_halvings=n)`);
-- `run`: `description`, what the caller adds (a name, the origin of the initial state,
-  the parameters a hand-built coefficient came from), as plain values;
-- `code`: [`code_version`](@ref), with the commit of Runes2P;
-- `environment`: [`run_environment`](@ref);
-- `checkpoint`: the checkpoint settings, or the type `none`;
-- `stop`: the stop condition, or the type `none`;
-- `log`: the settings of the progress log, or the type `none`;
-- `hashes`: [`settings_hash`](@ref) of each of the first eight sections, and
-  `setup_hash` of the eight together. `code`, `environment`, `checkpoint`, `stop` and
-  `log` are outside the hashes, so the same setup has the same hash on another machine
-  and commit;
-- `complete`: false when some object of the run has no record of its own (a term defined
-  outside the package, a prescribed function that fails at a time point).
-
-[`integrate`](@ref) builds the record at its start and returns it in the solution, with
-the record of the segment added under `segment`: its number, its start time, the number
-of states saved before it, its status (`running`, `stopped` or `finished`) with the time
-reached, the intervals done and the reason of a stop, and for a resumed segment the file
-it resumed from, the commit and setup hash of the run that wrote it and the sections whose
-hash changed.
-"""
-function run_settings(system::EquationSystem; solver::NewtonSolver=NewtonSolver(),
-                      times::AbstractVector=Float64[], save_times::AbstractVector=times,
-                      stepper=nothing, max_step_halvings::Union{Nothing,Integer}=nothing,
-                      description=SettingsRecord(),
-                      updates=(), checkpoint=nothing, stop=nothing, log=nothing,
-                      max_table_bytes::Integer=MAX_PRESCRIBED_TABLE_BYTES)
-    if max_step_halvings !== nothing
-        stepper === nothing || throw(ArgumentError("give max_step_halvings or stepper, not both"))
-        stepper = FixedSteps(; max_halvings=max_step_halvings)
-    end
-    stepper === nothing && (stepper = FixedSteps())
-    context = DescriptionContext(; times, max_table_bytes)
-    record = SettingsRecord()
-    record["layout"] = describe(system.layout, context)
-    record["system"] = describe(system, context)
-    record["updates"] = SettingsRecord(update_name(update) => describe(update, context)
-                                       for update in _checked_updates(updates))
-    # after the layout, the terms and the updates have named their grids and tables
-    record["grids"] = describe(context)
-    record["prescribed"] = describe_tables(context)
-    record["solver"] = describe(solver)
-    record["time"] = _describe_time(times, save_times, stepper)
-    record["run"] = _plain(description)
-    record["complete"] = !_has_undescribed(record)
-    record["hashes"] = SettingsRecord(section => settings_hash(record[section]) for section in SETUP_SECTIONS)
-    record["setup_hash"] = settings_hash(SettingsRecord(section => record[section] for section in SETUP_SECTIONS))
-    record["code"] = code_version()
-    record["environment"] = run_environment()
-    record["checkpoint"] = checkpoint === nothing ? SettingsRecord("type" => "none") : describe(checkpoint)
-    record["stop"] = stop === nothing ? SettingsRecord("type" => "none") : describe(stop)
-    record["log"] = log === nothing ? SettingsRecord("type" => "none") : describe(log)
-    return record
-end
-
-"""
-    read_settings(filename)
-
-The `settings` group of an output file as a plain record, equal to the record written
-([`run_settings`](@ref)); empty for a file without the group. Defined by the package
-extension `Runes2PHDF5Ext`, which loads with HDF5 (`using HDF5`).
-"""
-function read_settings end

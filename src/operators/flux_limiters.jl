@@ -128,10 +128,6 @@ end
     return w_d * y_d + w_u * y_u + w_uu * y_uu
 end
 
-# value of a number without its derivative parts (a method for ForwardDiff's dual numbers
-# is defined with the AD code)
-_value(x::Real) = x
-
 # centre of cell i along one direction, and the index of the cell whose value a mirrored
 # ghost cell takes; ghost cells are mirrored about the boundary faces. Zero ghost values
 # (p_min > 0, beyond p_max) are set by the caller, `_p_four_point_face`
