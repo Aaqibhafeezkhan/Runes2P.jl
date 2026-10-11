@@ -36,9 +36,11 @@ const CATEGORIES = [
     (slug = "physics", title = "Physics", directory = "physics",
      summary = "The plasma state, the Coulomb logarithm, collision frequencies, conductivity, runaway rates and the physical constants.",
      subpages = [
-         ("plasma", "Plasma state and atomic data", ["physics/plasma.jl", "physics/plasma_source.jl", "physics/atomic_data.jl", "physics/adas.jl", "physics/ionization_energies.jl", "physics/ionization_cross_sections.jl"]),
+         ("plasma", "Plasma state and atomic data", ["physics/plasma.jl", "physics/plasma_source.jl", "physics/atomic_data.jl", "physics/adas.jl", "physics/ionization_energies.jl", "physics/ionization_cross_sections.jl",
+                                                 "physics/ionization_bethe_fits.jl"]),
          ("collisions", "Collisions", ["physics/coulomb_logarithm.jl", "physics/collision_frequencies.jl"]),
-         ("conductivity", "Conductivity and runaway rates", ["physics/conductivity.jl", "physics/runaway_rates.jl"]),
+         ("conductivity", "Conductivity and runaway rates", ["physics/conductivity.jl", "physics/runaway_rates.jl",
+                                                         "physics/effective_critical_field.jl"]),
          ("constants", "Physical constants", ["physics/constants.jl"]),
      ]),
     (slug = "operators", title = "Operators", directory = "operators",
@@ -59,7 +61,7 @@ const CATEGORIES = [
          ("terms", "Equation terms", ["system/terms.jl", "system/algebraic_terms.jl", "system/moment_terms.jl",
                                       "system/fokker_planck_terms.jl", "system/knockon_terms.jl",
                                       "system/interface_term.jl", "system/transport_terms.jl",
-                                      "system/population_terms.jl", "system/energy_terms.jl",
+                                      "system/population_terms.jl", "system/avalanche_terms.jl", "system/energy_terms.jl",
                                       "system/radiation_terms.jl",
                                       "system/heat_transport_terms.jl", "system/ion_energy_terms.jl",
                                       "system/ion_terms.jl", "system/kinetic_ionization.jl"]),
@@ -77,7 +79,7 @@ const CATEGORIES = [
          ("time_stepping", "Time stepping", ["solvers/time_stepping.jl", "solvers/legs.jl"]),
          ("interval_updates", "Updates between intervals", ["solvers/interval_updates.jl", "solvers/transport_update.jl"]),
          ("checkpoints", "Checkpoints and progress log", ["solvers/checkpoint.jl", "solvers/progress_log.jl"]),
-         ("settings", "Run settings", ["settings.jl"]),
+         ("settings", "Run settings", ["settings.jl", "deprecations.jl"]),
      ]),
 ]
 
@@ -174,7 +176,7 @@ const API_PAGES = [write_category(category) for category in CATEGORIES]
 
 # every source file with docstrings is on a page (the module docstring of Runes2P.jl is on
 # the home page)
-let listed = reduce(vcat, [source_files(category.directory) for category in CATEGORIES]; init = ["settings.jl", "Runes2P.jl"])
+let listed = reduce(vcat, [source_files(category.directory) for category in CATEGORIES]; init = ["settings.jl", "deprecations.jl", "Runes2P.jl"])
     files = union(keys(COUNTS), keys(FOREIGN))
     missing_files = setdiff(filter(file -> !startswith(file, ".."), collect(files)), listed)
     isempty(missing_files) || error("source files with docstrings on no page: ", join(sort(missing_files), ", "))

@@ -73,9 +73,9 @@ The charge `Z0` of every component of the ion densities: the weights of
 free_electron_weights(c::IonComposition) = Float64[Z0 for Z in c.nuclear_charges for Z0 in 0:Z]
 
 """
-    ion_densities_unknown(composition; name=:ion_densities, scale=1e19, limit_tolerance=1e-10)
+    ion_densities_unknown(composition; ions=:ion_densities, scale=1e19, limit_tolerance=1e-10)
 
-The radial unknown of the densities [m⁻³] of the charge states of `composition`
+The radial unknown `ions` of the densities [m⁻³] of the charge states of `composition`
 ([`IonComposition`](@ref)), with one group of components per species
 ([`component_groups`](@ref)). Its lower limit keeps every charge state at or above
 `−limit_tolerance` times the density of its species (`LowerLimit(reference = :group)`): a
@@ -84,28 +84,30 @@ each species, so a trace impurity has its own (DREAM limits only `Σ Z0² n` per
 DREAM issues #25 and #91). The default Newton tolerance of such an unknown is relative to
 the density of each species as well ([`tolerance`](@ref)).
 """
-function ion_densities_unknown(c::IonComposition; name::Symbol=:ion_densities, scale::Real=1e19,
-                               limit_tolerance::Real=1e-10)
+function ion_densities_unknown(c::IonComposition; ions::Symbol=:ion_densities, scale::Real=1e19,
+                               limit_tolerance::Real=1e-10, name::Union{Nothing,Symbol}=nothing)
+    name = renamed_keyword(:ion_densities_unknown, :ions => ions, :name => name, :ion_densities)
     groups = [species_components(c, s) for s in 1:length(c)]
     return RadialUnknown(name; components=component_count(c), scale, groups,
                          nonnegative=LowerLimit(tolerance=limit_tolerance, reference=:group))
 end
 
 """
-    set_ion_densities!(u, layout, ions; name=:ion_densities)
+    set_ion_densities!(u, layout, species; ions=:ion_densities)
 
-Set the unknown `name` of the state `u` to the charge-state densities of `ions`, a list of
-[`IonSpecies`](@ref) or a [`PlasmaState`](@ref), whose species and order define the
+Set the unknown `ions` of the state `u` to the charge-state densities of `species`, a list
+of [`IonSpecies`](@ref) or a [`PlasmaState`](@ref), whose species and order define the
 composition of the unknown.
 """
-set_ion_densities!(u::AbstractVector, layout::UnknownLayout, plasma::PlasmaState; name::Symbol=:ion_densities) =
-    set_ion_densities!(u, layout, plasma.ions; name)
-function set_ion_densities!(u::AbstractVector, layout::UnknownLayout, ions::AbstractVector{<:IonSpecies};
-                            name::Symbol=:ion_densities)
-    id = unknown_id(layout, name)
-    composition = IonComposition(ions)
+set_ion_densities!(u::AbstractVector, layout::UnknownLayout, plasma::PlasmaState; ions::Symbol=:ion_densities,
+                   name::Union{Nothing,Symbol}=nothing) =
+    set_ion_densities!(u, layout, plasma.ions; ions, name)
+function set_ion_densities!(u::AbstractVector, layout::UnknownLayout, species_list::AbstractVector{<:IonSpecies};
+                            ions::Symbol=:ion_densities, name::Union{Nothing,Symbol}=nothing)
+    id = unknown_id(layout, renamed_keyword(:set_ion_densities!, :ions => ions, :name => name, :ion_densities))
+    composition = IonComposition(species_list)
     _check_ion_unknown(layout, id, composition)
-    for (s, species) in enumerate(ions), ir in 1:radial_cell_count(layout)
+    for (s, species) in enumerate(species_list), ir in 1:radial_cell_count(layout)
         size(species.charge_state_densities, 2) == radial_cell_count(layout) ||
             throw(DimensionMismatch("the densities of $(species.name) need one column per radius"))
         radial_view(u, layout, id, ir)[species_components(composition, s)] .= species.charge_state_densities[:, ir]
@@ -114,13 +116,14 @@ function set_ion_densities!(u::AbstractVector, layout::UnknownLayout, ions::Abst
 end
 
 """
-    ion_densities(u, layout, composition; name=:ion_densities)
+    ion_densities(u, layout, composition; ions=:ion_densities)
 
 The [`IonSpecies`](@ref) of `composition` with the charge-state densities of the unknown
-`name` in the state `u`.
+`ions` in the state `u`.
 """
-function ion_densities(u::AbstractVector, layout::UnknownLayout, c::IonComposition; name::Symbol=:ion_densities)
-    id = unknown_id(layout, name)
+function ion_densities(u::AbstractVector, layout::UnknownLayout, c::IonComposition; ions::Symbol=:ion_densities,
+                       name::Union{Nothing,Symbol}=nothing)
+    id = unknown_id(layout, renamed_keyword(:ion_densities, :ions => ions, :name => name, :ion_densities))
     _check_ion_unknown(layout, id, c)
     nr = radial_cell_count(layout)
     return [IonSpecies(c.names[s], c.nuclear_charges[s],
@@ -129,9 +132,9 @@ function ion_densities(u::AbstractVector, layout::UnknownLayout, c::IonCompositi
 end
 
 """
-    deposit_neutrals!(u, layout, composition, deposits...; name=:ion_densities)
+    deposit_neutrals!(u, layout, composition, deposits...; ions=:ion_densities)
 
-Add neutral atoms to the state `u` at the start of a run (DREAM's `IONS_DYNAMIC_NEUTRAL`):
+Add neutral atoms to the unknown `ions` of the state `u` at the start of a run (DREAM's `IONS_DYNAMIC_NEUTRAL`):
 each deposit `species => density` adds `density` [m⁻³], a number or one value per radius,
 to the neutral state of the species of that name. The rate equations ionize them from the
 first step on. DREAM's reference case deposits neutral deuterium and argon at 1 eV,
@@ -140,8 +143,8 @@ species of the background deuterium gives the same densities as DREAM's separate
 since the rates are linear in the densities.
 """
 function deposit_neutrals!(u::AbstractVector, layout::UnknownLayout, c::IonComposition, deposits::Pair...;
-                           name::Symbol=:ion_densities)
-    id = unknown_id(layout, name)
+                           ions::Symbol=:ion_densities, name::Union{Nothing,Symbol}=nothing)
+    id = unknown_id(layout, renamed_keyword(:deposit_neutrals!, :ions => ions, :name => name, :ion_densities))
     _check_ion_unknown(layout, id, c)
     nr = radial_cell_count(layout)
     for (species, density) in deposits
@@ -157,25 +160,33 @@ function deposit_neutrals!(u::AbstractVector, layout::UnknownLayout, c::IonCompo
 end
 
 """
-    population_equations(composition; ions=:ion_densities, cold=:cold_electron_density,
-                         hot=nothing, runaway=nothing)
+    population_equations(composition; ions=:ion_densities, density=:cold_electron_density,
+                         hot_density=nothing, runaway_density=nothing)
 
 The closure of the cold-electron density, `0 = Σ Z0 n_ij − n_hot − n_re − n_cold`: the free
 electrons of the ion densities `ions` ([`WeightedSumTerm`](@ref)) less those of the
-distributions, given as the radial unknowns `hot` and `runaway` of their densities
-(DREAM's `n_cold`). Without them the cold density is the
-free-electron density. The cold density is the target of the e-e collisions, read by a
-[`PlasmaFromUnknowns`](@ref) with `density = cold`.
+distributions, given as the radial unknowns `hot_density` and `runaway_density` of their
+densities (DREAM's `n_cold`), in the row of the cold density
+`density`. Without them the cold density is the free-electron density. The cold density is
+the target of the e-e collisions, read by a [`PlasmaFromUnknowns`](@ref) with the same
+`density`. The keywords `cold`, `hot` and `runaway` are the deprecated names of
+`density`, `hot_density` and `runaway_density`.
 """
-function population_equations(c::IonComposition; ions::Symbol=:ion_densities, cold::Symbol=:cold_electron_density,
+function population_equations(c::IonComposition; ions::Symbol=:ion_densities, density::Symbol=:cold_electron_density,
+                              hot_density::Union{Nothing,Symbol}=nothing,
+                              runaway_density::Union{Nothing,Symbol}=nothing, cold::Union{Nothing,Symbol}=nothing,
                               hot::Union{Nothing,Symbol}=nothing, runaway::Union{Nothing,Symbol}=nothing)
+    density = renamed_keyword(:population_equations, :density => density, :cold => cold, :cold_electron_density)
+    hot_density = renamed_keyword(:population_equations, :hot_density => hot_density, :hot => hot, nothing)
+    runaway_density = renamed_keyword(:population_equations, :runaway_density => runaway_density, :runaway => runaway,
+                                      nothing)
     minus(name) = LinearTerm(name; coefficient=-1)
     terms = EquationTerm[WeightedSumTerm(ions, free_electron_weights(c))]
-    for name in (hot, runaway)
+    for name in (hot_density, runaway_density)
         name === nothing || push!(terms, minus(name))
     end
-    push!(terms, minus(cold))
-    return [Equation(cold, Algebraic(), Tuple(terms))]
+    push!(terms, minus(density))
+    return [Equation(density, Algebraic(), Tuple(terms))]
 end
 
 """
@@ -241,7 +252,7 @@ end
 
 # the ADF11 tables of the element of a species, checked against its nuclear charge
 function _element_tables(element::AbstractString, Z::Integer, directory)
-    haskey(ADAS_FILES, element) ||
+    haskey(ADAS_FILES, atomic_element(element)) ||
         throw(ArgumentError("the ion species $element is not an element with ADF11 tables " *
                             "($(join(sort!(collect(keys(ADAS_FILES))), ", ")))"))
     tables = read_adas(element; directory)

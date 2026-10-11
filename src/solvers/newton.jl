@@ -253,6 +253,18 @@ function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver=NewtonS
             end
         end
     end
+    # the default floor of a temperature that only fluid terms read, where the unknown
+    # declares no limit of its own
+    already = Set(limited)
+    for (name, temperature_floor) in fluid_temperature_floors(system)
+        for i in Iterators.flatten(_unknown_ranges(layout, unknown_id(layout, name)))
+            i in already && continue
+            push!(limited, i)
+            push!(limit_value, temperature_floor)
+            push!(limit_tolerance, zero(T))
+            push!(limit_reference, 1:0)
+        end
+    end
     rate_tolerance = zeros(T, n)
     for equation in system.equations
         equation.kind isa Constraint || continue

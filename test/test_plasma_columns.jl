@@ -155,7 +155,7 @@ using ForwardDiff: ForwardDiff
                                                RadialUnknown(:cold_electron_temperature; scale=10.0)])
         plasma = PlasmaFromUnknowns(base; density=nothing)
         fp = FokkerPlanckTerm(:f, AdvectionDiffusion(g; scheme=:exponential_fitting, p_upper_boundary=:f_zero);
-                              plasma, settings, coefficients=:lagged)
+                              plasma, settings, lagged=:all)
         field_particle = FieldParticleTerm(:f, FieldParticleOperator(g, base(0.0), settings); plasma)
         @test !is_linear(field_particle) && :cold_electron_temperature in dependencies(field_particle)
         u0 = zeros(length(layout))

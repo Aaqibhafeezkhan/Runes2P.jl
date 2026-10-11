@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.30"
+const OUTPUT_FORMAT_VERSION = v"0.31"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -442,7 +442,7 @@ end
 describe(term::EquationTerm) = describe(term, DescriptionContext())
 
 settings_fields(::Type{<:FokkerPlanckTerm}) =
-    (described=(:unknown, :operator, :jacobian, :electric_field, :plasma, :settings, :synchrotron, :coefficients,
+    (described=(:unknown, :operator, :jacobian, :electric_field, :plasma, :settings, :synchrotron, :lag_all,
                 :lagged),
      derived=(:stored_operator, :values, :correction, :dual_input, :dual_output, :field_values, :dual_field,
               :plasma_key, :rebuilds, :dual_operator, :dual_columns, :ion_state))
@@ -460,9 +460,12 @@ function describe(term::FokkerPlanckTerm, context::DescriptionContext)
         record["operator"] = describe(term.operator, context; coefficients=false)
         record["collision_settings"] = describe(term.settings)
         record["synchrotron"] = term.synchrotron
-        is_state_dependent(term.plasma) && (record["coefficients"] = String(term.coefficients))
-        # recorded only when set, so that the records of other terms keep their content
-        isempty(term.lagged) || (record["lagged"] = String.(collect(term.lagged)))
+        # recorded only when set: "all" for the whole plasma, or the lagged groups
+        if is_state_dependent(term.plasma) && term.lag_all
+            record["lagged"] = "all"
+        elseif !isempty(term.lagged)
+            record["lagged"] = String.(collect(term.lagged))
+        end
         _describe_plasma_source!(record, term.plasma, context)
     end
     return record
@@ -670,8 +673,41 @@ function describe(term::SecondaryHeatingTerm, context::DescriptionContext)
     return record
 end
 
+settings_fields(::Type{<:RosenbluthPutvinskiSourceTerm}) =
+    (described=(:kinetic, :grid, :runaway_density, :total_density, :electric_field, :p_cutoff),
+     derived=(:positive, :negative))
+
+function describe(term::RosenbluthPutvinskiSourceTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["kinetic"] = String(term.kinetic)
+    record["grid"] = grid_name!(context, term.grid)
+    record["runaway_density"] = String(term.runaway_density)
+    record["total_density"] = String(term.total_density)
+    term.electric_field === nothing || (record["electric_field"] = String(term.electric_field))
+    record["p_cutoff"] = term.p_cutoff
+    return record
+end
+
+settings_fields(::Type{<:ExternalAvalancheTerm}) =
+    (described=(:plasma, :p_cutoff, :runaway_density, :total_density, :electric_field, :temperature, :density, :ions,
+                :settings, :exponent),
+     derived=())
+
+function describe(term::ExternalAvalancheTerm, context::DescriptionContext)
+    record = _term_record(term)
+    for name in (:runaway_density, :total_density, :electric_field, :temperature, :density)
+        record[String(name)] = String(getfield(term, name))
+    end
+    term.ions === nothing || (record["ions"] = String(term.ions))
+    record["p_cutoff"] = term.p_cutoff
+    record["exponent"] = term.exponent
+    record["collision_settings"] = describe(term.settings)
+    _describe_plasma_source!(record, term.plasma, context)
+    return record
+end
+
 settings_fields(::Type{<:KineticIonizationTerm}) =
-    (described=(:composition, :kinetic, :grid, :ions, :envelopes), derived=(:rates, :weights))
+    (described=(:composition, :kinetic, :grid, :ions, :envelopes, :cross_section_form), derived=(:rates, :weights))
 
 function describe(term::KineticIonizationTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -680,7 +716,9 @@ function describe(term::KineticIonizationTerm, context::DescriptionContext)
     record["kinetic"] = String(term.kinetic)
     record["grid"] = grid_name!(context, term.grid)
     record["ions"] = String(term.ions)
-    record["cross_sections"] = "Burgess-Chidichimo with Garland's extension, DREAM's fits"
+    record["cross_sections"] = term.cross_section_form === :dream ?
+                               "Burgess-Chidichimo with Garland's extension, DREAM's fits" :
+                               "Burgess-Chidichimo with the Bethe term over beta^2, refitted (issue #189)"
     return _describe_region!(record, term.envelopes, context)
 end
 

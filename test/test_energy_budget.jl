@@ -52,8 +52,12 @@ import ForwardDiff
                                                   RadialUnknown(:total_electron_energy; scale=THERMAL_ENERGY_FACTOR * 1e21)])
         fp = FokkerPlanckTerm(:f, AdvectionDiffusion(grid; scheme=:exponential_fitting, p_upper_boundary=:f_zero);
                               plasma=PlasmaFromUnknowns(base), settings)
+        # the row lists the sinks of the hot region and the energy that leaves through p_max;
+        # both are below 1e-10 of the total energy over the step here
         equations = [Equation(:f, TimeDerivative(), fp),
-                     Equation(:cold_electron_temperature, TimeDerivative(:total_electron_energy), PrescribedValueTerm([0.0])),
+                     Equation(:cold_electron_temperature, TimeDerivative(:total_electron_energy), PrescribedValueTerm([0.0]),
+                              KineticEnergyLossTerm(fp; part=:sinks, region),
+                              MomentumBoundaryFluxTerm(:f, fp; weight=:energy, coefficient=-1)),
                      density_row([n]), thermal_energy_equation(), total_energy_equation(:f, grid; region)]
         u0 = zeros(length(layout))
         kinetic_array(u0, layout, 1) .= f0
@@ -79,6 +83,65 @@ import ForwardDiff
         transfer = (W_cold[2] - W_cold[1]) / dt
         @test transfer > 0
         @test transfer ≈ friction rtol = 2e-2
+    end
+
+    @testset "the row of the total energy lists every channel of W_hot (issue #180)" begin
+        T0, n = 100.0, 1e19
+        grid = cylindrical_grid(MomentumGrid(uniform_p_faces(60, 0.0, 0.4), uniform_xi_faces(2)),
+                                RadialGrid(uniform_r_faces(2, 0.5)))
+        base = PlasmaState(; cold_electron_temperature=[T0, T0], ions=[IonSpecies("D", 1, 1, [n, n])],
+                           electric_field=zeros(2), magnetic_field=fill(2.5, 2))
+        region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor=5))
+        plasma = PlasmaFromUnknowns(base)
+        fp(boundary; settings=CollisionSettings(mode=:full, screening=:partial)) =
+            FokkerPlanckTerm(:f, AdvectionDiffusion(grid; scheme=:exponential_fitting, p_upper_boundary=boundary);
+                             plasma, settings)
+        term = fp(:f_zero)
+        sinks = KineticEnergyLossTerm(term; part=:sinks, region)
+        outflow = MomentumBoundaryFluxTerm(:f, term; weight=:energy, coefficient=-1)
+        energy = [thermal_energy_equation(), total_energy_equation(:f, grid; region)]
+        row(terms...) = Equation(:cold_electron_temperature, TimeDerivative(:total_electron_energy), terms...)
+        check(f_terms, row_terms...) = Runes2P._check_plasma_pairings([Equation(:f, TimeDerivative(), f_terms...);
+                                                                    row(row_terms...); energy])
+        @test check((term,), sinks, outflow) === nothing
+        @test_throws "part = :sinks" check((term,), outflow)
+        @test_throws "through p_max" check((term,), sinks)
+        # the boundary term of this Fokker-Planck term, charged as a loss
+        @test_throws "through p_max" check((term,), sinks, MomentumBoundaryFluxTerm(:f, term; weight=:energy, coefficient=1))
+        @test_throws "through p_max" check((term,), sinks,
+                                           MomentumBoundaryFluxTerm(:f, fp(:f_zero); weight=:energy, coefficient=-1))
+        # complete screening without radiation has no sinks
+        bare = fp(:f_zero; settings=CollisionSettings(mode=:full, screening=:complete, bremsstrahlung=:neglect))
+        bare = FokkerPlanckTerm(:f, bare.operator; plasma, settings=bare.settings, synchrotron=false)
+        @test check((bare,), MomentumBoundaryFluxTerm(:f, bare; weight=:energy, coefficient=-1)) === nothing
+        # radial transport and knock-on secondaries on the grid of f have no row term yet
+        transport = AdvectionDiffusion(grid; scheme=:central, r_boundary=:absorbing)
+        add_rechester_rosenbluth_diffusion!(transport, 1e-3; major_radius=6.2)
+        @test_throws "Radial transport" check((term, FokkerPlanckTerm(:f, transport)), sinks, outflow)
+        @test_throws "fluid runaways above the grid" check((term, RosenbluthPutvinskiSourceTerm(:f, grid)), sinks, outflow)
+        # a system without the total energy keeps the old rows
+        @test Runes2P._check_plasma_pairings([Equation(:f, TimeDerivative(), term, FokkerPlanckTerm(:f, transport))]) === nothing
+
+        # The sinks take no flux through p_max, whatever the boundary of the source: the energy
+        # of the electrons that leave is the boundary term's alone.
+        # A tail at the end of the grid, where the flux through p_max is large.
+        layout = UnknownLayout(grid.radial_grid, [KineticUnknown(:f, grid; scale=1e16),
+                                                  RadialUnknown(:cold_electron_temperature; scale=100.0),
+                                                  RadialUnknown(:cold_electron_density; scale=1e19)])
+        u = zeros(length(layout))
+        m = momentum_grid(grid)
+        for ir in 1:2
+            kinetic_view(u, layout, 1, ir) .= [1e16 * exp(-((p - 0.38) / 0.05)^2) for p in m.p_centers, _ in 1:2]
+        end
+        radial_values(u, layout, 2) .= T0
+        radial_values(u, layout, 3) .= n
+        loss(boundary) = Runes2P.rhs!(zeros(length(u)), KineticEnergyLossTerm(fp(boundary); part=:sinks, region=nothing),
+                                   u, layout, 2, 0.0)[Runes2P.unknown_range(layout, 2, 1)]
+        reference = loss(:interface)
+        @test only(reference) != 0
+        for boundary in (:f_zero, :constant_flux)
+            @test loss(boundary) == reference
+        end
     end
 
     @testset "a cold plasma under a hot tail" begin
@@ -164,7 +227,8 @@ import ForwardDiff
                      minus(:ohmic_current_density)),
             thermal_energy_equation(), total_energy_equation(:f, grid; region),
             Equation(:cold_electron_temperature, TimeDerivative(:total_electron_energy),
-                     ProductTerm(:electric_field, :ohmic_current_density), ProductTerm(:electric_field, :hot_electron_current_density))]
+                     ProductTerm(:electric_field, :ohmic_current_density), ProductTerm(:electric_field, :hot_electron_current_density),
+                     KineticEnergyLossTerm(fp; part=:sinks, region), MomentumBoundaryFluxTerm(:f, fp; weight=:energy, coefficient=-1))]
         u0 = zeros(length(layout))
         f0 = [exp(-p^2 / (1 + sqrt(1 + p^2)) / theta) for p in momentum_grid(grid).p_centers, _ in 1:6, _ in 1:1]
         f0 .*= n / density(grid, f0)[1]

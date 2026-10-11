@@ -5,7 +5,8 @@
 # the cold electrons below it.
 
 """
-    KineticIonizationTerm(composition, kinetic, grid; ions=:ion_densities, region=nothing)
+    KineticIonizationTerm(composition, kinetic, grid; ions=:ion_densities, region=nothing,
+                          cross_section_form=:dream)
 
 The ionization of the charge states of `composition` ([`IonComposition`](@ref)) by the
 electrons of the kinetic unknown `kinetic` on `grid`, in the rows of the ion densities
@@ -16,7 +17,8 @@ electrons of the kinetic unknown `kinetic` on `grid`, in the rows of the ion den
 K_j = \\frac{1}{V'} \\sum_{\\text{cells}} e(p)\\, v σ_j(p)\\, 𝒱' Δp Δξ\\, f,
 ```
 
-with the cross sections [`ionization_cross_section`](@ref) of DREAM's fits, tabulated at
+with the cross sections [`ionization_cross_section`](@ref) of the form `cross_section_form`
+(`:dream`, the default, DREAM's form and fits, or `:bethe`), tabulated at
 the cell centres of the momentum grid of each radius (DREAM tabulates the grid of radius 0
 alone), and the envelope `e(p)` of the [`MomentumRegion`](@ref) `region`: the hot
 electrons above a threshold that may follow the temperature unknown, or the whole grid
@@ -44,24 +46,30 @@ struct KineticIonizationTerm{E} <: EquationTerm
     grid::KineticGrid{Float64}
     ions::Symbol
     envelopes::E
+    cross_section_form::Symbol         # the form of ionization_cross_section
     rates::Vector{Matrix{Float64}}     # per radius: v σ [m³/s] per momentum cell and component
     weights::Vector{Matrix{Float64}}   # per radius: 𝒱' Δp Δξ / V' per cell, the weight of a density moment
 end
 
 function KineticIonizationTerm(c::IonComposition, kinetic::Symbol, grid::KineticGrid{Float64};
-                               ions::Symbol=:ion_densities, region::Union{Nothing,MomentumRegion}=nothing)
+                               ions::Symbol=:ion_densities, region::Union{Nothing,MomentumRegion}=nothing,
+                               cross_section_form::Symbol=:dream)
+    cross_section_form in IONIZATION_CROSS_SECTION_FORMS ||
+        throw(ArgumentError("cross_section_form must be :dream or :bethe, not $cross_section_form"))
     states = [(name, Z0) for (name, Z) in zip(c.names, c.nuclear_charges) for Z0 in 0:Z]
     rates = Matrix{Float64}[]
     weights = Matrix{Float64}[]
     for ir in 1:radial_cell_count(grid)
         m = momentum_grid(grid, ir)
         speed(p) = Constants.SPEED_OF_LIGHT * p / sqrt(1 + p^2)
-        push!(rates, [speed(p) * ionization_cross_section(name, Z0, p) for p in m.p_centers, (name, Z0) in states])
+        push!(rates, [speed(p) * ionization_cross_section(name, Z0, p; form=cross_section_form)
+                     for p in m.p_centers, (name, Z0) in states])
         jacobian = phase_space_jacobian(grid, ir)
         push!(weights, [jacobian[i, j] * m.p_widths[i] * m.xi_widths[j] / grid.radial_grid.spatial_jacobian[ir]
                         for i in 1:momentum_cell_count(m), j in 1:pitch_cell_count(m)])
     end
-    return KineticIonizationTerm(c, kinetic, grid, ions, RegionEnvelopes(region, grid), rates, weights)
+    return KineticIonizationTerm(c, kinetic, grid, ions, RegionEnvelopes(region, grid), cross_section_form, rates,
+                                 weights)
 end
 
 dependencies(term::KineticIonizationTerm) =
@@ -366,7 +374,7 @@ function SecondaryHeatingTerm(kinetic::KineticIonizationTerm; widths=SECONDARY_S
         throw(ArgumentError("the heating by secondaries needs a threshold at a fixed momentum or at a multiple of the " *
                             "thermal momentum of the temperature unknown"))
     table = merge(SECONDARY_SPECTRUM_WIDTHS, Dict{String,Float64}(String(k) => Float64(v) for (k, v) in widths))
-    names = kinetic.composition.names
+    names = atomic_element.(kinetic.composition.names)
     for name in names
         spectrum === :beb && break
         haskey(table, name) ||
@@ -521,7 +529,8 @@ function ionization_energy_flows(kinetic::KineticIonizationTerm, u, layout, t; w
         end
     end
     table = merge(SECONDARY_SPECTRUM_WIDTHS, Dict{String,Float64}(String(k) => Float64(v) for (k, v) in widths))
-    spectrum === :beb || all(name -> haskey(table, name), c.names) || return (potential=potential, secondaries=nothing)
+    spectrum === :beb || all(name -> haskey(table, atomic_element(name)), c.names) ||
+        return (potential=potential, secondaries=nothing)
     heating = SecondaryHeatingTerm(kinetic; widths, spectrum)
     row = unknown_id(layout, heating.temperature)
     secondaries = radial_values(rhs!(zeros(length(u)), heating, u, layout, row, t), layout, row)

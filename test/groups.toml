@@ -17,7 +17,7 @@ name = "component"
 tier = "quick"
 packed = false
 # 8.9 minutes, kept as defined
-files = ["test_knockon_kinematics.jl", "test_grids.jl", "test_knockon_implicit.jl", "test_knockon_cutoff.jl", "test_knockon_energy_kernel.jl", "test_pitch_overlap.jl", "test_energy_moment.jl", "test_adas.jl", "test_step_doubling.jl", "test_layout.jl", "test_advection_diffusion.jl", "test_legs.jl", "test_moments.jl", "test_per_radius_grids.jl", "test_energy_transfer.jl", "test_radiation.jl", "test_momentum_region.jl", "test_knockon_pairings.jl", "test_ion_energy.jl", "test_knockon_pitch_kernel.jl", "test_heat_transport.jl", "test_radial_profiles.jl", "test_discretization.jl", "test_induction.jl", "test_per_radius_pitch_grids.jl", "test_time_stepping.jl", "test_step_controller.jl", "test_jacobian.jl", "test_ion_unknowns.jl", "test_ion_rates.jl", "test_ion_columns.jl", "test_ion_transport.jl", "test_include_order.jl"]
+files = ["test_knockon_kinematics.jl", "test_grids.jl", "test_knockon_implicit.jl", "test_knockon_cutoff.jl", "test_knockon_energy_kernel.jl", "test_pitch_overlap.jl", "test_energy_moment.jl", "test_adas.jl", "test_step_doubling.jl", "test_layout.jl", "test_advection_diffusion.jl", "test_legs.jl", "test_moments.jl", "test_per_radius_grids.jl", "test_energy_transfer.jl", "test_radiation.jl", "test_momentum_region.jl", "test_knockon_pairings.jl", "test_ion_energy.jl", "test_knockon_pitch_kernel.jl", "test_heat_transport.jl", "test_radial_profiles.jl", "test_discretization.jl", "test_induction.jl", "test_per_radius_pitch_grids.jl", "test_time_stepping.jl", "test_step_controller.jl", "test_jacobian.jl", "test_ion_unknowns.jl", "test_ion_rates.jl", "test_ion_columns.jl", "test_ion_transport.jl", "test_include_order.jl", "test_renamed_keywords.jl", "test_avalanche_rp.jl"]
 
 [[group]]
 name = "quick-1"
@@ -155,7 +155,7 @@ files = ["test_flux_limiters_dream.jl", "test_avalanche_dream.jl", "test_example
 name = "full-8"
 tier = "full"
 # 7.0 minutes
-files = ["test_kinetic_ionization_dream.jl", "test_ion_rates_dream.jl", "test_ion_energy_dream.jl", "test_example_runaway.jl", "test_step_control_cascade.jl", "test_cooling_dream.jl", "test_knockon_cutoff_physics.jl", "test_kinetic_operator_dream.jl", "test_cold_energy_dream.jl", "test_knockon_operator.jl", "test_collisions_dream.jl", "test_physics.jl", "test_knockon_reference.jl"]
+files = ["test_kinetic_ionization_dream.jl", "test_avalanche_rp_dream.jl", "test_independent_references.jl", "test_disruption_dream.jl", "test_ion_rates_dream.jl", "test_ion_energy_dream.jl", "test_example_runaway.jl", "test_step_control_cascade.jl", "test_cooling_dream.jl", "test_knockon_cutoff_physics.jl", "test_kinetic_operator_dream.jl", "test_cold_energy_dream.jl", "test_knockon_operator.jl", "test_collisions_dream.jl", "test_physics.jl", "test_knockon_reference.jl"]
 
 [[group]]
 name = "full-9"

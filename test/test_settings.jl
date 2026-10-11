@@ -79,7 +79,7 @@ _is_plain(x) = false
                  FokkerPlanckTerm, PrescribedPlasma, PlasmaFromUnknowns, ProductTerm, WeightedSumTerm, IonRateTerm, KineticIonizationTerm, IonDiffusionTerm, SecondaryHeatingTerm, EnergyMomentTerm, HeatTransportTerm, IonEnergyExchangeTerm, RunawayFluidEnergyTransferTerm, KineticEnergyLossTerm, InterfaceEnergyFluxTerm, KnockOnTerm, LinearTerm, DensityMomentTerm,
                  CurrentMomentTerm, MaxwellianSourceTerm, MomentumInterfaceTerm, RadialEdgeLossTerm, LossRateTerm,
                  PrescribedValueTerm, ParticleSourceTerm, MomentumBoundaryFluxTerm, PoloidalFluxDiffusionTerm,
-                 CrossSectionIntegralTerm, ConductivityTerm, RadiatedPowerTerm,
+                 CrossSectionIntegralTerm, ConductivityTerm, RadiatedPowerTerm, RosenbluthPutvinskiSourceTerm, ExternalAvalancheTerm,
                  FieldParticleTerm, FieldParticleOperator, EquationSystem, Tolerance, CollisionSettings,
                  IonSpecies, PlasmaState, NewtonSolver, GMRES, SparseLU, RadiusBlockLU, RadiusBlockILU, FluidSchurLU]
         for T in types
@@ -164,8 +164,9 @@ _is_plain(x) = false
                                          "screening" => "partial", "coulomb_logarithm" => "energy_dependent",
                                          "screened_diffusion" => "maxwellian", "ion_size_table" => "hesslow",
                                          "screening_window" => "excitation_energy", "screening_window_start" => 1.0,
-                                         "bremsstrahlung" => "stopping_power",
-                                         "screening_window_end" => 4.0, "bound_friction" => "bethe",
+                                         "bremsstrahlung" => "stopping_power", "bremsstrahlung_diffusion" => "none",
+                                         "bremsstrahlung_constant" => "koch_motz",
+                                         "ionization_cross_section_form" => "dream", "screening_window_end" => 4.0, "bound_friction" => "bethe",
                                          "ionization_threshold" => 0.0, "ionization_threshold_width" => 0.1,
                                          "secondary_widths" => Dict{String,Any}(), "secondary_spectrum" => "beb")
 
@@ -455,8 +456,8 @@ _is_plain(x) = false
         @test environment["cpu_threads"] == Sys.CPU_THREADS
         @test occursin(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4}$", environment["start_time"])
         @test _is_plain(environment)
-        @test OUTPUT_FORMAT_VERSION == v"0.30"
-        @test Runes2P.output_format_version() == "0.30"
+        @test OUTPUT_FORMAT_VERSION == v"0.31"
+        @test Runes2P.output_format_version() == "0.31"
         @test OUTPUT_FORMAT_VERSION > v"0.9"   # 0.10 and later follow 0.9
     end
 
@@ -469,7 +470,7 @@ _is_plain(x) = false
         write_output(file, solution)
         h5open(file) do h5
             @test sort(collect(keys(attributes(h5)))) == DOCUMENTED_ROOT_ATTRIBUTES
-            @test read(attributes(h5)["format_version"]) == "0.30"
+            @test read(attributes(h5)["format_version"]) == "0.31"
             @test VersionNumber(read(attributes(h5)["format_version"])) == OUTPUT_FORMAT_VERSION
             @test read(attributes(h5)["runes2p_commit"]) == code_version()["commit"]
             @test read(attributes(h5)["runes2p_version"]) == string(pkgversion(Runes2P))
@@ -505,7 +506,7 @@ _is_plain(x) = false
         write_output(file, by_hand)
         h5open(file) do h5
             @test !haskey(h5, "settings")
-            @test read(attributes(h5)["format_version"]) == "0.30"
+            @test read(attributes(h5)["format_version"]) == "0.31"
             @test read(attributes(h5)["runes2p_commit"]) == code_version()["commit"]
         end
         @test isempty(read_settings(file))

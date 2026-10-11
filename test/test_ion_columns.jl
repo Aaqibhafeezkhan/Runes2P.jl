@@ -49,6 +49,7 @@ end
 @testset "ion columns" begin
     if !isdir(adas_cache_directory())
         @info "no ADF11 cache at $(adas_cache_directory()): the ion column tests are skipped"
+        @test_skip isdir(adas_cache_directory())
     else
         layout, prescribed, u = _column_case()
         n = length(layout)

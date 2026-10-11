@@ -50,6 +50,16 @@ function plasma_values(source::PrescribedPlasma, u, layout, t)
 end
 
 """
+    DEFAULT_TEMPERATURE_FLOOR
+
+The default floor [eV] of a temperature unknown, 0.5 eV, the physical floor of the cold
+electrons (decision of the author, 2026-10-04): below it the plasma recombines and
+the model of a plasma does not hold. The default of [`PlasmaFromUnknowns`](@ref) and of
+[`fluid_temperature_floors`](@ref).
+"""
+const DEFAULT_TEMPERATURE_FLOOR = 0.5
+
+"""
     PlasmaFromUnknowns(prescribed; temperature=:cold_electron_temperature,
                        density=:cold_electron_density, ions=nothing, temperature_floor=0.5)
 
@@ -91,7 +101,7 @@ struct PlasmaFromUnknowns{P<:PrescribedPlasma} <: PlasmaSource
 end
 function PlasmaFromUnknowns(prescribed; temperature::Symbol=:cold_electron_temperature,
                             density::Union{Nothing,Symbol}=:cold_electron_density,
-                            ions::Union{Nothing,Symbol}=nothing, temperature_floor::Real=0.5)
+                            ions::Union{Nothing,Symbol}=nothing, temperature_floor::Real=DEFAULT_TEMPERATURE_FLOOR)
     temperature_floor >= 0 || throw(ArgumentError("the temperature floor must not be negative"))
     ions !== nothing && density === nothing &&
         throw(ArgumentError("a plasma whose ions are the unknown $ions takes its density from an unknown: the " *
@@ -419,15 +429,18 @@ function _dual_plasma(plasma::PlasmaState{Float64}, with_density::Bool, with_ion
 end
 
 """
-    plasma_columns(source::PlasmaFromUnknowns, layout, ir; ions=true)
+    plasma_columns(source::PlasmaFromUnknowns, layout, ir; with_ions=true)
 
 The entries of the state at radius `ir` that the partials of [`dual_plasma`](@ref) belong
-to: the temperature, the density when the source reads it, and with `ions` the components
-of the ion densities when the source reads them.
+to: the temperature, the density when the source reads it, and with `with_ions` the
+components of the ion densities when the source reads them, as the argument of
+`dual_plasma`. The keyword `ions` is the deprecated name of `with_ions`.
 """
-function plasma_columns(source::PlasmaFromUnknowns, layout, ir; ions::Bool=true)
+function plasma_columns(source::PlasmaFromUnknowns, layout, ir; with_ions::Bool=true,
+                        ions::Union{Nothing,Bool}=nothing)
+    with_ions = renamed_keyword(:plasma_columns, :with_ions => with_ions, :ions => ions, true)
     columns = [first(unknown_range(layout, unknown_id(layout, source.temperature), ir))]
     source.density === nothing || push!(columns, first(unknown_range(layout, unknown_id(layout, source.density), ir)))
-    ions && source.ions !== nothing && append!(columns, unknown_range(layout, unknown_id(layout, source.ions), ir))
+    with_ions && source.ions !== nothing && append!(columns, unknown_range(layout, unknown_id(layout, source.ions), ir))
     return columns
 end

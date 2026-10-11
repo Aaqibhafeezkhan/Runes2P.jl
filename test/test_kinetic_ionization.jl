@@ -48,17 +48,49 @@ end
         @test_throws ArgumentError ionization_cross_section("Xe", 0, 1.0)
         @test_throws ArgumentError ionization_cross_section("Ar", 19, 1.0)
         @test size(KINETIC_IONIZATION_FITS["Ar"]) == (18, 3) && size(KINETIC_IONIZATION_FITS["D"]) == (1, 3)
+        @test all(size(KINETIC_IONIZATION_BETHE_FITS[e]) == size(KINETIC_IONIZATION_FITS[e])
+                  for e in keys(KINETIC_IONIZATION_FITS))
+        @test keys(KINETIC_IONIZATION_BETHE_FITS) == keys(KINETIC_IONIZATION_FITS)
+        @test_throws ArgumentError ionization_cross_section("Ar", 0, 1.0; form=:other)
+    end
+
+    @testset "the relativistic term joins the Burgess-Chidichimo limit (issue #189)" begin
+        # At U ≫ 1 and E ≪ mₑc² the Burgess-Chidichimo term tends to C π a₀² (R_y/I)² ln U/U,
+        # which is C π a₀² α² (R_y/I) ln U/β² with E = β²mₑc²/2 and R_y = α²mₑc²/2. The form
+        # with 1/β² therefore equals it there, and the blend of the two with any weight S is
+        # the Burgess-Chidichimo term; DREAM's form is β² times smaller and leaves (1 − S + Sβ²)
+        # of it. The Burgess-Chidichimo term is evaluated here with the parameters of each
+        # table.
+        mc2 = Constants.ELECTRON_REST_ENERGY
+        a0, Ry = Constants.BOHR_RADIUS, Constants.RYDBERG_ENERGY
+        for (element, Z0) in (("Ar", 0), ("Ar", 1), ("D", 0)), E in (2e3, 5e3, 1e4)
+            gamma = 1 + E / mc2
+            p = sqrt(gamma^2 - 1)
+            S = 1 / (1 + exp(1 - E * 1e-5))
+            burgess(fits) = (row = fits[element][Z0+1, :]; U = E / row[2];
+                             row[1] * π * a0^2 * (Ry / row[2])^2 * log(U)^(1 + row[3] / U) / U)
+            @test ionization_cross_section(element, Z0, p; form=:bethe) / burgess(KINETIC_IONIZATION_BETHE_FITS) ≈ 1 rtol = 0.03
+            @test ionization_cross_section(element, Z0, p) / burgess(KINETIC_IONIZATION_FITS) ≈
+                  1 - S + S * (p / gamma)^2 rtol = 2e-3
+        end
+        # the blend is floored at zero, where the Bethe logarithm lies below β² just above the
+        # threshold of a state of several keV
+        I = KINETIC_IONIZATION_BETHE_FITS["W"][65, 2]
+        near = sqrt((1 + 1.001I / mc2)^2 - 1)
+        @test ionization_cross_section("W", 64, near; form=:bethe) == 0
+        @test ionization_cross_section("W", 64, sqrt((1 + 3I / mc2)^2 - 1); form=:bethe) > 0
     end
 
     if !isdir(adas_cache_directory())
         @info "no ADF11 cache at $(adas_cache_directory()): the comparisons with ADAS are skipped"
+        @test_skip isdir(adas_cache_directory())
     else
         @testset "Maxwellian average against ADAS at low density" begin
             # the fit was made to the SCD coefficients at zero density: the Maxwellian average
             # of v σ at the ionization energy of each state, against SCD at the lowest density
             # node, per state of argon and neon (DREAM #46: errors of tens of per cent)
             p = collect(range(0.0, 1.0; length=200_001))[2:end]
-            for element in ("Ar", "Ne")
+            for element in ("Ar", "Ne"), form in (:dream, :bethe)
                 scd = read_adas(element).scd
                 Z = size(KINETIC_IONIZATION_FITS[element], 1)
                 ratios = Float64[]
@@ -67,10 +99,10 @@ end
                     theta = T / Constants.ELECTRON_REST_ENERGY
                     weight = @. p^2 * exp(-p^2 / (sqrt(1 + p^2) + 1) / theta)
                     rate = sum(weight .* [Constants.SPEED_OF_LIGHT * x / sqrt(1 + x^2) *
-                                          ionization_cross_section(element, Z0, x) for x in p]) / sum(weight)
+                                          ionization_cross_section(element, Z0, x; form) for x in p]) / sum(weight)
                     push!(ratios, rate / adas_coefficient(scd, Z0, exp10(first(scd.log_density)), T))
                 end
-                @info "Maxwellian average over ADAS SCD at T = I per state of $element: " *
+                @info "Maxwellian average over ADAS SCD at T = I per state of $element, form $form: " *
                       join(round.(ratios; digits=3), ", ")
                 @test all(r -> 0.3 < r < 3.0, ratios)
             end
@@ -172,8 +204,8 @@ end
             radial_values(u, layout, 2) .= 4.5e19
             equations = [Equation(:ion_densities, TimeDerivative(), IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic),
                                   kinetic),
-                         Equation(:cold_electron_density, Algebraic(), PrescribedValueTerm(4.5e19),
-                                  LinearTerm(:cold_electron_density; coefficient=-1)),
+                         # the closure of the cold density: a kinetic ionization needs it
+                         population_equations(KINETIC_IONIZATION_COMPOSITION)...,
                          Equation(:cold_electron_temperature, Algebraic(), PrescribedValueTerm([20.0, 10.0]),
                                   LinearTerm(:cold_electron_temperature; coefficient=-1)),
                          Equation(:f, TimeDerivative())]
@@ -573,11 +605,13 @@ end
                            electric_field=zeros(2), magnetic_field=zeros(2))
         k = KineticIonizationTerm(composition, :f, g; region=MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor=5)))
         fp(spectrum) = FokkerPlanckTerm(:f, AdvectionDiffusion(g; scheme=:exponential_fitting, p_upper_boundary=:f_zero);
-                                        plasma=base, settings=CollisionSettings(; bound_friction=:ionization_split,
+                                        plasma=PlasmaFromUnknowns(base; ions=:ion_densities),
+                                        settings=CollisionSettings(; bound_friction=:ionization_split,
                                                                                 ionization_threshold=5.0,
                                                                                 secondary_spectrum=spectrum))
         system(spectrum, heating) = [Equation(:f, TimeDerivative(), fp(spectrum)), Equation(:ion_densities, TimeDerivative(), k),
-                                     Equation(:cold_electron_temperature, TimeDerivative(), heating)]
+                                     Equation(:cold_electron_temperature, TimeDerivative(), heating),
+                                     population_equations(composition)...]
         @test Runes2P._check_plasma_pairings(system(:beb, SecondaryHeatingTerm(k; spectrum=:beb))) === nothing
         @test_throws "the same" Runes2P._check_plasma_pairings(system(:beb, SecondaryHeatingTerm(k; spectrum=:opal)))
         @test_throws "the same" Runes2P._check_plasma_pairings(system(:opal, SecondaryHeatingTerm(k; spectrum=:beb)))
@@ -590,37 +624,45 @@ end
         base = PlasmaState(; cold_electron_temperature=[10.0, 8.0], ions=[IonSpecies("D", 1, 1, [1e19, 1e19])],
                            electric_field=zeros(2), magnetic_field=zeros(2))
         operator() = AdvectionDiffusion(grid; scheme=:exponential_fitting, p_upper_boundary=:f_zero)
-        fp(factor) = FokkerPlanckTerm(:f, operator(); plasma=base,
+        from_unknowns = PlasmaFromUnknowns(base; ions=:ion_densities)
+        closure = population_equations(composition)
+        fp(factor) = FokkerPlanckTerm(:f, operator(); plasma=from_unknowns,
                                       settings=CollisionSettings(bound_friction=:ionization_split, ionization_threshold=factor,
                                                                  secondary_spectrum=:opal))
         region(factor) = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor))
         ionization(factor) = KineticIonizationTerm(composition, :f, grid; region=region(factor))
         check(fp_term, ion_terms...) = Runes2P._check_plasma_pairings([Equation(:f, TimeDerivative(), fp_term),
-                                                                    Equation(:ion_densities, TimeDerivative(), ion_terms...)])
+                                                                    Equation(:ion_densities, TimeDerivative(), ion_terms...),
+                                                                    closure...])
         k5 = ionization(5)
         @test check(fp(5.0), k5) === nothing
         @test check(fp(0.0), KineticIonizationTerm(composition, :f, grid)) === nothing
         @test_throws "the same factor" check(fp(7.0), k5)
+        @test_throws "the same form" check(fp(5.0), KineticIonizationTerm(composition, :f, grid; region=region(5),
+                                                                          cross_section_form=:bethe))
+        @test_throws ArgumentError KineticIonizationTerm(composition, :f, grid; cross_section_form=:other)
         @test_throws "has none" Runes2P._check_plasma_pairings([Equation(:f, TimeDerivative(), fp(5.0))])
         @test_throws "ThermalMomentum" check(fp(5.0), KineticIonizationTerm(composition, :f, grid; region=MomentumRegion(0.1)))
         heating = Equation(:cold_electron_temperature, TimeDerivative(), SecondaryHeatingTerm(k5; spectrum=:opal))
         threshold = Equation(:cold_electron_temperature, TimeDerivative(), SecondaryHeatingTerm(k5; cut=:threshold, spectrum=:opal))
         other = Equation(:cold_electron_temperature, TimeDerivative(),
                          SecondaryHeatingTerm(k5; widths=Dict("Ar" => 12.0), spectrum=:opal))
-        system(heat) = [Equation(:f, TimeDerivative(), fp(5.0)), Equation(:ion_densities, TimeDerivative(), k5), heat]
+        system(heat) = [Equation(:f, TimeDerivative(), fp(5.0)), Equation(:ion_densities, TimeDerivative(), k5), heat,
+                        closure...]
         @test Runes2P._check_plasma_pairings(system(heating)) === nothing
         # where the sinks of f leave the electrons, the secondaries need the heating
         source = fp(5.0)
         sinks = Equation(:total_electron_energy, TimeDerivative(), KineticEnergyLossTerm(source; part=:sinks))
-        booked(heat...) = [Equation(:f, TimeDerivative(), source), Equation(:ion_densities, TimeDerivative(), k5), sinks, heat...]
+        booked(heat...) = [Equation(:f, TimeDerivative(), source), Equation(:ion_densities, TimeDerivative(), k5), sinks, heat...,
+                           closure...]
         @test_throws "SecondaryHeatingTerm(kinetic)" Runes2P._check_plasma_pairings(booked())
         @test Runes2P._check_plasma_pairings(booked(heating)) === nothing
         @test_throws "cut = :none" Runes2P._check_plasma_pairings(system(threshold))
         @test_throws "different widths" Runes2P._check_plasma_pairings(system(other))
         # DREAM's Bethe friction pairs with any kinetic ionization
-        @test Runes2P._check_plasma_pairings([Equation(:f, TimeDerivative(), FokkerPlanckTerm(:f, operator(); plasma=base,
+        @test Runes2P._check_plasma_pairings([Equation(:f, TimeDerivative(), FokkerPlanckTerm(:f, operator(); plasma=from_unknowns,
                                                                                             settings=CollisionSettings())),
-                                           Equation(:ion_densities, TimeDerivative(), ionization(7))]) === nothing
+                                           Equation(:ion_densities, TimeDerivative(), ionization(7)), closure...]) === nothing
         @test SecondaryHeatingTerm(k5).cut === :none
         @test_throws ArgumentError SecondaryHeatingTerm(k5; cut=:other)
     end

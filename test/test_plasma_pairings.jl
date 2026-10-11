@@ -12,21 +12,21 @@
                           ions=[IonSpecies("D", 1, 1, [1e19, 5e18])], electric_field=zeros(2), magnetic_field=zeros(2))
     from_unknowns = PlasmaFromUnknowns(base; density=nothing)
     operator() = AdvectionDiffusion(g; scheme=:exponential_fitting, p_upper_boundary=:f_zero)
-    fp(coefficients=:implicit; plasma=from_unknowns) = FokkerPlanckTerm(:f, operator(); plasma, settings, coefficients)
+    fp(lagged=:ions; plasma=from_unknowns) = FokkerPlanckTerm(:f, operator(); plasma, settings, lagged)
     field_particle(plasma) = FieldParticleTerm(:f, FieldParticleOperator(g, base(0.0), settings); plasma)
     minus(name) = LinearTerm(name; coefficient=-1)
     check(terms...) = Runes2P._check_plasma_pairings([Equation(:f, TimeDerivative(), terms...)])
 
     @testset "Fokker-Planck and field-particle term (#70)" begin
-        @test check(fp(:lagged), field_particle(from_unknowns)) === nothing
-        @test_throws "issue #70" check(fp(:implicit), field_particle(from_unknowns))
+        @test check(fp(:all), field_particle(from_unknowns)) === nothing
+        @test_throws "issue #70" check(fp(:ions), field_particle(from_unknowns))
         # a prescribed plasma on both: the same kind of source
         @test check(PrescribedFokkerPlanckTerm(:f, operator(), base; settings), field_particle(base)) === nothing
         @test_throws "different sources" check(PrescribedFokkerPlanckTerm(:f, operator(), base; settings),
                                                field_particle(nothing))
         @test_throws "different sources" check(FokkerPlanckTerm(:f, operator(); settings), field_particle(base))
         # one of the two following the unknowns, the other one fixed
-        @test_throws ArgumentError check(fp(:lagged), field_particle(nothing))
+        @test_throws ArgumentError check(fp(:all), field_particle(nothing))
         # through the system
         layout = UnknownLayout(rad, [KineticUnknown(:f, g; scale=1e19), RadialUnknown(:cold_electron_temperature)])
         @test_throws "issue #70" EquationSystem(layout, [Equation(:f, TimeDerivative(), fp(), field_particle(from_unknowns)),
@@ -62,9 +62,9 @@
     @testset "corrected conductivity with an implicit Fokker-Planck term" begin
         corrected = ConductivityTerm(:electric_field, ConductivityModel(from_unknowns; kinetic=:dream_fit))
         plain = ConductivityTerm(:electric_field, ConductivityModel(from_unknowns))
-        @test check(fp(:implicit), corrected) === nothing
-        @test_throws "coefficients = :implicit" check(fp(:lagged), corrected)
-        @test check(fp(:lagged), plain) === nothing
+        @test check(fp(:ions), corrected) === nothing
+        @test_throws "lag no more than the ions" check(fp(:all), corrected)
+        @test check(fp(:all), plain) === nothing
     end
 
     @testset "knock-on cutoff from the temperature of the state" begin
@@ -95,5 +95,99 @@
         @test_throws "knock-on cutoff" Runes2P.check_update(prescribed, system)
         @test Runes2P.check_update(following, system) === nothing
         @test Runes2P.check_update(prescribed, (; equations=[Equation(:f, TimeDerivative(), FokkerPlanckTerm(:f, operator()))])) === nothing
+    end
+
+    # the terms of the ion charge states and their energies (one test per pairing rule)
+    if !isdir(adas_cache_directory())
+        @info "no ADF11 cache at $(adas_cache_directory()): the pairings of the ion terms are skipped"
+        @test_skip isdir(adas_cache_directory())
+    else
+    @testset "ion terms (issue #182)" begin
+        c = IonComposition(["D" => 1, "Ar" => 18])
+        argon = zeros(19, 2)
+        argon[2, :] .= 1e17
+        prescribed = PlasmaState(; cold_electron_temperature=[10.0, 8.0], electric_field=zeros(2), magnetic_field=zeros(2),
+                                 ions=[IonSpecies("D", 1, 1, [1e19, 1e19]), IonSpecies("Ar", 18, argon)])
+        region(factor; temperature=:cold_electron_temperature) = MomentumRegion(ThermalMomentum(temperature; factor))
+        k = KineticIonizationTerm(c, :f, g; region=region(5))
+        rate = IonRateTerm(c; kinetic=k)
+        radiation = RadiatedPowerTerm(prescribed; ions=:ion_densities, kinetic=k)
+        closure = population_equations(c)
+        ions(terms...) = Equation(:ion_densities, TimeDerivative(), terms...)
+        temperature(terms...) = Equation(:cold_electron_temperature, TimeDerivative(), terms...)
+        paired(equations...) = Runes2P._check_plasma_pairings([equations...; closure...])
+        @test paired(ions(rate, k), temperature(radiation)) === nothing
+        # 1: the kinetic part of the split is a term of the system, of the same ions
+        @test_throws "not a term of the system" paired(ions(rate), temperature(radiation))
+        @test_throws "same ion unknown" Runes2P._check_plasma_pairings([
+            ions(IonRateTerm(c; ions=:other_ions, kinetic=k), k), population_equations(c; ions=:other_ions)..., closure...])
+        # 2: the binding energy at the rate of the rate equations
+        @test_throws "split the ionization differently" paired(ions(rate, k),
+                                                              temperature(RadiatedPowerTerm(prescribed; ions=:ion_densities)))
+        @test_throws "split the ionization differently" paired(ions(IonRateTerm(c), k), temperature(radiation))
+        # 3: the threshold of the split and of the hot density count the same electrons
+        @test_throws "different thresholds" paired(ions(rate, k), temperature(radiation),
+                                                  Equation(:n_hot, Algebraic(), DensityMomentTerm(:f, g; region=region(7))))
+        # 4: the threshold reads the temperature of the rates
+        hot = KineticIonizationTerm(c, :f, g; region=region(5; temperature=:other_temperature))
+        @test_throws ArgumentError paired(ions(IonRateTerm(c; kinetic=hot), hot))
+        @test_throws ArgumentError paired(ions(rate, k), temperature(radiation, SecondaryHeatingTerm(k; temperature=:other)))
+        # 5: no kinetic ionization without the closure of the cold density
+        @test_throws "no closure" Runes2P._check_plasma_pairings([ions(rate, k), temperature(radiation)])
+        # 6: one source of ions where the system evolves them, and both sides of the exchange on it
+        fp(plasma) = FokkerPlanckTerm(:f, AdvectionDiffusion(g; scheme=:exponential_fitting); plasma, settings)
+        @test_throws "prescribed ions" paired(ions(rate, k), temperature(radiation),
+                                             Equation(:f, TimeDerivative(), fp(PlasmaFromUnknowns(prescribed))))
+        @test paired(ions(rate, k), temperature(radiation),
+                    Equation(:f, TimeDerivative(), fp(PlasmaFromUnknowns(prescribed; ions=:ion_densities)))) === nothing
+        @test_throws "prescribed ions" paired(ions(rate, k), temperature(radiation, RadiatedPowerTerm(prescribed)))
+        # a conductivity on the prescribed ions, the temperature of the unknowns
+        @test_throws "prescribed ions" paired(ions(rate, k), temperature(radiation),
+                                              Equation(:electric_field, Algebraic(),
+                                                       ConductivityTerm(:electric_field,
+                                                                        ConductivityModel(PlasmaFromUnknowns(prescribed)))))
+        @test paired(ions(rate, k), temperature(radiation),
+                     Equation(:electric_field, Algebraic(),
+                              ConductivityTerm(:electric_field,
+                                               ConductivityModel(PlasmaFromUnknowns(prescribed; ions=:ion_densities))))) === nothing
+        exchange(side, ions) = IonEnergyExchangeTerm(prescribed; side, ions)
+        @test_throws "both sides" paired(ions(rate, k), temperature(radiation, exchange(:electrons, :ion_densities)),
+                                        Equation(:ion_thermal_energy, TimeDerivative(), exchange(:ions, :other_ions)))
+        # 7: the ion energies from the densities of the state after a deposit
+        layout = UnknownLayout(rad, [ion_densities_unknown(c), RadialUnknown(:ion_thermal_energy; components=2)])
+        u = zeros(length(layout))
+        set_ion_densities!(u, layout, prescribed)
+        deposit_neutrals!(u, layout, c, "Ar" => 3e17)
+        set_ion_thermal_energy!(u, layout, prescribed, 2.0; ions=:ion_densities)
+        @test [radial_view(u, layout, 2, ir)[2] for ir in 1:2] ≈ THERMAL_ENERGY_FACTOR .* [4e17, 4e17] .* 2.0
+        @test ion_temperatures(u, layout, prescribed; ions=:ion_densities) ≈ fill(2.0, 2, 2)
+        @test ion_temperatures(u, layout, prescribed)[2, :] ≈ [8.0, 8.0]   # the prescribed 1e17 do not hold
+        # 8: a temperature that only fluid terms read gets the default floor, unless it declares a limit
+        fluid = [ions(IonRateTerm(c)), temperature(RadiatedPowerTerm(prescribed; ions=:ion_densities))]
+        @test Runes2P.fluid_temperature_floors(fluid) == [:cold_electron_temperature => Runes2P.DEFAULT_TEMPERATURE_FLOOR]
+        @test Runes2P.DEFAULT_TEMPERATURE_FLOOR == 0.5
+        @test isempty(Runes2P.fluid_temperature_floors([fluid; Equation(:f, TimeDerivative(),
+                                                                     fp(PlasmaFromUnknowns(prescribed; ions=:ion_densities)))]))
+        # 9: the fluid terms say what to do with a plasma from the unknowns
+        @test_throws "keywords temperature, density and ions" RadiatedPowerTerm(PlasmaFromUnknowns(prescribed))
+        @test_throws "keywords temperature, density and ions" IonEnergyExchangeTerm(PlasmaFromUnknowns(prescribed);
+                                                                                     side=:ions)
+        @test_throws "keywords temperature, density and ions" RunawayFluidEnergyTransferTerm(PlasmaFromUnknowns(prescribed))
+        # 10: one composition per ion unknown
+        swapped = IonComposition(["Ar" => 18, "D" => 1])
+        @test_throws "one composition" paired(ions(rate, k, IonDiffusionTerm(swapped; diffusion=1.0)), temperature(radiation))
+        # 11: the sinks of W_hot over its region
+        loss_source = fp(PlasmaFromUnknowns(prescribed; ions=:ion_densities))
+        energy = total_energy_equation(:f, g; region=region(5))
+        sinks(region) = Equation(:total_electron_energy, TimeDerivative(), KineticEnergyLossTerm(loss_source; part=:sinks,
+                                                                                                region))
+        base_system = [ions(rate, k), temperature(radiation), Equation(:f, TimeDerivative(), loss_source), energy]
+        @test paired(base_system..., sinks(region(5))) === nothing
+        @test_throws "region of the energy moment" paired(base_system..., sinks(nothing))
+        @test_throws "different thresholds" paired(base_system..., sinks(region(7)))
+        # 12: the rates and the binding energy from the same extrapolation of the tables
+        @test_throws "extrapolations" paired(ions(IonRateTerm(c; kinetic=k, extrapolation=:clamp_density), k),
+                                            temperature(radiation))
+    end
     end
 end

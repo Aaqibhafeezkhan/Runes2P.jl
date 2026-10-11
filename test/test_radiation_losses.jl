@@ -32,6 +32,68 @@ using QuadGK: quadgk
             @test slowing_down_frequency(with, 1, p) - slowing_down_frequency(without, 1, p) ≈ expected rtol = 1e-12
         end
         @test_throws ArgumentError CollisionSettings(bremsstrahlung=:other)
+        # DREAM's integer division writes the constant 4/3 of 4BN as 1 (for the
+        # comparisons with the stopping power on)
+        for p in (0.1, 1.0, 10.0)
+            @test bremsstrahlung_cross_section(p; constant=:dream) - bremsstrahlung_cross_section(p) ≈ 1 / 3 rtol = 1e-12
+        end
+        dream = CollisionModel(plasma, CollisionSettings(bremsstrahlung=:stopping_power, bremsstrahlung_constant=:dream))
+        @test slowing_down_frequency(dream, 1, 5.0) - slowing_down_frequency(without, 1, 5.0) ≈
+              (18^2 * 1e18 + 1e20) * alpha * r0^2 * c * bremsstrahlung_cross_section(5.0; constant=:dream) / (5 / sqrt(26)) rtol = 1e-12
+        @test_throws ArgumentError CollisionSettings(bremsstrahlung_constant=:other)
+    end
+
+    @testset "a Maxwellian radiates Gould's bremsstrahlung (issue #190)" begin
+        # The radiative stopping as a pure drag: the full operator on a Maxwellian at the
+        # temperature of the bulk loses the bremsstrahlung power of the electrons on the
+        # nuclei, whose nonrelativistic Born limit (φ → 16/3) averaged over the Maxwellian is
+        # the formula of R. J. Gould, Astrophys. J. 238, 1026 (1980), with its relativistic
+        # correction 19/24 T/mₑc² (GOULD_BREMSSTRAHLUNG_PREFACTOR, GOULD_ION_CORRECTION). The
+        # collisions with the free electrons conserve the energy of a Maxwellian at their
+        # temperature, up to the discretization, so the loss is measured against the same
+        # operator without bremsstrahlung (the e-e part alone changes the energy of this
+        # Maxwellian by 1.6e-1 and 1.9e-1 of Gould's power on these grids). With DREAM's form
+        # the drag has the thermal diffusion of ν_∥, and the Maxwellian radiates nothing.
+        n_D = 1e20
+        for T in (100.0, 1000.0)
+            plasma = PlasmaState(; cold_electron_temperature=[T], ions=[IonSpecies("D", 1, 1, [n_D])],
+                                 electric_field=[0.0], magnetic_field=[0.0])
+            theta = T / Constants.ELECTRON_REST_ENERGY
+            p_max = 12 * sqrt(2theta)
+            maxwell_grid = cylindrical_grid(MomentumGrid(uniform_p_faces(400, 0.0, p_max), uniform_xi_faces(2)),
+                                            RadialGrid(uniform_r_faces(1, 0.5)))
+            mm = momentum_grid(maxwell_grid)
+            fm = [exp(-(sqrt(1 + p^2) - 1) / theta) for p in mm.p_centers, _ in 1:2, _ in 1:1]
+            fm .*= n_D / density(maxwell_grid, fm)[1]
+            power(diffusion; bremsstrahlung=:stopping_power) = begin
+                settings = CollisionSettings(; mode=:full, screening=:complete, bremsstrahlung,
+                                             bremsstrahlung_diffusion=diffusion)
+                op = fokker_planck_operator(maxwell_grid, plasma, settings; synchrotron=false, scheme=:exponential_fitting,
+                                            p_upper_boundary=:f_zero)
+                df = zeros(size(fm))
+                Runes2P.apply!(df, op, fm)
+                -sum(Runes2P._energy_weights(maxwell_grid, 1) .* df[:, :, 1])
+            end
+            gould = Runes2P.GOULD_BREMSSTRAHLUNG_PREFACTOR * sqrt(T) * n_D * n_D *
+                    (1 + Runes2P.GOULD_ION_CORRECTION * theta)
+            collisions = power(:none; bremsstrahlung=:neglect)
+            @test power(:none) - collisions ≈ gould rtol = 2e-3
+            @test abs(power(:dream) - collisions) < 1e-3 * gould
+        end
+        @test CollisionSettings().bremsstrahlung_diffusion === :none
+        @test_throws ArgumentError CollisionSettings(bremsstrahlung_diffusion=:other)
+        # ν_∥ of the two forms: Θγ times the collisional part, or times the whole ν_s
+        plasma = PlasmaState(; cold_electron_temperature=[500.0], ions=[IonSpecies("Ar", 18, 2, [1e18])],
+                             electric_field=[0.0], magnetic_field=[0.0])
+        drag = CollisionModel(plasma, CollisionSettings(bremsstrahlung_diffusion=:none))
+        dream = CollisionModel(plasma, CollisionSettings(bremsstrahlung_diffusion=:dream))
+        neglect = CollisionModel(plasma, CollisionSettings(bremsstrahlung=:neglect))
+        theta = 500.0 / Constants.ELECTRON_REST_ENERGY
+        for p in (0.1, 1.0)
+            @test parallel_diffusion_frequency(drag, 1, p) ≈ parallel_diffusion_frequency(neglect, 1, p) rtol = 1e-14
+            @test parallel_diffusion_frequency(dream, 1, p) ≈ theta * sqrt(1 + p^2) * slowing_down_frequency(dream, 1, p) rtol = 1e-14
+            @test slowing_down_frequency(drag, 1, p) == slowing_down_frequency(dream, 1, p)
+        end
     end
 
     # electrons at p ≈ 5 on a grid with all pitches
@@ -70,9 +132,9 @@ using QuadGK: quadgk
     kinetic_array(u, layout, 1) .= f
     radial_values(u, layout, 2) .= T0
     radial_values(u, layout, 3) .= n_D + 2n_Ar
-    fp(settings; synchrotron=false, coefficients=:implicit) =
+    fp(settings; synchrotron=false, lagged=:ions) =
         FokkerPlanckTerm(:f, AdvectionDiffusion(grid; scheme=:exponential_fitting, p_upper_boundary=:f_zero);
-                         plasma=PlasmaFromUnknowns(base), settings, synchrotron, coefficients)
+                         plasma=PlasmaFromUnknowns(base), settings, synchrotron, lagged)
     loss(term) = only(radial_values(Runes2P.rhs!(zeros(length(u)), term, u, layout, 2, 0.0), layout, 2))
 
     @testset "both losses are on by default (issue #67)" begin
@@ -136,7 +198,8 @@ using QuadGK: quadgk
         sinks = KineticEnergyLossTerm(collisions; part=:sinks, region)
         free = KineticEnergyLossTerm(collisions; part=:free_electrons, region)
         equations = [Equation(:f, TimeDerivative(), collisions),
-                     Equation(:cold_electron_temperature, TimeDerivative(:total_electron_energy), sinks),
+                     Equation(:cold_electron_temperature, TimeDerivative(:total_electron_energy), sinks,
+                              MomentumBoundaryFluxTerm(:f, collisions; weight=:energy, coefficient=-1)),
                      Equation(:cold_electron_density, Algebraic(), PrescribedValueTerm([n_D + 2n_Ar]),
                               LinearTerm(:cold_electron_density; coefficient=-1)),
                      thermal_energy_equation(), total_energy_equation(:f, grid; region)]

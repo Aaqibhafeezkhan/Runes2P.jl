@@ -33,7 +33,7 @@ const IONIZATION_ENERGIES = Dict{String,Vector{Float64}}(
 The energy [eV] to ionize the ion of `element` with charge `Z0` ([`IONIZATION_ENERGIES`](@ref)).
 """
 function ionization_energy(element::AbstractString, Z0::Integer)
-    energies = get(IONIZATION_ENERGIES, element, nothing)
+    energies = get(IONIZATION_ENERGIES, atomic_element(element), nothing)
     energies === nothing && throw(ArgumentError("no ionization energies for the element $element"))
     0 <= Z0 < length(energies) || throw(ArgumentError("$element has no ion of charge $Z0 to ionize"))
     return energies[Z0+1]
@@ -80,6 +80,6 @@ name takes the mass of deuterium.
 """
 function ion_mass(species::IonSpecies)
     Z = species.nuclear_charge
-    Z == 1 && return get(HYDROGEN_ISOTOPE_MASSES, species.name, HYDROGEN_ISOTOPE_MASSES["D"])
+    Z == 1 && return get(HYDROGEN_ISOTOPE_MASSES, atomic_element(species.name), HYDROGEN_ISOTOPE_MASSES["D"])
     return (Z <= length(ATOMIC_MASSES) ? ATOMIC_MASSES[Z] : 2.3 * Z) * ATOMIC_MASS_UNIT
 end

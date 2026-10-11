@@ -3,6 +3,21 @@
 _value(x::Real) = x
 
 """
+    atomic_element(name)
+
+The element of an ion species named `name`, whose atomic data the species takes (ADAS tables,
+ionization energies, cross sections, masses): the name itself, or for a label of the form
+`"<element>_<label>"` the part before the underscore. A label keeps two species of one element
+apart, such as the injected deuterium `"D_inj"` of DREAM's disruption example next to the
+background deuterium, which DREAM calls `Dinj` and evolves with an ion energy of its own
+(`examples/Disruptions/generate.py:439`).
+"""
+function atomic_element(name::AbstractString)
+    i = findfirst('_', name)
+    return i === nothing ? String(name) : String(name[1:prevind(name, i)])
+end
+
+"""
     IonSpecies{T}
 
 Ion species with nuclear charge `nuclear_charge` (Z) and charge-state densities

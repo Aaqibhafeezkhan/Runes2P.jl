@@ -194,7 +194,7 @@ const KINETIC_IONIZATION_FITS = Dict{String,Matrix{Float64}}(
 )
 
 """
-    ionization_cross_section(element, Z0, p)
+    ionization_cross_section(element, Z0, p; form=:dream)
 
 The cross section [m²] of the ionization of the ion of `element` in charge state `Z0` by an
 electron of momentum `p` (in units of `mₑc`), DREAM's `EvaluateBCGSingleSubshell`
@@ -215,12 +215,26 @@ of `σ_{BC}` at thermal energies, while `S` gives it the weight 0.27 already at 
 fitted `C` absorbs that weight at the energies of the fit, and the shape at hot-tail and
 runaway energies differs from a consistent blend. Zero below the threshold `U < 1` and for
 the bare nucleus. The parameters are those of [`KINETIC_IONIZATION_FITS`](@ref).
+
+`form` selects the relativistic term (decision of the author, 2026-10-06):
+
+- `:dream` (the default): DREAM's form above,
+  with DREAM's fits.
+- `:bethe`: the term divided by `β²`, `C π a₀² α² (R_y/I)(ln(p²/2I) − β²)/β²`, which joins
+  the large-`U` limit of `σ_{BC}`, with the parameters [`KINETIC_IONIZATION_BETHE_FITS`](@ref)
+  refitted by DREAM's method. The blend is floored at zero: just above the threshold of a
+  state with `I` of several keV the logarithm `ln(p²/2I)` lies below `β²` while `S` is already
+  0.3 at 15 keV, so the blend would be negative there (W⁶⁴⁺, `I = 15.6` keV).
 """
-function ionization_cross_section(element::AbstractString, Z0::Integer, p::Real)
-    haskey(KINETIC_IONIZATION_FITS, element) ||
+function ionization_cross_section(element::AbstractString, Z0::Integer, p::Real; form::Symbol=:dream)
+    form in IONIZATION_CROSS_SECTION_FORMS ||
+        throw(ArgumentError("unknown form of the ionization cross section $form (:dream or :bethe)"))
+    table = form === :bethe ? KINETIC_IONIZATION_BETHE_FITS : KINETIC_IONIZATION_FITS
+    element = atomic_element(element)
+    haskey(table, element) ||
         throw(ArgumentError("no fit of the kinetic ionization for the element $element " *
-                            "($(join(sort!(collect(keys(KINETIC_IONIZATION_FITS))), ", ")))"))
-    fits = KINETIC_IONIZATION_FITS[element]
+                            "($(join(sort!(collect(keys(table))), ", ")))"))
+    fits = table[element]
     0 <= Z0 <= size(fits, 1) || throw(ArgumentError("no charge state $Z0 of $element"))
     Z0 == size(fits, 1) && return zero(float(p))
     C, I_eV, beta_star = fits[Z0+1, 1], fits[Z0+1, 2], fits[Z0+1, 3]
@@ -236,8 +250,11 @@ function ionization_cross_section(element::AbstractString, Z0::Integer, p::Real)
     relativistic = prefactor * Constants.FINE_STRUCTURE_CONSTANT^2 * Constants.RYDBERG_ENERGY / I_eV *
                    (log(p^2 / (2I)) - beta^2)
     S = 1 / (1 + exp(1 - E * mc2 * 1e-5))
-    return (1 - S) * nonrelativistic + S * relativistic
+    form === :dream && return (1 - S) * nonrelativistic + S * relativistic
+    return max((1 - S) * nonrelativistic + S * relativistic / beta^2, zero(float(p)))
 end
+
+const IONIZATION_CROSS_SECTION_FORMS = (:dream, :bethe)
 
 """
     SECONDARY_SPECTRUM_WIDTHS

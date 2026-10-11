@@ -84,18 +84,24 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(mode=:full, screening=:complete,
     end
 
     function discrete(; Z=1, T=10.0, cells=160, pitch_cells=4, scheme=:central, cold_fraction=1.0,
-                      p_upper_boundary=:f_zero, kwargs...)
+                      p_upper_boundary=:f_zero, settings=CONDUCTIVITY_SETTINGS, kwargs...)
         grid = conductivity_grid(; cells, pitch_cells, T)
         plasma = conductivity_plasma(; Z, T, cold_fraction)
-        operator = fokker_planck_operator(grid, plasma, CONDUCTIVITY_SETTINGS; scheme, p_upper_boundary,
+        operator = fokker_planck_operator(grid, plasma, settings; scheme, p_upper_boundary,
                                           electric_field=false)
         return only(kinetic_conductivity(operator; density=get(kwargs, :density, [1e20]),
                                          pitch_rule=get(kwargs, :pitch_rule, :linear)))
     end
 
     @testset "conductivity of the discrete operator" begin
-        # the Lorentz gas: without electron-electron collisions the conductivity is σ_L
-        lorentz = [discrete(; cells, cold_fraction=1e-10) / lorentz_conductivity(10.0, 1e20, 1) for cells in (40, 80, 160)]
+        # the Lorentz gas: without electron-electron collisions the conductivity is σ_L, which
+        # has no bremsstrahlung. Its stopping power is a drag without a diffusion,
+        # so without the electron-electron collisions the Maxwellian is no steady state of the
+        # operator and the linear response has no meaning: the bremsstrahlung is neglected.
+        lorentz_settings = CollisionSettings(mode=:full, screening=:complete, coulomb_logarithm=:thermal,
+                                             bremsstrahlung=:neglect)
+        lorentz = [discrete(; cells, cold_fraction=1e-10, settings=lorentz_settings) / lorentz_conductivity(10.0, 1e20, 1)
+                   for cells in (40, 80, 160)]
         errors = lorentz .- 1
         @test abs(errors[3]) < 2e-3
         @test 3.5 < (errors[1] - errors[2]) / (errors[2] - errors[3]) < 4.5

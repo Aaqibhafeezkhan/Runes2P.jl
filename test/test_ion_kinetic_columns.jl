@@ -132,6 +132,52 @@ _hold(name, value) = Equation(name, Algebraic(), PrescribedValueTerm(value), Lin
         end
     end
 
+    @testset "the boundary flux follows the charge states (issue #143)" begin
+        # the flux through p_max of a Fokker-Planck term with the implicit charge states
+        # (nothing lagged, as in the disruption case), into a density and an energy row: its
+        # columns of the charge states, the temperature and the density against central
+        # differences, exponential fitting, at the default optimisation level
+        layout0, fp0, u0 = _kinetic_ion_case()
+        hot = kinetic_grid(layout0, 4)
+        fp = FokkerPlanckTerm(:f, AdvectionDiffusion(hot; scheme=:exponential_fitting, p_upper_boundary=:f_zero);
+                              plasma=fp0.plasma, settings=fp0.settings, lagged=())
+        layout = UnknownLayout(hot.radial_grid, [layout0.unknowns; RadialUnknown(:runaway_density; scale=1e10);
+                                                 RadialUnknown(:lost_energy)])
+        u = zeros(length(layout))
+        for id in 1:length(layout0.unknowns), ir in 1:2      # the layout is ordered by radius
+            u[unknown_range(layout, id, ir)] .= u0[unknown_range(layout0, id, ir)]
+        end
+        # a tail that reaches p_max, so that the flux there is not negligible
+        for ir in 1:2
+            m = momentum_grid(hot, ir)
+            kinetic_view(u, layout, 4, ir) .+= [1e15 * exp(-((p - 0.045) / 0.01)^2) for p in m.p_centers, _ in m.xi_centers]
+        end
+        flux = MomentumBoundaryFluxTerm(:f, fp)
+        energy = MomentumBoundaryFluxTerm(:f, fp; weight=:energy, coefficient=-1)
+        @test Runes2P.has_plasma_columns(flux) && :ion_densities in dependencies(flux)
+        equations = [Equation(:ion_densities, TimeDerivative()), population_equations(KINETIC_COMPOSITION)...,
+                     _hold(:cold_electron_temperature, [5.0, 3.0]), Equation(:f, TimeDerivative(), fp),
+                     Equation(:runaway_density, TimeDerivative(), flux), Equation(:lost_energy, TimeDerivative(), energy)]
+        system = EquationSystem(layout, equations; initial_state=u)
+        J = jacobian_prototype(system)
+        jacobian!(J, system, u, 0.0)
+        rows = [first(unknown_range(layout, unknown_id(layout, name), ir)) for name in (:runaway_density, :lost_energy)
+                for ir in 1:2]
+        rhs_rows(x) = (out = zeros(length(x)); rhs!(out, x, system, 0.0); out[rows])
+        size_of_rhs = maximum(abs, rhs_rows(u))
+        for ir in 1:2, column in [collect(unknown_range(layout, 1, ir)); first(unknown_range(layout, 2, ir));
+                                  first(unknown_range(layout, 3, ir))]
+            h = column in unknown_range(layout, 1, ir) ? 1e-6 * 1e19 : 1e-6 * u[column]
+            up, down = copy(u), copy(u)
+            up[column] += h
+            down[column] -= h
+            difference = (rhs_rows(up) - rhs_rows(down)) / 2h
+            @test maximum(abs, Vector(J[rows, column]) - difference) <=
+                  1e-5 * maximum(abs, difference) + 1e-12 * size_of_rhs / h
+        end
+        @test any(!iszero, J[rows, collect(unknown_range(layout, 1, 1))])
+    end
+
     @testset "the default lags the ion densities" begin
         layout, fp, _ = _kinetic_ion_case()
         default = FokkerPlanckTerm(:f, fp.operator; plasma=fp.plasma, settings=fp.settings)
@@ -141,7 +187,7 @@ _hold(name, value) = Equation(name, Algebraic(), PrescribedValueTerm(value), Lin
         prescribed = PrescribedFokkerPlanckTerm(:f, fp.operator, Runes2P.plasma_values(fp.plasma.prescribed, nothing, nothing, 0.0);
                                                 settings=fp.settings)
         @test prescribed.lagged == ()
-        @test FokkerPlanckTerm(:f, fp.operator; plasma=fp.plasma, settings=fp.settings, coefficients=:lagged).lagged == ()
+        @test FokkerPlanckTerm(:f, fp.operator; plasma=fp.plasma, settings=fp.settings, lagged=:all).lagged == ()
         @test_throws ArgumentError FokkerPlanckTerm(:f, fp.operator; plasma=fp.plasma, settings=fp.settings, lagged=:other)
     end
 
@@ -189,6 +235,35 @@ _hold(name, value) = Equation(name, Algebraic(), PrescribedValueTerm(value), Lin
         Runes2P.add_jacobian!(JL, loss, u, layout, 3, 0.0)
         @test all(iszero, JL[:, ion_columns])
         @test any(!iszero, JL[:, [first(unknown_range(layout, 3, ir)) for ir in 1:2]])
+        # no columns of the lagged charge states in its pattern, and its columns
+        # of the temperature and the density against central differences, with the scheme of
+        # the disruption case (exponential fitting)
+        @test :ion_densities ∉ dependencies(loss) && nnz(JL[:, ion_columns]) == 0
+        fitted = FokkerPlanckTerm(:f, AdvectionDiffusion(kinetic_grid(layout, 4); scheme=:exponential_fitting,
+                                                         p_upper_boundary=:f_zero);
+                                  plasma=fp.plasma, settings=fp.settings)
+        @test Runes2P._lags_ions(fitted)
+        fitted_loss = KineticEnergyLossTerm(fitted; part=:sinks)
+        Runes2P.prepare_step!(fitted, u, layout, 4, 0.0)
+        fitted_rhs(x) = Runes2P.rhs!(zeros(length(x)), fitted_loss, x, layout, 3, 0.0)
+        entries = Runes2P.sparsity!(Tuple{Int,Int}[], fitted_loss, layout, 3)
+        JF = sparse(first.(entries), last.(entries), zeros(length(entries)), n, n)
+        Runes2P.add_jacobian!(JF, fitted_loss, u, layout, 3, 0.0)
+        @test nnz(JF[:, ion_columns]) == 0
+        # the sinks are small against the rest of the row, so a step of 1e-3 T keeps the
+        # difference above round-off (1e-11 of the column there, 7e-6 at 1e-6 T); they do not
+        # depend on the cold density, whose column is below 1e-25 of the temperature column
+        for ir in 1:2
+            column = first(unknown_range(layout, 3, ir))
+            h = 1e-3 * u[column]
+            up, down = copy(u), copy(u)
+            up[column] += h
+            down[column] -= h
+            difference = (fitted_rhs(up) - fitted_rhs(down)) / 2h
+            @test maximum(abs, difference) > 0
+            @test maximum(abs, Vector(JF[:, column]) - difference) <= 1e-6 * maximum(abs, difference)
+            @test maximum(abs, JF[:, first(unknown_range(layout, 2, ir))]) <= 1e-25 * maximum(abs, difference)
+        end
     end
 
     @testset "energy loss columns of the charge states" begin
@@ -230,7 +305,7 @@ _hold(name, value) = Equation(name, Algebraic(), PrescribedValueTerm(value), Lin
                               settings=CollisionSettings(; mode=:full))
         minus(name) = LinearTerm(name; coefficient=-1)
         equations = [Equation(:ion_densities, TimeDerivative()),
-                     population_equations(KINETIC_COMPOSITION; hot=:hot_electron_density, runaway=:runaway_density)...,
+                     population_equations(KINETIC_COMPOSITION; hot_density=:hot_electron_density, runaway_density=:runaway_density)...,
                      _hold(:cold_electron_temperature, [5.0, 3.0]),
                      Equation(:hot_electron_density, Algebraic(), DensityMomentTerm(:f_hot), minus(:hot_electron_density)),
                      Equation(:runaway_density, Algebraic(), DensityMomentTerm(:f_re), minus(:runaway_density)),
@@ -260,6 +335,7 @@ _hold(name, value) = Equation(name, Algebraic(), PrescribedValueTerm(value), Lin
     @testset "Newton iterations of an ionization step, implicit and lagged" begin
         if !isdir(adas_cache_directory())
             @info "no ADF11 cache: the ionization step is skipped"
+            @test_skip isdir(adas_cache_directory())
         else
             counts, seconds = Dict{Tuple,Int}(), Dict{Tuple,Float64}()
             for lagged in ((), (:ion_densities,))

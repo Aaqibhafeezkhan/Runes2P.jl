@@ -180,7 +180,7 @@ sparsity!(entries, term::EnergyMomentTerm, layout, row) =
 
 """
     total_energy_equation(distribution, grid; region, total=:total_electron_energy,
-                          cold=:cold_thermal_energy)
+                          energy=:cold_thermal_energy)
 
 The algebraic equation of the total energy of the electrons in the fully kinetic mode:
 
@@ -188,7 +188,7 @@ The algebraic equation of the total energy of the electrons in the fully kinetic
 W_\\mathrm{tot} = W_\\mathrm{cold} + \\sum_{p > p_0} m_e c^2 (γ − 1) f\\, ΔV,
 ```
 
-the energy of the cold electrons and that of the electrons of `distribution` on `grid` in
+the energy `energy` of the cold electrons and that of the electrons of `distribution` on `grid` in
 the hot region `region` ([`EnergyMomentTerm`](@ref)), the region of the hot density. The row
 of the temperature then holds the time derivative of `total` (`TimeDerivative(total)`) with
 the channels that leave or enter the electrons: the work of the field on all of them
@@ -205,17 +205,25 @@ Every other change of the energy of the hot region is charged to the cold electr
 `distribution` that moves energy out of the electrons: [`KineticEnergyLossTerm`](@ref) with
 `part = :sinks` for the bremsstrahlung, the synchrotron loss and the friction on bound
 electrons, `MomentumBoundaryFluxTerm(...; weight = :energy)` for an outflow at `p_max`, and
-[`InterfaceEnergyFluxTerm`](@ref) for the runaway grid. Radial transport of `distribution`
-and knock-on secondaries on its grid have no such term yet: their energy comes out of the
-cold electrons of the radius where it is moved. No check
-refuses these systems so far.
+[`InterfaceEnergyFluxTerm`](@ref) for the runaway grid. The system refuses a row that misses
+one of them, and it refuses radial transport of `distribution` and knock-on secondaries on
+its grid, which have no such term yet: their energy would come out of the cold electrons of
+the radius where it is moved. The sinks take no flux through
+`p_max`, whose energy is the boundary term's alone. The sinks
+term is required by the settings of the collisions (synchrotron, bremsstrahlung or partial
+screening on), not by its value: at `B = 0` a synchrotron loss of zero still needs the term,
+so that the row stays closed when the field of the plasma changes.
 
-`total` takes its initial value from the row, after the energy of the cold electrons.
+`total` takes its initial value from the row, after the energy of the cold electrons. The
+keyword `cold` is the deprecated name of `energy`.
 """
-total_energy_equation(distribution::Symbol, grid::KineticGrid; region::MomentumRegion,
-                      total::Symbol=:total_electron_energy, cold::Symbol=:cold_thermal_energy) =
-    Equation(total, Algebraic(), LinearTerm(cold), EnergyMomentTerm(distribution, grid; region),
-             LinearTerm(total; coefficient=-1); initial_value=:from_equation)
+function total_energy_equation(distribution::Symbol, grid::KineticGrid; region::MomentumRegion,
+                               total::Symbol=:total_electron_energy, energy::Symbol=:cold_thermal_energy,
+                               cold::Union{Nothing,Symbol}=nothing)
+    energy = renamed_keyword(:total_energy_equation, :energy => energy, :cold => cold, :cold_thermal_energy)
+    return Equation(total, Algebraic(), LinearTerm(energy), EnergyMomentTerm(distribution, grid; region),
+                    LinearTerm(total; coefficient=-1); initial_value=:from_equation)
+end
 
 """
     RunawayFluidEnergyTransferTerm(plasma; runaway_density=:runaway_density,
@@ -256,6 +264,10 @@ function RunawayFluidEnergyTransferTerm(plasma; runaway_density::Symbol=:runaway
                                         coulomb_logarithm::Symbol=:energy_dependent, ions::Union{Nothing,Symbol}=nothing)
     coulomb_logarithm in (:energy_dependent, :thermal, :relativistic) ||
         throw(ArgumentError("coulomb_logarithm must be :energy_dependent, :thermal or :relativistic"))
+    plasma isa PlasmaSource && !(plasma isa PrescribedPlasma) &&
+        throw(ArgumentError("RunawayFluidEnergyTransferTerm takes a prescribed plasma and reads the temperature, the density " *
+                            "and the ion densities from unknowns of its own: give it the prescribed part and " *
+                            "the keywords temperature, density and ions (issue #182, item 9)"))
     source = plasma isa PrescribedPlasma ? plasma : PrescribedPlasma(plasma)
     return RunawayFluidEnergyTransferTerm(source, runaway_density, temperature, density, coulomb_logarithm, ions)
 end

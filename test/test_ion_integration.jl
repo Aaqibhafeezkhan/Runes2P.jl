@@ -13,6 +13,7 @@
 @testset "ions in a fully kinetic system" begin
     if !isdir(adas_cache_directory())
         @info "no ADF11 cache at $(adas_cache_directory()): the integrated run is skipped"
+        @test_skip isdir(adas_cache_directory())
     else
         composition = IonComposition(["D" => 1, "Ar" => 18])
         nr, T0 = 2, [30.0, 20.0]
@@ -40,7 +41,7 @@
         equations = [
             Equation(:ion_densities, TimeDerivative(), IonRateTerm(composition; kinetic), kinetic,
                      IonDiffusionTerm(composition; diffusion=1.0)),
-            population_equations(composition; hot=:hot_electron_density)...,
+            population_equations(composition; hot_density=:hot_electron_density)...,
             Equation(:hot_electron_density, Algebraic(), DensityMomentTerm(:f, grid; region), minus(:hot_electron_density)),
             Equation(:particle_source, Constraint(), DensityMomentTerm(:f), minus(:cold_electron_density),
                      minus(:hot_electron_density); scale=1e19),
@@ -48,7 +49,8 @@
             # the losses of f to the bound electrons and the radiation leave the electrons
             # (part = :sinks); the energy of the kinetic ionization is among them
             Equation(:cold_electron_temperature, TimeDerivative(:total_electron_energy), radiation,
-                     KineticEnergyLossTerm(fp; part=:sinks)),
+                     KineticEnergyLossTerm(fp; part=:sinks, region),
+                     MomentumBoundaryFluxTerm(:f, fp; weight=:energy, coefficient=-1)),
             thermal_energy_equation(), total_energy_equation(:f, grid; region)]
         u0 = zeros(length(layout))
         set_ion_densities!(u0, layout, background)
@@ -137,11 +139,12 @@ function _neon_run(heating::Bool)
                           settings=CollisionSettings(mode=:full, screening=:partial))
     kinetic = KineticIonizationTerm(composition, :f, grid; region)
     energy_terms = EquationTerm[RadiatedPowerTerm(prescribed; ions=:ion_densities, kinetic),
-                                KineticEnergyLossTerm(fp; part=:sinks)]
+                                KineticEnergyLossTerm(fp; part=:sinks, region),
+                                MomentumBoundaryFluxTerm(:f, fp; weight=:energy, coefficient=-1)]
     heating && push!(energy_terms, SecondaryHeatingTerm(kinetic))
     equations = [
         Equation(:ion_densities, TimeDerivative(), IonRateTerm(composition; kinetic), kinetic),
-        population_equations(composition; hot=:hot_electron_density)...,
+        population_equations(composition; hot_density=:hot_electron_density)...,
         Equation(:hot_electron_density, Algebraic(), DensityMomentTerm(:f, grid; region), minus(:hot_electron_density)),
         Equation(:particle_source, Constraint(), DensityMomentTerm(:f), minus(:cold_electron_density),
                  minus(:hot_electron_density); scale=1e19),

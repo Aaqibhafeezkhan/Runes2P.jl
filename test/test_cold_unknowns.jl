@@ -21,7 +21,7 @@ function _cold_grid()
 end
 
 # f with T and n as unknowns held at the prescribed values by algebraic rows
-function _cold_system(g, u0; coefficients=:implicit, density=:cold_electron_density, scheme=:exponential_fitting,
+function _cold_system(g, u0; lagged=:ions, density=:cold_electron_density, scheme=:exponential_fitting,
                       field=false, jacobian=:exact, base=_cold_base)
     unknowns = [KineticUnknown(:f, g; scale=1e20), RadialUnknown(:cold_electron_temperature; scale=100.0)]
     density === nothing || push!(unknowns, RadialUnknown(:cold_electron_density; scale=1e20))
@@ -29,7 +29,7 @@ function _cold_system(g, u0; coefficients=:implicit, density=:cold_electron_dens
     layout = UnknownLayout(g.radial_grid, unknowns)
     plasma = PlasmaFromUnknowns(base; density)
     term = FokkerPlanckTerm(:f, AdvectionDiffusion(g; scheme, p_upper_boundary=:f_zero);
-                            plasma, settings=COLD_SETTINGS, coefficients, jacobian,
+                            plasma, settings=COLD_SETTINGS, lagged, jacobian,
                             electric_field=field ? :electric_field : nothing)
     minus(name) = LinearTerm(name; coefficient=-1)
     equations = [Equation(:f, TimeDerivative(), term),
@@ -109,15 +109,16 @@ end
                                  temperature_floor=0.01)
         @test all(==(0.1), plasma_values(low, cold, layout, 0.0).cold_electron_temperature)
         @test_throws ArgumentError EquationSystem(layout, system.equations; time_scale=1e-6)
-        lagged, lagged_term = _cold_system(g, u0; coefficients=:lagged)
+        lagged, lagged_term = _cold_system(g, u0; lagged=:all)
         @test Runes2P.jacobian_kind(lagged_term) === :exact && !is_linear(lagged_term)
         @test !Runes2P.has_plasma_columns(lagged_term)
-        @test_throws ArgumentError FokkerPlanckTerm(:f, AdvectionDiffusion(g); plasma=term.plasma, coefficients=:other)
+        @test_throws ArgumentError FokkerPlanckTerm(:f, AdvectionDiffusion(g); plasma=term.plasma, lagged=:other)
         # the field-particle term takes the plasma from the unknowns lagged
         @test !is_linear(FieldParticleTerm(:f, FieldParticleOperator(g, _cold_base(0.0), COLD_SETTINGS);
                                            plasma=term.plasma))
         record = describe(term, Runes2P.DescriptionContext(times=times))
-        @test record["coefficients"] == "implicit"
+        @test !haskey(record, "lagged") && !haskey(record, "coefficients")
+        @test describe(lagged_term, Runes2P.DescriptionContext(times=times))["lagged"] == "all"
         @test record["plasma_unknowns"]["temperature"] == "cold_electron_temperature"
         @test record["plasma"] == "_cold_base"
     end
@@ -137,7 +138,7 @@ end
     @testset "lagged coefficients: the plasma of the start of each step" begin
         dt = times[2] - times[1]
         reference = _cold_reference(g, f0, times; lag=dt)
-        system, _ = _cold_system(g, u0; coefficients=:lagged)
+        system, _ = _cold_system(g, u0; lagged=:all)
         solution = integrate(system, u0(system.layout), times)
         f = reduce(hcat, vec(kinetic_array(solution.states[:, k], system.layout, 1)) for k in eachindex(times))
         @test f ≈ reference.states rtol = 1e-8
@@ -153,7 +154,7 @@ end
                                cold_electron_density=_cold_density(max(t - dt, 0.0)),
                                ions=[IonSpecies("D", 1, 1, [1e20, 8e19])], electric_field=[20.0, 15.0] .* (1 + t / 1e-4),
                                magnetic_field=[5.0, 5.0])
-        system, _ = _cold_system(g, u0; coefficients=:lagged, base=rising)
+        system, _ = _cold_system(g, u0; lagged=:all, base=rising)
         solution = integrate(system, u0(system.layout), times)
         f = reduce(hcat, vec(kinetic_array(solution.states[:, k], system.layout, 1)) for k in eachindex(times))
         @test f ≈ _cold_reference(g, f0, times; plasma_at=mixed).states rtol = 1e-8
@@ -256,15 +257,15 @@ end
     @testset "Newton counts: implicit against lagged coefficients" begin
         # the oracle run against the prescribed plasma, on steps five times longer than in its test
         counts = Dict{Symbol,Int}()
-        for coefficients in (:implicit, :lagged)
-            system, _ = _cold_system(g, u0; coefficients)
+        for lagged in (:ions, :all)
+            system, _ = _cold_system(g, u0; lagged)
             solution = integrate(system, u0(system.layout), collect(range(0.0, 1e-4; length=3));
                                  stepper=FixedSteps())
             @test all(solution.statistics.accepted)
-            counts[coefficients] = sum(solution.statistics.newton_iterations)
+            counts[lagged] = sum(solution.statistics.newton_iterations)
         end
         @info "Newton iterations on 2 steps of 5e-5 s" counts
-        @test counts[:implicit] <= 4 * 2
+        @test counts[:ions] <= 4 * 2
     end
 
     @testset "the exact operator with another scheme's block in f" begin
@@ -338,23 +339,50 @@ end
                                                      operator=AdvectionDiffusion(g))
     end
 
-    @testset "the flux terms refuse coefficients that follow unknowns" begin
-        system, term = _cold_system(g, u0)
-        layout = UnknownLayout(g.radial_grid, [KineticUnknown(:f, g), RadialUnknown(:cold_electron_temperature),
-                                               RadialUnknown(:cold_electron_density), RadialUnknown(:runaway_density)])
+    @testset "the boundary flux follows the plasma unknowns (issue #143)" begin
+        # the flux through p_max into a density and an energy, with the temperature, the
+        # density and the field as unknowns, exponential fitting and f = 0 beyond p_max (the
+        # boundary of DREAM's disruption reference case): its columns of the plasma against
+        # central differences of the residual at the default optimisation level
+        system, term = _cold_system(g, u0; field=true)
+        @test Runes2P.has_plasma_columns(term)
+        layout = UnknownLayout(g.radial_grid, [system.layout.unknowns; RadialUnknown(:runaway_density; scale=1e15);
+                                               RadialUnknown(:lost_energy; scale=1.0)])
         flux = MomentumBoundaryFluxTerm(:f, term)
-        @test_throws "issue #143" Runes2P.validate(flux, layout, unknown_id(layout, :runaway_density))
-        _, lagged = _cold_system(g, u0; coefficients=:lagged)
-        @test Runes2P.validate(MomentumBoundaryFluxTerm(:f, lagged), layout, unknown_id(layout, :runaway_density)) === nothing
+        energy = MomentumBoundaryFluxTerm(:f, term; weight=:energy, coefficient=-1)
+        @test Runes2P.has_plasma_columns(flux) && !is_linear(flux)
+        @test :cold_electron_temperature in dependencies(flux) && :cold_electron_density in dependencies(flux)
+        equations = [system.equations...; Equation(:runaway_density, TimeDerivative(), flux);
+                     Equation(:lost_energy, TimeDerivative(), energy)]
+        full = EquationSystem(layout, equations; time_scale=1e-6, initial_state=u0(layout))
+        u = u0(layout)
+        J = jacobian_prototype(full)
+        jacobian!(J, full, u, 0.0)
+        rhs_of(x) = (out = zeros(length(x)); rhs!(out, x, full, 0.0); out)
+        rows = [first(unknown_range(layout, unknown_id(layout, name), ir)) for name in (:runaway_density, :lost_energy)
+                for ir in 1:2]
+        for name in (:cold_electron_temperature, :cold_electron_density, :electric_field), ir in 1:2
+            column = first(unknown_range(layout, unknown_id(layout, name), ir))
+            h = 1e-5 * u[column]
+            up, down = copy(u), copy(u)
+            up[column] += h
+            down[column] -= h
+            difference = (rhs_of(up)[rows] - rhs_of(down)[rows]) / 2h
+            @test maximum(abs, difference) > 0
+            @test maximum(abs, Vector(J[rows, column]) - difference) <= 1e-6 * maximum(abs, difference)
+        end
+        # lagged, the flux has no plasma columns and stays linear in f
+        _, lagged = _cold_system(g, u0; lagged=:all)
+        @test !Runes2P.has_plasma_columns(MomentumBoundaryFluxTerm(:f, lagged))
         # the interface between the hot-tail and the runaway grid
         runaway = runaway_grid(g, [0.4, 0.8])
         upper = AdvectionDiffusion(runaway; scheme=:exponential_fitting, p_lower_boundary=:interface)
         two_grids = UnknownLayout(g.radial_grid, [KineticUnknown(:f, g), KineticUnknown(:runaway, runaway),
                                                   RadialUnknown(:cold_electron_temperature),
                                                   RadialUnknown(:cold_electron_density)])
-        for (coefficients, refused) in ((:implicit, true), (:lagged, false))
+        for (lagged, refused) in ((:ions, true), (:all, false))
             lower = FokkerPlanckTerm(:f, AdvectionDiffusion(g; scheme=:exponential_fitting, p_upper_boundary=:interface);
-                                     plasma=PlasmaFromUnknowns(_cold_base), settings=COLD_SETTINGS, coefficients)
+                                     plasma=PlasmaFromUnknowns(_cold_base), settings=COLD_SETTINGS, lagged)
             interface = MomentumInterfaceTerm(:f, :runaway, lower, upper)
             if refused
                 @test_throws "issue #143" Runes2P.validate(interface, two_grids, 1)

@@ -93,7 +93,7 @@ The coefficients are those of ADAS (H. P. Summers, The ADAS User Manual, version
 temperature and the density are exact through ForwardDiff. [`radiated_power`](@ref) gives
 the radiation and the binding energy apart.
 """
-struct RadiatedPowerTerm{S<:PrescribedPlasma} <: EquationTerm
+struct RadiatedPowerTerm{S<:PrescribedPlasma,K<:Union{Nothing,KineticIonizationTerm}} <: EquationTerm
     plasma::S
     temperature::Symbol
     density::Symbol
@@ -101,7 +101,7 @@ struct RadiatedPowerTerm{S<:PrescribedPlasma} <: EquationTerm
     extrapolation::Symbol
     tables::Dict{String,NamedTuple}
     ions::Union{Nothing,Symbol}
-    kinetic::Any                  # nothing, or the KineticIonizationTerm of the split of the ionization
+    kinetic::K                    # nothing, or the KineticIonizationTerm of the split of the ionization
 end
 
 function RadiatedPowerTerm(plasma; radiation::Symbol=:recombination, temperature::Symbol=:cold_electron_temperature,
@@ -112,12 +112,16 @@ function RadiatedPowerTerm(plasma; radiation::Symbol=:recombination, temperature
         throw(ArgumentError("radiation must be :recombination or :dream, not $radiation"))
     extrapolation in (:dream, :clamp_density) ||
         throw(ArgumentError("extrapolation must be :dream or :clamp_density, not $extrapolation"))
+    plasma isa PlasmaSource && !(plasma isa PrescribedPlasma) &&
+        throw(ArgumentError("RadiatedPowerTerm takes a prescribed plasma and reads the temperature, the density " *
+                            "and the ion densities from unknowns of its own: give it the prescribed part and " *
+                            "the keywords temperature, density and ions (issue #182, item 9)"))
     source = plasma isa PrescribedPlasma ? plasma : PrescribedPlasma(plasma)
     tables = Dict{String,NamedTuple}()
     for species in plasma_values(source, nothing, nothing, initial_time).ions
         element = species.name
         haskey(tables, element) && continue
-        haskey(ADAS_FILES, element) ||
+        haskey(ADAS_FILES, atomic_element(element)) ||
             throw(ArgumentError("the ion species $element is not an element with ADF11 tables " *
                                 "($(join(sort!(collect(keys(ADAS_FILES))), ", ")))"))
         ionization_energy(element, 0)

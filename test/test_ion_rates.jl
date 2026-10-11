@@ -36,6 +36,7 @@ end
 @testset "ion rates" begin
     if !isdir(adas_cache_directory())
         @info "no ADF11 cache at $(adas_cache_directory()): the ion rate tests are skipped"
+        @test_skip isdir(adas_cache_directory())
     else
         term = IonRateTerm(RATE_COMPOSITION)
         @test_throws ArgumentError IonRateTerm(IonComposition(["Xe" => 54]))

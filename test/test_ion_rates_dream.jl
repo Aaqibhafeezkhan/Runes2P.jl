@@ -13,6 +13,7 @@ using HDF5
 @testset "ion rates against DREAM" begin
     if !isdir(adas_cache_directory())
         @info "no ADF11 cache at $(adas_cache_directory()): the comparison with DREAM is skipped"
+        @test_skip isdir(adas_cache_directory())
     else
         data = h5open(joinpath(@__DIR__, "data", "dream_ion_rates.h5"), "r") do h5
             Dict(name => read(h5[name]) for name in keys(h5))

@@ -242,7 +242,11 @@ field of the state.
   energy of the electrons on the hot-tail grid ([`total_energy_equation`](@ref)).
 
 The entries of the row are assembled directly, from the derivative of the flux of each
-pitch cell with respect to the cells at the boundary.
+pitch cell with respect to the cells at the boundary. With a Fokker-Planck term whose plasma
+reads unknowns implicitly ([`has_plasma_columns`](@ref)) the flux follows them as well: its
+columns of the temperature, the density and the charge states come from the flux of the
+term's coefficients in dual numbers, through the weights of the scheme of the boundary
+([`add_plasma_columns!`](@ref)).
 """
 struct MomentumBoundaryFluxTerm{S} <: EquationTerm
     kinetic::Symbol
@@ -269,18 +273,53 @@ _electric_field_of(term::MomentumBoundaryFluxTerm) = _electric_field_of(term.sou
 
 function dependencies(term::MomentumBoundaryFluxTerm)
     field = _electric_field_of(term)
-    return field === nothing ? [term.kinetic] : [term.kinetic, field]
+    names = field === nothing ? [term.kinetic] : [term.kinetic, field]
+    has_plasma_columns(term) && append!(names, _plasma_column_unknowns(term.source))
+    return unique!(names)
 end
 is_linear(term::MomentumBoundaryFluxTerm) =
-    _electric_field_of(term) === nothing && is_linear(_operator_of(term.source))
+    _electric_field_of(term) === nothing && is_linear(_operator_of(term.source)) && !has_plasma_columns(term)
+
+# the flux follows the plasma unknowns of an implicit Fokker-Planck term
+has_plasma_columns(term::MomentumBoundaryFluxTerm) = term.source isa FokkerPlanckTerm && has_plasma_columns(term.source)
+# the unknowns of the plasma columns of a Fokker-Planck term: without the charge states it lags
+_plasma_column_unknowns(term::FokkerPlanckTerm) =
+    filter(name -> !(_lags_ions(term) && name === ion_dependency(term.plasma)),
+           collect(Symbol, source_dependencies(term.plasma)))
+
+function plasma_column_sparsity!(entries, term::MomentumBoundaryFluxTerm, layout, row)
+    source = term.source
+    for ir in 1:radial_cell_count(layout)
+        r = first(unknown_range(layout, row, ir))
+        append!(entries, ((r, column) for column in plasma_columns(source.plasma, layout, ir;
+                                                                   with_ions=!_lags_ions(source))))
+    end
+    return entries
+end
+
+function add_plasma_columns!(J, term::MomentumBoundaryFluxTerm, u, layout, row, t)
+    source = term.source
+    op, with_ions = _dual_coefficients!(source, u, layout, t)
+    f = kinetic_array(u, layout, unknown_id(layout, term.kinetic))
+    name = _electric_field_of(term)
+    field = name === nothing ? nothing : _field_values(name, u, layout)
+    rg = layout.radial_grid
+    for ir in 1:radial_cell_count(layout)
+        m = op.momentum_grids[ir]
+        face = momentum_cell_count(m) + 1
+        total = sum(_boundary_weight(term, m, rg, j, ir) * _p_flux(op, f, face, j, ir, nothing, field)
+                    for j in 1:pitch_cell_count(m))
+        r = first(unknown_range(layout, row, ir))
+        partials = ForwardDiff.partials(total)
+        for (k, column) in enumerate(plasma_columns(source.plasma, layout, ir; with_ions))
+            _add_entry!(J, r, column, partials[k])
+        end
+    end
+    return J
+end
 jacobian_assembly(::MomentumBoundaryFluxTerm) = :direct
 
 function validate(term::MomentumBoundaryFluxTerm, layout, row)
-    # the flux follows the plasma unknowns of the Fokker-Planck term, whose columns this
-    # term does not have yet
-    has_plasma_columns(term.source) &&
-        throw(ArgumentError("MomentumBoundaryFluxTerm reads the coefficients of a Fokker-Planck term whose plasma follows unknowns, " *
-                            "and has no Jacobian columns for them yet (issue #143): use coefficients = :lagged"))
     id = unknown_id(layout, term.kinetic)
     layout.kinds[id] === :kinetic || throw(ArgumentError("MomentumBoundaryFluxTerm needs a kinetic unknown"))
     layout.kinds[row] === :radial && layout.sizes[row, 1] == 1 ||

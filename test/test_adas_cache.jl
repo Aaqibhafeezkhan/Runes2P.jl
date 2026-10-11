@@ -16,6 +16,7 @@ end
     directory = adas_cache_directory()
     if !isdir(directory)
         @info "no ADF11 cache at $directory (scripts/fetch_adas.py): the tests on OpenADAS data are skipped"
+        @test_skip isdir(adas_cache_directory())
     else
         elements = sort!(collect(keys(Runes2P.ADAS_FILES)))
         @test all(element -> all(class -> isfile(joinpath(directory, adf11_file_name(element, class))),

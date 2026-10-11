@@ -84,7 +84,9 @@ end
                  joinpath(@__DIR__, "data", "dream_two_grids.h5"),
                  joinpath(@__DIR__, "data", "dream_radial_transport.h5"),
                  joinpath(@__DIR__, "data", "dream_cold_energy.h5"),
-                 joinpath(@__DIR__, "data", "dream_self_consistent_field.h5"))
+                 joinpath(@__DIR__, "data", "dream_self_consistent_field.h5"),
+                 joinpath(@__DIR__, "data", "dream_rp_avalanche.h5"),
+                 joinpath(@__DIR__, "data", "dream_disruption_small.h5"))
         h5open(file) do h5
             attr = attributes(h5)
             @test haskey(attr, "dream_commit")

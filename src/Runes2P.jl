@@ -6,11 +6,13 @@ rewrite focused on kinetic accuracy and parallel CPU scaling is feasible.
 """
 module Runes2P
 
+include("deprecations.jl")
 include("physics/constants.jl")
 include("physics/atomic_data.jl")
 include("physics/plasma.jl")
 include("physics/adas.jl")
 include("physics/ionization_energies.jl")
+include("physics/ionization_bethe_fits.jl")
 include("physics/ionization_cross_sections.jl")
 include("physics/coulomb_logarithm.jl")
 include("physics/conductivity.jl")
@@ -31,6 +33,7 @@ include("operators/knockon/pitch_kernel.jl")
 include("operators/knockon/operator.jl")
 include("operators/knockon/cutoff.jl")
 include("physics/runaway_rates.jl")
+include("physics/effective_critical_field.jl")
 include("system/jacobian.jl")
 include("system/layout.jl")
 include("physics/plasma_source.jl")
@@ -43,6 +46,7 @@ include("system/knockon_terms.jl")
 include("system/interface_term.jl")
 include("system/transport_terms.jl")
 include("system/population_terms.jl")
+include("system/avalanche_terms.jl")
 include("system/energy_terms.jl")
 include("system/kinetic_ionization.jl")
 include("system/radiation_terms.jl")
@@ -86,11 +90,12 @@ export IonComposition, component_count, species_components, species_index, compo
 export WeightedSumTerm, free_electron_weights, ion_densities_unknown, set_ion_densities!, ion_densities
 export deposit_neutrals!, population_equations, IonRateTerm, ion_rate_matrix, coronal_equilibrium
 export with_state_ions, add_local_jacobian!, local_layout, plasma_columns
+export RosenbluthPutvinskiSourceTerm, rosenbluth_putvinski_rate, ExternalAvalancheTerm
 export KineticIonizationTerm, threshold_split, fluid_ionization_coefficient, kinetic_ionization_rates, MINIMUM_SPLIT_THRESHOLD_FACTOR
 export IonDiffusionTerm, lags_in_ode_form
 export SECONDARY_SPECTRUM_WIDTHS, mean_secondary_energy, beb_mean_secondary_energy, SecondaryHeatingTerm, ionization_energy_flows
 export ADF11Table, read_adf11, adas_coefficient, adf11_file_name, adas_cache_directory, read_adas
-export IONIZATION_ENERGIES, ionization_energy, KINETIC_IONIZATION_FITS, ionization_cross_section
+export IONIZATION_ENERGIES, ionization_energy, KINETIC_IONIZATION_FITS, KINETIC_IONIZATION_BETHE_FITS, ionization_cross_section
 export PlasmaSource, PrescribedPlasma, PlasmaFromUnknowns, plasma_values, is_state_dependent
 export coulomb_logarithm, thermal_coulomb_logarithm, relativistic_coulomb_logarithm
 export CollisionSettings, CollisionModel, slowing_down_frequency, deflection_frequency
@@ -111,6 +116,8 @@ export electron_electron_operator, FieldParticleOperator, FieldParticleTerm, set
 export parallel_momentum, LowRankBlock, low_rank_jacobian, has_low_rank_jacobian
 export thermal_momentum, critical_field, critical_momentum, cutoff_window, choose_cutoff
 export dreicer_field, thermal_collision_time, connor_hastie_rate, avalanche_growth_rate
+export effective_critical_field, avalanche_critical_momentum, fluid_avalanche_growth_rate, critical_field_advection,
+       runaway_fluid_settings, SYNCHROTRON_RATE_PER_FIELD_SQUARED
 export ScalarUnknown, RadialUnknown, KineticUnknown, LowerLimit, UnknownLayout
 export unknown_id, unknown_names, unknown, unknown_range, radius_block_range, scalar_block_range
 export radial_view, kinetic_view, scalar_view, unknown_view, unknown_scales, describe, copy_unknowns!

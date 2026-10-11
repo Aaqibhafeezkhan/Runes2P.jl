@@ -278,6 +278,7 @@ end
 The name of the ADF11 file of `element` and `class` in the cache ([`ADAS_FILES`](@ref)).
 """
 function adf11_file_name(element::AbstractString, class::Symbol)
+    element = atomic_element(element)
     haskey(ADAS_FILES, element) || throw(ArgumentError("no ADF11 files listed for the element $element"))
     entry = getproperty(ADAS_FILES[element], class)
     endswith(entry, ".dat") && return entry

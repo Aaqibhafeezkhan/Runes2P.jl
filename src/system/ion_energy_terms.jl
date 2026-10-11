@@ -64,6 +64,10 @@ function IonEnergyExchangeTerm(plasma; side::Symbol, ion_energy::Symbol=:ion_the
                                density::Symbol=:cold_electron_density, ion_ion::Bool=true, masses=nothing,
                                ions::Union{Nothing,Symbol}=nothing, initial_time::Real=0.0)
     side in (:ions, :electrons) || throw(ArgumentError("side must be :ions or :electrons, not $side"))
+    plasma isa PlasmaSource && !(plasma isa PrescribedPlasma) &&
+        throw(ArgumentError("IonEnergyExchangeTerm takes a prescribed plasma and reads the temperature, the density " *
+                            "and the ion densities from unknowns of its own: give it the prescribed part and " *
+                            "the keywords temperature, density and ions (issue #182, item 9)"))
     source = plasma isa PrescribedPlasma ? plasma : PrescribedPlasma(plasma)
     species_list = plasma_values(source, nothing, nothing, initial_time).ions
     mass_values = masses === nothing ? [ion_mass(species) for species in species_list] : collect(Float64, masses)
@@ -172,40 +176,55 @@ function sparsity!(entries, term::IonEnergyExchangeTerm, layout, row)
 end
 
 """
-    set_ion_thermal_energy!(u, layout, plasma, temperature; ion_energy=:ion_thermal_energy, t=0.0)
+    set_ion_thermal_energy!(u, layout, plasma, temperature; ion_energy=:ion_thermal_energy, ions=nothing, t=0.0)
 
 Set the thermal energy of every ion species in the state `u`, `W = 3/2 e N T` with the total
 density `N` of the species in `plasma` at time `t` and the temperature `temperature` [eV]:
 a number, one value per species, or a matrix of species × radii (DREAM's initial `W_i` from
-`T_i`, `T_i.cpp`).
+`T_i`, `T_i.cpp`). With `ions`, the radial unknown of the charge states, `N` is that of the
+state `u`, as the energy exchange reads it: after [`deposit_neutrals!`](@ref) the prescribed
+densities no longer hold.
 """
 function set_ion_thermal_energy!(u::AbstractVector, layout::UnknownLayout, plasma, temperature;
-                                 ion_energy::Symbol=:ion_thermal_energy, t::Real=0.0)
-    state = plasma isa PlasmaState ? plasma : plasma_values(plasma isa PrescribedPlasma ? plasma : PrescribedPlasma(plasma),
-                                                            nothing, nothing, t)
+                                 ion_energy::Symbol=:ion_thermal_energy, ions::Union{Nothing,Symbol}=nothing,
+                                 t::Real=0.0)
+    totals = _ion_totals(u, layout, plasma, ions, t)
     id = unknown_id(layout, ion_energy)
     for ir in 1:radial_cell_count(layout), (s, r) in enumerate(unknown_range(layout, id, ir))
         T = temperature isa Real ? temperature : temperature isa AbstractVector ? temperature[s] : temperature[s, ir]
-        u[r] = THERMAL_ENERGY_FACTOR * sum(view(state.ions[s].charge_state_densities, :, ir)) * T
+        u[r] = THERMAL_ENERGY_FACTOR * totals[s, ir] * T
     end
     return u
 end
 
-"""
-    ion_temperatures(u, layout, plasma; ion_energy=:ion_thermal_energy, t=0.0)
-
-The temperature [eV] of every ion species at every radius (species × radii), `T = W/(3/2 e
-N)`, from the state `u`; `NaN` where a species has no density.
-"""
-function ion_temperatures(u::AbstractVector, layout::UnknownLayout, plasma; ion_energy::Symbol=:ion_thermal_energy,
-                          t::Real=0.0)
+# the total density of every ion species at every radius (species × radii): of the prescribed
+# plasma at time t, or with `ions` of that unknown of the state u
+function _ion_totals(u, layout, plasma, ions, t)
     state = plasma isa PlasmaState ? plasma : plasma_values(plasma isa PrescribedPlasma ? plasma : PrescribedPlasma(plasma),
                                                             nothing, nothing, t)
+    ions === nothing && return reduce(vcat, [sum(s.charge_state_densities; dims=1) for s in state.ions])
+    c = IonComposition(state.ions)
+    id = unknown_id(layout, ions)
+    _check_ion_unknown(layout, id, c)
+    return [sum(radial_view(u, layout, id, ir)[species_components(c, s)]) for s in 1:length(c),
+            ir in 1:radial_cell_count(layout)]
+end
+
+"""
+    ion_temperatures(u, layout, plasma; ion_energy=:ion_thermal_energy, ions=nothing, t=0.0)
+
+The temperature [eV] of every ion species at every radius (species × radii), `T = W/(3/2 e
+N)`, from the state `u`; `NaN` where a species has no density. With `ions` the densities `N`
+are those of that unknown of `u`, as in [`set_ion_thermal_energy!`](@ref).
+"""
+function ion_temperatures(u::AbstractVector, layout::UnknownLayout, plasma; ion_energy::Symbol=:ion_thermal_energy,
+                          ions::Union{Nothing,Symbol}=nothing, t::Real=0.0)
+    totals = _ion_totals(u, layout, plasma, ions, t)
     id = unknown_id(layout, ion_energy)
     nr = radial_cell_count(layout)
-    T = fill(NaN, length(state.ions), nr)
+    T = fill(NaN, size(totals, 1), nr)
     for ir in 1:nr, (s, r) in enumerate(unknown_range(layout, id, ir))
-        N = sum(view(state.ions[s].charge_state_densities, :, ir))
+        N = totals[s, ir]
         N > 0 && (T[s, ir] = u[r] / (THERMAL_ENERGY_FACTOR * N))
     end
     return T

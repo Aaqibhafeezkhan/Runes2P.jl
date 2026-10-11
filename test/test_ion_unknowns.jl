@@ -88,7 +88,7 @@ end
         @test radial_values(out, layout, 2) ≈ n_free rtol = 1e-14
         @test n_free ≈ fill(1e19 + 1.5e15, nr) rtol = 1e-14
         equations = [Equation(:ion_densities, TimeDerivative()),
-                     population_equations(ION_COMPOSITION; hot=:hot_electron_density)...,
+                     population_equations(ION_COMPOSITION; hot_density=:hot_electron_density)...,
                      Equation(:hot_electron_density, Algebraic(), PrescribedValueTerm(1e17),
                               LinearTerm(:hot_electron_density; coefficient=-1))]
         system = EquationSystem(layout, equations)
@@ -223,5 +223,25 @@ end
         # without the unknown of the cold density the default stays allowed
         alone = UnknownLayout(radial, [KineticUnknown(:f, g)])
         @test Runes2P.validate(term(default), alone, 1, 0.0) === nothing
+    end
+end
+
+@testset "a labelled species takes the data of its element" begin
+    # DREAM's disruption example injects deuterium as a species of its own (Dinj), with an
+    # ion energy of its own: Runes2P's "D_inj" takes the atomic data of D
+    @test Runes2P.atomic_element("D_inj") == "D" && Runes2P.atomic_element("Ar") == "Ar"
+    @test ionization_energy("D_inj", 0) == ionization_energy("D", 0)
+    @test ion_mass(IonSpecies("D_inj", 1, 0, [1e19])) == ion_mass(IonSpecies("D", 1, 0, [1e19]))
+    @test ionization_cross_section("D_inj", 0, 0.1) == ionization_cross_section("D", 0, 0.1)
+    @test Runes2P.adf11_file_name("D_inj", :scd) == Runes2P.adf11_file_name("D", :scd)
+    composition = IonComposition(["D" => 1, "D_inj" => 1, "Ar" => 18])
+    layout = UnknownLayout(RadialGrid(uniform_r_faces(1, 0.5)), [ion_densities_unknown(composition)])
+    u = zeros(length(layout))
+    deposit_neutrals!(u, layout, composition, "D_inj" => 2e19)
+    @test radial_view(u, layout, 1, 1)[species_components(composition, "D_inj")] == [2e19, 0.0]
+    @test all(iszero, radial_view(u, layout, 1, 1)[species_components(composition, "D")])
+    if isdir(adas_cache_directory())
+        rates = IonRateTerm(composition)
+        @test rates.tables[2].scd.source == rates.tables[1].scd.source
     end
 end

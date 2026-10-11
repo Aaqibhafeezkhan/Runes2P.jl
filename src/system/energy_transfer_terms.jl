@@ -75,8 +75,13 @@ FreeElectronEnergyTransferTerm(source::FokkerPlanckTerm) = KineticEnergyLossTerm
 
 lags_in_ode_form(term::KineticEnergyLossTerm) = lags_in_ode_form(term.source)
 _follows_unknowns(term::KineticEnergyLossTerm) = is_state_dependent(term.source.plasma) && !_is_lagged(term.source)
-_loss_plasma_unknowns(term::KineticEnergyLossTerm) =
-    _follows_unknowns(term) ? collect(Symbol, source_dependencies(term.source.plasma)) : Symbol[]
+# the plasma unknowns of the iterate the loss reads: none with the whole plasma lagged, and
+# without the ion densities when the source lags them
+function _loss_plasma_unknowns(term::KineticEnergyLossTerm)
+    _follows_unknowns(term) || return Symbol[]
+    names = collect(Symbol, source_dependencies(term.source.plasma))
+    return _lags_ions(term.source) ? filter(!=(ion_dependency(term.source.plasma)), names) : names
+end
 dependencies(term::KineticEnergyLossTerm) =
     unique([term.kinetic; _loss_plasma_unknowns(term); collect(Symbol, _region_unknowns(term.envelopes))])
 is_linear(term::KineticEnergyLossTerm) = length(dependencies(term)) == 1
@@ -113,14 +118,19 @@ function _transfer_plasma(term::KineticEnergyLossTerm, u, layout, t)
     return _fokker_planck_plasma(term.source, u, layout, t)
 end
 
-# the operators C_a and C_b of the part, with the scheme and the boundaries of the source
+# The operators C_a and C_b of the part, with the scheme and the boundaries of the source.
+# The sinks take no flux through p_max (the value :interface): the energy of the electrons
+# that leave there is that of MomentumBoundaryFluxTerm(...; weight = :energy) in the row of
+# the total energy, and with the flux of the source's boundary the sink part of it would
+# be counted twice.
 function _loss_operators(term::KineticEnergyLossTerm, grid, plasma)
     op = term.source.operator
+    upper = term.part === :sinks ? :interface : op.p_upper_boundary
     free = electron_electron_operator(grid, plasma, term.source.settings; scheme=op.p_scheme,
-                                      p_lower_boundary=op.p_lower_boundary, p_upper_boundary=op.p_upper_boundary)
+                                      p_lower_boundary=op.p_lower_boundary, p_upper_boundary=upper)
     term.part === :free_electrons && return (free, nothing)
     collisions = AdvectionDiffusion(grid; p_scheme=op.p_scheme, xi_scheme=op.xi_scheme,
-                                    p_lower_boundary=op.p_lower_boundary, p_upper_boundary=op.p_upper_boundary)
+                                    p_lower_boundary=op.p_lower_boundary, p_upper_boundary=upper)
     C = eltype(plasma.cold_electron_temperature)
     C === Float64 || (collisions = similar_coefficients(collisions, C))
     set_fokker_planck_coefficients!(collisions, plasma, term.source.settings; synchrotron=term.source.synchrotron,
@@ -199,7 +209,7 @@ function add_jacobian!(J, term::KineticEnergyLossTerm, u, layout, row, t)
         for ir in 1:nr
             partials = ForwardDiff.partials(-term.coefficient * sum(_loss_weights(term, grid, ir, u, layout, t) .*
                                                                      view(df, :, :, ir)))
-            for (k, column) in enumerate(plasma_columns(source, layout, ir; ions=with_ions))
+            for (k, column) in enumerate(plasma_columns(source, layout, ir; with_ions))
                 _add_entry!(J, first(unknown_range(layout, row, ir)), column, partials[k])
             end
         end

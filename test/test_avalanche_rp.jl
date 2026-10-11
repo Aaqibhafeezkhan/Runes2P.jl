@@ -1,0 +1,215 @@
+# The Rosenbluth-Putvinski avalanche source of a hot-tail grid:
+# its rate against the Møller rate of an infinitely fast primary of the knock-on code, the
+# number of electrons it creates on the grid, the pitch of the knock-ons, and its Jacobian
+# against central differences.
+
+@testset "Rosenbluth-Putvinski source" begin
+    @testset "the rate is the Møller rate of a primary at the speed of light" begin
+        # independent of DREAM's closed form: the knock-on code integrates the Møller cross
+        # section, which for γ₁ → ∞ is 2π r₀² /(γ − 1)² per unit γ
+        for p in (0.01, 0.1, 0.8, 3.0)
+            @test rosenbluth_putvinski_rate(p) ≈ moller_total_rate(Inf, p) rtol = 1e-10
+        end
+        @test rosenbluth_putvinski_rate(0.01, 0.8) ≈ rosenbluth_putvinski_rate(0.01) - rosenbluth_putvinski_rate(0.8) rtol = 1e-14
+        @test isinf(rosenbluth_putvinski_rate(0.0))
+    end
+
+    # the grid of DREAM's disruption example, small: biuniform to p = 0.8, two radii
+    radial = RadialGrid(uniform_r_faces(2, 0.5))
+    grid = cylindrical_grid(MomentumGrid(biuniform_p_faces(40, 15, 0.0, 0.05, 0.8), uniform_xi_faces(15)), radial)
+    layout = UnknownLayout(radial, [RadialUnknown(:runaway_density; scale=1e16), RadialUnknown(:total_electron_density; scale=1e20),
+                                    RadialUnknown(:electric_field), KineticUnknown(:f, grid; scale=1e19)])
+    term = RosenbluthPutvinskiSourceTerm(:f, grid)
+    u = zeros(length(layout))
+    radial_values(u, layout, 1) .= [3e15, 1e16]
+    radial_values(u, layout, 2) .= [1.5e20, 1.2e20]
+    radial_values(u, layout, 3) .= [2.0, -1.5]
+    f_id = unknown_id(layout, :f)
+    source = Runes2P.rhs!(zeros(length(u)), term, u, layout, f_id, 0.0)
+
+    @testset "the electrons it creates" begin
+        # the density moment of the source is n_re n_tot times the rate between the cutoff
+        # and p_max, exactly: the cell parts telescope (DREAM's internal avalanche)
+        p_max = last(momentum_grid(grid, 1).p_faces)
+        S = kinetic_array(source, layout, f_id)
+        created = density(grid, kinetic_array(source, layout, f_id))
+        expected = [3e15 * 1.5e20, 1e16 * 1.2e20] .* rosenbluth_putvinski_rate(0.01, p_max)
+        @test created ≈ expected rtol = 1e-12
+        @test all(>=(0), S)
+        # nothing below the cutoff
+        m = momentum_grid(grid, 1)
+        below = findall(<=(0.01), m.p_faces[2:end])
+        @test all(iszero, kinetic_view(source, layout, f_id, 1)[below, :])
+    end
+
+    @testset "the pitch of the knock-ons follows the field" begin
+        m = momentum_grid(grid, 1)
+        for (ir, sign) in ((1, 1), (2, -1))
+            shape = kinetic_view(source, layout, f_id, ir)
+            for i in axes(shape, 1)
+                any(!iszero, shape[i, :]) || continue
+                gamma = sqrt(1 + m.p_centers[i]^2)
+                star = sign * sqrt((gamma - 1) / (gamma + 1))
+                j = only(findall(!iszero, shape[i, :]))
+                @test m.xi_faces[j] < star < m.xi_faces[j+1]
+            end
+        end
+        without_field = RosenbluthPutvinskiSourceTerm(:f, grid; electric_field=nothing)
+        @test without_field.positive == term.positive
+        @test :electric_field ∉ dependencies(without_field)
+    end
+
+    @testset "Jacobian against central differences" begin
+        system = EquationSystem(layout, [Equation(:runaway_density, TimeDerivative()),
+                                         Equation(:total_electron_density, TimeDerivative()),
+                                         Equation(:electric_field, TimeDerivative()),
+                                         Equation(:f, TimeDerivative(), term)]; initial_state=u)
+        J = jacobian_prototype(system)
+        jacobian!(J, system, u, 0.0)
+        rows = collect(Iterators.flatten(unknown_range(layout, f_id, ir) for ir in 1:2))
+        rhs_f(x) = (out = zeros(length(x)); rhs!(out, x, system, 0.0); out[rows])
+        for id in (1, 2), ir in 1:2
+            column = first(unknown_range(layout, id, ir))
+            h = 1e-6 * u[column]
+            up, down = copy(u), copy(u)
+            up[column] += h
+            down[column] -= h
+            difference = (rhs_f(up) - rhs_f(down)) / 2h
+            @test maximum(abs, difference) > 0
+            @test maximum(abs, Vector(J[rows, column]) - difference) <= 1e-8 * maximum(abs, difference)
+        end
+        @test_throws ArgumentError RosenbluthPutvinskiSourceTerm(:f, grid; p_cutoff=0.0)
+        @test_throws ArgumentError Runes2P.validate(term, layout, 1)
+    end
+
+    @testset "record" begin
+        record = describe(term, Runes2P.DescriptionContext())
+        @test record["p_cutoff"] == 0.01 && record["runaway_density"] == "runaway_density"
+        @test record["electric_field"] == "electric_field"
+    end
+end
+
+# DREAM's fluid avalanche growth rate with the effective critical field
+@testset "effective critical field and the fluid avalanche growth rate" begin
+    dream_settings = CollisionSettings(; screening=:partial, coulomb_logarithm=:energy_dependent, screening_window=:dream,
+                                       ion_size_table=:dream, bremsstrahlung_constant=:dream)
+
+    @testset "the limit of Connor and Hastie" begin
+        # A fully ionized plasma with a constant Coulomb logarithm, no screening, no
+        # synchrotron loss (B = 0) and no bremsstrahlung: U(p) rises to Ê − Ê_c as p → ∞, so
+        # the effective critical field is the critical field of J. W. Connor and R. J.
+        # Hastie, Nucl. Fusion 15, 415 (1975), doi:10.1088/0029-5515/15/3/007, up to the cap of
+        # the momentum at 1000; with ν̂_s = C n lnΛ and ν̂_D = (1 + Z) C n lnΛ, p⋆²Ê = √(5 + Z) C n lnΛ
+        # and Γ = n_tot C (E/E_c − 1)/√(5 + Z).
+        n, T, Z = 1e20, 1000.0, 1
+        ions = [IonSpecies("D", Z, Z, [n / Z])]
+        plain = CollisionSettings(; screening=:complete, coulomb_logarithm=:thermal, bremsstrahlung=:neglect)
+        plasma(E) = PlasmaState(; cold_electron_temperature=[T], ions, electric_field=[E], magnetic_field=[0.0],
+                                cold_electron_density=[n])
+        lnL = thermal_coulomb_logarithm(T, n)
+        Ec = critical_field(n, lnL)
+        # the method of a collision model keeps the constant logarithm, which DREAM's settings
+        # of the effective critical field replace by the energy-dependent one
+        model = CollisionModel(plasma(1.0), CollisionSettings(; mode=:superthermal, screening=:complete,
+                                                               coulomb_logarithm=:thermal, bremsstrahlung=:neglect))
+        field, p_opt = effective_critical_field(model, 1)
+        @test field ≈ Ec rtol = 2e-3
+        @test field >= Ec
+        @test p_opt ≈ 1000
+        C = 4π * Constants.CLASSICAL_ELECTRON_RADIUS^2 * Constants.SPEED_OF_LIGHT
+        # The whole growth rate through its method on collision models (the same constant
+        # logarithm for p⋆): p⋆²Ê_eff = √(5 + Z) C n lnΛ at every field, so
+        # Γ = n_tot C (E − E_ceff)/(√(5 + Z) E_c) above and below the effective critical field;
+        # below it the rate is negative and linear in |E|, with the sign of the field taken away.
+        rate(E) = first(fluid_avalanche_growth_rate(CollisionModel(plasma(E), model.settings),
+                                                    CollisionModel(plasma(E), model.settings), 1, n))
+        for E in (0.3Ec, 0.6Ec, 3Ec, 10Ec)
+            @test rate(E) ≈ n * C * (E - field) / (sqrt(5 + Z) * Ec) rtol = 1e-8
+        end
+        @test rate(0.3Ec) < rate(0.6Ec) < 0 && rate(-0.6Ec) == rate(0.6Ec)
+        # the method of a plasma applies DREAM's settings: the energy-dependent logarithm raises
+        # the effective critical field above the limit
+        dream_rate, dream_field, _ = fluid_avalanche_growth_rate(plasma(3Ec), 1, n; settings=plain)
+        @test dream_field > 1.1 * field && 0 < dream_rate < rate(3Ec)
+    end
+
+    @testset "DREAM's regression values" begin
+        # DREAM's unit tests of its RunawayFluid at 93d27e1 (tests/cxx/tests/DREAM/RunawayFluid.cpp,
+        # CompareEceffWithTabulated L313-357 and CompareGammaAvaWithTabulated L394-436, the plasma
+        # of GetUnknownHandler L78-136): every charge state of Ne and Ar in order gets (k + 1)
+        # 1e18 m⁻³, T = 1 eV, in a cylinder. DREAM's tolerances are 1e-3 and 2e-2; DREAM solves to
+        # 2e-3 in the field (Runes2P to 1e-13), and interpolates the pitch averages (Runes2P: closed form).
+        neon = [(k + 1) * 1e18 for k in 0:10]
+        argon = [(k + 1) * 1e18 for k in 11:29]
+        free = sum((0:10) .* neon) + sum((0:18) .* argon)
+        total = 10sum(neon) + 18sum(argon)
+        plasma(E, B) = PlasmaState(; cold_electron_temperature=[1.0], electric_field=[E], magnetic_field=[B],
+                                   cold_electron_density=[free],
+                                   ions=[IonSpecies("Ne", 10, reshape(neon, :, 1)), IonSpecies("Ar", 18, reshape(argon, :, 1))])
+        @test first(effective_critical_field(plasma(20.0, 5.0), 1; settings=dream_settings)) ≈ 8.928710 rtol = 1e-3
+        @test first(effective_critical_field(plasma(20.0, 0.1), 1; settings=dream_settings)) ≈ 8.062882 rtol = 1e-3
+        for (E, rate) in ((20.0, 159.791), (620.0, 11533.2), (1220.0, 24326.7))
+            @test first(fluid_avalanche_growth_rate(plasma(E, 5.0), 1, total; settings=dream_settings)) ≈ rate rtol = 2e-2
+        end
+    end
+
+    @testset "the external avalanche term" begin
+        radial = RadialGrid(uniform_r_faces(2, 0.5))
+        composition = IonComposition(["D" => 1, "Ar" => 18])
+        argon = zeros(19, 2)
+        argon[2, :] .= [3e18, 1e18]
+        argon[5, :] .= [1e18, 2e18]
+        prescribed = PlasmaState(; cold_electron_temperature=[5.0, 3.0], electric_field=zeros(2), magnetic_field=fill(2.5, 2),
+                                 ions=[IonSpecies("D", 1, [1e18 2e18; 2.5e19 2e19]), IonSpecies("Ar", 18, argon)])
+        layout = UnknownLayout(radial, [RadialUnknown(:runaway_density; scale=1e16), RadialUnknown(:total_electron_density; scale=1e20),
+                                        RadialUnknown(:electric_field), RadialUnknown(:cold_electron_temperature; scale=10.0),
+                                        RadialUnknown(:cold_electron_density; scale=1e19), ion_densities_unknown(composition)])
+        term = ExternalAvalancheTerm(prescribed; p_cutoff=0.8, ions=:ion_densities, settings=dream_settings)
+        u = zeros(length(layout))
+        set_ion_densities!(u, layout, prescribed)
+        radial_values(u, layout, 1) .= [1e16, 3e15]
+        radial_values(u, layout, 2) .= [sum(1 .* prescribed.ions[1].charge_state_densities[:, ir]) +
+                                        18 * sum(argon[:, ir]) for ir in 1:2]
+        radial_values(u, layout, 3) .= [60.0, 0.05]      # above and below the effective critical field
+        radial_values(u, layout, 4) .= [5.0, 3.0]
+        radial_values(u, layout, 5) .= [free_electron_density(prescribed, ir) for ir in 1:2]
+        out = Runes2P.rhs!(zeros(length(u)), term, u, layout, 1, 0.0)
+        rates = radial_values(out, layout, 1) ./ radial_values(u, layout, 1)
+        # the match: below the fluid rate and the external rate where both are positive, the
+        # fluid rate where it is negative
+        local_plasma(ir) = PlasmaState(; cold_electron_temperature=[radial_values(u, layout, 4)[ir]],
+                                       cold_electron_density=[radial_values(u, layout, 5)[ir]],
+                                       electric_field=[radial_values(u, layout, 3)[ir]], magnetic_field=[2.5],
+                                       ions=[IonSpecies(s.name, s.nuclear_charge, s.charge_state_densities[:, ir:ir])
+                                             for s in prescribed.ions])
+        fluid = [first(fluid_avalanche_growth_rate(local_plasma(ir), 1, radial_values(u, layout, 2)[ir];
+                                                   settings=dream_settings)) for ir in 1:2]
+        external = radial_values(u, layout, 2) .* rosenbluth_putvinski_rate(0.8)
+        @test fluid[1] > 0 && fluid[2] < 0
+        @test rates[1] ≈ (external[1]^-2 + fluid[1]^-2)^-0.5 rtol = 1e-12
+        @test rates[1] < min(external[1], fluid[1])
+        @test rates[2] ≈ fluid[2] rtol = 1e-12
+        # the exact Jacobian, every column against central differences (default optimisation)
+        system = EquationSystem(layout, [Equation(:runaway_density, TimeDerivative(), term),
+                                         Equation(:total_electron_density, TimeDerivative()),
+                                         Equation(:electric_field, TimeDerivative()),
+                                         Equation(:cold_electron_temperature, TimeDerivative()),
+                                         Equation(:cold_electron_density, TimeDerivative()),
+                                         Equation(:ion_densities, TimeDerivative())]; initial_state=u)
+        J = jacobian_prototype(system)
+        jacobian!(J, system, u, 0.0)
+        rows = [first(unknown_range(layout, 1, ir)) for ir in 1:2]
+        rhs_rows(x) = (o = zeros(length(x)); rhs!(o, x, system, 0.0); o[rows])
+        for id in 1:6, ir in 1:2, column in unknown_range(layout, id, ir)
+            u[column] == 0 && continue
+            h = 1e-5 * abs(u[column])
+            up, down = copy(u), copy(u)
+            up[column] += h
+            down[column] -= h
+            difference = (rhs_rows(up) - rhs_rows(down)) / 2h
+            @test Vector(J[rows, column]) ≈ difference rtol = 1e-4 atol = 1e-9 * maximum(abs, out[rows]) / abs(u[column])
+        end
+        @test describe(term, Runes2P.DescriptionContext())["p_cutoff"] == 0.8
+        @test_throws ArgumentError ExternalAvalancheTerm(PlasmaFromUnknowns(prescribed); p_cutoff=0.8)
+    end
+end
