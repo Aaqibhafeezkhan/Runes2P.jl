@@ -129,6 +129,7 @@ function RadiatedPowerTerm(plasma; radiation::Symbol=:recombination, temperature
     end
     kinetic === nothing || kinetic isa KineticIonizationTerm ||
         throw(ArgumentError("kinetic must be a KineticIonizationTerm or nothing"))
+    kinetic === nothing || _check_split_threshold(kinetic, "a RadiatedPowerTerm")
     return RadiatedPowerTerm(source, temperature, density, radiation, extrapolation, tables, ions, kinetic)
 end
 

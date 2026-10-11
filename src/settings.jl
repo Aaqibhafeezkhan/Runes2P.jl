@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.29"
+const OUTPUT_FORMAT_VERSION = v"0.30"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -657,13 +657,16 @@ function _describe_radial_level(level, in_time::Bool, faces, context)
 end
 
 settings_fields(::Type{<:SecondaryHeatingTerm}) =
-    (described=(:kinetic, :temperature, :widths), derived=(:energies,))
+    (described=(:kinetic, :temperature, :cut, :spectrum, :widths), derived=(:energies,))
 
 function describe(term::SecondaryHeatingTerm, context::DescriptionContext)
     record = _term_record(term)
     record["kinetic_ionization"] = describe(term.kinetic, context)
     record["temperature"] = String(term.temperature)
-    record["widths"] = SettingsRecord(name => width for (name, width) in zip(term.kinetic.composition.names, term.widths))
+    record["cut"] = String(term.cut)
+    record["spectrum"] = String(term.spectrum)
+    term.spectrum === :opal &&
+        (record["widths"] = SettingsRecord(name => width for (name, width) in zip(term.kinetic.composition.names, term.widths)))
     return record
 end
 

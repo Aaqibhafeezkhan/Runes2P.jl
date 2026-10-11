@@ -11,9 +11,9 @@ using QuadGK: quadgk
 const KINETIC_IONIZATION_COMPOSITION = IonComposition(["D" => 1, "Ar" => 18])
 
 # a grid that covers the bulk at 20 and 10 eV to 10 thermal momenta, with 81 cells so that
-# no threshold of 2 or 3 thermal momenta lies on a face, where the interpolated envelope
-# has a kink
-function _ionization_case(; factor=3.0, temperatures=[20.0, 10.0], n_M=5e19)
+# no threshold of 5 or 7 thermal momenta lies on a face, where the interpolated envelope
+# has a kink (the split refuses factors below 5)
+function _ionization_case(; factor=5.0, temperatures=[20.0, 10.0], n_M=5e19)
     radial = RadialGrid(uniform_r_faces(2, 0.5))
     p_max = 10 * sqrt(2 * maximum(temperatures) / Constants.ELECTRON_REST_ENERGY)
     grid = cylindrical_grid(MomentumGrid(uniform_p_faces(81, 0.0, p_max), uniform_xi_faces(3)), radial)
@@ -106,11 +106,26 @@ end
         end
 
         @testset "split at the threshold" begin
-            for factor in (2.0, 3.0)
+            # below 5 thermal momenta the split is refused: the fluid
+            # coefficient is negative there for populated argon states
+            for factor in (2.0, 3.0, 4.9)
+                _, low, _ = _ionization_case(; factor)
+                @test_throws "is refused" IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic=low)
+                prescribed = PlasmaState(; cold_electron_temperature=[20.0, 10.0],
+                                         ions=[IonSpecies("D", 1, 1, [1e19, 1e19]), IonSpecies("Ar", 18, 1, [1e18, 1e18])],
+                                         electric_field=zeros(2), magnetic_field=zeros(2))
+                @test_throws "is refused" RadiatedPowerTerm(prescribed; ions=:ion_densities, kinetic=low)
+            end
+            # a threshold at a fixed momentum does not follow the temperature
+            _, fixed, _ = _ionization_case()
+            fixed_region = KineticIonizationTerm(KINETIC_IONIZATION_COMPOSITION, :f, fixed.grid; region=MomentumRegion(0.05))
+            @test_throws "ThermalMomentum" IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic=fixed_region)
+            @test Runes2P.MINIMUM_SPLIT_THRESHOLD_FACTOR == 5
+            for factor in (5.0, 7.0)
                 layout, kinetic, u = _ionization_case(; factor)
                 n = length(u)
                 splits = [threshold_split(kinetic, ir, u, layout, 0.0) for ir in 1:2]
-                @test all(s -> 0 < s.fraction < 0.1, splits)
+                @test all(s -> 0 < s.fraction < 1e-6, splits)
                 # the closure: the cold electrons are those of the Maxwellian below the threshold
                 n_cold = [5e19 * (1 - s.fraction) for s in splits]
                 radial_values(u, layout, 2) .= n_cold
@@ -138,8 +153,12 @@ end
                                     # the flows are differences of the rates of the states: round-off
                                     @test ionization ≈ expected rtol = 1e-9
                                 else
-                                    # DREAM's pairing: the tail above the threshold twice
-                                    @test ionization > expected * (1 + 1e-9) || splits[ir].coefficients[k] == 0
+                                    # DREAM's pairing: the cold electrons at the whole ADAS rate and
+                                    # the tail above the threshold once more, n_M ((1 − f_>) SCD + A_>)
+                                    split = splits[ir]
+                                    scd = adas_coefficient(tables.scd, Z0, n_cold[ir], T)
+                                    @test ionization ≈ 5e19 * ((1 - split.fraction) * scd + split.coefficients[k]) *
+                                                       u[rows[k]] rtol = 1e-9
                                 end
                             end
                         end
@@ -215,12 +234,13 @@ end
             layout, kinetic, u = _ionization_case()
             n = length(u)
             # the widths of Opal et al. (1971), Table II: H₂ for deuterium, argon 10.0 eV
-            heating = SecondaryHeatingTerm(kinetic)
+            # the spectrum of Opal et al. (the default is that of Kim and Rudd)
+            heating = SecondaryHeatingTerm(kinetic; spectrum=:opal)
             @test heating.widths == [8.3, 10.0]
-            @test SecondaryHeatingTerm(kinetic; widths=Dict("Ar" => 12.0)).widths == [8.3, 12.0]
+            @test SecondaryHeatingTerm(kinetic; widths=Dict("Ar" => 12.0), spectrum=:opal).widths == [8.3, 12.0]
             # an element without a width is refused: iron
             fe = KineticIonizationTerm(IonComposition(["Fe" => 26]), :f, kinetic.grid; region=kinetic.envelopes.region)
-            @test_throws ArgumentError SecondaryHeatingTerm(fe)
+            @test_throws ArgumentError SecondaryHeatingTerm(fe; spectrum=:opal)
             widths = Dict{String,Float64}()
             row = 3
             Runes2P.validate(heating, layout, row)
@@ -229,7 +249,7 @@ end
             for ir in 1:2
                 T = radial_values(u, layout, 3)[ir]
                 m = momentum_grid(kinetic.grid, ir)
-                p0 = 3.0 * sqrt(2T / Constants.ELECTRON_REST_ENERGY)
+                p0 = 5.0 * sqrt(2T / Constants.ELECTRON_REST_ENERGY)
                 cut = (sqrt(1 + p0^2) - 1) * Constants.ELECTRON_REST_ENERGY
                 envelope = momentum_envelope!(zeros(length(m.p_centers)), kinetic.envelopes.region, m, p0)
                 f = kinetic_view(u, layout, 4, ir)
@@ -242,7 +262,7 @@ end
                         v = Constants.SPEED_OF_LIGHT * p / sqrt(1 + p^2)
                         expected += states[k] * envelope[i] * v * ionization_cross_section(name, Z0, p) *
                                     Constants.ELEMENTARY_CHARGE *
-                                    mean_secondary_energy(width, E, ionization_energy(name, Z0), cut) *
+                                    mean_secondary_energy(width, E, ionization_energy(name, Z0), Inf) *
                                     kinetic.weights[ir][i, j] * f[i, j]
                     end
                 end
@@ -265,7 +285,7 @@ end
                 @test maximum(abs, Vector(J[:, column]) - difference) <= 1e-5 * maximum(abs, difference) + 1e-13 * size_of_rhs / h
             end
             # the potential energy is e I_j times the kinetic flows, the secondaries the heating
-            flows = ionization_energy_flows(kinetic, u, layout, 0.0; widths)
+            flows = ionization_energy_flows(kinetic, u, layout, 0.0; widths, spectrum=:opal)
             @test flows.secondaries ≈ Q rtol = 1e-14
             du = Runes2P.rhs!(zeros(n), kinetic, u, layout, 1, 0.0)
             for ir in 1:2
@@ -281,6 +301,33 @@ end
                 @test flows.potential[ir] ≈ expected rtol = 1e-10
             end
             @test Runes2P.describe(heating, Runes2P.DescriptionContext())["widths"]["Ar"] == 10.0
+            # the cut of the secondary heating: every secondary (cut = :none, the default)
+            # against the mean below the hot threshold (cut = :threshold). With f in one
+            # cell at about 90 keV and argon in its neutral state alone, the ratio of the
+            # two heatings is that of the two means of the spectrum, 2.56 at E_c = 250 eV
+            # (10 eV, 5 thermal momenta)
+            fast_grid = cylindrical_grid(MomentumGrid(uniform_p_faces(50, 0.0, 1.0), uniform_xi_faces(2)),
+                                         RadialGrid(uniform_r_faces(1, 0.5)))
+            argon_only = IonComposition(["Ar" => 18])
+            fast_layout = UnknownLayout(fast_grid.radial_grid, [ion_densities_unknown(argon_only),
+                                                                RadialUnknown(:cold_electron_temperature; scale=10.0),
+                                                                KineticUnknown(:f, fast_grid; scale=1e10)])
+            fast = zeros(length(fast_layout))
+            radial_view(fast, fast_layout, 1, 1)[1] = 1e18
+            radial_values(fast, fast_layout, 2) .= 10.0
+            cell = 32
+            kinetic_view(fast, fast_layout, 3, 1)[cell, :] .= 1e10
+            fast_kinetic = KineticIonizationTerm(argon_only, :f, fast_grid;
+                                                 region=MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor=5)))
+            heat(cut) = only(radial_values(Runes2P.rhs!(zeros(length(fast)), SecondaryHeatingTerm(fast_kinetic; cut, spectrum=:opal), fast,
+                                                     fast_layout, 2, 0.0), fast_layout, 2))
+            p = momentum_grid(fast_grid).p_centers[cell]
+            E = (sqrt(1 + p^2) - 1) * Constants.ELECTRON_REST_ENERGY
+            E_c = (sqrt(1 + 50 * 10.0 / Constants.ELECTRON_REST_ENERGY) - 1) * Constants.ELECTRON_REST_ENERGY
+            I0 = ionization_energy("Ar", 0)
+            ratio = mean_secondary_energy(10.0, E, I0, Inf) / mean_secondary_energy(10.0, E, I0, E_c)
+            @test heat(:none) / heat(:threshold) ≈ ratio rtol = 1e-12
+            @test 2.5 < ratio < 2.6
             # without a width the diagnostic still gives the potential energy: iron
             fe_layout = UnknownLayout(layout.radial_grid, [ion_densities_unknown(IonComposition(["Fe" => 26])),
                                                            layout.unknowns[2:end]...])
@@ -290,9 +337,291 @@ end
                 radial_view(fe_state, fe_layout, 1, ir)[1:3] .= 1e17
                 kinetic_view(fe_state, fe_layout, 4, ir) .= kinetic_view(u, layout, 4, ir)
             end
-            no_width = ionization_energy_flows(fe, fe_state, fe_layout, 0.0)
+            no_width = ionization_energy_flows(fe, fe_state, fe_layout, 0.0; spectrum=:opal)
+            @test ionization_energy_flows(fe, fe_state, fe_layout, 0.0).secondaries !== nothing
             @test no_width.secondaries === nothing && all(>(0), no_width.potential)
         end
 
+    end
+end
+
+# The friction on bound electrons tied to the ionization:
+# CollisionSettings(bound_friction = :ionization_split) charges f the ionization
+# potential and the mean energy of every secondary for each ionization that the kinetic
+# ionization counts, and keeps the rest of the Bethe term floored at zero.
+@testset "the friction tied to the ionization (option (d) of #177)" begin
+    mc2 = Constants.ELECTRON_REST_ENERGY
+    momentum(E) = sqrt((1 + E / mc2)^2 - 1)
+    @testset "settings" begin
+        @test CollisionSettings().bound_friction === :bethe
+        @test_throws ArgumentError CollisionSettings(bound_friction=:other)
+        @test_throws "partial screening" CollisionSettings(bound_friction=:ionization_split, screening=:complete)
+        @test_throws ArgumentError CollisionSettings(ionization_threshold=-1.0)
+        @test_throws ArgumentError CollisionSettings(ionization_threshold_width=1.0)
+        @test_throws ArgumentError CollisionSettings(secondary_widths=Dict("Fe" => 0.0))
+        split = CollisionSettings(bound_friction=:ionization_split, secondary_spectrum=:opal)
+        @test CollisionSettings().secondary_spectrum === :beb
+        plasma(name, Z) = PlasmaState(; cold_electron_temperature=[10.0], ions=[IonSpecies(name, Z, 0, [1e18])],
+                                      electric_field=[0.0], magnetic_field=[0.0], cold_electron_density=[1e19])
+        # iron has a fit of the cross sections and no width of the secondary spectrum
+        @test_throws "secondary_widths" Runes2P.CollisionModel(plasma("Fe", 26), split)
+        @test Runes2P.CollisionModel(plasma("Fe", 26), CollisionSettings(bound_friction=:ionization_split,
+                                                                      secondary_widths=Dict("Fe" => 9.0))) isa Runes2P.CollisionModel
+        # krypton has a width and no fit of the cross sections
+        @test_throws "DREAM's tables lack" Runes2P.CollisionModel(plasma("Kr", 36), split)
+        # the Bethe model needs neither
+        @test Runes2P.CollisionModel(plasma("Kr", 36), CollisionSettings()) isa Runes2P.CollisionModel
+    end
+
+    @testset "the slowing down per charge state" begin
+        # one charge state at a time: ν_split − ν_Bethe = max(e ν_ion − w ν_Bethe, 0), with the
+        # ionization part γ n σ v (I + ⟨E_s⟩)/(mₑc² p²) from the cross section of the kinetic
+        # ionization and the mean energy of every secondary
+        T, n = 10.0, 1e18
+        for Z0 in (0, 1, 5, 16), window in (:excitation_energy, :dream), factor in (0.0, 5.0), spectrum in (:opal, :beb)
+            densities = zeros(19, 1)
+            densities[Z0+1] = n
+            plasma = PlasmaState(; cold_electron_temperature=[T], ions=[IonSpecies("Ar", 18, densities)],
+                                 electric_field=[0.0], magnetic_field=[0.0], cold_electron_density=[1e19])
+            common = (mode=:superthermal, screening_window=window, bremsstrahlung=:neglect)
+            bethe = Runes2P.CollisionModel(plasma, CollisionSettings(; common...))
+            split = Runes2P.CollisionModel(plasma, CollisionSettings(; common..., bound_friction=:ionization_split,
+                                                                  ionization_threshold=factor, secondary_spectrum=spectrum))
+            # the free electrons of the same plasma alone
+            free = Runes2P.CollisionModel(plasma, CollisionSettings(; common..., screening=:complete))
+            I = ionization_energy("Ar", Z0)
+            p0 = factor * sqrt(2T / mc2)
+            for E in (0.5I, 1.5I, 3I, 30I, 3e3I, 2e6)
+                p = momentum(E)
+                gamma = sqrt(1 + p^2)
+                v = Constants.SPEED_OF_LIGHT * p / gamma
+                ion = gamma * n * ionization_cross_section("Ar", Z0, p) * v *
+                      (I + Runes2P.secondary_spectrum_mean(spectrum, 10.0, E, I, Inf)) / (mc2 * p^2)
+                envelope = factor == 0 ? 1.0 : p < 0.9p0 ? 0.0 : p > 1.1p0 ? 1.0 : NaN
+                isnan(envelope) && continue
+                nu_free = slowing_down_frequency(free, 1, p)
+                nu_bethe = slowing_down_frequency(bethe, 1, p) - nu_free
+                nu_split = slowing_down_frequency(split, 1, p) - nu_free
+                @test nu_split ≈ nu_bethe + max(envelope * ion - nu_bethe, 0.0) rtol = 1e-10 atol = 1e-12 * nu_free
+                @test nu_split >= nu_bethe - 1e-12 * nu_free
+                # below the ionization energy nothing changes
+                E < I && @test nu_split ≈ nu_bethe rtol = 1e-12 atol = 1e-12 * nu_free
+            end
+        end
+    end
+
+    @testset "the ionization part tabulated per momentum grid (#211)" begin
+        m = MomentumGrid(biuniform_p_faces(40, 10, 0.0, 0.07, 1.0), uniform_xi_faces(2))
+        densities = zeros(19, 1)
+        densities[1:4] .= [1e17, 3e17, 2e17, 1e16]
+        plasma = PlasmaState(; cold_electron_temperature=[10.0], ions=[IonSpecies("D", 1, 1, [1e19]), IonSpecies("Ar", 18, densities)],
+                             electric_field=[0.0], magnetic_field=[0.0], cold_electron_density=[1e19])
+        for spectrum in (:beb, :opal)
+            settings = CollisionSettings(; mode=:full, bound_friction=:ionization_split, ionization_threshold=5.0,
+                                         secondary_spectrum=spectrum)
+            direct = Runes2P.CollisionModel(plasma, settings)
+            tabulated = Runes2P.CollisionModel(plasma, settings; faces=[m.p_faces])
+            @test direct.ionization_tables[1] === nothing && tabulated.ionization_tables[1] !== nothing
+            # the same numbers at the faces, from the table, and between them, computed
+            @test all(slowing_down_frequency(tabulated, 1, p) == slowing_down_frequency(direct, 1, p) for p in m.p_faces)
+            @test all(slowing_down_frequency(tabulated, 1, p) == slowing_down_frequency(direct, 1, p) for p in m.p_centers)
+            # one table per grid and spectrum, shared by the models
+            again = Runes2P.CollisionModel(plasma, settings; faces=[m.p_faces])
+            @test last(again.ionization_tables[1]) === last(tabulated.ionization_tables[1])
+            # a temperature with partials, through the envelope of the threshold
+            dual = Runes2P.dual_plasma(plasma, true)
+            dual_direct = Runes2P.CollisionModel(dual, settings)
+            dual_tabulated = Runes2P.CollisionModel(dual, settings; faces=[m.p_faces])
+            @test all(slowing_down_frequency(dual_tabulated, 1, p) == slowing_down_frequency(dual_direct, 1, p) for p in m.p_faces)
+        end
+        # the Bethe friction takes no table
+        @test Runes2P.CollisionModel(plasma, CollisionSettings(); faces=[m.p_faces]).ionization_tables[1] === nothing
+        # the operator builds its model with the faces of its grid
+        grid = cylindrical_grid(m, RadialGrid(uniform_r_faces(1, 0.5)))
+        settings = CollisionSettings(; mode=:full, bound_friction=:ionization_split, ionization_threshold=5.0)
+        op = fokker_planck_operator(grid, plasma, settings; electric_field=false, synchrotron=false)
+        reference = Runes2P.CollisionModel(plasma, settings)
+        @test all(op.advection_p[k, 1, 1] == -m.p_faces[k] * slowing_down_frequency(reference, 1, m.p_faces[k])
+                  for k in eachindex(m.p_faces))
+    end
+
+    @testset "neutral argon at minimum ionization against the PDG" begin
+        # Independent of DREAM's fits: argon at 20 °C and 1 atm (2.504e25 atoms per m³) has
+        # N_P = 25 primary ionizations per cm for minimum ionizing particles (βγ ≈ 3 to 4),
+        # Table 31.5 of the Review of Particle Physics, J. Beringer et al. (Particle Data
+        # Group), Phys. Rev. D 86, 010001 (2012), section 31 "Particle detectors at
+        # accelerators" (the table notes that such values differ between sources). DREAM's fit
+        # of the cross section of Ar⁰ gives 21.6 per cm at βγ = 3.5.
+        n_ntp = 2.504e25
+        @test ionization_cross_section("Ar", 0, 3.5) * n_ntp / 100 ≈ 25 rtol = 0.2
+        # at that energy the ionization takes 0.86 of the Bethe stopping with the neutral width of
+        # Opal et al., and less with the default spectrum of Kim and Rudd, so the split leaves
+        # the friction of MeV electrons unchanged
+        gas = PlasmaState(; cold_electron_temperature=[1.0], cold_electron_density=[0.0],
+                          ions=[IonSpecies("Ar", 18, 0, [n_ntp])], electric_field=[0.0], magnetic_field=[0.0])
+        common = (mode=:superthermal, screening_window=:dream, bremsstrahlung=:neglect)
+        bethe = Runes2P.CollisionModel(gas, CollisionSettings(; common...))
+        split = Runes2P.CollisionModel(gas, CollisionSettings(; common..., bound_friction=:ionization_split))
+        for p in (3.0, 3.5, 4.0)
+            @test slowing_down_frequency(split, 1, p) ≈ slowing_down_frequency(bethe, 1, p) rtol = 1e-14
+            gamma = sqrt(1 + p^2)
+            stopping = mc2 * p^2 * slowing_down_frequency(bethe, 1, p) / gamma     # eV/s
+            I = ionization_energy("Ar", 0)
+            ionization = n_ntp * ionization_cross_section("Ar", 0, p) * Constants.SPEED_OF_LIGHT * p / gamma *
+                         (I + mean_secondary_energy(10.0, (gamma - 1) * mc2, I, Inf))
+            @test 0.7 < ionization / stopping < 1
+        end
+    end
+
+    @testset "f pays the energy of the kinetic ionization (budget of (c) and (d))" begin
+        # A bump of electrons at 60 eV in neutral argon and a deuterium plasma: between the
+        # ionization energy of Ar⁰ (15.8 eV) and its mean excitation energy (188 eV), where the
+        # default screening window gives no Bethe friction. The energy the bump loses to the
+        # bound electrons (KineticEnergyLossTerm with part = :sinks) is zero with :bethe, while
+        # the kinetic ionization takes the potential and the energy of the secondaries
+        # (ionization_energy_flows); with :ionization_split the two agree to the discretization.
+        composition = IonComposition(["D" => 1, "Ar" => 18])
+        radial = RadialGrid(uniform_r_faces(1, 0.5))
+        grid = cylindrical_grid(MomentumGrid(uniform_p_faces(240, 0.0, momentum(170.0)), uniform_xi_faces(2)), radial)
+        m = momentum_grid(grid)
+        layout = UnknownLayout(radial, [ion_densities_unknown(composition), RadialUnknown(:cold_electron_temperature; scale=10.0),
+                                        KineticUnknown(:f, grid; scale=1e16)])
+        argon = zeros(19, 1)
+        argon[1] = 1e19
+        ions = [IonSpecies("D", 1, reshape([0.0, 1e19], :, 1)), IonSpecies("Ar", 18, argon)]
+        base = PlasmaState(; cold_electron_temperature=[5.0], ions, electric_field=[0.0], magnetic_field=[0.0],
+                           cold_electron_density=[1e19])
+        u = zeros(length(layout))
+        set_ion_densities!(u, layout, ions)
+        radial_values(u, layout, 2) .= 5.0
+        center, width = momentum(60.0), 0.15 * momentum(60.0)
+        kinetic_view(u, layout, 3, 1) .= [1e16 * exp(-((p - center) / width)^2) for p in m.p_centers, _ in 1:2]
+        kinetic = KineticIonizationTerm(composition, :f, grid)
+        flows = ionization_energy_flows(kinetic, u, layout, 0.0)
+        paid = flows.potential[1] + flows.secondaries[1]
+        @test paid > 0
+        operator() = AdvectionDiffusion(grid; scheme=:exponential_fitting, p_upper_boundary=:f_zero)
+        function sinks(bound_friction)
+            settings = CollisionSettings(; mode=:superthermal, bremsstrahlung=:neglect, bound_friction)
+            fp = FokkerPlanckTerm(:f, operator(); plasma=base, settings)
+            loss = KineticEnergyLossTerm(fp; part=:sinks, coefficient=1)
+            return only(radial_values(Runes2P.rhs!(zeros(length(u)), loss, u, layout, 2, 0.0), layout, 2))
+        end
+        @test abs(sinks(:bethe)) <= 1e-12 * paid
+        @test sinks(:ionization_split) ≈ paid rtol = 2e-2
+        # with the threshold of 5 thermal momenta at 0.5 eV (12.5 eV, 15 eV at the top of the
+        # step of the faces) the bump lies above it: the same agreement
+        cold = 0.5
+        radial_values(u, layout, 2) .= cold
+        region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor=5))
+        above = KineticIonizationTerm(composition, :f, grid; region)
+        paid_above = sum(ionization_energy_flows(above, u, layout, 0.0)[k][1] for k in (:potential, :secondaries))
+        @test paid_above ≈ paid rtol = 1e-3
+        cold_base = PlasmaState(; cold_electron_temperature=[cold], ions, electric_field=[0.0], magnetic_field=[0.0],
+                                cold_electron_density=[1e19])
+        settings = CollisionSettings(; mode=:superthermal, bremsstrahlung=:neglect, bound_friction=:ionization_split,
+                                     ionization_threshold=5.0)
+        fp = FokkerPlanckTerm(:f, operator(); plasma=cold_base, settings)
+        loss = KineticEnergyLossTerm(fp; part=:sinks, coefficient=1)
+        @test only(radial_values(Runes2P.rhs!(zeros(length(u)), loss, u, layout, 2, 0.0), layout, 2)) ≈ paid_above rtol = 2e-2
+    end
+
+    @testset "the spectrum of Kim and Rudd per charge state (#206)" begin
+        # eq. (52) of Kim and Rudd, Phys. Rev. A 50, 3954 (1994), with Q = 1 and the common
+        # factor left out, in w = W/B up to (t − 1)/2
+        shape(w, t) = -1 / (t + 1) * (1 / (w + 1) + 1 / (t - w)) + (1 / (w + 1)^2 + 1 / (t - w)^2) +
+                      log(t) * (1 / (w + 1)^3 + 1 / (t - w)^3)
+        for (E, B, cut) in ((1000.0, 15.76, Inf), (500.0, 15.76, Inf), (1e5, 27.63, 250.0), (5e3, 918.0, Inf),
+                            (60.0, 13.6, Inf), (1e6, 15.76, Inf), (2e3, 422.0, 300.0))
+            t = E / B
+            top = min((t - 1) / 2, cut / B)
+            count = quadgk(w -> shape(w, t), 0, top; rtol=1e-12)[1]
+            moment = quadgk(w -> w * shape(w, t), 0, top; rtol=1e-12)[1]
+            @test beb_mean_secondary_energy(E, B, cut) ≈ B * moment / count rtol = 1e-9
+            # the transcription of the shape: over the whole range it integrates to the total
+            # cross section of the BEB model, their eq. (57) at Q = 1
+            cut == Inf && @test count ≈ log(t) / 2 * (1 - 1 / t^2) + 1 - 1 / t - log(t) / (t + 1) rtol = 1e-10
+        end
+        @test beb_mean_secondary_energy(10.0, 15.76, Inf) == 0
+        # within 1e-6 B of the threshold the flat spectrum, continuous with the closed form
+        for top in (0.99e-6, 1.01e-6)
+            @test beb_mean_secondary_energy(15.76 * (1 + 2top), 15.76, Inf) ≈ 15.76 * top / 2 rtol = 1e-3
+        end
+        @test beb_mean_secondary_energy(15.76 * (1 + 2e-16), 15.76, Inf) >= 0
+        # neutral argon with primaries of 500 eV, where Opal et al. measured Ē = 10.0 eV: 19.2
+        # against 20.8 eV
+        @test beb_mean_secondary_energy(500.0, 15.76, Inf) ≈ mean_secondary_energy(10.0, 500.0, 15.76, Inf) rtol = 0.15
+        # the spectrum grows with the binding energy: Ar¹⁵⁺ (918 eV) at 5 keV, 576 eV against 34 eV
+        # with the width of the neutral
+        I15 = ionization_energy("Ar", 15)
+        @test beb_mean_secondary_energy(5e3, I15, Inf) > 10 * mean_secondary_energy(10.0, 5e3, I15, Inf)
+        # iron has no width and needs none with :beb, in the friction and in the heating
+        iron = PlasmaState(; cold_electron_temperature=[10.0], ions=[IonSpecies("Fe", 26, 0, [1e18])],
+                           electric_field=[0.0], magnetic_field=[0.0], cold_electron_density=[1e19])
+        @test Runes2P.CollisionModel(iron, CollisionSettings(bound_friction=:ionization_split, secondary_spectrum=:beb)) isa
+              Runes2P.CollisionModel
+        @test_throws ArgumentError CollisionSettings(secondary_spectrum=:other)
+        grid = cylindrical_grid(MomentumGrid(uniform_p_faces(20, 0.0, 0.2), uniform_xi_faces(2)), RadialGrid(uniform_r_faces(1, 0.5)))
+        fe = KineticIonizationTerm(IonComposition(["Fe" => 26]), :f, grid)
+        @test SecondaryHeatingTerm(fe).spectrum === :beb
+        @test_throws ArgumentError SecondaryHeatingTerm(fe; spectrum=:opal)
+        # the heating and the friction take the same spectrum
+        composition = IonComposition(["D" => 1, "Ar" => 18])
+        two = RadialGrid(uniform_r_faces(2, 0.5))
+        g = cylindrical_grid(MomentumGrid(uniform_p_faces(20, 0.0, 0.2), uniform_xi_faces(2)), two)
+        base = PlasmaState(; cold_electron_temperature=[10.0, 8.0], ions=[IonSpecies("D", 1, 1, [1e19, 1e19])],
+                           electric_field=zeros(2), magnetic_field=zeros(2))
+        k = KineticIonizationTerm(composition, :f, g; region=MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor=5)))
+        fp(spectrum) = FokkerPlanckTerm(:f, AdvectionDiffusion(g; scheme=:exponential_fitting, p_upper_boundary=:f_zero);
+                                        plasma=base, settings=CollisionSettings(; bound_friction=:ionization_split,
+                                                                                ionization_threshold=5.0,
+                                                                                secondary_spectrum=spectrum))
+        system(spectrum, heating) = [Equation(:f, TimeDerivative(), fp(spectrum)), Equation(:ion_densities, TimeDerivative(), k),
+                                     Equation(:cold_electron_temperature, TimeDerivative(), heating)]
+        @test Runes2P._check_plasma_pairings(system(:beb, SecondaryHeatingTerm(k; spectrum=:beb))) === nothing
+        @test_throws "the same" Runes2P._check_plasma_pairings(system(:beb, SecondaryHeatingTerm(k; spectrum=:opal)))
+        @test_throws "the same" Runes2P._check_plasma_pairings(system(:opal, SecondaryHeatingTerm(k; spectrum=:beb)))
+    end
+
+    @testset "pairings" begin
+        composition = IonComposition(["D" => 1, "Ar" => 18])
+        radial = RadialGrid(uniform_r_faces(2, 0.5))
+        grid = cylindrical_grid(MomentumGrid(uniform_p_faces(20, 0.0, 0.2), uniform_xi_faces(2)), radial)
+        base = PlasmaState(; cold_electron_temperature=[10.0, 8.0], ions=[IonSpecies("D", 1, 1, [1e19, 1e19])],
+                           electric_field=zeros(2), magnetic_field=zeros(2))
+        operator() = AdvectionDiffusion(grid; scheme=:exponential_fitting, p_upper_boundary=:f_zero)
+        fp(factor) = FokkerPlanckTerm(:f, operator(); plasma=base,
+                                      settings=CollisionSettings(bound_friction=:ionization_split, ionization_threshold=factor,
+                                                                 secondary_spectrum=:opal))
+        region(factor) = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor))
+        ionization(factor) = KineticIonizationTerm(composition, :f, grid; region=region(factor))
+        check(fp_term, ion_terms...) = Runes2P._check_plasma_pairings([Equation(:f, TimeDerivative(), fp_term),
+                                                                    Equation(:ion_densities, TimeDerivative(), ion_terms...)])
+        k5 = ionization(5)
+        @test check(fp(5.0), k5) === nothing
+        @test check(fp(0.0), KineticIonizationTerm(composition, :f, grid)) === nothing
+        @test_throws "the same factor" check(fp(7.0), k5)
+        @test_throws "has none" Runes2P._check_plasma_pairings([Equation(:f, TimeDerivative(), fp(5.0))])
+        @test_throws "ThermalMomentum" check(fp(5.0), KineticIonizationTerm(composition, :f, grid; region=MomentumRegion(0.1)))
+        heating = Equation(:cold_electron_temperature, TimeDerivative(), SecondaryHeatingTerm(k5; spectrum=:opal))
+        threshold = Equation(:cold_electron_temperature, TimeDerivative(), SecondaryHeatingTerm(k5; cut=:threshold, spectrum=:opal))
+        other = Equation(:cold_electron_temperature, TimeDerivative(),
+                         SecondaryHeatingTerm(k5; widths=Dict("Ar" => 12.0), spectrum=:opal))
+        system(heat) = [Equation(:f, TimeDerivative(), fp(5.0)), Equation(:ion_densities, TimeDerivative(), k5), heat]
+        @test Runes2P._check_plasma_pairings(system(heating)) === nothing
+        # where the sinks of f leave the electrons, the secondaries need the heating
+        source = fp(5.0)
+        sinks = Equation(:total_electron_energy, TimeDerivative(), KineticEnergyLossTerm(source; part=:sinks))
+        booked(heat...) = [Equation(:f, TimeDerivative(), source), Equation(:ion_densities, TimeDerivative(), k5), sinks, heat...]
+        @test_throws "SecondaryHeatingTerm(kinetic)" Runes2P._check_plasma_pairings(booked())
+        @test Runes2P._check_plasma_pairings(booked(heating)) === nothing
+        @test_throws "cut = :none" Runes2P._check_plasma_pairings(system(threshold))
+        @test_throws "different widths" Runes2P._check_plasma_pairings(system(other))
+        # DREAM's Bethe friction pairs with any kinetic ionization
+        @test Runes2P._check_plasma_pairings([Equation(:f, TimeDerivative(), FokkerPlanckTerm(:f, operator(); plasma=base,
+                                                                                            settings=CollisionSettings())),
+                                           Equation(:ion_densities, TimeDerivative(), ionization(7))]) === nothing
+        @test SecondaryHeatingTerm(k5).cut === :none
+        @test_throws ArgumentError SecondaryHeatingTerm(k5; cut=:other)
     end
 end

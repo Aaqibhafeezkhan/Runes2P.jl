@@ -141,6 +141,64 @@ const SCHUR_TEST_GMRES = Base.require(Runes2P, :Krylov).gmres
         end
     end
 
+    # the plasma as unknowns, the columns of the temperature, the cold density
+    # and the charge states in the kinetic rows (the implicit Fokker-Planck term) and the block
+    # of the kinetic ionization in the rows of the charge states. Without kinetic couplings
+    # between radii the preconditioner is the exact inverse, and GMRES needs one iteration.
+    @testset "with the plasma unknowns and the kinetic ionization" begin
+        composition = IonComposition(["D" => 1, "Ar" => 18])
+        nr = 3
+        temperatures = [20.0, 15.0, 10.0]
+        ion_radial = RadialGrid(uniform_r_faces(nr, 0.5))
+        ion_grid = cylindrical_grid(MomentumGrid(uniform_p_faces(30, 0.0, 10 * sqrt(2 * 20.0 / Constants.ELECTRON_REST_ENERGY)),
+                                                 uniform_xi_faces(3)), ion_radial)
+        background = [IonSpecies("D", 1, 1, fill(1e19, nr)), IonSpecies("Ar", 18, zeros(19, nr))]
+        prescribed = PlasmaState(; cold_electron_temperature=temperatures, ions=background, electric_field=zeros(nr),
+                                 magnetic_field=fill(2.5, nr))
+        layout = UnknownLayout(ion_radial, [ion_densities_unknown(composition), RadialUnknown(:cold_electron_density; scale=1e19),
+                                            RadialUnknown(:cold_electron_temperature; scale=10.0),
+                                            KineticUnknown(:f, ion_grid; scale=1e19)])
+        region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor=5))
+        kinetic = KineticIonizationTerm(composition, :f, ion_grid; region)
+        fp = FokkerPlanckTerm(:f, AdvectionDiffusion(ion_grid; scheme=:exponential_fitting, p_upper_boundary=:f_zero);
+                              plasma=PlasmaFromUnknowns(prescribed; ions=:ion_densities),
+                              settings=CollisionSettings(mode=:full, screening=:partial), lagged=())
+        equations = [Equation(:ion_densities, TimeDerivative(), kinetic), population_equations(composition)...,
+                     Equation(:cold_electron_temperature, TimeDerivative(), SecondaryHeatingTerm(kinetic)),
+                     Equation(:f, TimeDerivative(), fp)]
+        u0 = zeros(length(layout))
+        set_ion_densities!(u0, layout, background)
+        deposit_neutrals!(u0, layout, composition, "D" => 1e17, "Ar" => 1e17)
+        radial_values(u0, layout, 3) .= temperatures
+        n_free = [free_electron_density(ion_densities(u0, layout, composition), ir) for ir in 1:nr]
+        radial_values(u0, layout, 2) .= n_free
+        for ir in 1:nr
+            m = momentum_grid(ion_grid, ir)
+            shape = [exp(-p^2 / (sqrt(1 + p^2) + 1) / (temperatures[ir] / Constants.ELECTRON_REST_ENERGY))
+                     for p in m.p_centers, _ in 1:3]
+            kinetic_view(u0, layout, 4, ir) .= n_free[ir] .* shape ./ sum(kinetic.weights[ir] .* shape)
+        end
+        system = EquationSystem(layout, equations; time_scale=1e-7, initial_state=u0)
+        A = newton_matrix(system, u0, 1e-7)
+        n = size(A, 1)
+        # the couplings this test is about are in the matrix
+        f_rows = unknown_range(layout, 4, 2)
+        ion_rows = unknown_range(layout, 1, 2)
+        @test count(!iszero, A[f_rows, unknown_range(layout, 1, 2)]) > 0      # f rows, charge-state columns
+        @test count(!iszero, A[f_rows, unknown_range(layout, 3, 2)]) > 0      # f rows, temperature column
+        @test count(!iszero, A[ion_rows, f_rows]) > 0                         # kinetic ionization block
+        factors = Runes2P.preconditioner_factors(FluidSchurLU(), A, layout)
+        @test Runes2P.factorize!(factors, FluidSchurLU(), A)
+        x = randn(rng, n)
+        @test ldiv!(zeros(n), factors, x) ≈ A \ x rtol = 1e-8
+        b = randn(rng, n)
+        solution, stats = SCHUR_TEST_GMRES(A, b; N=factors, ldiv=true, restart=true, memory=50, itmax=50,
+                                             rtol=1e-10, atol=0.0)
+        @test stats.solved
+        @test stats.niter <= 2
+        @test solution ≈ A \ b rtol = 1e-7
+    end
+
     # the low-rank terms of the blocks in the residuals between the stages and
     # in the columns of the Schur stage, with the fluid block and the lines both present
     @testset "with the field-particle term" begin

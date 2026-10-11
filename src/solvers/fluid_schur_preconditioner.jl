@@ -186,10 +186,11 @@ function preconditioner_factors(p::FluidSchurLU, matrix::SparseMatrixCSC{T}, lay
         end
     end
     coupled = [sort!(unique(set)) for set in coupled_sets]
-    # the columns of A_kf as positions in `coupled`
+    # the columns of A_kf as positions in `coupled`, sorted by column, so that the gather of
+    # factorize! takes one pass over the entries
     for ir in 1:nr
         lookup = Dict(position => c for (c, position) in enumerate(coupled[ir]))
-        kf[ir] = [(row, lookup[position], k) for (row, position, k) in kf[ir]]
+        kf[ir] = sort!([(row, lookup[position], k) for (row, position, k) in kf[ir]]; by=entry -> entry[2])
     end
     nf = length(fluid)
     with_lines = nr > 1 && (p.radial_lines === true || (p.radial_lines === :auto && _one_pitch_grid(layout)))
@@ -240,13 +241,17 @@ function factorize!(factors::FluidSchurFactors{T}, ::FluidSchurLU, matrix::Spars
                 factors.low_rank[ir] === nothing && return false
             end
         end
-        # A_kk⁻¹ A_kf, column by column
+        # A_kk⁻¹ A_kf, column by column; the entries are sorted by their column
         columns = factors.solved_columns[ir]
         input = factors.kinetic_input[ir]
+        entries = factors.kf_entries[ir]
+        e = 1
         for c in axes(columns, 2)
             fill!(input, zero(T))
-            for (row, column, k) in factors.kf_entries[ir]
-                column == c && (input[row] += nzval[k])
+            @inbounds while e <= length(entries) && entries[e][2] == c
+                row, _, k = entries[e]
+                input[row] += nzval[k]
+                e += 1
             end
             _kinetic_solve!(view(columns, :, c), factors, ir, input)
         end

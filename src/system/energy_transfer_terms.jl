@@ -33,11 +33,15 @@ operators of the plasma, collision settings, scheme and boundaries of `source`:
   `coefficient = −1` and the hot region of the total energy as `region` it is the loss of
   that total, so the cold electrons receive exactly the free-electron part of what the hot
   electrons lose. Both operators are applied, since the weights of exponential fitting
-  depend on all coefficients of an operator. The friction on bound electrons holds the
-  energy of the kinetic ionization ([`KineticIonizationTerm`](@ref)): the ionization
+  depend on all coefficients of an operator. With `bound_friction = :ionization_split` of
+  [`CollisionSettings`](@ref) the friction on bound electrons holds the energy of the
+  kinetic ionization ([`KineticIonizationTerm`](@ref)) up to the discretization and the
+  width of the threshold (see there): the ionization
   potentials, which the ions store and release at recombination, and the energy of the
   secondaries, which [`SecondaryHeatingTerm`](@ref) gives back to the cold electrons
-  ([`ionization_energy_flows`](@ref)).
+  ([`ionization_energy_flows`](@ref)). With DREAM's `:bethe` it holds that energy
+  only on average and only where the screening window is open: from the ionization
+  potential up to the mean excitation energy it takes none.
 
 The term takes the plasma of `source` in the same treatment: implicit, with the columns of
 the temperature and density unknowns, or lagged at the state of the start of the step. A

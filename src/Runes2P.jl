@@ -85,10 +85,10 @@ export Constants, IonSpecies, PlasmaState, free_electron_density, bound_electron
 export IonComposition, component_count, species_components, species_index, component_groups
 export WeightedSumTerm, free_electron_weights, ion_densities_unknown, set_ion_densities!, ion_densities
 export deposit_neutrals!, population_equations, IonRateTerm, ion_rate_matrix, coronal_equilibrium
-export with_state_ions, add_local_jacobian!, plasma_columns
-export KineticIonizationTerm, threshold_split, fluid_ionization_coefficient, kinetic_ionization_rates
+export with_state_ions, add_local_jacobian!, local_layout, plasma_columns
+export KineticIonizationTerm, threshold_split, fluid_ionization_coefficient, kinetic_ionization_rates, MINIMUM_SPLIT_THRESHOLD_FACTOR
 export IonDiffusionTerm, lags_in_ode_form
-export SECONDARY_SPECTRUM_WIDTHS, mean_secondary_energy, SecondaryHeatingTerm, ionization_energy_flows
+export SECONDARY_SPECTRUM_WIDTHS, mean_secondary_energy, beb_mean_secondary_energy, SecondaryHeatingTerm, ionization_energy_flows
 export ADF11Table, read_adf11, adas_coefficient, adf11_file_name, adas_cache_directory, read_adas
 export IONIZATION_ENERGIES, ionization_energy, KINETIC_IONIZATION_FITS, ionization_cross_section
 export PlasmaSource, PrescribedPlasma, PlasmaFromUnknowns, plasma_values, is_state_dependent

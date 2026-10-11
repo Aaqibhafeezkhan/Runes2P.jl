@@ -276,31 +276,61 @@ unknowns at `ir`. A term with a row that reads all charge states of a radius (th
 power, the conductivity, the energy exchange with the ions) assembles its
 block this way, so that the coloring of the automatic Jacobian does not need a color per
 charge state. The tag is fixed, so the code compiles once per number of local columns.
+
+The evaluation runs on a state of the dependencies and the row alone, in a layout of these
+radial unknowns on the same radial grid ([`local_layout`](@ref)), so that its cost does not
+grow with the kinetic unknowns of the system.
 """
 function add_local_jacobian!(J, term::EquationTerm, u, layout, row, t)
     ids = [unknown_id(layout, name) for name in dependencies(term)]
     all(id -> layout.kinds[id] === :radial, ids) ||
         throw(ArgumentError("the local Jacobian of a $(nameof(typeof(term))) needs radial unknowns alone"))
+    layout.kinds[row] === :radial ||
+        throw(ArgumentError("the local Jacobian of a $(nameof(typeof(term))) adds to a radial unknown"))
     count = sum(id -> layout.sizes[id, 1], ids)
     return _add_local_jacobian!(J, term, u, layout, row, t, ids, Val(count))
 end
 
+"""
+    local_layout(layout, ids)
+
+The layout of the radial unknowns `ids` of `layout` alone, on its radial grid and in the order
+of `ids`, without their lower limits, whose references may be missing. With
+[`add_local_jacobian!`](@ref) a term evaluates on the state of this layout.
+"""
+function local_layout(layout::UnknownLayout, ids)
+    all(id -> layout.kinds[id] === :radial, ids) || throw(ArgumentError("a local layout holds radial unknowns alone"))
+    unknowns = [(u = layout.unknowns[id]; RadialUnknown(u.name; components=u.components, scale=u.scale, groups=u.groups))
+                for id in ids]
+    return UnknownLayout(layout.radial_grid, unknowns)
+end
+
 function _add_local_jacobian!(J, term, u, layout, row, t, ids, ::Val{K}) where {K}
     D = ForwardDiff.Dual{LocalColumnTag,Float64,K}
-    seeded = D.(u)
+    local_ids = row in ids ? ids : [ids; row]
+    reduced = local_layout(layout, local_ids)
+    seeded = zeros(D, length(reduced))
     for ir in 1:radial_cell_count(layout)
         k = 0
-        for id in ids, i in unknown_range(layout, id, ir)
-            k += 1
-            seeded[i] = D(u[i], ForwardDiff.Partials(ntuple(m -> Float64(m == k), Val(K))))
+        for (m, id) in enumerate(local_ids)
+            target = unknown_range(reduced, m, ir)
+            for (a, i) in enumerate(unknown_range(layout, id, ir))
+                if m <= length(ids)
+                    k += 1
+                    seeded[target[a]] = D(u[i], ForwardDiff.Partials(ntuple(q -> Float64(q == k), Val(K))))
+                else
+                    seeded[target[a]] = D(u[i])
+                end
+            end
         end
     end
-    out = zeros(D, length(u))
-    rhs!(out, term, seeded, layout, row, t)
+    out = zeros(D, length(reduced))
+    local_row = findfirst(==(row), local_ids)
+    rhs!(out, term, seeded, reduced, local_row, t)
     for ir in 1:radial_cell_count(layout)
         columns = [i for id in ids for i in unknown_range(layout, id, ir)]
-        for r in unknown_range(layout, row, ir)
-            partials = ForwardDiff.partials(out[r])
+        for (r, r_local) in zip(unknown_range(layout, row, ir), unknown_range(reduced, local_row, ir))
+            partials = ForwardDiff.partials(out[r_local])
             for k in 1:K
                 _add_entry!(J, r, columns[k], partials[k])
             end

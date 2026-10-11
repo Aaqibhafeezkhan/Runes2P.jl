@@ -231,7 +231,8 @@ function set_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaS
     radial_cell_count(plasma) == radial_cell_count(op.grid) ||
         throw(DimensionMismatch("plasma and grid radii differ"))
     zero_coefficients!(op)
-    collisions = CollisionModel(plasma, settings)
+    collisions = CollisionModel(plasma, settings;
+                                faces=[momentum_grid(op.grid, ir).p_faces for ir in 1:radial_cell_count(op.grid)])
     electric_field && add_electric_field!(op, plasma)
     add_slowing_down!(op, collisions)
     add_pitch_scattering!(op, collisions)

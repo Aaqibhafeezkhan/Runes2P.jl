@@ -5,7 +5,7 @@
 """
     FokkerPlanckTerm(unknown, operator::AdvectionDiffusion; jacobian=:exact, electric_field=nothing,
                      plasma=nothing, settings=nothing, synchrotron=nothing,
-                     coefficients=:implicit, lagged=())
+                     coefficients=:implicit, lagged=:ions)
 
 Advection-diffusion (Fokker-Planck) operator applied to the kinetic unknown `unknown`,
 added to the equation of the row unknown (normally the same). Stored sparse, with the
@@ -46,13 +46,27 @@ and is not linear. `coefficients` selects the state its coefficients are built f
   SciML interface) `prepare_step!` sees the state itself, so a lagged term is implicit
   there.
 
-`lagged = (:ion_densities,)` lags one group of plasma scalars alone: with
-`coefficients = :implicit` the ion densities of a plasma that
+`lagged` names the groups of plasma scalars taken at the start of the step. With
+`coefficients = :implicit` and the ion densities lagged, the charge states of a plasma that
 reads them come from the start of the step, and the temperature and the density from the
 iterate. The stored Jacobian then has the columns of the temperature and the density and
 none of the charge states, and the residual is consistent within the step. DREAM's
 reference case drops these columns from its Jacobian alone (`enableIonJacobian(False)`).
-Without the lag the columns of the charge states are part of the plasma columns.
+
+- `lagged = :ions` (the default): the ion densities of the plasma when it reads them, no
+  group otherwise. On the production hot-tail grid with D and Ar (270 × 15 cells per radius,
+  4 radii) one assembly of the Jacobian costs 41 to 45 applications of the Fokker-Planck
+  operator against 76 to 87 with the implicit charge states, at the same Newton iterations
+  per step. To t = 1e-5 s the lag reaches every error of the implicit charge states in 0.43
+  to 0.60 of the wall time, with fixed steps and under the step controller; at equal steps
+  it changes the error by -27 to -10 % in the temperature at the axis and by less than 1 %
+  in the densities. A term that lags them is of first order under BDF2, and `ode_function`
+  passes no Jacobian for a system with it ([`lags_in_ode_form`](@ref)). The kinetic
+  ionization and a corrected conductivity read the charge states of the iterate, so within a
+  step the ions enter the collisions of `f` and those terms at two states, a difference of
+  first order in the step. Those terms do not take the lagged ions yet.
+- `lagged = ()`: the columns of the charge states are part of the plasma columns.
+- `lagged = (:ion_densities,)`: the ion densities by name, as `:ions` for that unknown.
 
 `jacobian` selects what the stored Jacobian block holds for a flux-limiter scheme (DREAM's
 `ad_jac` setting of `AdvectionInterpolation`). The residual is always the operator's own, so
@@ -105,16 +119,22 @@ const LINEAR_JACOBIAN_SCHEMES = (:upwind, :central, :exponential_fitting, :quick
 function FokkerPlanckTerm(unknown::Symbol, operator::AdvectionDiffusion{T}; jacobian::Symbol=:exact,
                           electric_field::Union{Nothing,Symbol}=nothing, plasma=nothing,
                           settings::Union{Nothing,CollisionSettings}=nothing, synchrotron::Union{Nothing,Bool}=nothing,
-                          coefficients::Symbol=:implicit, lagged=()) where {T}
+                          coefficients::Symbol=:implicit, lagged=:ions) where {T}
     coefficients in (:implicit, :lagged) ||
         throw(ArgumentError("coefficients must be :implicit or :lagged, not $coefficients"))
-    lagged = Tuple(Symbol(name) for name in lagged)
     # the settings that built the operator, before the field branch below forgets them: a
     # rebuild with other settings would change the coefficients at the first refresh
     built = operator.coefficient_source[]
     settings === nothing && (settings = built === nothing ? CollisionSettings() : built.settings)
     synchrotron === nothing && (synchrotron = built === nothing ? true : built.synchrotron)
     plasma_from = plasma === nothing ? nothing : plasma_source(plasma)
+    lagged = if lagged === :ions
+        ions = ion_dependency(plasma_from)
+        ions === nothing || coefficients === :lagged ? () : (ions,)
+    else
+        lagged isa Symbol && throw(ArgumentError("lagged is :ions or a collection of names, not $lagged"))
+        Tuple(Symbol(name) for name in lagged)
+    end
     # the rebuild of the coefficients leaves the field out when it is an unknown
     plasma_from !== nothing && electric_field !== nothing && (operator.coefficient_source[] = nothing)
     if electric_field !== nothing

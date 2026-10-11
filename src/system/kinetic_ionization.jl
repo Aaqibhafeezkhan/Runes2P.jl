@@ -26,7 +26,13 @@ Paired with an [`IonRateTerm`](@ref) through its `kinetic` keyword, the electron
 threshold ionize at the fluid coefficient of [`fluid_ionization_coefficient`](@ref), so a
 Maxwellian `f` ionizes at the ADAS rate for every threshold. The term has no energy of its
 own: the friction on bound electrons of the Fokker-Planck term already takes energy from
-`f` for the inelastic collisions.
+`f` for the inelastic collisions. With `bound_friction = :ionization_split` of
+[`CollisionSettings`](@ref) and its `ionization_threshold` at the factor of this term's
+region, that friction holds the energy `I_j + ⟨E_s⟩_j` of each ionization the term counts,
+up to the discretization. Without a region the two agree to the
+discretization; at a threshold the friction takes a smooth step of its own on the faces
+(`ionization_threshold_width`) while this term takes the envelope of its region in the cells,
+so the two differ by the electrons within that width of the threshold.
 
 The Jacobian is assembled directly: the columns of `f` (every cell of a radius, the block
 DREAM's reference case drops), of the charge states, and of the temperature through the
@@ -225,51 +231,53 @@ Maxwellian ionization comes from above the threshold, so `A_> > I` and the coeff
 negative. On the grid of the tests (`n_e = 5e19 m⁻³`, 5 to 50 eV) it is negative for the
 dominant argon states at threshold factors 2 and 3, by 3 to 18 % of `I`, and for no state with
 a coronal fraction above 1e-17 at factors 5 and 7. With a Maxwellian `f` the sum with the
-kinetic rate is `n_M I` whatever the sign. Whether to keep it non-negative is an open
-question.
+kinetic rate is `n_M I` whatever the sign. The coefficient stays as it is, and the split
+refuses thresholds below [`MINIMUM_SPLIT_THRESHOLD_FACTOR`](@ref) thermal momenta.
 """
 fluid_ionization_coefficient(adas, fraction, coefficient) = (adas - coefficient) / (1 - fraction)
+
+"""
+    MINIMUM_SPLIT_THRESHOLD_FACTOR
+
+The smallest factor of the thermal momentum, 5, at which the threshold of a
+[`KineticIonizationTerm`](@ref) may split the ionization with a fluid term (the `kinetic`
+keyword of [`IonRateTerm`](@ref) and [`RadiatedPowerTerm`](@ref)). Below it the fluid
+coefficient of [`fluid_ionization_coefficient`](@ref) is negative for populated argon states:
+by 3 to 18 % of the ADAS rate at factors 2 and 3, and for no state with a coronal fraction
+above 1e-17 at factors 5 and 7. Decision of the author (2026-10-10):
+the coefficient unchanged, with a refusal below this factor. The factor 5 is that of
+a DREAM reference case; Runes2P's default hot region takes 7
+([`ThermalMomentum`](@ref)).
+"""
+const MINIMUM_SPLIT_THRESHOLD_FACTOR = 5.0
+
+# refuses the split of the ionization at the threshold of `kinetic` below
+# MINIMUM_SPLIT_THRESHOLD_FACTOR thermal momenta; `owner` names the fluid term
+function _check_split_threshold(kinetic::KineticIonizationTerm, owner::AbstractString)
+    envelopes = kinetic.envelopes
+    region = envelopes === nothing ? nothing : envelopes.region
+    limit = region === nothing ? nothing : region.limit
+    limit isa ThermalMomentum{Symbol} ||
+        throw(ArgumentError("the split of the ionization of $owner needs a kinetic ionization whose region has a " *
+                            "threshold at a multiple of the thermal momentum of the temperature unknown " *
+                            "(ThermalMomentum with the name of the unknown), so that the fluid coefficient " *
+                            "(SCD − A_>)/(1 − f_>) follows the temperature"))
+    limit.factor >= MINIMUM_SPLIT_THRESHOLD_FACTOR ||
+        throw(ArgumentError("the split of the ionization of $owner at $(limit.factor) thermal momenta is refused: below " *
+                            "$(MINIMUM_SPLIT_THRESHOLD_FACTOR) thermal momenta the fluid coefficient (SCD − A_>)/(1 − f_>) " *
+                            "is negative for populated argon states, by 3 to 18 % of SCD at factors 2 and 3, since " *
+                            "DREAM's cross-section fits exceed ADAS above a threshold that lies below the ionization " *
+                            "energy (audit 5.9-5.10, finding 3). A negative fluid flow drains sparse upper states and " *
+                            "gives the cold electrons binding energy. Use a threshold factor of at least " *
+                            "$(MINIMUM_SPLIT_THRESHOLD_FACTOR) (DREAM's reference case takes 5, Runes2P's hot region 7), " *
+                            "or pair the kinetic ionization without the split as DREAM does (issue #181)."))
+    return nothing
+end
 
 # the fluid coefficient of charge state Z0 of species s with the split of a radius
 function _fluid_ionization(split, s, Z0, adas)
     k = species_components(split.term.composition, s)[Z0+1]
     return fluid_ionization_coefficient(adas, split.fraction, split.coefficients[k])
-end
-
-"""
-    SECONDARY_SPECTRUM_WIDTHS
-
-The width `Ē` [eV] of the energy spectrum of the secondary electrons of electron-impact
-ionization, `dσ/dE_s ∝ 1/(1 + (E_s/Ē)²)`, per element, from Table II of C. B. Opal, W. K.
-Peterson and E. C. Beaty, J. Chem. Phys. 55, 4100 (1971), doi:10.1063/1.1676707, measured on
-neutral gases with primaries of 500 eV:
-helium 15.8, neon 24.2, argon 10.0, krypton 9.6 and xenon 8.7 eV; hydrogen, deuterium and
-tritium take the 8.3 eV of H₂. The authors call their fits to argon, krypton and xenon
-poor, so that "the values of Ē are not very significant for these gases"; Ē varies by
-about 15 % over primary energies of 100 to 2000 eV (their Table I). The widths were measured
-on neutral atoms and are applied to every charge state, where Ē/I of their Table II
-suggests a width that grows with the ionization energy. Other elements take
-their width from the `widths` of [`SecondaryHeatingTerm`](@ref).
-"""
-const SECONDARY_SPECTRUM_WIDTHS = Dict{String,Float64}("H" => 8.3, "D" => 8.3, "T" => 8.3, "He" => 15.8, "Ne" => 24.2,
-                                                       "Ar" => 10.0, "Kr" => 9.6, "Xe" => 8.7)
-
-"""
-    mean_secondary_energy(width, E, I, cut)
-
-The mean kinetic energy [eV] of the secondary electron of an ionization with the ionization
-potential `I` by an electron of kinetic energy `E`, with the spectrum of Opal et al. of
-width `width` ([`SECONDARY_SPECTRUM_WIDTHS`](@ref)) up to the smaller of `(E − I)/2` (the
-slower of the two electrons is the secondary) and `cut`:
-`(Ē/2) ln(1 + (E_top/Ē)²) / arctan(E_top/Ē)`. Zero below the threshold. This is the mean
-of the secondaries below the top, conditional on lying there: [`SecondaryHeatingTerm`](@ref)
-gives it to every secondary, those above the hot threshold included, which also join the cold
-electrons through the closure.
-"""
-function mean_secondary_energy(width, E, I, cut)
-    top = min((E - I) / 2, cut)
-    top > 0 || return zero(top)
-    return width / 2 * log(1 + (top / width)^2) / atan(top / width)
 end
 
 # the kinetic energy [eV] of the threshold of the region at the temperature T (or of a fixed
@@ -284,6 +292,8 @@ end
 # the number type of T
 function _envelope_at_temperature(term::KineticIonizationTerm, ir, T)
     m = momentum_grid(term.grid, ir)
+    # without a region the kinetic ionization covers the whole grid
+    term.envelopes === nothing && return ones(typeof(float(T)), momentum_cell_count(m))
     limit = term.envelopes.region.limit
     p0 = limit isa ThermalMomentum ? limit.factor * sqrt(2 * T / Constants.ELECTRON_REST_ENERGY) : limit
     return momentum_envelope!(zeros(typeof(float(p0)), momentum_cell_count(m)), term.envelopes.region, m, p0)
@@ -291,20 +301,36 @@ end
 
 """
     SecondaryHeatingTerm(kinetic::KineticIonizationTerm; widths=SECONDARY_SPECTRUM_WIDTHS,
-                         temperature=:cold_electron_temperature)
+                         temperature=:cold_electron_temperature, cut=:none, spectrum=:beb)
 
 The heating [W/m³] of the cold electrons by the secondary electrons of the kinetic
 ionization `kinetic`, for the row of their temperature:
 
 ```math
 Q = e \\sum_{s,j} n_{s,j} \\frac{1}{V'} \\sum_{\\text{cells}} e(p)\\, v σ_j(p)\\,
-⟨E_s⟩_j(E, E_c)\\, 𝒱' Δp Δξ\\, f,
+⟨E_s⟩_j(E)\\, 𝒱' Δp Δξ\\, f,
 ```
 
-with the rates of `kinetic` and the mean energy of the secondary below the hot threshold `E_c`
-([`mean_secondary_energy`](@ref)) with the widths `widths` per element. A kinetically ionized
-electron joins the cold electrons through the closure of the cold density; without this
-term it is born at zero energy. The friction of the Fokker-Planck term on bound electrons
+with the rates of `kinetic`, the envelope `e(p)` of its region (1 without one) and the mean
+energy `⟨E_s⟩_j` of the secondaries of the spectrum `spectrum` and the cut `cut` below. A
+kinetically ionized electron joins the cold electrons through the closure of the cold
+density; without this term it is born at zero energy.
+
+- `cut = :none` (the default): the mean over every secondary, up
+  to `(E − I)/2`. All secondaries join the cold electrons, also those born above the hot
+  threshold, so this is the moment of the spectrum over the secondaries that the cold
+  electrons receive, and the one that the friction with `bound_friction = :ionization_split`
+  takes from `f` ([`CollisionSettings`](@ref)). A [`KnockOnTerm`](@ref) on the bound
+  electrons also puts the secondaries above its cutoff into `f`, so next to it their energy
+  is counted twice. Their share of the mean is large: with the spectrum of Opal et al. at 1.3
+  MeV, the secondaries above 1 keV carry about 59 % of it.
+- `cut = :threshold`: the mean below the hot threshold `E_c`, conditional on lying there,
+  for every secondary: the earlier default.
+
+`spectrum = :beb` (the default, decision of the author, 2026-10-10) takes the binary-encounter-Bethe
+spectrum of Kim and Rudd with the ionization energy of each charge state as its binding energy
+([`beb_mean_secondary_energy`](@ref)), which needs no width; `spectrum = :opal` the spectrum of
+Opal et al. with the widths `widths`, the neutral element's for every charge state. The friction of the Fokker-Planck term on bound electrons
 takes the energy of the ionization from `f` already, so in the total energy of the electrons
 the term moves the energy of the secondaries from that sink to the cold
 electrons. That holds where the friction takes the energy. With the default screening window
@@ -312,29 +338,37 @@ of the collisions (`screening_window = :excitation_energy`) the friction on boun
 electrons is zero from the ionization potential up to the mean excitation energy of the
 state (about 190 eV for Ar⁰, more for the higher states): there `f` ionizes without paying,
 and this term adds the energy of the secondaries on top. `screening_window = :dream` narrows
-that band; a friction on bound electrons tied to the ionization, not yet implemented, would
-close it. DREAM has no such term: `kinetic` alone is DREAM's model. The region of `kinetic`
+that band, and `bound_friction = :ionization_split` of [`CollisionSettings`](@ref)
+closes it: `f` then pays the ionization potential and the energy
+of the secondaries for every ionization above the threshold, and this term returns the
+energy of the secondaries to the cold electrons. DREAM has no such term: `kinetic` alone is DREAM's model. The region of `kinetic`
 sets `E_c`; its threshold follows the temperature unknown `temperature` or is fixed.
 """
 struct SecondaryHeatingTerm{K<:KineticIonizationTerm} <: EquationTerm
     kinetic::K
     temperature::Symbol
+    cut::Symbol                       # :none, every secondary, or :threshold, the mean below E_c
+    spectrum::Symbol                  # :opal or :beb
     widths::Vector{Float64}           # per species of the composition of `kinetic`
     energies::Vector{Vector{Float64}} # per radius: the kinetic energy [eV] of each momentum cell
 end
 
 function SecondaryHeatingTerm(kinetic::KineticIonizationTerm; widths=SECONDARY_SPECTRUM_WIDTHS,
-                              temperature::Symbol=:cold_electron_temperature)
-    kinetic.envelopes === nothing &&
-        throw(ArgumentError("the heating by secondaries needs the region of the kinetic ionization: its threshold " *
-                            "is the cut of the secondaries"))
-    limit = kinetic.envelopes.region.limit
-    limit isa Real || limit isa ThermalMomentum{Symbol} ||
+                              temperature::Symbol=:cold_electron_temperature, cut::Symbol=:none,
+                              spectrum::Symbol=:beb)
+    cut in (:none, :threshold) || throw(ArgumentError("cut must be :none or :threshold, not $cut"))
+    spectrum in SECONDARY_SPECTRA || throw(ArgumentError("spectrum must be :opal or :beb, not $spectrum"))
+    cut === :threshold && kinetic.envelopes === nothing &&
+        throw(ArgumentError("the heating by secondaries with cut = :threshold needs the region of the kinetic " *
+                            "ionization: its threshold is the cut of the secondaries"))
+    limit = kinetic.envelopes === nothing ? nothing : kinetic.envelopes.region.limit
+    limit === nothing || limit isa Real || limit isa ThermalMomentum{Symbol} ||
         throw(ArgumentError("the heating by secondaries needs a threshold at a fixed momentum or at a multiple of the " *
                             "thermal momentum of the temperature unknown"))
     table = merge(SECONDARY_SPECTRUM_WIDTHS, Dict{String,Float64}(String(k) => Float64(v) for (k, v) in widths))
     names = kinetic.composition.names
     for name in names
+        spectrum === :beb && break
         haskey(table, name) ||
             throw(ArgumentError("no width of the spectrum of the secondary electrons for the element $name: give it " *
                                 "with widths = Dict(\"$name\" => Ē in eV) (issue #177)"))
@@ -342,7 +376,7 @@ function SecondaryHeatingTerm(kinetic::KineticIonizationTerm; widths=SECONDARY_S
     end
     energies = [[(sqrt(1 + p^2) - 1) * Constants.ELECTRON_REST_ENERGY for p in momentum_grid(kinetic.grid, ir).p_centers]
                 for ir in 1:radial_cell_count(kinetic.grid)]
-    return SecondaryHeatingTerm(kinetic, temperature, [table[name] for name in names], energies)
+    return SecondaryHeatingTerm(kinetic, temperature, cut, spectrum, [get(table, name, NaN) for name in names], energies)
 end
 
 _region_temperature_name(term::SecondaryHeatingTerm) = _region_unknowns(term.kinetic.envelopes)
@@ -362,7 +396,7 @@ end
 function _secondary_weights(term::SecondaryHeatingTerm, ir, T)
     kinetic = term.kinetic
     c = kinetic.composition
-    cut = _threshold_energy(kinetic, T)
+    cut = term.cut === :threshold ? _threshold_energy(kinetic, T) : Inf
     rates = kinetic.rates[ir]
     energies = term.energies[ir]
     weights = zeros(typeof(float(cut)), size(rates))
@@ -372,7 +406,7 @@ function _secondary_weights(term::SecondaryHeatingTerm, ir, T)
         for i in axes(rates, 1)
             rates[i, k] == 0 && continue
             weights[i, k] = Constants.ELEMENTARY_CHARGE * rates[i, k] *
-                            mean_secondary_energy(term.widths[s], energies[i], I, cut)
+                            secondary_spectrum_mean(term.spectrum, term.widths[s], energies[i], I, cut)
         end
     end
     return weights
@@ -455,24 +489,26 @@ function sparsity!(entries, term::SecondaryHeatingTerm, layout, row)
 end
 
 """
-    ionization_energy_flows(kinetic::KineticIonizationTerm, u, layout, t; widths=SECONDARY_SPECTRUM_WIDTHS)
+    ionization_energy_flows(kinetic::KineticIonizationTerm, u, layout, t; widths=SECONDARY_SPECTRUM_WIDTHS,
+                            spectrum=:beb)
 
 The energy [W/m³ per radius] that the kinetic ionization `kinetic` takes from `f` at the
 state `u`, in two parts:
 
 - `potential`: the ionization potentials, `e Σ I_j K_j n_j`, stored in the ions and released
   at recombination (the gain of `RadiatedPowerTerm(...; radiation = :recombination)`);
-- `secondaries`: the kinetic energy of the secondary electrons below the hot threshold,
-  which [`SecondaryHeatingTerm`](@ref) gives to the cold electrons; `nothing` when an
-  element of the composition has no width of the secondary spectrum
-  ([`SECONDARY_SPECTRUM_WIDTHS`](@ref)), since `potential` needs none.
+- `secondaries`: the kinetic energy of the secondary electrons, which
+  [`SecondaryHeatingTerm`](@ref) with its default `cut = :none` gives to the cold electrons; with
+  `spectrum = :opal`, `nothing` when an element of the composition has no width of the
+  secondary spectrum ([`SECONDARY_SPECTRUM_WIDTHS`](@ref)), since `potential` needs none.
 
 Both are part of the sink of `f` through the friction on bound electrons
 ([`KineticEnergyLossTerm`](@ref) with `part = :sinks`), so an energy diagnostic that books
 that sink as lost and the recombination radiation as radiated counts `potential` twice: it
 is the share of the sink that goes to the potential energy of the ions.
 """
-function ionization_energy_flows(kinetic::KineticIonizationTerm, u, layout, t; widths=SECONDARY_SPECTRUM_WIDTHS)
+function ionization_energy_flows(kinetic::KineticIonizationTerm, u, layout, t; widths=SECONDARY_SPECTRUM_WIDTHS,
+                                 spectrum::Symbol=:beb)
     c = kinetic.composition
     nr = radial_cell_count(layout)
     potential = zeros(nr)
@@ -485,8 +521,8 @@ function ionization_energy_flows(kinetic::KineticIonizationTerm, u, layout, t; w
         end
     end
     table = merge(SECONDARY_SPECTRUM_WIDTHS, Dict{String,Float64}(String(k) => Float64(v) for (k, v) in widths))
-    all(name -> haskey(table, name), c.names) || return (potential=potential, secondaries=nothing)
-    heating = SecondaryHeatingTerm(kinetic; widths)
+    spectrum === :beb || all(name -> haskey(table, name), c.names) || return (potential=potential, secondaries=nothing)
+    heating = SecondaryHeatingTerm(kinetic; widths, spectrum)
     row = unknown_id(layout, heating.temperature)
     secondaries = radial_values(rhs!(zeros(length(u)), heating, u, layout, row, t), layout, row)
     return (potential=potential, secondaries=collect(secondaries))

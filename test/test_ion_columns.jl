@@ -5,7 +5,7 @@
 # difference, and the binding energy of the radiated power is the ionization energy times
 # the flows between the charge states of the rate equations. Needs the ADF11 cache.
 using ForwardDiff
-using SparseArrays: sparse
+using SparseArrays: sparse, nnz
 
 const COLUMN_COMPOSITION = IonComposition(["D" => 1, "Ar" => 18])
 
@@ -104,6 +104,41 @@ end
                 @test u[empty] == 0
                 @test Matrix(J)[:, empty] ≈ reference_jacobian[:, empty] rtol = 1e-12
             end
+        end
+
+        @testset "the local Jacobian does not grow with the kinetic unknowns" begin
+            # the state of the case with a distribution of 200 × 10 cells per radius after the
+            # radial unknowns: the block of each term is the same, and the evaluation reads a
+            # state of the radial dependencies alone
+            grid = cylindrical_grid(MomentumGrid(uniform_p_faces(201, 0.0, 1.0), uniform_xi_faces(10)), layout.radial_grid)
+            larger = UnknownLayout(layout.radial_grid, [layout.unknowns; KineticUnknown(:f, grid; scale=1e19)])
+            positions = zeros(Int, n)
+            for id in eachindex(layout.unknowns), ir in 1:radial_cell_count(layout)
+                positions[unknown_range(layout, id, ir)] .= unknown_range(larger, id, ir)
+            end
+            v = zeros(length(larger))
+            v[positions] .= u
+            v[unknown_range(larger, length(larger.unknowns), 1)] .= 1e17
+            for (name, term, _, r) in cases
+                small = Runes2P.sparsity!(Tuple{Int,Int}[], term, layout, r)
+                J = sparse(first.(small), last.(small), zeros(length(small)), n, n)
+                add_local_jacobian!(J, term, u, layout, r, 0.0)
+                large = Runes2P.sparsity!(Tuple{Int,Int}[], term, larger, r)
+                K = sparse(first.(large), last.(large), zeros(length(large)), length(larger), length(larger))
+                add_local_jacobian!(K, term, v, larger, r, 0.0)
+                @test Matrix(K[positions, positions]) == Matrix(J)
+                @test nnz(K) == nnz(J)
+                bytes_small = @allocated add_local_jacobian!(J, term, u, layout, r, 0.0)
+                bytes_large = @allocated add_local_jacobian!(K, term, v, larger, r, 0.0)
+                # a dual copy of the larger state would take 2 × 8 × (K + 1) bytes per cell,
+                # above 1.5 MB here
+                @test bytes_large <= bytes_small + 50_000
+            end
+            # the local layout holds the radial unknowns alone, without their lower limits
+            reduced = local_layout(larger, [unknown_id(larger, :ion_densities), unknown_id(larger, :cold_electron_temperature)])
+            @test length(reduced) == radial_cell_count(layout) * (layout.sizes[1, 1] + 1)
+            @test all(x -> x.lower_limit === nothing, reduced.unknowns)
+            @test_throws ArgumentError local_layout(larger, [unknown_id(larger, :f)])
         end
 
         @testset "binding energy against the flows of the rate equations" begin

@@ -209,7 +209,9 @@ coefficients (1e-40) in the columns of the temperature and the density.
 the threshold of its region: the electrons of `f` above the threshold
 ionize through the cross sections of that term, and the cold electrons below it through
 the fluid coefficient of [`fluid_ionization_coefficient`](@ref), the ADAS rate less the
-part of the Maxwellian above the threshold. No electron is counted twice. Without
+part of the Maxwellian above the threshold. No electron is counted twice. The threshold is a
+multiple of the thermal momentum of at least [`MINIMUM_SPLIT_THRESHOLD_FACTOR`](@ref).
+Without
 `kinetic` the fluid rate is the whole ADAS rate, which next to a kinetic ionization term
 is DREAM's choice (`ions.cpp:280`): the Maxwellian tail above the threshold ionizes twice.
 """
@@ -232,6 +234,7 @@ function IonRateTerm(c::IonComposition; ions::Symbol=:ion_densities, temperature
         throw(ArgumentError("kinetic must be a KineticIonizationTerm or nothing"))
     kinetic === nothing || kinetic.composition == c ||
         throw(ArgumentError("the kinetic ionization of the split has another ion composition"))
+    kinetic === nothing || _check_split_threshold(kinetic, "an IonRateTerm")
     tables = NamedTuple[_element_tables(name, Z, directory) for (name, Z) in zip(c.names, c.nuclear_charges)]
     return IonRateTerm(c, ions, temperature, density, extrapolation, tables, kinetic)
 end

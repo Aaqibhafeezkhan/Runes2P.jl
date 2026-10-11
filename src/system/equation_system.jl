@@ -780,6 +780,63 @@ function _check_plasma_pairings(equations)
                                 "or envelopes (factor $(a.limit.factor) and $(b.limit.factor)), so they count different " *
                                 "electrons as hot: give them one region"))
     end
+    # the friction of bound_friction = :ionization_split charges f for the ionization that
+    # the kinetic ionization of the system counts: the same threshold, and the heating by
+    # the secondaries gives the cold electrons the moment that f pays
+    ionizations = [term for equation in equations for term in equation.terms if term isa KineticIonizationTerm]
+    heatings = [term for equation in equations for term in equation.terms if term isa SecondaryHeatingTerm]
+    for owner in fokker_planck
+        settings = owner.settings
+        settings.bound_friction === :ionization_split || continue
+        paired = [k for k in ionizations if k.kinetic === owner.unknown]
+        isempty(paired) &&
+            throw(ArgumentError("the Fokker-Planck term of $(owner.unknown) takes bound_friction = :ionization_split, " *
+                                "which charges f for the ionization that a KineticIonizationTerm of $(owner.unknown) " *
+                                "counts, and the system has none: add the kinetic ionization or take " *
+                                "bound_friction = :bethe"))
+        for k in paired
+            region = k.envelopes === nothing ? nothing : k.envelopes.region
+            factor = region === nothing ? 0.0 :
+                     region.limit isa ThermalMomentum{Symbol} ? region.limit.factor :
+                     throw(ArgumentError("bound_friction = :ionization_split takes the threshold of the kinetic " *
+                                         "ionization of $(owner.unknown) as a factor of the thermal momentum of the " *
+                                         "temperature unknown (ThermalMomentum with the name of the unknown)"))
+            factor == settings.ionization_threshold ||
+                throw(ArgumentError("the kinetic ionization of $(owner.unknown) has its threshold at $factor thermal " *
+                                    "momenta and the friction of bound_friction = :ionization_split at " *
+                                    "$(settings.ionization_threshold) (ionization_threshold of CollisionSettings), so f " *
+                                    "pays for other ionizations than it causes: give both the same factor"))
+            # where the system books the sinks of f, the energy of the secondaries that f pays
+            # goes to the cold electrons only through the heating by secondaries
+            books_sinks = any(term -> term isa KineticEnergyLossTerm && term.source === owner && term.part === :sinks,
+                              (term for equation in equations for term in equation.terms))
+            books_sinks && !any(heating -> heating.kinetic === k, heatings) &&
+                throw(ArgumentError("the Fokker-Planck term of $(owner.unknown) takes bound_friction = " *
+                                    ":ionization_split and its sinks leave the electrons (KineticEnergyLossTerm with " *
+                                    "part = :sinks), and the system has no SecondaryHeatingTerm of its kinetic " *
+                                    "ionization: the energy of the secondaries, which join the cold electrons through " *
+                                    "the closure, would be lost. Add SecondaryHeatingTerm(kinetic) to the row of the " *
+                                    "temperature (issue #207)"))
+            widths = merge(SECONDARY_SPECTRUM_WIDTHS, settings.secondary_widths)
+            for heating in heatings
+                heating.kinetic === k || continue
+                heating.cut === :none ||
+                    throw(ArgumentError("the heating by secondaries of the kinetic ionization of $(owner.unknown) takes " *
+                                        "cut = :$(heating.cut), while the friction of bound_friction = " *
+                                        ":ionization_split takes the mean over every secondary from f: take cut = :none " *
+                                        "(issue #207)"))
+                heating.spectrum === settings.secondary_spectrum ||
+                    throw(ArgumentError("the heating by secondaries takes the spectrum :$(heating.spectrum) and the " *
+                                        "friction of bound_friction = :ionization_split the spectrum " *
+                                        ":$(settings.secondary_spectrum): give both the same (issue #207)"))
+                heating.spectrum === :beb ||
+                    all(((name, width),) -> get(widths, name, NaN) == width, zip(k.composition.names, heating.widths)) ||
+                    throw(ArgumentError("the heating by secondaries and the friction of bound_friction = " *
+                                        ":ionization_split take different widths of the secondary spectrum: give " *
+                                        "SecondaryHeatingTerm the secondary_widths of the CollisionSettings"))
+            end
+        end
+    end
     # a term that reads the coefficients of a Fokker-Planck term or an interface of the
     # system takes that term itself, not a copy with other coefficients
     terms_of_system = [term for equation in equations for term in equation.terms]

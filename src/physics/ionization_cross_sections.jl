@@ -238,3 +238,98 @@ function ionization_cross_section(element::AbstractString, Z0::Integer, p::Real)
     S = 1 / (1 + exp(1 - E * mc2 * 1e-5))
     return (1 - S) * nonrelativistic + S * relativistic
 end
+
+"""
+    SECONDARY_SPECTRUM_WIDTHS
+
+The width `Ē` [eV] of the energy spectrum of the secondary electrons of electron-impact
+ionization, `dσ/dE_s ∝ 1/(1 + (E_s/Ē)²)`, per element, from Table II of C. B. Opal, W. K.
+Peterson and E. C. Beaty, J. Chem. Phys. 55, 4100 (1971), doi:10.1063/1.1676707, measured on
+neutral gases with primaries of 500 eV:
+helium 15.8, neon 24.2, argon 10.0, krypton 9.6 and xenon 8.7 eV; hydrogen, deuterium and
+tritium take the 8.3 eV of H₂. The authors call their fits to argon, krypton and xenon
+poor, so that "the values of Ē are not very significant for these gases"; Ē varies by
+about 15 % over primary energies of 100 to 2000 eV (their Table I). The widths were measured
+on neutral atoms and are applied to every charge state, where Ē/I of their Table II
+suggests a width that grows with the ionization energy: at 5 keV the
+binary-encounter-Bethe spectrum gives Ar¹⁵⁺ a mean of 576 eV against 34 eV with this width.
+The default of the heating by secondaries and of the friction of
+`bound_friction = :ionization_split` is therefore that spectrum
+([`beb_mean_secondary_energy`](@ref), decision of the author, 2026-10-10), and these widths
+serve `spectrum = :opal`. Other elements take their width from the `widths` of
+[`SecondaryHeatingTerm`](@ref) and the `secondary_widths` of [`CollisionSettings`](@ref).
+"""
+const SECONDARY_SPECTRUM_WIDTHS = Dict{String,Float64}("H" => 8.3, "D" => 8.3, "T" => 8.3, "He" => 15.8, "Ne" => 24.2,
+                                                       "Ar" => 10.0, "Kr" => 9.6, "Xe" => 8.7)
+
+"""
+    mean_secondary_energy(width, E, I, cut)
+
+The mean kinetic energy [eV] of the secondary electron of an ionization with the ionization
+potential `I` by an electron of kinetic energy `E`, with the spectrum of Opal et al. of
+width `width` ([`SECONDARY_SPECTRUM_WIDTHS`](@ref)) up to the smaller of `(E − I)/2` (the
+slower of the two electrons is the secondary) and `cut`:
+`(Ē/2) ln(1 + (E_top/Ē)²) / arctan(E_top/Ē)`. Zero below the threshold. This is the mean
+of the secondaries below the top, conditional on lying there. With `cut = Inf` it is the mean
+over every secondary, which [`SecondaryHeatingTerm`](@ref) with `spectrum = :opal` gives to the cold electrons and
+which the friction of `bound_friction = :ionization_split` with that spectrum takes from `f`
+([`CollisionSettings`](@ref)): every secondary joins the cold electrons through the closure
+of their density, so both take the same moment.
+"""
+function mean_secondary_energy(width, E, I, cut)
+    top = min((E - I) / 2, cut)
+    top > 0 || return zero(top)
+    return width / 2 * log(1 + (top / width)^2) / atan(top / width)
+end
+
+"""
+    beb_mean_secondary_energy(E, B, cut)
+
+The mean kinetic energy [eV] of the secondary electron of an ionization of a subshell with
+the binding energy `B` by an electron of kinetic energy `E`, with the singly differential
+cross section of the binary-encounter-Bethe (BEB) model of Y.-K. Kim and M. E. Rudd,
+Phys. Rev. A 50, 3954 (1994), doi:10.1103/PhysRevA.50.3954, eqs. (52) to (54):
+
+```math
+\\frac{dσ}{dW} ∝ \\sum_{n=1}^{3} F_n(t) \\left[\\frac{1}{(w + 1)^n} + \\frac{1}{(t − w)^n}\\right],
+\\qquad F_1 = −\\frac{F_2}{t + 1}, \\quad F_2 = 2 − Q, \\quad F_3 = Q \\ln t,
+```
+
+with `t = E/B` and `w = W/B`, up to the smaller of `(t − 1)/2` and `cut/B`, conditional on
+lying there, in closed form. The common factor of the `F_n` (`1/(t + u + 1)`, or `1/(t + 1)`
+for ions with open-shell valence electrons, their Sec. VI) cancels in the mean, so the
+spectrum needs only `B`. `Q = 1`, their approximation where the dipole oscillator strength
+is not known (Sec. IV), also for the one-electron ions, for which their eq. (60) gives
+`Q = 0.5668`: there the dipole term, which lies at small `w`, is too large, and the mean too
+low. Zero below the threshold. Within `1e-6 B` of the threshold, where the closed form loses
+its digits, the mean is that of the flat spectrum there, `W_top/2`. The mean of a charge state takes the
+valence shell alone, with `B` its ionization energy; inner shells, which Kim and Rudd sum
+over, are left out. Normalized by the same integral, the spectrum gives
+their total cross section of the BEB model, `(ln t/2)(1 − 1/t²) + 1 − 1/t − ln t/(t + 1)` at
+`Q = 1`, which the tests check.
+"""
+function beb_mean_secondary_energy(E, B, cut)
+    t = E / B
+    t > 1 || return zero(float(t))
+    top = min((t - 1) / 2, cut / B)
+    top > 0 || return zero(top)
+    # near the threshold the spectrum is flat over 0 ≤ w ≤ top
+    top < 1e-6 && return B * top / 2
+    s = t - top
+    F1, F2, F3 = -1 / (t + 1), one(t), log(t)
+    # the integrals of [f_n(w) + f_n(t − w)] and of w [f_n(w) + f_n(t − w)] from 0 to top
+    count = F1 * (log1p(top) + log(t / s)) + F2 * ((1 - 1 / (1 + top)) + (1 / s - 1 / t)) +
+            F3 * ((1 - 1 / (1 + top)^2) / 2 + (1 / s^2 - 1 / t^2) / 2)
+    moment = F1 * ((top - log1p(top)) + (t * log(t / s) - top)) +
+             F2 * ((log1p(top) + 1 / (1 + top) - 1) + (t / s - 1 + log(s / t))) +
+             F3 * ((1 / (2 * (1 + top)^2) - 1 / (1 + top) + 1 / 2) + (t / (2 * s^2) - 1 / s + 1 / (2t)))
+    return B * moment / count
+end
+
+# the mean secondary energy [eV] of the spectrum `spectrum`: :opal, Opal et al. with the width
+# `width` (mean_secondary_energy), or :beb, Kim and Rudd with the binding energy I
+secondary_spectrum_mean(spectrum::Symbol, width, E, I, cut) =
+    spectrum === :beb ? beb_mean_secondary_energy(E, I, cut) : mean_secondary_energy(width, E, I, cut)
+
+const SECONDARY_SPECTRA = (:opal, :beb)
+

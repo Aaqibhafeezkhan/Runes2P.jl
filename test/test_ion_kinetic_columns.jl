@@ -9,7 +9,8 @@ using SparseArrays: sparse, nnz
 
 const KINETIC_COMPOSITION = IonComposition(["D" => 1, "Ar" => 18])
 
-function _kinetic_ion_case(; lagged=(), temperatures=[5.0, 3.0])
+function _kinetic_ion_case(; lagged=(), temperatures=[5.0, 3.0],
+                           settings=CollisionSettings(; mode=:full, screening=:partial))
     hot = cylindrical_grid(MomentumGrid(uniform_p_faces(24, 0.0, 0.05), uniform_xi_faces(3)),
                            RadialGrid(uniform_r_faces(2, 0.5)))
     argon = zeros(19, 2)
@@ -25,7 +26,7 @@ function _kinetic_ion_case(; lagged=(), temperatures=[5.0, 3.0])
                                              KineticUnknown(:f, hot; scale=1e19)])
     source = PlasmaFromUnknowns(prescribed; ions=:ion_densities)
     fp = FokkerPlanckTerm(:f, AdvectionDiffusion(hot; p_upper_boundary=:f_zero); plasma=source,
-                          settings=CollisionSettings(; mode=:full, screening=:partial), lagged)
+                          settings, lagged)
     u = zeros(length(layout))
     set_ion_densities!(u, layout, ions)
     radial_values(u, layout, 2) .= [free_electron_density(ions, ir) for ir in 1:2]
@@ -84,6 +85,66 @@ _hold(name, value) = Equation(name, Algebraic(), PrescribedValueTerm(value), Lin
         @test u[empty] == 0 && any(!iszero, J[f_rows, empty])
     end
 
+    @testset "Fokker-Planck columns with the friction tied to the ionization (option (d) of #177)" begin
+        # the columns of the charge states and of the temperature, through the envelope of the
+        # threshold at 5 thermal momenta (about 125 and 75 eV here, inside the grid) and the
+        # floor of the excitation part, against central differences
+        settings = CollisionSettings(; mode=:full, screening=:partial, bound_friction=:ionization_split,
+                                     ionization_threshold=5.0)
+        layout, fp, u = _kinetic_ion_case(; settings)
+        grid = kinetic_grid(layout, 4)
+        region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor=5))
+        equations = [Equation(:ion_densities, TimeDerivative(), KineticIonizationTerm(KINETIC_COMPOSITION, :f, grid; region)),
+                     population_equations(KINETIC_COMPOSITION)..., _hold(:cold_electron_temperature, [5.0, 3.0]),
+                     Equation(:f, TimeDerivative(), fp)]
+        system = EquationSystem(layout, equations; initial_state=u)
+        J = jacobian_prototype(system)
+        du = zeros(length(u))
+        rhs!(du, u, system, 0.0)
+        jacobian!(J, system, u, 0.0)
+        f_rows = [i for ir in 1:2 for i in unknown_range(layout, 4, ir)]
+        size_of_rhs = maximum(abs, du[f_rows])
+        rhs_f(x) = (out = zeros(length(x)); rhs!(out, x, system, 0.0); out[f_rows])
+        for ir in 1:2, (k, column) in enumerate(plasma_columns(fp.plasma, layout, ir))
+            h = k == 1 ? 1e-6 * u[column] : 1e-6 * 1e19
+            up, down = copy(u), copy(u)
+            up[column] += h
+            down[column] -= h
+            difference = (rhs_f(up) - rhs_f(down)) / 2h
+            @test maximum(abs, Vector(J[f_rows, column]) - difference) <=
+                  1e-5 * maximum(abs, difference) + 1e-12 * size_of_rhs / h
+        end
+        # the split changes the operator above the threshold alone, where the Maxwellian at 5 eV
+        # is about e⁻²⁵ of its bulk: the cells whose faces lie below the step of the faces are as
+        # with the Bethe friction, the others change
+        _, bethe, _ = _kinetic_ion_case()
+        bethe_system = EquationSystem(layout, [equations[1:end-1]; Equation(:f, TimeDerivative(), bethe)]; initial_state=u)
+        du_bethe = zeros(length(u))
+        rhs!(du_bethe, u, bethe_system, 0.0)
+        for ir in 1:2
+            m = momentum_grid(grid, ir)
+            p0 = 5 * sqrt(2 * [5.0, 3.0][ir] / Constants.ELECTRON_REST_ENERGY)
+            below = [i for i in 1:length(m.p_centers) if m.p_faces[i+1] < 0.9p0]
+            @test !isempty(below) && length(below) < length(m.p_centers)
+            cells(i) = [Runes2P._kinetic_index(layout, 4, ir, i, j) for j in 1:3]
+            @test all(du[cells(i)] == du_bethe[cells(i)] for i in below)
+            @test any(du[cells(i)] != du_bethe[cells(i)] for i in setdiff(1:length(m.p_centers), below))
+        end
+    end
+
+    @testset "the default lags the ion densities" begin
+        layout, fp, _ = _kinetic_ion_case()
+        default = FokkerPlanckTerm(:f, fp.operator; plasma=fp.plasma, settings=fp.settings)
+        @test default.lagged == (:ion_densities,) && Runes2P._lags_ions(default)
+        @test fp.lagged == ()      # the case asks for the implicit charge states
+        # a plasma without ion unknowns, and lagged coefficients, lag no group by name
+        prescribed = PrescribedFokkerPlanckTerm(:f, fp.operator, Runes2P.plasma_values(fp.plasma.prescribed, nothing, nothing, 0.0);
+                                                settings=fp.settings)
+        @test prescribed.lagged == ()
+        @test FokkerPlanckTerm(:f, fp.operator; plasma=fp.plasma, settings=fp.settings, coefficients=:lagged).lagged == ()
+        @test_throws ArgumentError FokkerPlanckTerm(:f, fp.operator; plasma=fp.plasma, settings=fp.settings, lagged=:other)
+    end
+
     @testset "lagged ion group" begin
         layout, fp, u = _kinetic_ion_case(; lagged=(:ion_densities,))
         equations = [Equation(:ion_densities, TimeDerivative()), population_equations(KINETIC_COMPOSITION)...,
@@ -115,6 +176,19 @@ _hold(name, value) = Equation(name, Algebraic(), PrescribedValueTerm(value), Lin
         Runes2P.prepare_step!(fp, changed, layout, 4, 0.0)
         @test term_rhs(changed) != before
         @test Runes2P.describe(fp, Runes2P.DescriptionContext())["lagged"] == ["ion_densities"]
+        # the energy loss of the term takes the same ions of the start of the step: no change
+        # with the ions of the iterate, and zero columns of the charge states
+        loss = KineticEnergyLossTerm(fp; part=:sinks)
+        Runes2P.prepare_step!(fp, u, layout, 4, 0.0)
+        loss_rhs(x) = Runes2P.rhs!(zeros(length(x)), loss, x, layout, 3, 0.0)
+        @test loss_rhs(changed) == loss_rhs(u)
+        @test loss_rhs(warmer) != loss_rhs(u)
+        loss_entries = Runes2P.sparsity!(Tuple{Int,Int}[], loss, layout, 3)
+        n = length(u)
+        JL = sparse(first.(loss_entries), last.(loss_entries), zeros(length(loss_entries)), n, n)
+        Runes2P.add_jacobian!(JL, loss, u, layout, 3, 0.0)
+        @test all(iszero, JL[:, ion_columns])
+        @test any(!iszero, JL[:, [first(unknown_range(layout, 3, ir)) for ir in 1:2]])
     end
 
     @testset "energy loss columns of the charge states" begin
