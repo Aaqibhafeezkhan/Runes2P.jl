@@ -34,7 +34,7 @@ using HDF5
                                         RadialUnknown(:cold_electron_temperature; scale=10.0, nonnegative=true),
                                         RadialUnknown(:cold_electron_density; scale=1e20),
                                         RadialUnknown(:cold_thermal_energy; scale=THERMAL_ENERGY_FACTOR * 1e21)])
-        radiation = RadiatedPowerTerm(base; radiation=:dream)
+        radiation = RadiatedPowerTerm(base; radiation=:dream, bremsstrahlung_corrections=:dream)
         transport = HeatTransportTerm(; diffusion=data["diffusivity"])
         equations = [
             Equation(:electric_field, Algebraic(), PrescribedValueTerm(fill(data["field"], nr)), minus(:electric_field)),

@@ -13,6 +13,15 @@ const VACUUM_PERMITTIVITY = 8.85418782e-12      # [F/m]
 const VACUUM_PERMEABILITY = 1.25663706e-6       # [H/m]
 const FINE_STRUCTURE_CONSTANT = 0.0072973525693
 """
+    PROTON_MASS
+
+The proton mass [kg], 1.67262192369e-27, of CODATA 2018 (E. Tiesinga et al., Rev. Mod. Phys.
+93, 025010 (2021), doi:10.1103/RevModPhys.93.025010), DREAM's `Constants::mH`
+(`src/Constants.cpp`): the unit of the ion masses of the NRL Plasma Formulary.
+"""
+const PROTON_MASS = 1.67262192369e-27
+
+"""
     BOHR_RADIUS
 
 The Bohr radius [m], 5.29177210903e-11, of CODATA 2018 (E. Tiesinga et al., Rev. Mod. Phys.

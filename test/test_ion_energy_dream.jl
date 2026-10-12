@@ -32,7 +32,7 @@ using HDF5
                                         RadialUnknown(:cold_electron_temperature; scale=10.0, nonnegative=true),
                                         RadialUnknown(:cold_electron_density; scale=1e20),
                                         RadialUnknown(:cold_thermal_energy; scale=THERMAL_ENERGY_FACTOR * 1e21)])
-        radiation = RadiatedPowerTerm(base; radiation=:dream, ions=:ion_densities)
+        radiation = RadiatedPowerTerm(base; radiation=:dream, bremsstrahlung_corrections=:dream, ions=:ion_densities)
         conductivity = ConductivityTerm(:electric_field, ConductivityModel(PlasmaFromUnknowns(base; ions=:ion_densities)))
         equations = [
             Equation(:ion_densities, TimeDerivative(), IonRateTerm(composition)),

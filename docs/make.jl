@@ -174,6 +174,25 @@ end
 rm(API; recursive = true, force = true)
 const API_PAGES = [write_category(category) for category in CATEGORIES]
 
+# The feature parity tracker against DREAM is kept outside docs/src and is copied to a
+# gitignored page at every build. Its links into the repository become links to the file
+# on GitHub, since the strict build refuses a local link outside docs/src.
+const PARITY_SOURCE = joinpath(dirname(@__DIR__), "research", "dream-parity.md")
+const PARITY_PAGE = joinpath(@__DIR__, "src", "dream-parity.md")
+const REPOSITORY = "https://github.com/osrep/Runes2P.jl/blob/main/"
+
+function repository_link(link)
+    target = match(r"\]\(([^)\s]+)\)", link)[1]
+    return "](" * REPOSITORY * replace(normpath(joinpath("research", target)), '\\' => '/') * ")"
+end
+
+let text = read(PARITY_SOURCE, String)
+    text = replace(text, r"\]\((?!https?://|#|mailto:)[^)\s]+\)" => repository_link)
+    note = "\n\nThis page is generated from `research/dream-parity.md` of the repository at every build of the docs.\n"
+    title_end = findfirst('\n', text)
+    write_page(PARITY_PAGE, text[1:title_end - 1] * note * text[title_end:end])
+end
+
 # every source file with docstrings is on a page (the module docstring of Runes2P.jl is on
 # the home page)
 let listed = reduce(vcat, [source_files(category.directory) for category in CATEGORIES]; init = ["settings.jl", "deprecations.jl", "Runes2P.jl"])
@@ -186,7 +205,7 @@ makedocs(;
     sitename = "Runes2P",
     modules = [Runes2P, Runes2P.Constants, EXTENSIONS...],
     format = Documenter.HTML(; prettyurls = false, size_threshold = 200 * 2^10),
-    pages = ["Home" => "index.md", "API" => [API_PAGES..., "Extensions" => "extensions.md"]],
+    pages = ["Home" => "index.md", "DREAM parity" => "dream-parity.md", "API" => [API_PAGES..., "Extensions" => "extensions.md"]],
     checkdocs = :exports,
     warnonly = false,
 )

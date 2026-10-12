@@ -24,7 +24,11 @@ The prefactor of the bremsstrahlung power of a Maxwellian plasma in the mode `:d
 the NRL Plasma Formulary: R. J. Gould, "Thermal bremsstrahlung from high-temperature
 plasmas", Astrophys. J. 238, 1026 (1980), ADS 1980ApJ...238.1026G (erratum Astrophys. J. 243,
 677 (1981)), as DREAM's `src/Equations/Fluid/RadiatedPowerTerm.cpp` (lines 47-52 and 174-189,
-the 1.69e-38 named at line 179).
+the 1.69e-38 named at line 179). Gould's expansion holds for 10⁷ to 10⁹ K, about 1 to 100 keV.
+Neither Runes2P nor DREAM has its first-order Born correction, `(ln 2 − 1/2) π (Σ Z³ n/Σ Z² n)
+(π Ry/kT)^{1/2}` (eq. (41) with the erratum's π), which at 10 eV is 1.25 times the leading
+term for charge 1: at the temperatures of a disruption the formula is outside its range, where
+the line radiation of the impurities dominates the losses.
 """
 const GOULD_BREMSSTRAHLUNG_PREFACTOR =
     (32 / 3) * Constants.FINE_STRUCTURE_CONSTANT * Constants.CLASSICAL_ELECTRON_RADIUS^2 * Constants.SPEED_OF_LIGHT *
@@ -32,29 +36,59 @@ const GOULD_BREMSSTRAHLUNG_PREFACTOR =
 """
     GOULD_ION_CORRECTION
 
-The first-order relativistic correction `19/24` of the electron-ion bremsstrahlung of a
+The first-order relativistic correction `11/24` of the electron-ion bremsstrahlung of a
 Maxwellian plasma, the coefficient of `T/mₑc²` in the power of
-[`GOULD_BREMSSTRAHLUNG_PREFACTOR`](@ref) (Gould 1980, cited there), as DREAM's
-`src/Equations/Fluid/RadiatedPowerTerm.cpp:51` ("relativistic-maxwellian correction").
-Checked against DREAM only.
+[`GOULD_BREMSSTRAHLUNG_PREFACTOR`](@ref): R. J. Gould, Astrophys. J. 238, 1026 (1980),
+eqs. (18) and (41), as corrected in the erratum, Astrophys. J. 243, 677 (1981) ("In equations
+(18) and (41), 19/24 should be replaced by 11/24", found by E. Haug). It is the slope in `T`
+of the Jüttner average of the cross section 4BN of H. W. Koch and J. W. Motz, Rev. Mod.
+Phys. 31, 920 (1959), [`bremsstrahlung_cross_section`](@ref), which gives 11/24 to 1e-5
+(`test_independent_references.jl`). DREAM's
+`src/Equations/Fluid/RadiatedPowerTerm.cpp:51` keeps the 19/24 of the paper
+([`DREAM_GOULD_ION_CORRECTION`](@ref)).
 """
-const GOULD_ION_CORRECTION = 19 / 24
+const GOULD_ION_CORRECTION = 11 / 24
+
+"""
+    DREAM_GOULD_ION_CORRECTION
+
+DREAM's relativistic correction of the electron-ion bremsstrahlung, the `19/24` of Gould 1980
+before its erratum (`src/Equations/Fluid/RadiatedPowerTerm.cpp:51`, "relativistic-maxwellian
+correction"); [`GOULD_ION_CORRECTION`](@ref) holds the corrected value.
+"""
+const DREAM_GOULD_ION_CORRECTION = 19 / 24
 
 """
     GOULD_ELECTRON_CORRECTION
 
 The electron-electron bremsstrahlung of a Maxwellian plasma relative to the electron-ion
-one of charge 1, `5(44 − 3π²)/(8√2)` times `T/mₑc²` (Gould 1980, cited at
-[`GOULD_BREMSSTRAHLUNG_PREFACTOR`](@ref)), as DREAM's
-`src/Equations/Fluid/RadiatedPowerTerm.cpp:52` ("e-e brems correction"). Checked against
-DREAM only.
+one of charge 1, `5(44 − 3π²)/(24√2) ≈ 2.12` times `T/mₑc²`: the ratio of eqs. (22) and (18)
+of R. J. Gould, Astrophys. J. 238, 1026 (1980), the Born approximation of the
+electron-electron and the electron-ion power, `(20/9)(44 − 3π²) π^{-1/2} α³Λ² m^{-1/2} n_e²
+(kT)^{3/2}` over `(32/3)(2/π)^{1/2} α³Λ² m c³ n_e Σ Z² n_Z τ^{1/2}`; also eq. (58) of H. Xie,
+"Bremsstrahlung radiation power in fusion plasmas revisited", arXiv:2404.11540 (2024).
+Gould's summary, eq. (41), which says it combines eqs. (18) and (22), prints `5(44 −
+3π²)/(8√2) ≈ 6.36`, three times larger, and the erratum (Astrophys. J. 243, 677 (1981)) does
+not correct it; DREAM takes that value ([`DREAM_GOULD_ELECTRON_CORRECTION`](@ref)). The
+factor rests on the consistency of the paper's own equations and on Xie, not on an erratum.
 """
-const GOULD_ELECTRON_CORRECTION = 5 / (8 * sqrt(2)) * (44 - 3 * π^2)
+const GOULD_ELECTRON_CORRECTION = 5 / (24 * sqrt(2)) * (44 - 3 * π^2)
+
+"""
+    DREAM_GOULD_ELECTRON_CORRECTION
+
+DREAM's electron-electron bremsstrahlung relative to the electron-ion one, `5(44 −
+3π²)/(8√2) ≈ 6.36` times `T/mₑc²`, eq. (41) of Gould 1980 as printed
+(`src/Equations/Fluid/RadiatedPowerTerm.cpp:52`, "e-e brems correction");
+[`GOULD_ELECTRON_CORRECTION`](@ref) holds the value of eqs. (18) and (22).
+"""
+const DREAM_GOULD_ELECTRON_CORRECTION = 5 / (8 * sqrt(2)) * (44 - 3 * π^2)
 
 """
     RadiatedPowerTerm(plasma; radiation=:recombination, temperature=:cold_electron_temperature,
                       density=:cold_electron_density, ions=nothing, kinetic=nothing,
-                      extrapolation=:dream, directory=adas_cache_directory(), initial_time=0.0)
+                      extrapolation=:dream, bremsstrahlung_corrections=:gould,
+                      directory=adas_cache_directory(), initial_time=0.0)
 
 The power that the cold electrons lose to the ions, `−P` [W/m³] in the row of their
 temperature (which holds the time derivative of their energy), at every radius:
@@ -81,11 +115,15 @@ coefficient of [`fluid_ionization_coefficient`](@ref).
   `−I(Z_0 − 1) ACD`, with the ionization energies `I` of NIST ([`ionization_energy`](@ref)).
   DREAM's mode with recombination takes `I(Z_0)` in the gain from its second radial cell on.
 - `radiation = :dream`: DREAM's default, `L = PLT`, the ionization loss alone, and the
-  bremsstrahlung of Gould with a relativistic correction, `C √T (Σ n Z_0² + (19/24 Σ n Z_0²
-  + κ n_e) T/mₑc²) n_e`, `C = 1.69e-38 W m³ eV^{-1/2}`, `κ = 5(44 − 3π²)/(8√2)`
-  ([`GOULD_BREMSSTRAHLUNG_PREFACTOR`](@ref), [`GOULD_ION_CORRECTION`](@ref),
-  [`GOULD_ELECTRON_CORRECTION`](@ref)). The ion sum is that of the charge states the term
-  reads, `n_e` the unknown.
+  bremsstrahlung of Gould with a relativistic correction, `C √T (Σ n Z_0² + (a Σ n Z_0²
+  + κ n_e) T/mₑc²) n_e`, `C = 1.69e-38 W m³ eV^{-1/2}`
+  ([`GOULD_BREMSSTRAHLUNG_PREFACTOR`](@ref)). With `bremsstrahlung_corrections = :gould`
+  (default) `a = 11/24` and `κ = 5(44 − 3π²)/(24√2)`, Gould's values after his erratum and by
+  his own eqs. (18) and (22) ([`GOULD_ION_CORRECTION`](@ref),
+  [`GOULD_ELECTRON_CORRECTION`](@ref)); with `:dream` DREAM's `19/24` and `5(44 − 3π²)/(8√2)`.
+  DREAM's radiation therefore needs both `radiation = :dream` and
+  `bremsstrahlung_corrections = :dream`; the second has no effect with `:recombination`. The
+  ion sum is that of the charge states the term reads, `n_e` the unknown.
 
 The coefficients are those of ADAS (H. P. Summers, The ADAS User Manual, version 2.6 (2004), http://www.adas.ac.uk, with the data of OpenADAS, https://open.adas.ac.uk), DREAM's
 `src/Equations/Fluid/RadiatedPowerTerm.cpp`. `extrapolation` goes to
@@ -99,6 +137,7 @@ struct RadiatedPowerTerm{S<:PrescribedPlasma,K<:Union{Nothing,KineticIonizationT
     density::Symbol
     radiation::Symbol
     extrapolation::Symbol
+    bremsstrahlung_corrections::Symbol
     tables::Dict{String,NamedTuple}
     ions::Union{Nothing,Symbol}
     kinetic::K                    # nothing, or the KineticIonizationTerm of the split of the ionization
@@ -106,12 +145,14 @@ end
 
 function RadiatedPowerTerm(plasma; radiation::Symbol=:recombination, temperature::Symbol=:cold_electron_temperature,
                            density::Symbol=:cold_electron_density, ions::Union{Nothing,Symbol}=nothing,
-                           kinetic=nothing, extrapolation::Symbol=:dream,
+                           kinetic=nothing, extrapolation::Symbol=:dream, bremsstrahlung_corrections::Symbol=:gould,
                            directory::AbstractString=adas_cache_directory(), initial_time::Real=0.0)
     radiation in (:recombination, :dream) ||
         throw(ArgumentError("radiation must be :recombination or :dream, not $radiation"))
     extrapolation in (:dream, :clamp_density) ||
         throw(ArgumentError("extrapolation must be :dream or :clamp_density, not $extrapolation"))
+    bremsstrahlung_corrections in (:gould, :dream) ||
+        throw(ArgumentError("bremsstrahlung_corrections must be :gould or :dream, not $bremsstrahlung_corrections"))
     plasma isa PlasmaSource && !(plasma isa PrescribedPlasma) &&
         throw(ArgumentError("RadiatedPowerTerm takes a prescribed plasma and reads the temperature, the density " *
                             "and the ion densities from unknowns of its own: give it the prescribed part and " *
@@ -134,7 +175,8 @@ function RadiatedPowerTerm(plasma; radiation::Symbol=:recombination, temperature
     kinetic === nothing || kinetic isa KineticIonizationTerm ||
         throw(ArgumentError("kinetic must be a KineticIonizationTerm or nothing"))
     kinetic === nothing || _check_split_threshold(kinetic, "a RadiatedPowerTerm")
-    return RadiatedPowerTerm(source, temperature, density, radiation, extrapolation, tables, ions, kinetic)
+    return RadiatedPowerTerm(source, temperature, density, radiation, extrapolation, bremsstrahlung_corrections, tables,
+                             ions, kinetic)
 end
 
 dependencies(term::RadiatedPowerTerm) =
@@ -188,8 +230,9 @@ function _radiated_power(term::RadiatedPowerTerm, plasma::PlasmaState, n_e, T, i
     end
     if !recombination && T > 0
         theta = T / Constants.ELECTRON_REST_ENERGY
-        radiation += GOULD_BREMSSTRAHLUNG_PREFACTOR * sqrt(T) *
-                     (ion_sum + (GOULD_ION_CORRECTION * ion_sum + GOULD_ELECTRON_CORRECTION * n_e) * theta)
+        a, κ = term.bremsstrahlung_corrections === :gould ? (GOULD_ION_CORRECTION, GOULD_ELECTRON_CORRECTION) :
+               (DREAM_GOULD_ION_CORRECTION, DREAM_GOULD_ELECTRON_CORRECTION)
+        radiation += GOULD_BREMSSTRAHLUNG_PREFACTOR * sqrt(T) * (ion_sum + (a * ion_sum + κ * n_e) * theta)
     end
     return (radiation=n_e * radiation, binding=n_e * binding)
 end

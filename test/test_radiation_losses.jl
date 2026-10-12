@@ -48,7 +48,8 @@ using QuadGK: quadgk
         # temperature of the bulk loses the bremsstrahlung power of the electrons on the
         # nuclei, whose nonrelativistic Born limit (φ → 16/3) averaged over the Maxwellian is
         # the formula of R. J. Gould, Astrophys. J. 238, 1026 (1980), with its relativistic
-        # correction 19/24 T/mₑc² (GOULD_BREMSSTRAHLUNG_PREFACTOR, GOULD_ION_CORRECTION). The
+        # correction 11/24 T/mₑc² (GOULD_BREMSSTRAHLUNG_PREFACTOR, GOULD_ION_CORRECTION; at this
+        # tolerance 19/24 would pass as well, test_independent_references.jl tells them apart). The
         # collisions with the free electrons conserve the energy of a Maxwellian at their
         # temperature, up to the discretization, so the loss is measured against the same
         # operator without bremsstrahlung (the e-e part alone changes the energy of this

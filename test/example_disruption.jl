@@ -54,6 +54,11 @@ function build(start; scheme::Symbol=:tcdf, compat::Symbol=:dream, diffusivity::
                                                                          temperature_floor=0.01); kinetic=:dream_fit))
     kinetic = KineticIonizationTerm(COMPOSITION, :f, grid; region)
     fluid_ions = (ions=:ion_densities,)
+    # the exchange among the ions: DREAM's logarithm with T_e and DREAM's masses for compat =
+    # dream, the NRL logarithm and the standard atomic weights for runes2p
+    exchange = compat === :dream ? (ion_coulomb_logarithm=:dream, mass_table=:dream) : NamedTuple()
+    # Gould's relativistic corrections of the bremsstrahlung: DREAM's for compat = dream
+    gould = compat === :dream ? (bremsstrahlung_corrections=:dream,) : NamedTuple()
     split = compat === :dream ? NamedTuple() : (kinetic=kinetic,)
     external = ExternalAvalancheTerm(prescribed; p_cutoff=p_max, settings, fluid_ions...)
     internal = rosenbluth_putvinski_rate(P_CUT, p_max)
@@ -99,11 +104,11 @@ function build(start; scheme::Symbol=:tcdf, compat::Symbol=:dream, diffusivity::
                  minus(:total_current_density)),
         thermal_energy_equation(),
         Equation(:cold_electron_temperature, TimeDerivative(:cold_thermal_energy), ohmic_heating_term(),
-                 RadiatedPowerTerm(prescribed; radiation=:dream, fluid_ions..., split...),
+                 RadiatedPowerTerm(prescribed; radiation=:dream, fluid_ions..., split..., gould...),
                  HeatTransportTerm(; diffusion=diffusivity),
                  RunawayFluidEnergyTransferTerm(prescribed; fluid_ions...),
-                 IonEnergyExchangeTerm(prescribed; side=:electrons, fluid_ions...)),
-        Equation(:ion_thermal_energy, TimeDerivative(), IonEnergyExchangeTerm(prescribed; side=:ions, fluid_ions...))])
+                 IonEnergyExchangeTerm(prescribed; side=:electrons, fluid_ions..., exchange...)),
+        Equation(:ion_thermal_energy, TimeDerivative(), IonEnergyExchangeTerm(prescribed; side=:ions, fluid_ions..., exchange...))])
     return (; layout, equations, grid, radial, nr)
 end
 

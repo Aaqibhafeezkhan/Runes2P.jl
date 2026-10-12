@@ -50,36 +50,75 @@ const ATOMIC_MASS_UNIT = 1.660539067e-27
 """
     ATOMIC_MASSES
 
-The standard atomic weights of the elements Z = 1 to 40 [u], DREAM's `atomicMassInMu`
-(`src/IonHandler.cpp`, the table above its constructor), the IUPAC standard atomic weights
-(CIAAW, https://www.ciaaw.org), which DREAM does not name.
+The standard atomic weights [u] of the elements Z = 1 to 92, `NaN` for the elements without
+one (technetium, promethium, polonium to actinium).
+
+- Z = 1 to 40: DREAM's `atomicMassInMu` (`src/IonHandler.cpp:35-46`), the IUPAC standard
+  atomic weights, which DREAM does not name; they agree with those of CIAAW 2024 to 2.2e-5
+  (zirconium) or better.
+- Z = 41 to 92: the standard atomic weights of the Commission on Isotopic Abundances and
+  Atomic Weights of IUPAC (CIAAW, https://www.ciaaw.org/atomic-weights.htm, read
+  2026-10-12), and for thallium and lead, which have an interval, its conventional values
+  204.38 and 207.2.
 """
 const ATOMIC_MASSES = [1.008, 4.0026, 6.94, 9.0122, 10.81, 12.011, 14.007, 15.999, 18.998, 20.180,
                        22.990, 24.305, 26.982, 28.085, 30.974, 32.06, 35.45, 39.95, 39.098, 40.078,
                        44.956, 47.867, 50.942, 51.996, 54.938, 55.845, 58.933, 58.693, 63.546, 65.38,
-                       69.723, 72.63, 74.922, 78.971, 79.904, 83.798, 85.468, 87.62, 88.906, 91.224]
+                       69.723, 72.63, 74.922, 78.971, 79.904, 83.798, 85.468, 87.62, 88.906, 91.224,
+                       92.90637, 95.95, NaN, 101.07, 102.90549, 106.42, 107.8682, 112.414, 114.818, 118.710,
+                       121.760, 127.60, 126.90447, 131.293, 132.90545196, 137.327, 138.90547, 140.116,
+                       140.90766, 144.242, NaN, 150.36, 151.964, 157.249, 158.925354, 162.500, 164.930329,
+                       167.259, 168.934219, 173.045, 174.96669, 178.486, 180.94788, 183.84, 186.207, 190.23,
+                       192.217, 195.084, 196.966570, 200.592, 204.38, 207.2, 208.98040, NaN, NaN, NaN, NaN,
+                       NaN, NaN, 232.0377, 231.03588, 238.02891]
+
 """
     HYDROGEN_ISOTOPE_MASSES
 
-The masses [kg] of the hydrogen isotopes, DREAM's `mH`, `mD` and `mT` (`src/Constants.cpp`):
-the proton and the deuteron mass of CODATA 2018, and for tritium the atomic mass of ³H
-(3.01604928 u), which exceeds the triton mass of CODATA 2018 (5.0073567446e-27 kg) by about
-one electron mass.
+The masses [kg] of the nuclei of the hydrogen isotopes, CODATA 2018 (E. Tiesinga, P. J. Mohr,
+D. B. Newell, B. N. Taylor, Rev. Mod. Phys. 93, 025010 (2021),
+doi:10.1103/RevModPhys.93.025010): the proton, the deuteron and the triton. DREAM's `mH`
+and `mD` (`src/Constants.cpp`) are the first two; its `mT` is the atomic mass of ³H
+(3.01604928 u, 5.00826765e-27 kg), which exceeds the triton by one electron mass
+([`DREAM_HYDROGEN_ISOTOPE_MASSES`](@ref)).
 """
-const HYDROGEN_ISOTOPE_MASSES = Dict("H" => 1.67262192369e-27, "D" => 3.3435837724e-27, "T" => 5.00826765e-27)
+const HYDROGEN_ISOTOPE_MASSES = Dict("H" => 1.67262192369e-27, "D" => 3.3435837724e-27, "T" => 5.0073567446e-27)
 
 """
-    ion_mass(species)
+    DREAM_HYDROGEN_ISOTOPE_MASSES
 
-The mass [kg] of an ion species as DREAM takes it (`src/IonHandler.cpp:163-169`): for
-nuclear charge 1 the mass of hydrogen, deuterium (the default, as in DREAM) or tritium by
-the name `"H"`, `"D"` or `"T"` ([`HYDROGEN_ISOTOPE_MASSES`](@ref)); the standard atomic mass
-for Z ≤ 40 ([`ATOMIC_MASSES`](@ref)); and `2.3 Z` atomic mass units beyond, which DREAM uses
-for heavier species (tungsten: 170 u against 183.84 u). A species of charge 1 with another
-name takes the mass of deuterium.
+DREAM's masses [kg] of the hydrogen isotopes, `mH`, `mD` and `mT` of `src/Constants.cpp`:
+the proton and the deuteron of CODATA 2018 and the atomic mass of ³H (3.01604928 u).
 """
-function ion_mass(species::IonSpecies)
+const DREAM_HYDROGEN_ISOTOPE_MASSES = Dict("H" => 1.67262192369e-27, "D" => 3.3435837724e-27, "T" => 5.00826765e-27)
+
+"""
+    ion_mass(species; table=:standard)
+
+The mass [kg] of an ion species. For nuclear charge 1 it is the mass of hydrogen, deuterium
+(the default, as in DREAM) or tritium by the name `"H"`, `"D"` or `"T"`; a species of charge
+1 with another name takes the mass of deuterium.
+
+- `table = :standard`: the nuclei of [`HYDROGEN_ISOTOPE_MASSES`](@ref) and the standard
+  atomic weight of [`ATOMIC_MASSES`](@ref) for the other elements, up to uranium. An element
+  without a standard atomic weight needs its mass given (`masses` of
+  [`IonEnergyExchangeTerm`](@ref)). The weight is that of the neutral atom: an ion lacks up
+  to Z electron masses, which this neglects, at most 2.7e-4 of its mass for the elements
+  beyond hydrogen.
+- `table = :dream`: DREAM's rule (`src/IonHandler.cpp:153-170`), the masses of
+  [`DREAM_HYDROGEN_ISOTOPE_MASSES`](@ref), the standard atomic weights up to Z = 40, and
+  `2.3 Z` atomic mass units beyond, which puts tungsten at 170 u against 183.84 u and xenon
+  at 124 u against 131.3 u.
+"""
+function ion_mass(species::IonSpecies; table::Symbol=:standard)
+    table in (:standard, :dream) || throw(ArgumentError("table must be :standard or :dream, not $table"))
     Z = species.nuclear_charge
-    Z == 1 && return get(HYDROGEN_ISOTOPE_MASSES, atomic_element(species.name), HYDROGEN_ISOTOPE_MASSES["D"])
-    return (Z <= length(ATOMIC_MASSES) ? ATOMIC_MASSES[Z] : 2.3 * Z) * ATOMIC_MASS_UNIT
+    if Z == 1
+        isotopes = table === :standard ? HYDROGEN_ISOTOPE_MASSES : DREAM_HYDROGEN_ISOTOPE_MASSES
+        return get(isotopes, atomic_element(species.name), isotopes["D"])
+    end
+    table === :dream && Z > 40 && return 2.3 * Z * ATOMIC_MASS_UNIT
+    Z <= length(ATOMIC_MASSES) && !isnan(ATOMIC_MASSES[Z]) ||
+        throw(ArgumentError("$(species.name) (Z = $Z) has no standard atomic weight: give its mass"))
+    return ATOMIC_MASSES[Z] * ATOMIC_MASS_UNIT
 end

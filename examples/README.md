@@ -51,5 +51,6 @@ The switches, shared through `common.jl` (a script's own defaults are in its hea
 | `log=`, `request_file=` | `stdout` or a file name; file name | progress log of the run (`relaxation.jl`, `cooling.jl`), appended to a file; the file whose appearance asks for an entry |
 
 Parameter values come from DREAM's examples or, for the cooling plasma, a generic test case; each script names its source.
-The default scheme, exponential fitting, keeps f non-negative at every resolution and is first order where a smooth tail is driven by the field, so field-driven quantities (the runaway fraction of `relaxation.jl` at large `e_over_ec`, the loss through `p_max` in `cooling.jl`) need a check against a finer `np=` (see the README of the repository, "DREAM compatibility and departures").
+The default scheme, exponential fitting, keeps f non-negative at every resolution and is first order where a smooth tail is driven by the field.
+So field-driven quantities need a check against a finer `np=`: the runaway fraction of `relaxation.jl` at large `e_over_ec`, and the loss through `p_max` in `cooling.jl`.
 The limiters converge faster there and cost about twice per step.

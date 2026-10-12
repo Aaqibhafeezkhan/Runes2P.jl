@@ -262,14 +262,19 @@ const IONIZATION_CROSS_SECTION_FORMS = (:dream, :bethe)
 The width `Ē` [eV] of the energy spectrum of the secondary electrons of electron-impact
 ionization, `dσ/dE_s ∝ 1/(1 + (E_s/Ē)²)`, per element, from Table II of C. B. Opal, W. K.
 Peterson and E. C. Beaty, J. Chem. Phys. 55, 4100 (1971), doi:10.1063/1.1676707, measured on
-neutral gases with primaries of 500 eV:
+neutral gases with primaries of 500 eV. Their fit, eq. (2), has the exponent 2.1; the
+exponent 2 used here is the one they allow for the integral of the spectrum (p. 4105). With
+it the mean over every secondary grows as ln E (argon at 1 MeV: 68.9 eV, against 44.3 eV
+with 2.1). The widths:
 helium 15.8, neon 24.2, argon 10.0, krypton 9.6 and xenon 8.7 eV; hydrogen, deuterium and
 tritium take the 8.3 eV of H₂. The authors call their fits to argon, krypton and xenon
 poor, so that "the values of Ē are not very significant for these gases"; Ē varies by
 about 15 % over primary energies of 100 to 2000 eV (their Table I). The widths were measured
-on neutral atoms and are applied to every charge state, where Ē/I of their Table II
-suggests a width that grows with the ionization energy: at 5 keV the
-binary-encounter-Bethe spectrum gives Ar¹⁵⁺ a mean of 576 eV against 34 eV with this width.
+on neutral atoms and molecules with ionization energies of 9.5 to 24.6 eV and are applied
+to every charge state. They give no law for ions: the authors find Ē "poorly correlated with the ionization
+potential" (p. 4106), and a fit of Ē = a + b I to their Table II has R² = 0.26.
+At 5 keV the binary-encounter-Bethe spectrum gives Ar¹⁵⁺ a mean of 576 eV against
+34 eV with this width.
 The default of the heating by secondaries and of the friction of
 `bound_friction = :ionization_split` is therefore that spectrum
 ([`beb_mean_secondary_energy`](@ref), decision of the author, 2026-10-10), and these widths

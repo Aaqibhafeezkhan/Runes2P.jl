@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.31"
+const OUTPUT_FORMAT_VERSION = v"0.32"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -527,7 +527,8 @@ function describe(term::LinearTerm, context::DescriptionContext)
 end
 
 settings_fields(::Type{<:RadiatedPowerTerm}) =
-    (described=(:plasma, :temperature, :density, :radiation, :extrapolation, :ions, :kinetic), derived=(:tables,))
+    (described=(:plasma, :temperature, :density, :radiation, :extrapolation, :bremsstrahlung_corrections, :ions, :kinetic),
+     derived=(:tables,))
 
 function describe(term::RadiatedPowerTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -535,6 +536,7 @@ function describe(term::RadiatedPowerTerm, context::DescriptionContext)
     record["density"] = String(term.density)
     record["radiation"] = String(term.radiation)
     record["extrapolation"] = String(term.extrapolation)
+    record["bremsstrahlung_corrections"] = String(term.bremsstrahlung_corrections)
     term.ions === nothing || (record["ions"] = String(term.ions))
     term.kinetic === nothing || (record["kinetic_ionization"] = describe(term.kinetic, context))
     # the ADF11 files of each element, by name: the cache itself is not part of the record
@@ -744,7 +746,8 @@ function describe(term::HeatTransportTerm, context::DescriptionContext)
 end
 
 settings_fields(::Type{<:IonEnergyExchangeTerm}) =
-    (described=(:plasma, :side, :ion_energy, :temperature, :density, :ion_ion, :masses, :ions), derived=())
+    (described=(:plasma, :side, :ion_energy, :temperature, :density, :ion_ion, :ion_coulomb_logarithm, :masses, :ions),
+     derived=())
 
 function describe(term::IonEnergyExchangeTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -753,6 +756,7 @@ function describe(term::IonEnergyExchangeTerm, context::DescriptionContext)
     record["temperature"] = String(term.temperature)
     record["density"] = String(term.density)
     record["ion_ion"] = term.ion_ion
+    record["ion_coulomb_logarithm"] = String(term.ion_coulomb_logarithm)
     record["masses"] = term.masses
     term.ions === nothing || (record["ions"] = String(term.ions))
     return _describe_plasma_source!(record, term.plasma, context)

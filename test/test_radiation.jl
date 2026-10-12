@@ -29,8 +29,8 @@
     tables = read_adas("He"; directory)
 
     @testset "against the tabulated coefficients" begin
-        for radiation in (:recombination, :dream)
-            term = RadiatedPowerTerm(plasma; radiation, directory)
+        for (radiation, corrections) in ((:recombination, :gould), (:dream, :gould), (:dream, :dream))
+            term = RadiatedPowerTerm(plasma; radiation, bremsstrahlung_corrections=corrections, directory)
             parts = radiated_power(term, u, layout, 0.0)
             out = zeros(length(u))
             Runes2P.rhs!(out, term, u, layout, 1, 0.0)
@@ -49,11 +49,14 @@
                 else
                     @test parts.binding[ir] ≈ n * ionization rtol = 1e-13
                     # Gould's bremsstrahlung: 1.69e-38 √T Z² n_e n_i W/m³ (NRL formulary), and
-                    # its relativistic corrections at T/mc²
+                    # its relativistic corrections at T/mc²: 11/24 and 5(44 − 3π²)/(24√2) of Gould
+                    # after his erratum and by his eqs. (18) and (22), or DREAM's 19/24 and
+                    # 5(44 − 3π²)/(8√2)
                     ion_sum = sum(densities[Z0+1, ir] * Z0^2 for Z0 in 0:2)
                     theta = T / Constants.ELECTRON_REST_ENERGY
-                    nrl = 1.69e-38 * sqrt(T) * n * (ion_sum * (1 + 19 / 24 * theta) +
-                                                    5 / (8 * sqrt(2)) * (44 - 3π^2) * n * theta)
+                    a, κ = corrections === :gould ? (11 / 24, 5 / (24 * sqrt(2)) * (44 - 3π^2)) :
+                           (19 / 24, 5 / (8 * sqrt(2)) * (44 - 3π^2))
+                    nrl = 1.69e-38 * sqrt(T) * n * (ion_sum * (1 + a * theta) + κ * n * theta)
                     @test parts.radiation[ir] - n * line ≈ nrl rtol = 3e-3
                 end
             end
@@ -93,6 +96,8 @@
                                                                    electric_field=[0.0], magnetic_field=[0.0]); directory)
         record = describe(RadiatedPowerTerm(plasma; radiation=:dream, directory), Runes2P.DescriptionContext())
         @test record["radiation"] == "dream" && record["temperature"] == "cold_electron_temperature"
+        @test record["bremsstrahlung_corrections"] == "gould"
+        @test_throws ArgumentError RadiatedPowerTerm(plasma; bremsstrahlung_corrections=:other, directory)
         @test record["adf11_files"]["He"]["plt"] == "plt96_he.dat"
         # a term of the cold bulk for the guard of one temperature
         @test Runes2P._temperature_source(RadiatedPowerTerm(plasma; directory)) == (:unknown, :cold_electron_temperature)
