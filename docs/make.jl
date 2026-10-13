@@ -37,7 +37,7 @@ const CATEGORIES = [
      summary = "The plasma state, the Coulomb logarithm, collision frequencies, conductivity, runaway rates and the physical constants.",
      subpages = [
          ("plasma", "Plasma state and atomic data", ["physics/plasma.jl", "physics/plasma_source.jl", "physics/atomic_data.jl", "physics/adas.jl", "physics/ionization_energies.jl", "physics/ionization_cross_sections.jl",
-                                                 "physics/ionization_bethe_fits.jl"]),
+                                                 "physics/ionization_bethe_fits.jl", "physics/ionization_chianti.jl", "physics/ionization_chianti_fits.jl"]),
          ("collisions", "Collisions", ["physics/coulomb_logarithm.jl", "physics/collision_frequencies.jl"]),
          ("conductivity", "Conductivity and runaway rates", ["physics/conductivity.jl", "physics/runaway_rates.jl",
                                                          "physics/effective_critical_field.jl"]),

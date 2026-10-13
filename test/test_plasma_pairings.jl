@@ -109,7 +109,8 @@
         prescribed = PlasmaState(; cold_electron_temperature=[10.0, 8.0], electric_field=zeros(2), magnetic_field=zeros(2),
                                  ions=[IonSpecies("D", 1, 1, [1e19, 1e19]), IonSpecies("Ar", 18, argon)])
         region(factor; temperature=:cold_electron_temperature) = MomentumRegion(ThermalMomentum(temperature; factor))
-        k = KineticIonizationTerm(c, :f, g; region=region(5))
+        # the split at 7 thermal momenta, the minimum with CHIANTI's cross sections
+        k = KineticIonizationTerm(c, :f, g; region=region(7))
         rate = IonRateTerm(c; kinetic=k)
         radiation = RadiatedPowerTerm(prescribed; ions=:ion_densities, kinetic=k)
         closure = population_equations(c)
@@ -127,9 +128,9 @@
         @test_throws "split the ionization differently" paired(ions(IonRateTerm(c), k), temperature(radiation))
         # 3: the threshold of the split and of the hot density count the same electrons
         @test_throws "different thresholds" paired(ions(rate, k), temperature(radiation),
-                                                  Equation(:n_hot, Algebraic(), DensityMomentTerm(:f, g; region=region(7))))
+                                                  Equation(:n_hot, Algebraic(), DensityMomentTerm(:f, g; region=region(5))))
         # 4: the threshold reads the temperature of the rates
-        hot = KineticIonizationTerm(c, :f, g; region=region(5; temperature=:other_temperature))
+        hot = KineticIonizationTerm(c, :f, g; region=region(7; temperature=:other_temperature))
         @test_throws ArgumentError paired(ions(IonRateTerm(c; kinetic=hot), hot))
         @test_throws ArgumentError paired(ions(rate, k), temperature(radiation, SecondaryHeatingTerm(k; temperature=:other)))
         # 5: no kinetic ionization without the closure of the cold density
@@ -178,13 +179,13 @@
         @test_throws "one composition" paired(ions(rate, k, IonDiffusionTerm(swapped; diffusion=1.0)), temperature(radiation))
         # 11: the sinks of W_hot over its region
         loss_source = fp(PlasmaFromUnknowns(prescribed; ions=:ion_densities))
-        energy = total_energy_equation(:f, g; region=region(5))
+        energy = total_energy_equation(:f, g; region=region(7))
         sinks(region) = Equation(:total_electron_energy, TimeDerivative(), KineticEnergyLossTerm(loss_source; part=:sinks,
                                                                                                 region))
         base_system = [ions(rate, k), temperature(radiation), Equation(:f, TimeDerivative(), loss_source), energy]
-        @test paired(base_system..., sinks(region(5))) === nothing
+        @test paired(base_system..., sinks(region(7))) === nothing
         @test_throws "region of the energy moment" paired(base_system..., sinks(nothing))
-        @test_throws "different thresholds" paired(base_system..., sinks(region(7)))
+        @test_throws "different thresholds" paired(base_system..., sinks(region(5)))
         # 12: the rates and the binding energy from the same extrapolation of the tables
         @test_throws "extrapolations" paired(ions(IonRateTerm(c; kinetic=k, extrapolation=:clamp_density), k),
                                             temperature(radiation))

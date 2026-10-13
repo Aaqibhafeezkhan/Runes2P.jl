@@ -97,8 +97,8 @@ Defaults are those of DREAM's `CollisionHandler`.
   ([`beb_mean_secondary_energy`](@ref)), which needs no width; `:opal`, Opal et al. with the
   width of the neutral element for every charge state ([`mean_secondary_energy`](@ref)).
 - `ionization_cross_section_form`: the `form` of [`ionization_cross_section`](@ref) in the
-  friction of `bound_friction = :ionization_split`, `:dream` (the default) or `:bethe`.
-  A system pairs it with the `cross_section_form` of its
+  friction of `bound_friction = :ionization_split`: `:chianti` (the default),
+  `:dream` or `:bethe`. A system pairs it with the `cross_section_form` of its
   [`KineticIonizationTerm`](@ref), so `f` pays for the ionizations that term counts.
 """
 Base.@kwdef struct CollisionSettings
@@ -118,7 +118,7 @@ Base.@kwdef struct CollisionSettings
     ionization_threshold_width::Float64 = 0.1
     secondary_widths::Dict{String,Float64} = Dict{String,Float64}()
     secondary_spectrum::Symbol = :beb
-    ionization_cross_section_form::Symbol = :dream
+    ionization_cross_section_form::Symbol = :chianti
     function CollisionSettings(mode, screening, coulomb_logarithm, screened_diffusion, ion_size_table,
                                screening_window, screening_window_start, screening_window_end, bremsstrahlung,
                                bremsstrahlung_diffusion, bremsstrahlung_constant, bound_friction, ionization_threshold,
@@ -160,7 +160,7 @@ Base.@kwdef struct CollisionSettings
             throw(ArgumentError("unknown secondary spectrum $secondary_spectrum (:opal or :beb)"))
         ionization_cross_section_form in IONIZATION_CROSS_SECTION_FORMS ||
             throw(ArgumentError("unknown form of the ionization cross section $ionization_cross_section_form " *
-                                "(:dream or :bethe)"))
+                                "(:chianti, :dream or :bethe)"))
         return new(mode, screening, coulomb_logarithm, screened_diffusion, ion_size_table,
                    screening_window, screening_window_start, screening_window_end, bremsstrahlung,
                    bremsstrahlung_diffusion, bremsstrahlung_constant, bound_friction, Float64(ionization_threshold), Float64(ionization_threshold_width), widths,

@@ -221,7 +221,8 @@ the threshold of its region: the electrons of `f` above the threshold
 ionize through the cross sections of that term, and the cold electrons below it through
 the fluid coefficient of [`fluid_ionization_coefficient`](@ref), the ADAS rate less the
 part of the Maxwellian above the threshold. No electron is counted twice. The threshold is a
-multiple of the thermal momentum of at least [`MINIMUM_SPLIT_THRESHOLD_FACTOR`](@ref).
+multiple of the thermal momentum of at least the factor of
+[`MINIMUM_SPLIT_THRESHOLD_FACTORS`](@ref) for the form of its cross sections.
 Without
 `kinetic` the fluid rate is the whole ADAS rate, which next to a kinetic ionization term
 is DREAM's choice (`ions.cpp:280`): the Maxwellian tail above the threshold ionizes twice.

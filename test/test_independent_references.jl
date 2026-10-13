@@ -189,32 +189,73 @@ using QuadGK: quadgk
         end
     end
 
-    @testset "the cross sections of the kinetic ionization against measurements (item 4)" begin
+    @testset "the cross sections of the kinetic ionization against measurements (item 4, #244)" begin
         # Measured cross sections of the neutral atoms [m²]:
         # - hydrogen, M. B. Shah, D. S. Elliott, H. B. Gilbody, J. Phys. B 20, 3501 (1987),
         #   Table 1 (atomic H, ±6.8 % in the absolute scale), at its rows of 102.0, 198.2,
         #   508.2 and 998.2 eV;
         # - argon, single ionization σ⁺ of H. C. Straub et al., Phys. Rev. A 52, 1115 (1995),
-        #   Table II (±3.5 %), at 100 eV.
+        #   Table II (10⁻¹⁶ cm², ±3.5 % absolute, ±3 % at 200 eV; read from the page image), from
+        #   20 eV to 1 keV. At 17 eV, 1.2 eV above the threshold, σ⁺ is 1/160 of its peak and
+        #   CHIANTI's six-node spline gives 4.3 times it; the row is left out.
         # Above 100 keV the relativistic Bethe asymptote σ = 4π(ħ/mc)² [M² (β⁻² ln(β²/(1 − β²)) − 1)
         # + C β⁻²] of F. F. Rieke, W. Prepejchal, Phys. Rev. A 6, 1507 (1972), eq. (3), with
         # M² = 4.22, C = 37.93 for argon (their Table II, pure gas) and for atomic hydrogen
         # M² = 0.2823, C = 4.007 from the fit σE = 1.30 log₁₀E + 2.85 (πa₀², hartree) of Shah et
         # al., eqs. (4)-(5) (C = M²(ln c + 11.2268), M. Inokuti, Rev. Mod. Phys. 43, 297 (1971),
         # eq. (4.27)).
-        # Asserted: both forms fit hydrogen to 10 % at 0.1 to 1 keV and argon at 100 eV, and the
+        # The default, CHIANTI's cross sections continued by the Bethe theory (K. P. Dere, Astron.
+        # Astrophys. 466, 771 (2007)), is asserted with bands from the uncertainties:
+        # - hydrogen: Shah's ±6.8 % (Dere's final error of H I is Shah's 7 %); the default lies
+        #   within 1.6 % of the four rows;
+        # - argon from 20 eV to 1 keV: Straub's ±3.5 % with Dere's final error of 5 % for his fit of
+        #   Ar I to six data sets (his Table 18), and the departure of his six-node spline in the
+        #   plateau, 0.91 of σ⁺ at 40 eV: ±12 %; the default lies at 0.91 to 1.10 (0.75 for both
+        #   fits of DREAM's method at 0.5 to 1 keV);
+        # - from 0.1 to 10 MeV, against the Bethe asymptotes: hydrogen within Shah's ±6.8 %, at
+        #   0.976 to 0.986; argon within ±12 %, the limits of C in Rieke and Prepejchal's Table I
+        #   (−6 % to +4 %, plus 1.2 % random) with Dere's 5 %, at 1.045 to 1.089. Rieke and
+        #   Prepejchal count ionizing collisions, multiple ionization included (σ²⁺ is 4.7 % of
+        #   σ⁺ at 1 keV in Straub's table), so the default lies about 10 % above the σ⁺ they imply.
+        #   The asymptote takes the M² of the fits: 0.2842 for H (Shah's 0.2823), 4.180 for Ar
+        #   (Rieke and Prepejchal's 4.22).
+        # - neon from 0.1 to 10 MeV against Rieke and Prepejchal's M² = 2.02, C = 18.17 (Table II,
+        #   0.01 torr of H₂ added, quality A+): 0.878 to 0.904. CHIANTI's M² of Ne is 1.705, 16 %
+        #   below theirs, within Dere's caveat that measured limits lie 1.4 to 2.0 times above his
+        #   Bethe limits (his Sect. 2.1); the band 0.85 to 0.95 records this departure, it is not an
+        #   uncertainty band. DREAM's form is 0.21 to 0.37 of it.
+        # Which checks are independent: H I is Dere's fit to Shah's data, and Straub's are among
+        # the six data sets of his fit of Ar I (his Table 18), so these two check the
+        # implementation of the fits; the band of Straub contains the 9 % by which the spline
+        # misses the plateau. The checks of the model are the MeV asymptotes, whose M² Dere
+        # computes from photoionization data (his eq. (1)), and Bao and Li for the ions
+        # (test_chianti_ionization.jl).
+        # The departures of the fits of DREAM's method stay asserted as they were found:
+        # both within 10 % of Shah from 0.1 to 1 keV and of Straub at 100 eV; the
         # form with 1/β² has the energy dependence of the asymptote from 0.5 to 2 MeV, where
-        # DREAM's grows away from it. Departures that the fits carry and the test documents:
-        # argon falls to 0.75 of σ⁺ at 0.5 to 1 keV in both forms; at 1 MeV DREAM's form is
-        # 1.72 times the asymptote for hydrogen (and grows), and 0.92 for argon by a
-        # coincidence of its slope; the form with 1/β² is 1.43 and 0.74.
+        # DREAM's grows away from it (at 1 MeV 1.72 times the asymptote for hydrogen, 0.92 for
+        # argon; 1.43 and 0.74 for the form with 1/β²).
         mc2 = Constants.ELECTRON_REST_ENERGY
         momentum(E) = sqrt((1 + E / mc2)^2 - 1)
-        for (E, measured) in ((102.0, 5.40e-21), (198.2, 3.98e-21), (508.2, 2.00e-21), (998.2, 1.13e-21)), form in (:dream, :bethe)
-            @test 0.9 < ionization_cross_section("H", 0, momentum(E); form) / measured < 1.1
+        shah = ((102.0, 5.40e-21), (198.2, 3.98e-21), (508.2, 2.00e-21), (998.2, 1.13e-21))
+        for (E, measured) in shah
+            @test abs(ionization_cross_section("H", 0, momentum(E)) / measured - 1) < 0.068
+            for form in (:dream, :bethe)
+                @test 0.9 < ionization_cross_section("H", 0, momentum(E); form) / measured < 1.1
+            end
+        end
+        # deuterium takes the parameters of hydrogen
+        @test ionization_cross_section("D", 0, momentum(500.0)) == ionization_cross_section("H", 0, momentum(500.0))
+        straub = ((20, 0.46), (25, 1.24), (30, 1.84), (35, 2.26), (40, 2.55), (45, 2.66), (50, 2.70), (60, 2.67),
+                  (70, 2.67), (80, 2.69), (90, 2.69), (100, 2.64), (120, 2.55), (140, 2.45), (160, 2.35), (180, 2.27),
+                  (200, 2.18), (250, 1.99), (300, 1.79), (400, 1.51), (500, 1.31), (600, 1.16), (700, 1.03),
+                  (800, 0.932), (900, 0.865), (1000, 0.795))
+        for (E, measured) in straub
+            @test abs(ionization_cross_section("Ar", 0, momentum(E)) / (measured * 1e-20) - 1) < 0.12
         end
         for form in (:dream, :bethe)
             @test 0.9 < ionization_cross_section("Ar", 0, momentum(100.0); form) / 2.64e-20 < 1.15
+            @test ionization_cross_section("Ar", 0, momentum(1000.0); form) / 0.795e-20 < 0.8
         end
         compton = 4π * 3.8615926796e-13^2       # 4π(ħ/mc)² [m²], the reduced Compton wavelength of CODATA 2018
         function asymptote(M2, C, E)
@@ -222,10 +263,21 @@ using QuadGK: quadgk
             β2 = p^2 / (1 + p^2)
             return compton * (M2 * (log(β2 / (1 - β2)) / β2 - 1) + C / β2)
         end
+        megavolt = 10 .^ range(5, 7; length=9)
+        for (element, M2, C, band) in (("H", 0.2823, 4.007, 0.068), ("Ar", 4.22, 37.93, 0.12))
+            ratios = [ionization_cross_section(element, 0, momentum(E)) / asymptote(M2, C, E) for E in megavolt]
+            @test all(r -> abs(r - 1) < band, ratios)
+        end
+        neon = [ionization_cross_section("Ne", 0, momentum(E)) / asymptote(2.02, 18.17, E) for E in megavolt]
+        @test all(r -> 0.85 < r < 0.95, neon)
+        @test all(E -> ionization_cross_section("Ne", 0, momentum(E); form=:dream) / asymptote(2.02, 18.17, E) < 0.4, megavolt)
+        @test CHIANTI_IONIZATION_FITS["H"][1].bethe_m2 ≈ 0.2823 rtol = 0.01
+        @test CHIANTI_IONIZATION_FITS["Ar"][1].bethe_m2 ≈ 4.22 rtol = 0.015
         energies = (0.5e6, 1e6, 2e6)
         for (element, M2, C) in (("H", 0.2823, 4.007), ("Ar", 4.22, 37.93))
             ratio(form) = [ionization_cross_section(element, 0, momentum(E); form) / asymptote(M2, C, E) for E in energies]
             @test maximum(ratio(:bethe)) / minimum(ratio(:bethe)) < 1.08
+            @test maximum(ratio(:chianti)) / minimum(ratio(:chianti)) < 1.02
             element == "H" && @test maximum(ratio(:dream)) / minimum(ratio(:dream)) > 1.3
         end
     end

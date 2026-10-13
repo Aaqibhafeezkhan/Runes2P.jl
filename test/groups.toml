@@ -23,7 +23,7 @@ files = ["test_knockon_kinematics.jl", "test_grids.jl", "test_knockon_implicit.j
 name = "quick-1"
 tier = "quick"
 # 8.4 minutes
-files = ["test_cold_unknowns.jl", "test_knockon_target.jl", "test_ion_kinetic_columns.jl", "test_kinetic_ionization.jl", "test_dual_flux_types.jl"]
+files = ["test_cold_unknowns.jl", "test_knockon_target.jl", "test_ion_kinetic_columns.jl", "test_kinetic_ionization.jl", "test_dual_flux_types.jl", "test_chianti_ionization.jl"]
 
 [[group]]
 name = "quick-2"

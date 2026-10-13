@@ -42,7 +42,10 @@ function build(start; scheme::Symbol=:tcdf, compat::Symbol=:dream, diffusivity::
     prescribed = PlasmaState(; cold_electron_temperature=fill(10.0, nr), ions=background, electric_field=zeros(nr),
                              magnetic_field=fill(start["B"], nr))
     settings = collision_settings(compat)
-    region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor=THRESHOLD))
+    # the hot region: DREAM's 5 thermal momenta for compat = dream; for runes2p, which splits the
+    # ionization with CHIANTI's cross sections, the minimum of that split, 7
+    factor = compat === :dream ? THRESHOLD : Runes2P.MINIMUM_SPLIT_THRESHOLD_FACTORS[:chianti]
+    region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor))
     plasma = PlasmaFromUnknowns(prescribed; ions=:ion_densities, temperature_floor=0.01)
     operator = AdvectionDiffusion(grid; scheme, p_upper_boundary=:f_zero)
     fp = FokkerPlanckTerm(:f, operator; plasma, settings, synchrotron=compat === :runes2p, electric_field=:electric_field,
@@ -52,7 +55,9 @@ function build(start; scheme::Symbol=:tcdf, compat::Symbol=:dream, diffusivity::
     conductivity = ConductivityTerm(:electric_field,
                                     ConductivityModel(PlasmaFromUnknowns(prescribed; ions=:ion_densities,
                                                                          temperature_floor=0.01); kinetic=:dream_fit))
-    kinetic = KineticIonizationTerm(COMPOSITION, :f, grid; region)
+    # the cross sections of the kinetic ionization: DREAM's form and fits for compat = dream,
+    # CHIANTI's continued by the Bethe theory for runes2p
+    kinetic = KineticIonizationTerm(COMPOSITION, :f, grid; region, cross_section_form=compat === :dream ? :dream : :chianti)
     fluid_ions = (ions=:ion_densities,)
     # the exchange among the ions: DREAM's logarithm with T_e and DREAM's masses for compat =
     # dream, the NRL logarithm and the standard atomic weights for runes2p

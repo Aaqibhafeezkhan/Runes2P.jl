@@ -23,7 +23,7 @@
         background = [IonSpecies("D", 1, 1, fill(2e19, nr)), IonSpecies("Ar", 18, zeros(19, nr))]
         prescribed = PlasmaState(; cold_electron_temperature=T0, ions=background, electric_field=zeros(nr),
                                  magnetic_field=fill(2.5, nr))
-        region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor=5))
+        region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor=7))
         layout = UnknownLayout(radial, [ion_densities_unknown(composition),
                                         RadialUnknown(:cold_electron_density; scale=1e19),
                                         RadialUnknown(:hot_electron_density; scale=1e13),
@@ -124,7 +124,7 @@ function _neon_run(heating::Bool)
     background = [IonSpecies("D", 1, 1, fill(2e19, nr)), IonSpecies("Ne", 10, zeros(11, nr))]
     prescribed = PlasmaState(; cold_electron_temperature=T0, ions=background, electric_field=zeros(nr),
                              magnetic_field=fill(2.5, nr))
-    region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor=5))
+    region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor=7))
     layout = UnknownLayout(radial, [ion_densities_unknown(composition),
                                     RadialUnknown(:cold_electron_density; scale=1e19),
                                     RadialUnknown(:hot_electron_density; scale=1e16),

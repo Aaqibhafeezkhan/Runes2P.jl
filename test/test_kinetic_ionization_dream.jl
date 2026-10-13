@@ -29,7 +29,8 @@ using HDF5
                                         RadialUnknown(:cold_electron_temperature; scale=10.0),
                                         KineticUnknown(:f, grid; scale=1e19)])
         region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor=data["threshold"]))
-        kinetic = KineticIonizationTerm(composition, :f, grid; region)
+        # DREAM's form and fits of the cross sections
+        kinetic = KineticIonizationTerm(composition, :f, grid; region, cross_section_form=:dream)
         fluid = IonRateTerm(composition)
         # the state of the end of the step
         u = zeros(length(layout))

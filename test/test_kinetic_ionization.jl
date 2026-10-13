@@ -12,8 +12,10 @@ const KINETIC_IONIZATION_COMPOSITION = IonComposition(["D" => 1, "Ar" => 18])
 
 # a grid that covers the bulk at 20 and 10 eV to 10 thermal momenta, with 81 cells so that
 # no threshold of 5 or 7 thermal momenta lies on a face, where the interpolated envelope
-# has a kink (the split refuses factors below 5)
-function _ionization_case(; factor=5.0, temperatures=[20.0, 10.0], n_M=5e19)
+# has a kink (the split refuses factors below 5 with DREAM's cross sections and below 7 with
+# CHIANTI's): below 7 the case takes DREAM's form
+function _ionization_case(; factor=5.0, temperatures=[20.0, 10.0], n_M=5e19,
+                          form=factor < Runes2P.MINIMUM_SPLIT_THRESHOLD_FACTORS[:chianti] ? :dream : :chianti)
     radial = RadialGrid(uniform_r_faces(2, 0.5))
     p_max = 10 * sqrt(2 * maximum(temperatures) / Constants.ELECTRON_REST_ENERGY)
     grid = cylindrical_grid(MomentumGrid(uniform_p_faces(81, 0.0, p_max), uniform_xi_faces(3)), radial)
@@ -22,7 +24,7 @@ function _ionization_case(; factor=5.0, temperatures=[20.0, 10.0], n_M=5e19)
                                     RadialUnknown(:cold_electron_temperature; scale=10.0),
                                     KineticUnknown(:f, grid; scale=1e19)])
     region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor))
-    kinetic = KineticIonizationTerm(KINETIC_IONIZATION_COMPOSITION, :f, grid; region)
+    kinetic = KineticIonizationTerm(KINETIC_IONIZATION_COMPOSITION, :f, grid; region, cross_section_form=form)
     u = zeros(length(layout))
     argon = zeros(19, 2)
     argon[1:6, :] .= [1e17, 3e17, 5e17, 2e17, 1e17, 5e16]
@@ -70,7 +72,7 @@ end
             burgess(fits) = (row = fits[element][Z0+1, :]; U = E / row[2];
                              row[1] * π * a0^2 * (Ry / row[2])^2 * log(U)^(1 + row[3] / U) / U)
             @test ionization_cross_section(element, Z0, p; form=:bethe) / burgess(KINETIC_IONIZATION_BETHE_FITS) ≈ 1 rtol = 0.03
-            @test ionization_cross_section(element, Z0, p) / burgess(KINETIC_IONIZATION_FITS) ≈
+            @test ionization_cross_section(element, Z0, p; form=:dream) / burgess(KINETIC_IONIZATION_FITS) ≈
                   1 - S + S * (p / gamma)^2 rtol = 2e-3
         end
         # the blend is floored at zero, where the Bethe logarithm lies below β² just above the
@@ -86,11 +88,13 @@ end
         @test_skip isdir(adas_cache_directory())
     else
         @testset "Maxwellian average against ADAS at low density" begin
-            # the fit was made to the SCD coefficients at zero density: the Maxwellian average
-            # of v σ at the ionization energy of each state, against SCD at the lowest density
-            # node, per state of argon and neon (DREAM #46: errors of tens of per cent)
+            # DREAM's fits were made to the SCD coefficients at zero density: the Maxwellian
+            # average of v σ at the ionization energy of each state, against SCD at the lowest
+            # density node, per state of argon and neon (DREAM #46: errors of tens of per cent).
+            # CHIANTI's cross sections are independent of ADAS and differ from it by up to 2.6
+            # (Ne⁺: 0.40, from Dere's fit to three measurements agreeing within 3 %).
             p = collect(range(0.0, 1.0; length=200_001))[2:end]
-            for element in ("Ar", "Ne"), form in (:dream, :bethe)
+            for element in ("Ar", "Ne"), form in (:dream, :bethe, :chianti)
                 scd = read_adas(element).scd
                 Z = size(KINETIC_IONIZATION_FITS[element], 1)
                 ratios = Float64[]
@@ -138,7 +142,7 @@ end
         end
 
         @testset "split at the threshold" begin
-            # below 5 thermal momenta the split is refused: the fluid
+            # below 5 thermal momenta the split is refused with every form: the fluid
             # coefficient is negative there for populated argon states
             for factor in (2.0, 3.0, 4.9)
                 _, low, _ = _ionization_case(; factor)
@@ -152,7 +156,16 @@ end
             _, fixed, _ = _ionization_case()
             fixed_region = KineticIonizationTerm(KINETIC_IONIZATION_COMPOSITION, :f, fixed.grid; region=MomentumRegion(0.05))
             @test_throws "ThermalMomentum" IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic=fixed_region)
-            @test Runes2P.MINIMUM_SPLIT_THRESHOLD_FACTOR == 5
+            # the minimum per form: 7 with CHIANTI's cross sections, 5 with DREAM's
+            @test Runes2P.MINIMUM_SPLIT_THRESHOLD_FACTORS == Dict(:chianti => 7.0, :dream => 5.0, :bethe => 5.0)
+            for factor in (5.0, 6.9)
+                _, chianti, _ = _ionization_case(; factor, form=:chianti)
+                @test_throws "is refused" IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic=chianti)
+            end
+            _, chianti, _ = _ionization_case(; factor=7.0, form=:chianti)
+            @test IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic=chianti) isa IonRateTerm
+            _, dream, _ = _ionization_case(; factor=5.0, form=:dream)
+            @test IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic=dream) isa IonRateTerm
             for factor in (5.0, 7.0)
                 layout, kinetic, u = _ionization_case(; factor)
                 n = length(u)
@@ -292,7 +305,7 @@ end
                     for (i, p) in enumerate(m.p_centers), j in 1:3
                         E = (sqrt(1 + p^2) - 1) * Constants.ELECTRON_REST_ENERGY
                         v = Constants.SPEED_OF_LIGHT * p / sqrt(1 + p^2)
-                        expected += states[k] * envelope[i] * v * ionization_cross_section(name, Z0, p) *
+                        expected += states[k] * envelope[i] * v * ionization_cross_section(name, Z0, p; form=kinetic.cross_section_form) *
                                     Constants.ELEMENTARY_CHARGE *
                                     mean_secondary_energy(width, E, ionization_energy(name, Z0), Inf) *
                                     kinetic.weights[ir][i, j] * f[i, j]

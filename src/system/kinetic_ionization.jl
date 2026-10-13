@@ -6,7 +6,7 @@
 
 """
     KineticIonizationTerm(composition, kinetic, grid; ions=:ion_densities, region=nothing,
-                          cross_section_form=:dream)
+                          cross_section_form=:chianti)
 
 The ionization of the charge states of `composition` ([`IonComposition`](@ref)) by the
 electrons of the kinetic unknown `kinetic` on `grid`, in the rows of the ion densities
@@ -18,7 +18,9 @@ K_j = \\frac{1}{V'} \\sum_{\\text{cells}} e(p)\\, v σ_j(p)\\, 𝒱' Δp Δξ\\,
 ```
 
 with the cross sections [`ionization_cross_section`](@ref) of the form `cross_section_form`
-(`:dream`, the default, DREAM's form and fits, or `:bethe`), tabulated at
+(`:chianti`, the default, CHIANTI's parameters continued relativistically, with DREAM's form
+for the elements CHIANTI's table lacks; `:dream`, DREAM's form and fits; or
+`:bethe`), tabulated at
 the cell centres of the momentum grid of each radius (DREAM tabulates the grid of radius 0
 alone), and the envelope `e(p)` of the [`MomentumRegion`](@ref) `region`: the hot
 electrons above a threshold that may follow the temperature unknown, or the whole grid
@@ -53,9 +55,9 @@ end
 
 function KineticIonizationTerm(c::IonComposition, kinetic::Symbol, grid::KineticGrid{Float64};
                                ions::Symbol=:ion_densities, region::Union{Nothing,MomentumRegion}=nothing,
-                               cross_section_form::Symbol=:dream)
+                               cross_section_form::Symbol=:chianti)
     cross_section_form in IONIZATION_CROSS_SECTION_FORMS ||
-        throw(ArgumentError("cross_section_form must be :dream or :bethe, not $cross_section_form"))
+        throw(ArgumentError("cross_section_form must be :chianti, :dream or :bethe, not $cross_section_form"))
     states = [(name, Z0) for (name, Z) in zip(c.names, c.nuclear_charges) for Z0 in 0:Z]
     rates = Matrix{Float64}[]
     weights = Matrix{Float64}[]
@@ -232,35 +234,50 @@ fraction `f_>` of the Maxwellian above the threshold ([`threshold_split`](@ref))
 closure `n_cold = n_M (1 − f_>)` and the kinetic rate `n_M A_>` of a Maxwellian `f` of
 density `n_M`, the two add up to `n_M I` for every threshold.
 
-The coefficient has no floor. `A_>` comes from DREAM's fits of the cross sections and `I`
-from ADAS, and the fits exceed ADAS by up to about 1.6 for a state of argon.
+The coefficient has no floor. `A_>` comes from the cross sections of the kinetic ionization
+and `I` from ADAS. DREAM's fits exceed ADAS by up to about 1.6 for a state of argon,
+CHIANTI's (the default) by up to 2.6 for a state of neon or argon.
 Where the threshold lies below the ionization energy of a state, almost all of its
 Maxwellian ionization comes from above the threshold, so `A_> > I` and the coefficient is
-negative. On the grid of the tests (`n_e = 5e19 m⁻³`, 5 to 50 eV) it is negative for the
-dominant argon states at threshold factors 2 and 3, by 3 to 18 % of `I`, and for no state with
-a coronal fraction above 1e-17 at factors 5 and 7. With a Maxwellian `f` the sum with the
+negative. On the grid of the tests (`n_e = 5e19 m⁻³`, 5 to 50 eV), with DREAM's cross sections,
+it is negative for the dominant argon states at threshold factors 2 and 3, by 3 to 18 % of `I`,
+and for no state with a coronal fraction above 1e-17 at factors 5 and 7. From 1 eV to 10 keV,
+for D, Ne and Ar, it is negative for no state with a coronal
+fraction above 1e-3 with DREAM's cross sections at factors 5 to 7. With CHIANTI's it is
+negative at factor 5 for three such states of a cold plasma: Ar⁺ at 1 eV (−0.19 `I`, coronal
+fraction 0.087), Ar²⁺ at 1.6 eV (−0.50 `I`, 1.2e-3) and Ne²⁺ at 2.5 eV (−2.8 `I`, 0.025), and
+for none at factors 6 and 7. With a Maxwellian `f` the sum with the
 kinetic rate is `n_M I` whatever the sign. The coefficient stays as it is, and the split
-refuses thresholds below [`MINIMUM_SPLIT_THRESHOLD_FACTOR`](@ref) thermal momenta.
+refuses thresholds below the factor of [`MINIMUM_SPLIT_THRESHOLD_FACTORS`](@ref) of its
+form.
 """
 fluid_ionization_coefficient(adas, fraction, coefficient) = (adas - coefficient) / (1 - fraction)
 
 """
-    MINIMUM_SPLIT_THRESHOLD_FACTOR
+    MINIMUM_SPLIT_THRESHOLD_FACTORS
 
-The smallest factor of the thermal momentum, 5, at which the threshold of a
+The smallest factor of the thermal momentum at which the threshold of a
 [`KineticIonizationTerm`](@ref) may split the ionization with a fluid term (the `kinetic`
-keyword of [`IonRateTerm`](@ref) and [`RadiatedPowerTerm`](@ref)). Below it the fluid
-coefficient of [`fluid_ionization_coefficient`](@ref) is negative for populated argon states:
-by 3 to 18 % of the ADAS rate at factors 2 and 3, and for no state with a coronal fraction
-above 1e-17 at factors 5 and 7. Decision of the author (2026-10-10):
-the coefficient unchanged, with a refusal below this factor. The factor 5 is that of
-a DREAM reference case; Runes2P's default hot region takes 7
-([`ThermalMomentum`](@ref)).
-"""
-const MINIMUM_SPLIT_THRESHOLD_FACTOR = 5.0
+keyword of [`IonRateTerm`](@ref) and [`RadiatedPowerTerm`](@ref)), per form of its cross
+sections: 7 for CHIANTI's (`:chianti`, the default), 5 for DREAM's (`:dream`) and for the fits
+of DREAM's method (`:bethe`). Below it the fluid coefficient of
+[`fluid_ionization_coefficient`](@ref) is negative for populated states:
 
-# refuses the split of the ionization at the threshold of `kinetic` below
-# MINIMUM_SPLIT_THRESHOLD_FACTOR thermal momenta; `owner` names the fluid term
+- DREAM's cross sections: by 3 to 18 % of the ADAS rate for argon at factors 2 and 3, and for
+  no state with a coronal fraction above 1e-17 at factors 5 and 7; from 1 eV to 10 keV for D,
+  Ne and Ar, for no state above 1e-3 at 5 to 7. Decision of the author (2026-10-10):
+  the coefficient unchanged, with a refusal below the factor. 5 is the factor of a DREAM
+  reference case, and DREAM's cross-checks take DREAM's form with it.
+- CHIANTI's: at factor 5, Ar⁺ at 1 eV (−0.19 of SCD), Ar²⁺ at 1.6 eV (−0.50) and Ne²⁺ at 2.5
+  eV (−2.8), with coronal fractions of 0.087, 1.2e-3 and 0.025; none at 6 and 7. Decision of
+  the author (2026-10-13): a factor per form, 7 for CHIANTI.
+
+Runes2P's default hot region takes 7 for every form ([`ThermalMomentum`](@ref)).
+"""
+const MINIMUM_SPLIT_THRESHOLD_FACTORS = Dict(:chianti => 7.0, :dream => 5.0, :bethe => 5.0)
+
+# refuses the split of the ionization at the threshold of `kinetic` below the minimum factor
+# of its form, MINIMUM_SPLIT_THRESHOLD_FACTORS; `owner` names the fluid term
 function _check_split_threshold(kinetic::KineticIonizationTerm, owner::AbstractString)
     envelopes = kinetic.envelopes
     region = envelopes === nothing ? nothing : envelopes.region
@@ -270,15 +287,18 @@ function _check_split_threshold(kinetic::KineticIonizationTerm, owner::AbstractS
                             "threshold at a multiple of the thermal momentum of the temperature unknown " *
                             "(ThermalMomentum with the name of the unknown), so that the fluid coefficient " *
                             "(SCD − A_>)/(1 − f_>) follows the temperature"))
-    limit.factor >= MINIMUM_SPLIT_THRESHOLD_FACTOR ||
-        throw(ArgumentError("the split of the ionization of $owner at $(limit.factor) thermal momenta is refused: below " *
-                            "$(MINIMUM_SPLIT_THRESHOLD_FACTOR) thermal momenta the fluid coefficient (SCD − A_>)/(1 − f_>) " *
-                            "is negative for populated argon states, by 3 to 18 % of SCD at factors 2 and 3, since " *
-                            "DREAM's cross-section fits exceed ADAS above a threshold that lies below the ionization " *
-                            "energy (audit 5.9-5.10, finding 3). A negative fluid flow drains sparse upper states and " *
-                            "gives the cold electrons binding energy. Use a threshold factor of at least " *
-                            "$(MINIMUM_SPLIT_THRESHOLD_FACTOR) (DREAM's reference case takes 5, Runes2P's hot region 7), " *
-                            "or pair the kinetic ionization without the split as DREAM does (issue #181)."))
+    form = kinetic.cross_section_form
+    minimum = MINIMUM_SPLIT_THRESHOLD_FACTORS[form]
+    limit.factor >= minimum ||
+        throw(ArgumentError("the split of the ionization of $owner at $(limit.factor) thermal momenta is refused with the " *
+                            "cross sections :$form: below $minimum thermal momenta the fluid coefficient " *
+                            "(SCD − A_>)/(1 − f_>) is negative for populated states, since the cross sections exceed " *
+                            "ADAS above a threshold that lies below the ionization energy (with DREAM's form by 3 to " *
+                            "18 % of SCD for argon at factors 2 and 3, audit 5.9-5.10; with CHIANTI's by up to 2.8 SCD " *
+                            "at factor 5 in a plasma at 1 to 2.5 eV, #250). A negative fluid flow drains sparse upper " *
+                            "states and gives the cold electrons binding energy. Use a threshold factor of at least " *
+                            "$minimum (Runes2P's hot region takes 7; DREAM's reference case 5 with cross_section_form = " *
+                            ":dream), or pair the kinetic ionization without the split as DREAM does (issues #181, #250)."))
     return nothing
 end
 

@@ -17,7 +17,7 @@ attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …
 change of the file's content until the first release of Runes2P, which starts 1.0. Files
 with the integer 1 in the attribute were written before the numbering.
 """
-const OUTPUT_FORMAT_VERSION = v"0.32"
+const OUTPUT_FORMAT_VERSION = v"0.33"
 
 "The format version as written to files, `\"major.minor\"`."
 output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
@@ -718,7 +718,10 @@ function describe(term::KineticIonizationTerm, context::DescriptionContext)
     record["kinetic"] = String(term.kinetic)
     record["grid"] = grid_name!(context, term.grid)
     record["ions"] = String(term.ions)
-    record["cross_sections"] = term.cross_section_form === :dream ?
+    record["cross_sections"] = term.cross_section_form === :chianti ?
+                               "CHIANTI (Dere 2007) continued by the relativistic Bethe form above 100 keV, " *
+                               "DREAM's form for elements without CHIANTI data (issue #244)" :
+                               term.cross_section_form === :dream ?
                                "Burgess-Chidichimo with Garland's extension, DREAM's fits" :
                                "Burgess-Chidichimo with the Bethe term over beta^2, refitted (issue #189)"
     return _describe_region!(record, term.envelopes, context)

@@ -194,7 +194,7 @@ const KINETIC_IONIZATION_FITS = Dict{String,Matrix{Float64}}(
 )
 
 """
-    ionization_cross_section(element, Z0, p; form=:dream)
+    ionization_cross_section(element, Z0, p; form=:chianti)
 
 The cross section [m²] of the ionization of the ion of `element` in charge state `Z0` by an
 electron of momentum `p` (in units of `mₑc`), DREAM's `EvaluateBCGSingleSubshell`
@@ -216,21 +216,39 @@ fitted `C` absorbs that weight at the energies of the fit, and the shape at hot-
 runaway energies differs from a consistent blend. Zero below the threshold `U < 1` and for
 the bare nucleus. The parameters are those of [`KINETIC_IONIZATION_FITS`](@ref).
 
-`form` selects the relativistic term (decision of the author, 2026-10-06):
+`form` selects the cross section:
 
-- `:dream` (the default): DREAM's form above,
-  with DREAM's fits.
+- `:chianti` (the default, decision of the author, 2026-10-13):
+  the parameters of CHIANTI, continued relativistically by the Bethe theory
+  ([`chianti_cross_section`](@ref), [`CHIANTI_IONIZATION_FITS`](@ref)), for hydrogen, its
+  isotopes (with the parameters of hydrogen), neon and argon. The other elements, tungsten
+  among them, keep DREAM's form below: the table holds no CHIANTI data for them.
+- `:dream` (the default before `:chianti`, decision of the author, 2026-10-06):
+  DREAM's form above, with DREAM's fits. From 0.1 to 1 keV it lies within 7 % of the
+  measurements of hydrogen (Shah et al. 1987), and at 0.5 to 1 keV at 0.75 of the single
+  ionization of argon (Straub et al. 1995); at 1 MeV it is 1.72 times the relativistic Bethe
+  cross section of hydrogen and grows with the energy.
 - `:bethe`: the term divided by `β²`, `C π a₀² α² (R_y/I)(ln(p²/2I) − β²)/β²`, which joins
   the large-`U` limit of `σ_{BC}`, with the parameters [`KINETIC_IONIZATION_BETHE_FITS`](@ref)
   refitted by DREAM's method. The blend is floored at zero: just above the threshold of a
   state with `I` of several keV the logarithm `ln(p²/2I)` lies below `β²` while `S` is already
   0.3 at 15 keV, so the blend would be negative there (W⁶⁴⁺, `I = 15.6` keV).
 """
-function ionization_cross_section(element::AbstractString, Z0::Integer, p::Real; form::Symbol=:dream)
+function ionization_cross_section(element::AbstractString, Z0::Integer, p::Real; form::Symbol=:chianti)
     form in IONIZATION_CROSS_SECTION_FORMS ||
-        throw(ArgumentError("unknown form of the ionization cross section $form (:dream or :bethe)"))
-    table = form === :bethe ? KINETIC_IONIZATION_BETHE_FITS : KINETIC_IONIZATION_FITS
+        throw(ArgumentError("unknown form of the ionization cross section $form (:chianti, :dream or :bethe)"))
     element = atomic_element(element)
+    if form === :chianti
+        fits = get(CHIANTI_IONIZATION_FITS, chianti_element(element), nothing)
+        if fits !== nothing
+            0 <= Z0 <= length(fits) || throw(ArgumentError("no charge state $Z0 of $element"))
+            Z0 == length(fits) && return zero(float(p))
+            return chianti_cross_section(fits[Z0+1], p)
+        end
+        # elements without CHIANTI data keep DREAM's form
+        form = :dream
+    end
+    table = form === :bethe ? KINETIC_IONIZATION_BETHE_FITS : KINETIC_IONIZATION_FITS
     haskey(table, element) ||
         throw(ArgumentError("no fit of the kinetic ionization for the element $element " *
                             "($(join(sort!(collect(keys(table))), ", ")))"))
@@ -254,7 +272,17 @@ function ionization_cross_section(element::AbstractString, Z0::Integer, p::Real;
     return max((1 - S) * nonrelativistic + S * relativistic / beta^2, zero(float(p)))
 end
 
-const IONIZATION_CROSS_SECTION_FORMS = (:dream, :bethe)
+const IONIZATION_CROSS_SECTION_FORMS = (:chianti, :dream, :bethe)
+
+"""
+    chianti_element(element)
+
+The element of [`CHIANTI_IONIZATION_FITS`](@ref) whose parameters `element` takes: hydrogen
+for deuterium and tritium, whose cross sections differ from those of hydrogen by the reduced
+mass of the bound electron (2.7e-4 of the binding energy for deuterium), and the element
+itself otherwise.
+"""
+chianti_element(element::AbstractString) = element in ("D", "T") ? "H" : String(element)
 
 """
     SECONDARY_SPECTRUM_WIDTHS
