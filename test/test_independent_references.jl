@@ -205,7 +205,9 @@ using QuadGK: quadgk
         # al., eqs. (4)-(5) (C = M²(ln c + 11.2268), M. Inokuti, Rev. Mod. Phys. 43, 297 (1971),
         # eq. (4.27)).
         # The default, CHIANTI's cross sections continued by the Bethe theory (K. P. Dere, Astron.
-        # Astrophys. 466, 771 (2007)), is asserted with bands from the uncertainties:
+        # Astrophys. 466, 771 (2007)), is asserted with bands from the uncertainties,
+        # where the band of Straub's rows also holds the 9 % plateau miss that is itself a
+        # result, so it pins that miss rather than tests it:
         # - hydrogen: Shah's ±6.8 % (Dere's final error of H I is Shah's 7 %); the default lies
         #   within 1.6 % of the four rows;
         # - argon from 20 eV to 1 keV: Straub's ±3.5 % with Dere's final error of 5 % for his fit of

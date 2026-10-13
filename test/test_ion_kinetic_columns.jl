@@ -377,3 +377,27 @@ _hold(name, value) = Equation(name, Algebraic(), PrescribedValueTerm(value), Lin
         end
     end
 end
+
+# A boundary flux reads the Fokker-Planck term of the system, not a copy built from the same
+# arguments: a copy is never prepared for the step, so
+# with lagged ions it takes the charge states of the iterate without their columns, and with
+# lagged = :all it keeps the coefficients of its construction, which are zero.
+@testset "a boundary flux through a copy of the Fokker-Planck term is refused" begin
+    for lagged in (:ions, :all)
+        layout0, fp, u0 = _kinetic_ion_case(; lagged)
+        hot = kinetic_grid(layout0, 4)
+        copy = FokkerPlanckTerm(:f, AdvectionDiffusion(hot; p_upper_boundary=:f_zero); plasma=fp.plasma,
+                                settings=fp.settings, lagged)
+        layout = UnknownLayout(hot.radial_grid, [layout0.unknowns; RadialUnknown(:runaway_density; scale=1e10)])
+        u = zeros(length(layout))
+        for id in 1:length(layout0.unknowns), ir in 1:2
+            u[unknown_range(layout, id, ir)] .= u0[unknown_range(layout0, id, ir)]
+        end
+        equations(flux) = [Equation(:ion_densities, TimeDerivative()), population_equations(KINETIC_COMPOSITION)...,
+                           _hold(:cold_electron_temperature, [5.0, 3.0]), Equation(:f, TimeDerivative(), fp),
+                           Equation(:runaway_density, TimeDerivative(), flux)]
+        @test_throws "not a term of the system" EquationSystem(layout, equations(MomentumBoundaryFluxTerm(:f, copy));
+                                                                initial_state=u)
+        @test EquationSystem(layout, equations(MomentumBoundaryFluxTerm(:f, fp)); initial_state=u) isa EquationSystem
+    end
+end

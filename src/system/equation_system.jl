@@ -878,14 +878,24 @@ function _check_plasma_pairings(equations)
         end
     end
     # a term that reads the coefficients of a Fokker-Planck term or an interface of the
-    # system takes that term itself, not a copy with other coefficients
+    # system takes that term itself, not a copy with other coefficients. The energy terms
+    # take the term of the system always. A boundary flux or an interface takes it when its
+    # plasma reads unknowns: a copy is never prepared for the step, so with lagged ions it
+    # reads the charge states of the iterate without their columns, and with lagged = :all
+    # it keeps the coefficients of its construction, and the flux through it is wrong
+    # without a refusal. A copy with a prescribed plasma rebuilds at its evaluation and
+    # stays allowed (the operator of a conductivity model is one), and a bare operator is
+    # prescribed data (_check_prescribed_operators).
     terms_of_system = [term for equation in equations for term in equation.terms]
     for equation in equations, term in equation.terms
-        source = term isa KineticEnergyLossTerm ? term.source :
-                 term isa InterfaceEnergyFluxTerm ? term.interface : nothing
-        source === nothing || any(other -> other === source, terms_of_system) ||
-            throw(ArgumentError("a $(nameof(typeof(term))) in the equation of $(equation.unknown) reads a " *
-                                "$(nameof(typeof(source))) that is not a term of the system: give it the term of the system"))
+        sources = term isa KineticEnergyLossTerm ? (term.source,) :
+                  term isa InterfaceEnergyFluxTerm ? (term.interface,) :
+                  filter(s -> s isa FokkerPlanckTerm && is_state_dependent(s.plasma), _coefficient_sources(term))
+        for source in sources
+            any(other -> other === source, terms_of_system) ||
+                throw(ArgumentError("a $(nameof(typeof(term))) in the equation of $(equation.unknown) reads a " *
+                                    "$(nameof(typeof(source))) that is not a term of the system: give it the term of the system"))
+        end
     end
     # the energy exchange with the ions conserves energy only with both of its sides
     exchanges = [term for equation in equations for term in equation.terms if term isa IonEnergyExchangeTerm]

@@ -298,7 +298,10 @@ unknowns. The step is accepted when it is at most 1, and its solution is that of
 full step, as in DREAM. The next step is `safety · h / error^exponent` in either case,
 without a cap on its growth (DREAM: safety 0.95, exponent 1.0; its stabiliser, exponent
 0.7 with a memory of the last error, is compiled out). `check_every` steps between two
-checked steps are taken at the current length without a check (DREAM's `checkevery`).
+checked steps are taken at the current length without a check, the documented intent of
+DREAM's `checkevery`. DREAM's code takes them from a stale `initTime`, with the lengths
+`h₁ − h₀`, `−h₀`, `−(h₀ + h₁)`, and `checkevery + 1` of them (`TimeStepperAdaptive.cpp:119-122`,
+`145-152`, `334-338`), so no option reproduces it.
 
 The tolerances are the [`Tolerance`](@ref)s the system holds for the time-step error
 (`time_step_tolerances` of [`EquationSystem`](@ref)); an unknown without one gets

@@ -133,6 +133,79 @@ end
         @test dream_field > 1.1 * field && 0 < dream_rate < rate(3Ec)
     end
 
+    @testset "the maximum and the root by quadrature, with the synchrotron loss" begin
+        # An independent reference of the effective critical field with what the limit of Connor
+        # and Hastie switches off: the synchrotron loss of a magnetic field, which holds the largest
+        # advection at a finite momentum, and the pitch averages away from ⟨ξ₀⟩ = 1 (A = 6.3 at the
+        # optimum, ⟨ξ₀⟩ = 0.84). The pitch averages of exp(−A(1 − ξ₀)) are integrated numerically
+        # over ξ₀, the maximum over p is found by a scan in log p and a ternary search, and the
+        # root in the field by bisection: no closed form and no search of the code is used.
+        # The frequencies are those of the code, which have independent references of their
+        # own.
+        n, T, Z, B = 1e20, 1000.0, 1, 5.0
+        ions = [IonSpecies("D", Z, Z, [n / Z])]
+        settings = CollisionSettings(; mode=:superthermal, screening=:complete, coulomb_logarithm=:thermal,
+                                     bremsstrahlung=:neglect)
+        plasma = PlasmaState(; cold_electron_temperature=[T], ions, electric_field=[1.0], magnetic_field=[B],
+                             cold_electron_density=[n])
+        model = CollisionModel(plasma, settings)
+        c, e, me = Constants.SPEED_OF_LIGHT, Constants.ELEMENTARY_CHARGE, Constants.ELECTRON_MASS
+        tau_inverse = e^4 * B^2 / (6π * Constants.VACUUM_PERMITTIVITY * me^3 * c^3)
+        # ⟨ξ₀⟩ and ⟨1 − ξ₀²⟩ of exp(−A(1 − ξ₀)) by Simpson's rule on 2000 intervals of [−1, 1]
+        function pitch_averages(A)
+            N = 2000
+            h = 2 / N
+            z, zx, zxx = 0.0, 0.0, 0.0
+            for k in 0:N
+                xi = -1 + k * h
+                g = (k == 0 || k == N ? 1 : isodd(k) ? 4 : 2) * exp(-A * (1 - xi))
+                z += g
+                zx += g * xi
+                zxx += g * xi^2
+            end
+            return zx / z, 1 - zxx / z
+        end
+        function advection(p, E)
+            w = e * E / (me * c)
+            A = 2w / (p * deflection_frequency(model, 1, p))
+            mean_xi, mean_perp = pitch_averages(A)
+            return w * mean_xi - p * slowing_down_frequency(model, 1, p) - p * sqrt(1 + p^2) * tau_inverse * mean_perp
+        end
+        # the largest advection over p: the best of 601 points in log p, then a ternary search
+        # between its neighbours
+        function largest(E)
+            xs = range(log(1e-2), log(1e3); length=601)
+            k = argmax([advection(exp(x), E) for x in xs])
+            a, b = xs[max(k - 1, 1)], xs[min(k + 1, end)]
+            for _ in 1:80
+                m1, m2 = a + (b - a) / 3, b - (b - a) / 3
+                advection(exp(m1), E) < advection(exp(m2), E) ? (a = m1) : (b = m2)
+            end
+            return advection(exp((a + b) / 2), E), exp((a + b) / 2)
+        end
+        Ec = critical_field(n, thermal_coulomb_logarithm(T, n))
+        lower, upper = Ec, 20Ec
+        @test first(largest(lower)) < 0 < first(largest(upper))
+        for _ in 1:60
+            mid = (lower + upper) / 2
+            first(largest(mid)) < 0 ? (lower = mid) : (upper = mid)
+        end
+        E_ref = (lower + upper) / 2
+        p_ref = last(largest(E_ref))
+        field, p_opt = effective_critical_field(model, 1)
+        @test field ≈ E_ref rtol = 1e-6
+        @test p_opt ≈ p_ref rtol = 1e-5
+        # the synchrotron loss raises the field above the limit of Connor and Hastie and holds
+        # the maximum at a finite momentum
+        @test field > 1.5Ec && 1 < p_opt < 10
+        # the closed forms of the pitch averages against the quadrature at the optimum
+        A = 2 * e * field / (me * c) / (p_opt * deflection_frequency(model, 1, p_opt))
+        mean_xi, mean_perp = pitch_averages(A)
+        @test 3 < A < 10 && mean_xi < 0.9
+        @test Runes2P._langevin(A) ≈ mean_xi rtol = 1e-8
+        @test 2 * Runes2P._langevin_over(A) ≈ mean_perp rtol = 1e-8
+    end
+
     @testset "DREAM's regression values" begin
         # DREAM's unit tests of its RunawayFluid at 93d27e1 (tests/cxx/tests/DREAM/RunawayFluid.cpp,
         # CompareEceffWithTabulated L313-357 and CompareGammaAvaWithTabulated L394-436, the plasma
@@ -209,6 +282,21 @@ end
             difference = (rhs_rows(up) - rhs_rows(down)) / 2h
             @test Vector(J[rows, column]) ≈ difference rtol = 1e-4 atol = 1e-9 * maximum(abs, out[rows]) / abs(u[column])
         end
+        # the rows that hold the term, and the residual and the Jacobian at one state, share one
+        # evaluation per radius; the Jacobian takes every partial in one pass
+        Runes2P.rhs!(zeros(length(u)), term, u, layout, 1, 0.0)     # the cache at the state u, after the differences
+        Runes2P.add_jacobian!(J, term, u, layout, 1, 0.0)
+        evaluations = [entry.evaluations for entry in term.cache]
+        Runes2P.rhs!(zeros(length(u)), term, u, layout, 1, 0.0)
+        Runes2P.add_jacobian!(J, term, u, layout, 1, 0.0)
+        @test [entry.evaluations for entry in term.cache] == evaluations
+        u[first(unknown_range(layout, 1, 1))] *= 1.1
+        Runes2P.rhs!(zeros(length(u)), term, u, layout, 1, 0.0)
+        @test [entry.evaluations for entry in term.cache] == evaluations .+ [1, 0]
+        Runes2P.add_jacobian!(J, term, u, layout, 1, 0.0)
+        @test [entry.evaluations for entry in term.cache] == evaluations .+ [2, 0]
+        Runes2P.rhs!(zeros(length(u)), term, u, layout, 1, 1.0)    # another time: the prescribed plasma may change
+        @test [entry.evaluations for entry in term.cache] == evaluations .+ [3, 1]
         @test describe(term, Runes2P.DescriptionContext())["p_cutoff"] == 0.8
         @test_throws ArgumentError ExternalAvalancheTerm(PlasmaFromUnknowns(prescribed); p_cutoff=0.8)
     end

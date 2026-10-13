@@ -495,13 +495,14 @@ end
         # N_P = 25 primary ionizations per cm for minimum ionizing particles (βγ ≈ 3 to 4),
         # Table 31.5 of the Review of Particle Physics, J. Beringer et al. (Particle Data
         # Group), Phys. Rev. D 86, 010001 (2012), section 31 "Particle detectors at
-        # accelerators" (the table notes that such values differ between sources). DREAM's fit
-        # of the cross section of Ar⁰ gives 21.6 per cm at βγ = 3.5.
+        # accelerators" (the table notes that such values differ between sources). The default,
+        # CHIANTI's fit of the cross section of Ar⁰, gives 24.1 per cm at βγ = 3.5, DREAM's
+        # 21.6.
         n_ntp = 2.504e25
         @test ionization_cross_section("Ar", 0, 3.5) * n_ntp / 100 ≈ 25 rtol = 0.2
-        # at that energy the ionization takes 0.86 of the Bethe stopping with the neutral width of
-        # Opal et al., and less with the default spectrum of Kim and Rudd, so the split leaves
-        # the friction of MeV electrons unchanged
+        # at p = 3 to 4 the ionization takes 0.95 to 0.97 of the Bethe stopping with the neutral
+        # width of Opal et al. (0.83 to 0.89 with DREAM's form), and about 0.57 with the default
+        # spectrum of Kim and Rudd, so the split leaves the friction of MeV electrons unchanged
         gas = PlasmaState(; cold_electron_temperature=[1.0], cold_electron_density=[0.0],
                           ions=[IonSpecies("Ar", 18, 0, [n_ntp])], electric_field=[0.0], magnetic_field=[0.0])
         common = (mode=:superthermal, screening_window=:dream, bremsstrahlung=:neglect)

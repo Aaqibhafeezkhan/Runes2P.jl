@@ -171,6 +171,26 @@ function sparsity!(entries, term::RosenbluthPutvinskiSourceTerm, layout, row)
 end
 
 """
+    AvalancheRateCache
+
+The last evaluation of the matched rate of [`ExternalAvalancheTerm`](@ref) at one radius,
+shared by the rows that hold the term and by the residual and the Jacobian at one state:
+the local values `x` and the time `t` of the entry, the value of the rate times `n_re`, and
+its derivatives by `x` once the Jacobian needed them. One entry per radius, so that a loop
+over radii in threads writes separate entries. The entries take a state in `Float64`;
+a state in another number type is evaluated without the cache.
+"""
+mutable struct AvalancheRateCache
+    x::Vector{Float64}          # the local values (n_re, n_tot, E, T, n_cold, charge states) of the entry
+    t::Float64
+    value::Float64              # the rate times n_re
+    has_value::Bool
+    gradient::Vector{Float64}   # the derivatives of the value by x, empty until the Jacobian needs them
+    evaluations::Int            # the solutions of the effective critical field so far
+end
+AvalancheRateCache() = AvalancheRateCache(Float64[], NaN, NaN, false, Float64[], 0)
+
+"""
     ExternalAvalancheTerm(plasma; p_cutoff, runaway_density=:runaway_density,
                           total_density=:total_electron_density, electric_field=:electric_field,
                           temperature=:cold_electron_temperature, density=:cold_electron_density,
@@ -204,9 +224,12 @@ read them; `settings` gives the screening, the Coulomb logarithm and the tables 
 differentiation through the solutions of the effective critical field and of `p⋆` (one
 Newton correction in dual numbers each). DREAM's own Jacobian takes the columns of the field
 and of `n_tot` alone, with the approximation `Γ ∝ |E| − E_ceff` (`RunawayFluid.cpp:881-907`).
-The solution of the effective critical field takes about 3 ms per radius and evaluation on
-a workstation (D and Ar), and the Jacobian three passes of forward
-differentiation per radius.
+The solution of the effective critical field takes about 2.4 ms per radius on a workstation (D
+and Ar; 2.5 ms with the derivatives). The rate of a radius is evaluated once per state: the
+rows that hold the term (the runaway density and the particle source of a hot-tail grid)
+and the residual and the Jacobian at one state share the evaluation, and the Jacobian takes
+every partial in one pass of forward differentiation (an earlier version of the term solved
+the field eight times per radius and Newton iteration).
 """
 struct ExternalAvalancheTerm{S<:PrescribedPlasma} <: EquationTerm
     plasma::S
@@ -219,6 +242,7 @@ struct ExternalAvalancheTerm{S<:PrescribedPlasma} <: EquationTerm
     ions::Union{Nothing,Symbol}
     settings::CollisionSettings
     exponent::Float64
+    cache::Vector{AvalancheRateCache}   # the last evaluation of each radius
 end
 
 function ExternalAvalancheTerm(plasma; p_cutoff::Real, runaway_density::Symbol=:runaway_density,
@@ -234,7 +258,7 @@ function ExternalAvalancheTerm(plasma; p_cutoff::Real, runaway_density::Symbol=:
     exponent < 0 || throw(ArgumentError("the exponent of the match must be negative (DREAM: -2)"))
     source = plasma isa PrescribedPlasma ? plasma : PrescribedPlasma(plasma)
     return ExternalAvalancheTerm(source, Float64(p_cutoff), runaway_density, total_density, electric_field,
-                                 temperature, density, ions, settings, Float64(exponent))
+                                 temperature, density, ions, settings, Float64(exponent), AvalancheRateCache[])
 end
 
 dependencies(term::ExternalAvalancheTerm) =
@@ -285,11 +309,47 @@ function _external_avalanche_inputs(term::ExternalAvalancheTerm, u, layout, ir)
     return u[columns], columns
 end
 
+# the cache entry of radius ir, grown on demand
+function _cache_entry!(term::ExternalAvalancheTerm, ir)
+    while length(term.cache) < ir
+        push!(term.cache, AvalancheRateCache())
+    end
+    return term.cache[ir]
+end
+
+# The entry of radius ir at the local values x and the time t, with the value of the rate times
+# n_re and, with `gradient`, its derivatives by x. An entry that holds the state is reused; else
+# the value is evaluated in plain numbers, or, for the derivatives, value and derivatives in one
+# pass of forward differentiation with every partial at once. A value evaluated in plain numbers
+# is kept when the derivatives follow, so that the residual at a state does not depend on
+# whether the Jacobian was taken there.
+function _evaluate!(term::ExternalAvalancheTerm, prescribed::PlasmaState, ir, x, t; gradient::Bool)
+    entry = _cache_entry!(term, ir)
+    if !(entry.t == t && entry.x == x)
+        entry.x, entry.t, entry.has_value = x, t, false
+        empty!(entry.gradient)
+    end
+    if gradient && isempty(entry.gradient)
+        f = y -> _external_avalanche(term, prescribed, ir, y)
+        result = ForwardDiff.DiffResults.GradientResult(x)
+        ForwardDiff.gradient!(result, f, x, ForwardDiff.GradientConfig(f, x, ForwardDiff.Chunk{length(x)}()))
+        entry.gradient = copy(ForwardDiff.DiffResults.gradient(result))
+        entry.has_value || (entry.value = ForwardDiff.DiffResults.value(result); entry.has_value = true)
+        entry.evaluations += 1
+    elseif !entry.has_value
+        entry.value, entry.has_value = _external_avalanche(term, prescribed, ir, x), true
+        entry.evaluations += 1
+    end
+    return entry
+end
+
 function rhs!(out, term::ExternalAvalancheTerm, u, layout, row, t)
     prescribed = plasma_values(term.plasma, nothing, nothing, t)
     for ir in 1:radial_cell_count(layout)
         x, _ = _external_avalanche_inputs(term, u, layout, ir)
-        out[first(unknown_range(layout, row, ir))] += _external_avalanche(term, prescribed, ir, x)
+        value = x isa Vector{Float64} ? _evaluate!(term, prescribed, ir, x, t; gradient=false).value :
+                _external_avalanche(term, prescribed, ir, x)    # a state in dual numbers, without the cache
+        out[first(unknown_range(layout, row, ir))] += value
     end
     return out
 end
@@ -298,7 +358,7 @@ function add_jacobian!(J, term::ExternalAvalancheTerm, u, layout, row, t)
     prescribed = plasma_values(term.plasma, nothing, nothing, t)
     for ir in 1:radial_cell_count(layout)
         x, columns = _external_avalanche_inputs(term, u, layout, ir)
-        gradient = ForwardDiff.gradient(y -> _external_avalanche(term, prescribed, ir, y), x)
+        gradient = _evaluate!(term, prescribed, ir, x, t; gradient=true).gradient
         r = first(unknown_range(layout, row, ir))
         for (k, column) in enumerate(columns)
             _add_entry!(J, r, column, gradient[k])

@@ -108,8 +108,10 @@ import ForwardDiff
         @test_throws "through p_max" check((term,), sinks)
         # the boundary term of this Fokker-Planck term, charged as a loss
         @test_throws "through p_max" check((term,), sinks, MomentumBoundaryFluxTerm(:f, term; weight=:energy, coefficient=1))
-        @test_throws "through p_max" check((term,), sinks,
-                                           MomentumBoundaryFluxTerm(:f, fp(:f_zero); weight=:energy, coefficient=-1))
+        # a copy of the term built from the same arguments: the identity check refuses it before the
+        # row check
+        @test_throws "not a term of the system" check((term,), sinks,
+                                                      MomentumBoundaryFluxTerm(:f, fp(:f_zero); weight=:energy, coefficient=-1))
         # complete screening without radiation has no sinks
         bare = fp(:f_zero; settings=CollisionSettings(mode=:full, screening=:complete, bremsstrahlung=:neglect))
         bare = FokkerPlanckTerm(:f, bare.operator; plasma, settings=bare.settings, synchrotron=false)

@@ -144,7 +144,8 @@ using ForwardDiff
         # Closer to the threshold the onsets differ: Ar⁷⁺ at 1.5 and 2 I is 1.79 and 0.42.
         # The two- and one-electron ions Ar¹⁶⁺ and Ar¹⁷⁺, for which Dere's text takes the
         # relativistic fits of Fontes et al. (1999) instead of the files of the table, rise
-        # from 0.97 at 1.5 I to 1.24 at 5 I, 1.35 and 1.38 at 10 I and 1.7 at 20 I: tested to 5 I.
+        # from 0.97 at 1.5 I to 1.24 at 5 I and 1.35 and 1.38 at 10 I (beyond their figures the
+        # fit has a negative Bethe coefficient A₀ and is not usable): tested to 5 I.
         for Z0 in 1:17
             fit = CHIANTI_IONIZATION_FITS["Ar"][Z0+1]
             I = minimum(s.threshold for s in fit.direct)

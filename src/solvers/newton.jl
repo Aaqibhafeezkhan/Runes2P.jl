@@ -67,7 +67,9 @@ Settings of the Newton iteration of a backward-Euler step.
   (DREAM #91). `max_reduction = 0.9` is DREAM's value (`MaximalPhysicalStepLength`).
   The temperature unknown of a [`PlasmaFromUnknowns`](@ref) has the floor of that source
   as its limit, so an update that would cross the floor is damped and a step whose
-  solution lies below the floor is refused. DREAM damps towards zero and has
+  solution lies below the floor is refused. A temperature that only fluid terms
+  read, with no declared limit, takes the default floor of 0.5 eV
+  ([`fluid_temperature_floors`](@ref)). DREAM damps towards zero and has
   no floor.
 - `line_search = true` adds backtracking on `½‖F‖²` of the scaled residual (Armijo
   condition with `sufficient_decrease`, at most `max_backtracks` reductions), starting

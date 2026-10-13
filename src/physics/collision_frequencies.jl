@@ -13,7 +13,10 @@ using QuadGK: quadgk
                       bremsstrahlung_diffusion, bremsstrahlung_constant, bound_friction, ionization_threshold,
                       ionization_threshold_width, secondary_widths, secondary_spectrum, ionization_cross_section_form)
 
-Defaults are those of DREAM's `CollisionHandler`.
+The defaults of `mode`, `screening`, `coulomb_logarithm`, `screened_diffusion` and `bound_friction` are
+those of DREAM's `CollisionHandler`. The defaults of `ion_size_table`, `screening_window`, `bremsstrahlung`,
+`bremsstrahlung_diffusion` and `bremsstrahlung_constant` depart from DREAM.
+The remaining options have no counterpart in DREAM.
 
 - `mode`: `:full` (relativistic Maxwellian targets, adds energy diffusion),
   `:superthermal` (cold target electrons) or `:ultra_relativistic`.
@@ -40,7 +43,9 @@ Defaults are those of DREAM's `CollisionHandler`.
   nuclei of all charge states as a slowing down (DREAM's
   `BREMSSTRAHLUNG_MODE_STOPPING_POWER`): the non-screened formula 4BN of
   Koch and Motz (Rev. Mod. Phys. 31, 920, 1959), `ν_s = n Z² α r₀² c φ_rad(p)/β` per
-  charge state ([`bremsstrahlung_cross_section`](@ref)). It is the default (decision of the author, 2026-10-04). `:neglect` leaves the loss out, as DREAM does by default.
+  charge state ([`bremsstrahlung_cross_section`](@ref)), on the nuclei only, as in DREAM: there is no
+  electron-electron bremsstrahlung, so the stopping lies below ESTAR for hydrogen by 1.21 at 212 keV and
+  1.55 at 1.11 MeV, tending to `Z(Z + 1)/Z²`. It is the default (decision of the author, 2026-10-04). `:neglect` leaves the loss out, as DREAM does by default.
 - `bremsstrahlung_diffusion`: whether the energy diffusion `ν_∥ = Θγν_s` of `mode = :full`
   with `screened_diffusion = :maxwellian` takes the radiative stopping of `bremsstrahlung`.
   `:none` (the default, decision of the author, 2026-10-06): the radiative stopping is a pure

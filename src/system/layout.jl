@@ -28,7 +28,9 @@ A Newton update loses at most the fraction `max_reduction` of the distance
 to the limit, so an iterate approaches the floor and does not cross it, and a step whose
 solution lies below it does not converge and is refused. The temperature unknown of a
 [`PlasmaFromUnknowns`](@ref) takes the floor of that source as its limit without a
-declaration, and the larger of the two values where both exist.
+declaration, and the larger of the two values where both exist. A temperature that only
+fluid terms read takes the default floor of 0.5 eV without a declaration
+([`fluid_temperature_floors`](@ref)); a declared limit is kept as it is.
 """
 struct LowerLimit
     value::Float64

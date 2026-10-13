@@ -135,8 +135,11 @@ field is below that critical field.
 It is not DREAM's effective critical momentum (`other/fluid/pCrit`, Hesslow et al.), which
 takes the partial screening of the ions into account in the slowing down and the
 pitch-angle scattering of the fast electrons. The free critical field ([`free_critical_momentum`](@ref)) can give a threshold
-in a hot plasma where the effective one has none, below the thermal momentum. DREAM's effective critical momentum is not
-in Runes2P yet.
+in a hot plasma where the effective one has none, below the thermal momentum. Runes2P has DREAM's effective critical field and
+`p⋆` ([`effective_critical_field`](@ref), [`avalanche_critical_momentum`](@ref)), from which
+`pCrit = 1/√((Ê − Ê_ceff)/(p⋆² Ê_eff))` follows in DREAM's FLUID and KINETIC avalanche modes
+(`RunawayFluid.cpp:647-653`; not in `FLUID_HESSLOW`, whose `p⋆` differs); no function returns
+it yet, and it is not the default of `critical_momentum_at`.
 """
 function total_critical_momentum(plasma::PlasmaState, ir::Integer)
     free = free_electron_density(plasma, ir)

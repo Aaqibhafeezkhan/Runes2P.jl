@@ -693,7 +693,7 @@ end
 settings_fields(::Type{<:ExternalAvalancheTerm}) =
     (described=(:plasma, :p_cutoff, :runaway_density, :total_density, :electric_field, :temperature, :density, :ions,
                 :settings, :exponent),
-     derived=())
+     derived=(:cache,))
 
 function describe(term::ExternalAvalancheTerm, context::DescriptionContext)
     record = _term_record(term)

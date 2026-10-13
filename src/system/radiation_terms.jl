@@ -109,11 +109,11 @@ charge states ([`add_local_jacobian!`](@ref)). With `kinetic`, the
 of the ionization is that of the cold electrons below its threshold, at the fluid
 coefficient of [`fluid_ionization_coefficient`](@ref).
 
-- `radiation = :recombination` (the default of Runes2P while the choice is open): the line
-  radiation `L = PLT + PRB` with the recombination radiation and bremsstrahlung, the binding
-  energy that ionization takes, `I(Z_0) SCD`, and the one recombination returns,
-  `−I(Z_0 − 1) ACD`, with the ionization energies `I` of NIST ([`ionization_energy`](@ref)).
-  DREAM's mode with recombination takes `I(Z_0)` in the gain from its second radial cell on.
+- `radiation = :recombination` (the default, decision of the author, 2026-10-13): the line radiation `L = PLT + PRB`
+  with the recombination radiation and bremsstrahlung, the binding energy that ionization
+  takes, `I(Z_0) SCD`, and the one recombination returns, `−I(Z_0 − 1) ACD`, with the
+  ionization energies `I` of NIST ([`ionization_energy`](@ref)). DREAM's mode with
+  recombination takes `I(Z_0)` in the gain from its second radial cell on.
 - `radiation = :dream`: DREAM's default, `L = PLT`, the ionization loss alone, and the
   bremsstrahlung of Gould with a relativistic correction, `C √T (Σ n Z_0² + (a Σ n Z_0²
   + κ n_e) T/mₑc²) n_e`, `C = 1.69e-38 W m³ eV^{-1/2}`
