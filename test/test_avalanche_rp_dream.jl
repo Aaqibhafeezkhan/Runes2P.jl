@@ -8,7 +8,8 @@
 # and 1e-3 in DREAM, which interpolates the pitch averages as well. The matched rate of the
 # external avalanche, (Γ_ext⁻² + Γ_fluid⁻²)^(-1/2) (ExternalAvalancheTerm.cpp:51-56), is not in
 # DREAM's output and is not compared here on its own; it enters the runaway density of the
-# coupled comparison of test_disruption_dream.jl. Needs no ADF11 cache.
+# coupled comparison of test_disruption_dream.jl, which compares n_re per radius and so sees the
+# positive branch at its second radius in the quench. Needs no ADF11 cache.
 using HDF5
 
 @testset "Rosenbluth-Putvinski avalanche against DREAM" begin

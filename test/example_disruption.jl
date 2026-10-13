@@ -98,6 +98,8 @@ function build(start; scheme::Symbol=:tcdf, compat::Symbol=:dream, diffusivity::
                                                               shape=:lowest_cell),
                  RosenbluthPutvinskiSourceTerm(:f, grid; p_cutoff=P_CUT)),
         Equation(:runaway_density, TimeDerivative(), MomentumBoundaryFluxTerm(:f, fp), external),
+        # j_re = e c n_re; DREAM's takes the sign of the field (j_re.cpp:95), which is positive at
+        # every radius of both phases of the case
         Equation(:runaway_current_density, Algebraic(),
                  LinearTerm(:runaway_density; coefficient=Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT),
                  minus(:runaway_current_density)),
@@ -146,3 +148,81 @@ function initial_state(case, start)
     return u
 end
 
+
+# the values of a term of a radial row at the state u, per radius
+function _term_values(term, u, layout, row, t)
+    out = Runes2P.rhs!(zeros(length(u)), term, u, layout, row, t)
+    return collect(radial_values(out, layout, row))
+end
+
+"""
+    budgets(case, solution)
+
+The closures of the system of `case` over `solution`, independent of DREAM (checked by
+`test_disruption_dream.jl`): each ion species conserved (no ion transport), the exchange of
+energy between the electrons and the ions antisymmetric, the heat diffusion without a net
+flux (no flux at the edge), the particle source keeping `∫f − (n_cold + n_hot)` fixed, the
+row of `W_cold` closed by its channels, and the
+energy of the poloidal field. `W = Σ V'Δr (ψ − ψ_wall) j_tot` changes in a step by
+`4π dt Σ V'Δr E (j_new + j_old)/2` when the map from `ψ` to `j` is symmetric (backward Euler,
+`∂ψ/∂t = 2πE`), so the magnetic energy `−W/4π` falls by the work of the field on all currents
+(a perfectly conducting wall: no flux through it). A balance of the total energy does not close
+in this model: `f` covers the bulk as well, and the energy that `f` takes from the field or gives
+to the bulk through collisions is not in the row of `W_cold` (DREAM's energy equation).
+
+Returns a named tuple of the worst relative values over the steps: `species` (the change of the
+density of a species, relative to the largest density), `exchange` (`Q_i + Q_e`, relative to the
+largest electron side), `diffusion` (the net flux of the heat diffusion, relative to its absolute
+sum), `closure` (the row of `W_cold` against its channels, relative to `dW/dt`), `drift` (of
+`∫f − n_cold − n_hot`, relative to `n_cold`) and `field` (the change of the field energy against
+the work of the field, relative to the change); and `channels` with `labels`, the energy of each
+channel of the row of `W_cold` over the solution (volume mean, J/m³).
+"""
+function budgets(case, solution)
+    layout = case.layout
+    weights = case.radial.spatial_jacobian .* case.radial.r_widths        # V' Δr
+    row_T = unknown_id(layout, :cold_electron_temperature)
+    T_equation = only(e for e in case.equations if e.unknown === :cold_electron_temperature)
+    W_i_equation = only(e for e in case.equations if e.unknown === :ion_thermal_energy)
+    labels = ["E j_ohm", "radiation and binding", "heat diffusion", "e c E_c n_re", "exchange (electrons)"]
+    channels = zeros(length(labels))
+    ions_id, energy_id, f_id = unknown_id(layout, :ion_densities), unknown_id(layout, :ion_thermal_energy), unknown_id(layout, :f)
+    species(u) = [sum(radial_view(u, layout, ions_id, ir)[species_components(COMPOSITION, s)]) for s in 1:length(COMPOSITION),
+                  ir in 1:case.nr]
+    totals0 = species(solution.states[:, 1])
+    worst = Dict(:species => 0.0, :exchange => 0.0, :diffusion => 0.0, :closure => 0.0)
+    ψ_id, E_id, j_id = unknown_id(layout, :poloidal_flux), unknown_id(layout, :electric_field), unknown_id(layout, :total_current_density)
+    wall = only(unknown_range(layout, unknown_id(layout, :wall_poloidal_flux)))
+    field_energy(u) = sum(weights .* (radial_values(u, layout, ψ_id) .- u[wall]) .* radial_values(u, layout, j_id))
+    field_work = 0.0
+    cold(u) = radial_values(u, layout, unknown_id(layout, :cold_electron_density))
+    gap(u) = density(case.grid, kinetic_array(u, layout, f_id)) .- cold(u) .-
+             radial_values(u, layout, unknown_id(layout, :hot_electron_density))
+    gap0 = gap(solution.states[:, 1])
+    drift = 0.0
+    for m in 2:length(solution.times)
+        u, t = solution.states[:, m], solution.times[m]
+        dt = t - solution.times[m-1]
+        # the row of the temperature holds the time derivative of the thermal energy
+        parts = [_term_values(term, u, layout, row_T, t) for term in T_equation.terms]
+        channels .+= dt .* [sum(weights .* p) for p in parts] ./ sum(weights)
+        worst[:species] = max(worst[:species], maximum(abs, species(u) .- totals0) / maximum(totals0))
+        ion_side = Runes2P.rhs!(zeros(length(u)), only(W_i_equation.terms), u, layout, energy_id, t)
+        Q_i = [sum(radial_view(ion_side, layout, energy_id, ir)) for ir in 1:case.nr]
+        exchange = parts[findfirst(t -> t isa IonEnergyExchangeTerm, T_equation.terms)]
+        diffusion = parts[findfirst(t -> t isa HeatTransportTerm, T_equation.terms)]
+        worst[:exchange] = max(worst[:exchange], maximum(abs, Q_i .+ exchange) / maximum(abs, exchange))
+        worst[:diffusion] = max(worst[:diffusion], abs(sum(weights .* diffusion)) / sum(weights .* abs.(diffusion)))
+        W = radial_values(u, layout, unknown_id(layout, :cold_thermal_energy))
+        W_old = radial_values(solution.states[:, m-1], layout, unknown_id(layout, :cold_thermal_energy))
+        closure = (W .- W_old) ./ dt .- sum(parts)
+        worst[:closure] = max(worst[:closure], maximum(abs, closure) / maximum(abs, (W .- W_old) ./ dt))
+        drift = max(drift, maximum(abs, gap(u) .- gap0) / maximum(cold(u)))
+        j_mid = (radial_values(u, layout, j_id) .+ radial_values(solution.states[:, m-1], layout, j_id)) ./ 2
+        field_work += 4π * dt * sum(weights .* radial_values(u, layout, E_id) .* j_mid)
+    end
+    ΔW = field_energy(solution.states[:, end]) - field_energy(solution.states[:, 1])
+    return (; species=worst[:species], exchange=worst[:exchange], diffusion=worst[:diffusion], closure=worst[:closure],
+            drift, field=abs(ΔW - field_work) / abs(ΔW), field_energy_start=-field_energy(solution.states[:, 1]) / (4π * sum(weights)),
+            field_energy_change=-ΔW / (4π * sum(weights)), channels, labels)
+end

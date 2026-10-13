@@ -11,7 +11,7 @@ On a cluster the suite runs as an array job, one task per group.
 | `groups.toml` | the groups of test files, each with its tier, one array task per group |
 | `helpers.jl` | the module `TestHelpers`: definitions that several test files use |
 | `example_cases.jl` | setups built from DREAM's examples, shared by the tests |
-| `example_disruption.jl` | the system of the disruption case from DREAM's state, used by `test_disruption_dream.jl` |
+| `example_disruption.jl` | the system of the disruption case from DREAM's state and the budgets of its closures, used by `test_disruption_dream.jl` |
 | `test_*.jl` | the test files, 66 on 2026-10-01 |
 | `*_helpers.jl` | a file that one test file includes, not a test file of its own |
 | `data/` | DREAM's output for the comparison tests, written by `reference/dream/cases/` |
