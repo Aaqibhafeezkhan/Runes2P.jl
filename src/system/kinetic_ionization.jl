@@ -424,7 +424,8 @@ end
 function _secondary_weights(term::SecondaryHeatingTerm, ir, T)
     kinetic = term.kinetic
     c = kinetic.composition
-    cut = term.cut === :threshold ? _threshold_energy(kinetic, T) : Inf
+    # one type: Inf, and the threshold of a fixed-momentum region, in the type of T
+    cut = oftype(float(T), term.cut === :threshold ? _threshold_energy(kinetic, T) : Inf)
     rates = kinetic.rates[ir]
     energies = term.energies[ir]
     weights = zeros(typeof(float(cut)), size(rates))

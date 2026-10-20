@@ -1130,7 +1130,8 @@ it fails (`max_step_halvings = n` is a shorthand for `stepper = FixedSteps(max_h
 Each step is solved by [`newton_solve!`](@ref) with explicit terms at the previous time
 level. A step that still fails throws [`TimeStepFailure`](@ref).
 
-States are saved at `save_times` (increasing, inside `[times[1], times[end]]`), and every
+States are saved at `save_times` (strictly increasing, inside `[times[1], times[end]]`; two save
+times within a relative 1e-12 of one time point count as one and are refused), and every
 saved state is a computed one: with [`FixedSteps`](@ref) and [`StepDoubling`](@ref) a
 save time must be a time point (an `ArgumentError` names one that is not; DREAM saves
 computed steps only, DREAM issues #81 and #93), while [`StepController`](@ref) ends a step
@@ -1213,7 +1214,10 @@ function _check_run(system::EquationSystem, u0, times, save_times, options::RunO
     isempty(times) && throw(ArgumentError("times is empty"))
     all(k -> times[k+1] > times[k], 1:length(times)-1) ||
         throw(ArgumentError("times must be strictly increasing"))
-    issorted(save_times) || throw(ArgumentError("save_times must be increasing"))
+    # strictly, after the snap to the time points: a repeated save time would be saved twice,
+    # and the reader of a segmented run refuses repeated times
+    all(k -> save_times[k+1] > save_times[k], 1:length(save_times)-1) ||
+        throw(ArgumentError("save_times must be strictly increasing (after snapping to the time points within a relative 1e-12)"))
     all(s -> first(times) <= s <= last(times), save_times) ||
         throw(ArgumentError("save_times must lie inside [times[1], times[end]]"))
     # every saved state is a computed one: a save time is an end of a step

@@ -116,6 +116,33 @@ import ForwardDiff
         bare = fp(:f_zero; settings=CollisionSettings(mode=:full, screening=:complete, bremsstrahlung=:neglect))
         bare = FokkerPlanckTerm(:f, bare.operator; plasma, settings=bare.settings, synchrotron=false)
         @test check((bare,), MomentumBoundaryFluxTerm(:f, bare; weight=:energy, coefficient=-1)) === nothing
+        # no screening counts the bound electrons as targets, which the free-electron operator of
+        # the sinks term does not: a sink
+        none = fp(:f_zero; settings=CollisionSettings(mode=:full, screening=:none, bremsstrahlung=:neglect))
+        none = FokkerPlanckTerm(:f, none.operator; plasma, settings=none.settings, synchrotron=false)
+        @test_throws "part = :sinks" check((none,), MomentumBoundaryFluxTerm(:f, none; weight=:energy, coefficient=-1))
+        @test check((none,), KineticEnergyLossTerm(none; part=:sinks, region),
+                    MomentumBoundaryFluxTerm(:f, none; weight=:energy, coefficient=-1)) === nothing
+        # the sinks term charged as a gain, or over another region than the energy moment
+        @test_throws "negative coefficient" check((term,), KineticEnergyLossTerm(term; part=:sinks, region, coefficient=1),
+                                                  outflow)
+        @test_throws "another region" check((term,), KineticEnergyLossTerm(term; part=:sinks, region=MomentumRegion(0.1)),
+                                            outflow)
+        # the interface to a runaway grid under the total energy: the interface term of this term,
+        # charged as a loss in a two-grid system
+        upper = runaway_grid(grid, uniform_p_faces(20, 0.4, 5.0)[2:end])
+        lower = FokkerPlanckTerm(:f, AdvectionDiffusion(grid; scheme=:exponential_fitting, p_upper_boundary=:interface);
+                                 plasma, settings=CollisionSettings(mode=:full, screening=:partial))
+        re = FokkerPlanckTerm(:runaway, AdvectionDiffusion(upper; scheme=:exponential_fitting, p_lower_boundary=:interface);
+                              plasma, settings=lower.settings)
+        interface = MomentumInterfaceTerm(:f, :runaway, lower, re)
+        two(row_terms...) = Runes2P._check_plasma_pairings([Equation(:f, TimeDerivative(), lower, interface);
+                                                        Equation(:runaway, TimeDerivative(), re, interface);
+                                                        row(row_terms...); energy])
+        crossing = KineticEnergyLossTerm(lower; part=:sinks, region)
+        @test two(crossing, InterfaceEnergyFluxTerm(interface)) === nothing
+        @test_throws "add InterfaceEnergyFluxTerm" two(crossing)
+        @test_throws "negative coefficient" two(crossing, InterfaceEnergyFluxTerm(interface; coefficient=1))
         # radial transport and knock-on secondaries on the grid of f have no row term yet
         transport = AdvectionDiffusion(grid; scheme=:central, r_boundary=:absorbing)
         add_rechester_rosenbluth_diffusion!(transport, 1e-3; major_radius=6.2)

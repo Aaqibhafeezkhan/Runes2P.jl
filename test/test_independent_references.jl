@@ -301,6 +301,11 @@ using QuadGK: quadgk
         slope = 2 * excess(1e-3) - excess(2e-3)
         @test slope ≈ Runes2P.GOULD_ION_CORRECTION atol = 1e-4
         @test Runes2P.GOULD_ION_CORRECTION == 11 / 24
+        # the four constants pinned: Gould's electron-electron coefficient of his eqs.
+        # (18) and (22), three times smaller than DREAM's of his eq. (41) as printed, and DREAM's 19/24
+        @test Runes2P.GOULD_ELECTRON_CORRECTION == 5 / (24 * sqrt(2)) * (44 - 3π^2)
+        @test Runes2P.DREAM_GOULD_ELECTRON_CORRECTION ≈ 3 * Runes2P.GOULD_ELECTRON_CORRECTION rtol = 1e-15
+        @test Runes2P.DREAM_GOULD_ION_CORRECTION == 19 / 24
         @test abs(slope - Runes2P.DREAM_GOULD_ION_CORRECTION) > 0.3
     end
 

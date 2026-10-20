@@ -386,3 +386,14 @@ end
     @test u[1] - u[2] ≈ difference rtol = 1e-6
     @test u[1] + u[2] ≈ sum(u_old) rtol = 1e-12
 end
+
+# A repeated save time was saved twice, which the reader of a segmented run refuses; the run
+# refuses it, also when two save times snap to one time point.
+@testset "repeated save times are refused" begin
+    system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-1.0))
+    u0 = [1.0]
+    times = [0.0, 0.5, 1.0]
+    @test length(integrate(system, u0, times; save_times=[0.0, 0.5, 1.0]).times) == 3
+    @test_throws "strictly increasing" integrate(system, u0, times; save_times=[0.0, 0.5, 0.5, 1.0])
+    @test_throws "strictly increasing" integrate(system, u0, times; save_times=[0.0, 0.5, 0.5 * (1 + 1e-13), 1.0])
+end

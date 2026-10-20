@@ -210,7 +210,7 @@ one of them, and it refuses radial transport of `distribution` and knock-on seco
 its grid, which have no such term yet: their energy would come out of the cold electrons of
 the radius where it is moved. The sinks take no flux through
 `p_max`, whose energy is the boundary term's alone. The sinks
-term is required by the settings of the collisions (synchrotron, bremsstrahlung or partial
+term is required by the settings of the collisions (synchrotron, bremsstrahlung, partial or no
 screening on), not by its value: at `B = 0` a synchrotron loss of zero still needs the term,
 so that the row stays closed when the field of the plasma changes.
 

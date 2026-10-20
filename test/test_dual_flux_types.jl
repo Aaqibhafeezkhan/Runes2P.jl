@@ -45,7 +45,10 @@ function _dual_flux_case(scheme)
 end
 
 @testset "fluxes with dual coefficients" begin
-    @testset "one element type per flux ($scheme)" for scheme in (:exponential_fitting, :upwind, :central, :quick)
+    # the limiters TCDF (the scheme of the DREAM disruption case) and van Albada among the schemes,
+    # with the limiter frozen at a state as well
+    @testset "one element type per flux ($scheme)" for scheme in (:exponential_fitting, :upwind, :central, :quick,
+                                                                 :tcdf, :van_albada)
         layout, fp, u = _dual_flux_case(scheme)
         D = ForwardDiff.Dual{Runes2P.PlasmaColumnTag,Float64,23}
         op = Runes2P.similar_coefficients(fp.operator, D)
@@ -53,6 +56,7 @@ end
         mode = Runes2P._radial_flux_mode(op)
         for k in (1, 2, 25), j in 1:3
             @test (@inferred Runes2P._p_flux(op, f, k, j, 1)) isa D
+            @test (@inferred Runes2P._p_flux(op, f, k, j, 1, f, nothing)) isa D
         end
         for k in 1:4
             @test (@inferred Runes2P._xi_flux(op, f, 2, k, 1)) isa D
@@ -78,8 +82,8 @@ end
         @test (@inferred Runes2P._p_flux(fp.operator, f, 2, 1, 1, nothing, perturbed)) isa eltype(perturbed)
     end
 
-    @testset "apply! on a Float64 f and on a dual f" begin
-        layout, fp, u = _dual_flux_case(:exponential_fitting)
+    @testset "apply! on a Float64 f and on a dual f ($scheme)" for scheme in (:exponential_fitting, :tcdf, :van_albada)
+        layout, fp, u = _dual_flux_case(scheme)
         plasma = Runes2P.plasma_values(fp.plasma, u, layout, 0.0)
         dual = Runes2P.dual_plasma(plasma, true, true)
         D = eltype(dual.cold_electron_temperature)
@@ -90,6 +94,22 @@ end
         from_dual = Runes2P.apply!(zeros(D, size(f)), op, D.(f))
         @test ForwardDiff.value.(from_float) == ForwardDiff.value.(from_dual)
         @test ForwardDiff.partials.(from_float) == ForwardDiff.partials.(from_dual)
+    end
+
+    # the coefficient helpers return one number type with a dual plasma: the friction on bound
+    # electrons under both forms of bound_friction
+    @testset "one number type of the bound friction" begin
+        layout, fp, u = _dual_flux_case(:exponential_fitting)
+        plasma = Runes2P.plasma_values(fp.plasma, u, layout, 0.0)
+        dual = Runes2P.dual_plasma(plasma, true, true)
+        D = eltype(dual.cold_electron_temperature)
+        for bound_friction in (:bethe, :ionization_split)
+            settings = CollisionSettings(; mode=:full, screening=:partial, bound_friction)
+            model = Runes2P.CollisionModel(dual, settings)
+            argon = findfirst(s -> s.nuclear_charge == 18 && s.charge == 1, model.charge_states)
+            @test (@inferred Runes2P._bound_slowing_down(model, argon, model.charge_states[argon], 1, 0.3, 1.0)) isa D
+            @test (@inferred slowing_down_frequency(model, 1, 0.3)) isa D
+        end
     end
 
     # the columns of the charge states in the rows of f and of T against central differences

@@ -1036,9 +1036,19 @@ end
 
 # whether a Fokker-Planck term holds collisions, whose flux through p_max and sinks move energy
 _has_collisions(term::FokkerPlanckTerm) = term.plasma !== nothing || term.operator.coefficient_source[] !== nothing
-# whether its collisions have sinks: radiation or the friction on bound electrons
+# whether its collisions have sinks: radiation or the friction on bound electrons, which the
+# partially screened frequencies hold and the non-screened ones as well, since their target
+# density counts the bound electrons
 _has_sinks(term::FokkerPlanckTerm) =
-    term.synchrotron || term.settings.bremsstrahlung === :stopping_power || term.settings.screening === :partial
+    term.synchrotron || term.settings.bremsstrahlung === :stopping_power ||
+    term.settings.screening in (:partial, :none)
+# whether two regions count the same electrons: the same limit, side, envelope and width
+_same_limit(a::ThermalMomentum, b::ThermalMomentum) = a.temperature == b.temperature && a.factor == b.factor
+_same_limit(a, b) = a == b
+_same_region(a::MomentumRegion, b::MomentumRegion) =
+    _same_limit(a.limit, b.limit) && a.side === b.side && a.envelope === b.envelope && a.smooth_width == b.smooth_width
+_same_region(a, b) = a === nothing && b === nothing
+_region_of(envelopes) = envelopes === nothing ? nothing : envelopes.region
 # whether a term moves f in radius
 _moves_in_radius(term::FokkerPlanckTerm) = any(!iszero, term.operator.diffusion_r_r) || any(!iszero, term.operator.advection_r)
 
@@ -1058,21 +1068,49 @@ function _check_total_energy_rows(equations)
         listed = row.terms
         for d in distributions, equation in equations
             equation.unknown === d || continue
+            moment = first(t for e in closures for t in e.terms if t isa EnergyMomentTerm && t.kinetic === d)
             for term in equation.terms
                 if term isa FokkerPlanckTerm && _has_collisions(term)
-                    _has_sinks(term) && !any(t -> t isa KineticEnergyLossTerm && t.source === term && t.part === :sinks,
-                                             listed) &&
+                    # the sinks term of this Fokker-Planck term, charged as a loss, over the
+                    # region of the energy moment
+                    sinks = [t for t in listed if t isa KineticEnergyLossTerm && t.source === term && t.part === :sinks]
+                    _has_sinks(term) && isempty(sinks) &&
                         throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy " *
                                             "$total, and the collisions of $d have sinks (radiation or bound electrons) " *
                                             "that no term of the row lists, so the cold electrons would pay them: add " *
                                             "KineticEnergyLossTerm(term; part = :sinks, region) to the row (issue #180)"))
+                    for t in sinks
+                        t.coefficient < 0 ||
+                            throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy " *
+                                                "$total, and its sinks term of $d has the coefficient $(t.coefficient), " *
+                                                "which adds the sinks to the total in place of removing them: give it " *
+                                                "a negative coefficient (issue #256)"))
+                        _same_region(_region_of(t.envelopes), _region_of(moment.envelopes)) ||
+                            throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy " *
+                                                "$total, and its sinks term of $d takes another region than the energy " *
+                                                "moment of $d, so it charges electrons outside W_hot: give it the region " *
+                                                "of the moment (issue #256)"))
+                    end
                     boundary = term.operator.p_upper_boundary
                     if boundary === :interface
-                        any(t -> t isa InterfaceEnergyFluxTerm && t.interface.lower === d, listed) ||
+                        crossings = [t for t in listed if t isa InterfaceEnergyFluxTerm && t.interface.lower === d]
+                        isempty(crossings) &&
                             throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy " *
                                                 "$total, and the electrons of $d that cross the interface to the runaway " *
                                                 "grid leave W_hot without a term of the row: add InterfaceEnergyFluxTerm " *
                                                 "(issue #180)"))
+                        for t in crossings
+                            t.interface.lower_term === term ||
+                                throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total " *
+                                                    "energy $total, and its interface term of $d reads the interface of " *
+                                                    "another term of $d: give it the interface of this term (issue #256)"))
+                            t.coefficient < 0 ||
+                                throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total " *
+                                                    "energy $total, and its interface term of $d has the coefficient " *
+                                                    "$(t.coefficient), which adds the energy that crosses the interface " *
+                                                    "to the total in place of removing it: give it a negative coefficient " *
+                                                    "(issue #256)"))
+                        end
                     else
                         any(t -> t isa MomentumBoundaryFluxTerm && t.kinetic === d && t.source === term &&
                                  t.weight === :energy && t.coefficient < 0, listed) ||

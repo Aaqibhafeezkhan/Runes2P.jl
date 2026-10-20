@@ -169,6 +169,39 @@
         @test Runes2P.DEFAULT_TEMPERATURE_FLOOR == 0.5
         @test isempty(Runes2P.fluid_temperature_floors([fluid; Equation(:f, TimeDerivative(),
                                                                      fp(PlasmaFromUnknowns(prescribed; ions=:ion_densities)))]))
+        # the workspace of a fluid-only system: the floor on every entry of the temperature, a
+        # declared limit kept as it is, and a step whose solution lies below the floor refused
+        let d = IonComposition(["D" => 1]), nr = 2
+            rad = RadialGrid(uniform_r_faces(nr, 0.5))
+            function workspace(limit; target=5.0)
+                kw = limit === nothing ? (; scale=10.0) : (; scale=10.0, nonnegative=limit)
+                lay = UnknownLayout(rad, [ion_densities_unknown(d), RadialUnknown(:cold_electron_density; scale=1e19),
+                                          RadialUnknown(:cold_electron_temperature; kw...)])
+                eqs = [Equation(:ion_densities, TimeDerivative(), IonRateTerm(d)), population_equations(d)...,
+                       Equation(:cold_electron_temperature, Algebraic(), PrescribedValueTerm(fill(target, nr)),
+                                LinearTerm(:cold_electron_temperature; coefficient=-1))]
+                u0 = zeros(length(lay))
+                set_ion_densities!(u0, lay, [IonSpecies("D", 1, 1, fill(1e19, nr))])
+                radial_values(u0, lay, 2) .= 1e19
+                radial_values(u0, lay, 3) .= 5.0
+                sys = EquationSystem(lay, eqs; time_scale=1e-7, initial_state=u0)
+                ws = NewtonWorkspace(sys)
+                entries = reduce(vcat, [unknown_range(lay, unknown_id(lay, :cold_electron_temperature), ir) for ir in 1:nr])
+                limits = [ws.limit_value[findfirst(==(i), ws.limited)] for i in entries]
+                return sys, u0, limits
+            end
+            @test workspace(nothing)[3] == fill(0.5, nr)
+            @test workspace(true)[3] == fill(0.0, nr)
+            @test workspace(LowerLimit(value=0.2))[3] == fill(0.2, nr)
+            @test workspace(LowerLimit(value=0.8))[3] == fill(0.8, nr)
+            # the prescribed value 0.3 eV lies below the floor: refused; with the limit 0 it is reached
+            sys, u0, _ = workspace(nothing; target=0.3)
+            @test newton_solve!(copy(u0), u0, NewtonWorkspace(sys), 0.0, 1e-7).status === :below_lower_limit
+            sys, u0, _ = workspace(true; target=0.3)
+            u = copy(u0)
+            @test newton_solve!(u, u0, NewtonWorkspace(sys), 0.0, 1e-7).status === :converged
+            @test radial_values(u, sys.layout, 3) ≈ fill(0.3, nr)
+        end
         # 9: the fluid terms say what to do with a plasma from the unknowns
         @test_throws "keywords temperature, density and ions" RadiatedPowerTerm(PlasmaFromUnknowns(prescribed))
         @test_throws "keywords temperature, density and ions" IonEnergyExchangeTerm(PlasmaFromUnknowns(prescribed);

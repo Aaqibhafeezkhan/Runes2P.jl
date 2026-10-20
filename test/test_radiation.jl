@@ -29,6 +29,7 @@
     tables = read_adas("He"; directory)
 
     @testset "against the tabulated coefficients" begin
+        bremsstrahlung = Dict{Symbol,Vector{Float64}}()   # Gould's part per radius, by the corrections
         for (radiation, corrections) in ((:recombination, :gould), (:dream, :gould), (:dream, :dream))
             term = RadiatedPowerTerm(plasma; radiation, bremsstrahlung_corrections=corrections, directory)
             parts = radiated_power(term, u, layout, 0.0)
@@ -58,8 +59,21 @@
                            (19 / 24, 5 / (8 * sqrt(2)) * (44 - 3π^2))
                     nrl = 1.69e-38 * sqrt(T) * n * (ion_sum * (1 + a * theta) + κ * n * theta)
                     @test parts.radiation[ir] - n * line ≈ nrl rtol = 3e-3
+                    push!(get!(bremsstrahlung, corrections, Float64[]), parts.radiation[ir] - n * line)
                 end
             end
+        end
+        # the two sets of corrections against each other, where the NRL constant (1.69e-38 against
+        # the computed 1.6933e-38) hides their difference of 3e-4 at these temperatures;
+        # the subtraction of the line part leaves a round-off of 1e-11 in the ratio
+        for ir in 1:radii
+            T, n = radial_values(u, layout, 1)[ir], radial_values(u, layout, 2)[ir]
+            theta = T / Constants.ELECTRON_REST_ENERGY
+            ion_sum = sum(densities[Z0+1, ir] * Z0^2 for Z0 in 0:2)
+            ratio = (ion_sum * (1 + 19 / 24 * theta) + 5 / (8 * sqrt(2)) * (44 - 3π^2) * n * theta) /
+                    (ion_sum * (1 + 11 / 24 * theta) + 5 / (24 * sqrt(2)) * (44 - 3π^2) * n * theta)
+            @test bremsstrahlung[:dream][ir] / bremsstrahlung[:gould][ir] ≈ ratio rtol = 1e-9
+            @test ratio > 1 + 1e-5
         end
         @test Runes2P.GOULD_BREMSSTRAHLUNG_PREFACTOR ≈ 1.69e-38 rtol = 3e-3
     end

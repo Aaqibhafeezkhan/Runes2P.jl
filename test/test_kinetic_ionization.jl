@@ -282,6 +282,16 @@ end
             # the spectrum of Opal et al. (the default is that of Kim and Rudd)
             heating = SecondaryHeatingTerm(kinetic; spectrum=:opal)
             @test heating.widths == [8.3, 10.0]
+            # one number type of the weights and of the heating with a dual temperature, under both
+            # cuts: the cut :none is Inf in the type of the temperature
+            for cut in (:none, :threshold)
+                h = SecondaryHeatingTerm(kinetic; spectrum=:opal, cut)
+                Td = ForwardDiff.Dual{Nothing,Float64,1}(20.0, ForwardDiff.Partials((1.0,)))
+                np, components = size(kinetic.rates[1])
+                @test (@inferred Runes2P._secondary_weights(h, 1, Td)) isa Matrix{typeof(Td)}
+                @test (@inferred Runes2P._secondary_heating(h, 1, ones(np), ones(components), Td)) isa typeof(Td)
+                @test (@inferred Runes2P._secondary_weights(h, 1, 20.0)) isa Matrix{Float64}
+            end
             @test SecondaryHeatingTerm(kinetic; widths=Dict("Ar" => 12.0), spectrum=:opal).widths == [8.3, 12.0]
             # an element without a width is refused: iron
             fe = KineticIonizationTerm(IonComposition(["Fe" => 26]), :f, kinetic.grid; region=kinetic.envelopes.region)

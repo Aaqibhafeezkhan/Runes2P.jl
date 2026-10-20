@@ -513,7 +513,10 @@ end
 # its values stay the same to the last bit.
 function _bound_slowing_down(model::CollisionModel, index, state::ChargeState, ir, p, prefactor)
     bethe = _screening_weight(model.settings, state, p) * _bound_electron_stopping(model, state, p)
-    model.settings.bound_friction === :ionization_split || return bethe
+    # one number type on both branches: the ionization part carries the partials of the plasma,
+    # the Bethe term does not
+    model.settings.bound_friction === :ionization_split ||
+        return convert(promote_type(typeof(bethe), eltype(model.plasma.cold_electron_temperature)), bethe)
     ionization = _ionization_envelope(model, ir, p) * _ionization_part(model, index, state, ir, p) / prefactor
     return ionization + max(bethe - ionization, zero(ionization))
 end
