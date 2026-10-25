@@ -13,6 +13,10 @@ permissions:
   contents: write
   actions: write
 
+env:
+  # the target of the package images in the cached depot, as in CI.yml and FullSuite.yml
+  JULIA_CPU_TARGET: "x86-64-v3"
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
@@ -28,6 +32,9 @@ jobs:
         with:
           version: "1.13.1"
       - uses: julia-actions/cache@v3
+        with:
+          # the target in the name: images of another target are never restored
+          cache-name: julia-cache-${{ env.JULIA_CPU_TARGET }};workflow=${{ github.workflow }};job=${{ github.job }}
       - name: Install the documentation environment
         run: julia --project=docs -e 'using Pkg; Pkg.instantiate()'
       - name: Build and deploy

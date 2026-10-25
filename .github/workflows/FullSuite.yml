@@ -1,25 +1,33 @@
-# The full test suite: one job per group of test/groups.toml, on pull requests that are ready
-# for review and on pushes to dev and main, and a summary job over the groups.
+# The full test suite: one job per group of test/groups.toml, and a summary job over the groups.
+# It runs on pull requests that are ready for review, once a week on dev and by hand. A push to
+# dev or main runs nothing: a pull request must be up to date with its base before the merge,
+# so its run has tested the merged tree. The weekly run catches changes from outside the
+# repository (new versions of packages, a new runner image) and renews the depot cache of dev,
+# which the runs of pull requests restore.
 name: Full suite
 
 on:
-  push:
-    branches: [dev, main]
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review]
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
-# a newer commit of a pull request cancels the older run; every push to dev and main finishes
+# a newer commit of a pull request cancels the older run; a weekly or manual run finishes
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   RUNES2P_JACOBIAN_CHUNK_SIZE: "8"
+  # the target of the package images in the cached depot, as in CI.yml
+  JULIA_CPU_TARGET: "x86-64-v3"
   # the pure-Julia regression values of test_regression_values.jl to 1e-13, not bit for
-  # bit: the last bits on a runner can differ from those of the machine that stored them
+  # bit: a safety net for code compiled for another CPU, such as on a runner without AVX2;
+  # an entry that differs is logged with its deviation, also when it passes
   RUNES2P_REGRESSION_RTOL: "1e-13"
 
 jobs:
@@ -27,7 +35,7 @@ jobs:
   # filled once here for all groups
   setup:
     name: Test groups
-    if: github.event_name == 'push' || github.event.pull_request.draft == false
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -92,6 +100,8 @@ jobs:
       # one depot cache for all groups, which share the test environment
       - uses: julia-actions/cache@v3
         with:
+          # the target in the name: images of another target are never restored
+          cache-name: julia-cache-${{ env.JULIA_CPU_TARGET }};workflow=${{ github.workflow }};job=${{ github.job }}
           include-matrix: false
       - name: Set the ADAS cache directory
         run: echo "RUNES2P_ADAS_CACHE=$HOME/.cache/Runes2P/adas" >> "$GITHUB_ENV"

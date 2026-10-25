@@ -9,13 +9,16 @@ These rules hold for every contribution, by people and by coding agents alike.
 - `main` and `dev` change only through pull requests, and only the maintainer merges them.
   `main` is updated from `dev`.
 - Open a pull request as a draft while it is in progress.
-  The lint, the format check, the component tests and the docs build run on every push; the full suite runs once the pull request is marked ready, and again on every push after that.
+  The lint, the format check, the component tests and the docs build run on every push to a pull request; the full suite runs once the pull request is marked ready, and again on every push after that.
+  A merge into `dev` or `main` runs these checks again, on `dev` with the deployment of the docs in place of the docs build.
+  The full suite runs on `dev` once a week.
 - Five checks are required for a merge: Markdown lint, Format check, Component tests, Documentation build and Full suite.
 - A pull request into `dev` must be up to date with `dev`.
 - `dev` takes merge commits or squash merges, no rebase merges.
   `main` takes merge commits only.
-- A pull request whose commits are mostly review rounds may suggest a squash merge, with a proposed squash message.
-  Its subject has at most 72 characters, including the ` (#n)` that GitHub appends; its body has at most 6 lines, or about 12 above the size target below.
+- A pull request merges with a merge commit by default, which keeps its signed commits and suits stacked pull requests.
+- A small fix that needed several commits, with no pull request stacked on it, may suggest a squash merge, with a proposed squash message.
+  Its subject has at most 72 characters, including the ` (#n)` that GitHub appends; its body has at most 6 lines.
   GitHub pre-fills a `Co-authored-by` line for each co-author of the squashed commits; they stay below the proposed message.
 - A pull request aims at about 500 changed lines in `src/` and `ext/`; tests, reference data and documentation do not count.
   Above that, its description says why the change cannot be split.
