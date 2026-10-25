@@ -1,7 +1,7 @@
-# Checkpoints and segments of a run.
-# A run that does not fit one allocation is a chain of segments. Each segment writes a
-# checkpoint after accepted steps and its own output file, rewritten with every
-# checkpoint. The files are HDF5 and written by the package extension `Runes2PHDF5Ext`.
+# Checkpoints and segments of a run. A run that does not fit one allocation is a chain of
+# segments. Each segment writes a checkpoint after accepted steps and its own output file,
+# rewritten with every checkpoint. The files are HDF5 and written by the package extension
+# `Runes2PHDF5Ext`.
 
 """
     CheckpointSettings(name; directory=".", interval=1800, overwrite=false)
@@ -14,8 +14,9 @@ Checkpoints of a run called `name`, written to `directory`:
   states the segment saved up to its last checkpoint.
 
 A checkpoint is written after an accepted step when `interval` seconds of wall time have
-passed since the last one (0 writes one after every accepted step), and always at the end
-of the segment. Each checkpoint rewrites the output file of the segment. Files are written to a temporary file, synced and renamed.
+passed since the last one (0 writes one after every accepted step), and always at the end of
+the segment. Each checkpoint rewrites the output file of the segment. Files are written to a
+temporary file, synced and renamed.
 
 A run refuses to replace the segment file of another run unless `overwrite` is true.
 A run continued with `resume = true` replaces the file with the number of its segment:
@@ -32,25 +33,33 @@ struct CheckpointSettings
     interval::Float64
     overwrite::Bool
 end
-function CheckpointSettings(name::AbstractString; directory::AbstractString=".", interval::Real=1800,
-                            overwrite::Bool=false)
+function CheckpointSettings(
+        name::AbstractString; directory::AbstractString = ".", interval::Real = 1800,
+        overwrite::Bool = false)
     isempty(name) && throw(ArgumentError("the checkpoints need a name"))
-    occursin('/', name) && throw(ArgumentError("the name of the checkpoints must not contain '/'; use directory"))
+    occursin('/', name) &&
+        throw(ArgumentError("the name of the checkpoints must not contain '/'; use directory"))
     interval >= 0 || throw(ArgumentError("the checkpoint interval must not be negative"))
     return CheckpointSettings(String(name), String(directory), Float64(interval), overwrite)
 end
 
 "File of the last checkpoint."
-checkpoint_file(settings::CheckpointSettings) = joinpath(settings.directory, settings.name * ".checkpoint.h5")
+function checkpoint_file(settings::CheckpointSettings)
+    joinpath(settings.directory, settings.name * ".checkpoint.h5")
+end
 "File of the checkpoint before the last."
-previous_checkpoint_file(settings::CheckpointSettings) =
+function previous_checkpoint_file(settings::CheckpointSettings)
     joinpath(settings.directory, settings.name * ".checkpoint.prev.h5")
+end
 "Output file of segment `k`."
-segment_file(settings::CheckpointSettings, k::Integer) =
+function segment_file(settings::CheckpointSettings, k::Integer)
     joinpath(settings.directory, settings.name * ".segment" * lpad(k, 4, '0') * ".h5")
+end
 
 "The number of a segment output file `<name>.segment<k>.h5`."
-segment_number(file::AbstractString) = parse(Int, match(r"\.segment(\d+)\.h5$", file).captures[1])
+function segment_number(file::AbstractString)
+    parse(Int, match(r"\.segment(\d+)\.h5$", file).captures[1])
+end
 
 """
     segment_files(settings::CheckpointSettings)
@@ -59,12 +68,14 @@ The segment output files of the run that exist, in the order of the segments, fo
 [`read_output`](@ref).
 """
 function segment_files(settings::CheckpointSettings)
-    pattern = Regex("^" * replace(settings.name, r"([^A-Za-z0-9_])" => s"\\\1") * raw"\.segment(\d+)\.h5$")
-    found = Tuple{Int,String}[]
+    pattern = Regex("^" * replace(settings.name, r"([^A-Za-z0-9_])" => s"\\\1") *
+                    raw"\.segment(\d+)\.h5$")
+    found = Tuple{Int, String}[]
     isdir(settings.directory) || return String[]
     for file in readdir(settings.directory)
         m = match(pattern, file)
-        m === nothing || push!(found, (parse(Int, m.captures[1]), joinpath(settings.directory, file)))
+        m === nothing ||
+            push!(found, (parse(Int, m.captures[1]), joinpath(settings.directory, file)))
     end
     return [file for (_, file) in sort!(found)]
 end
@@ -89,16 +100,17 @@ struct StoredState{T}
     time::Float64
     state::Vector{T}
     layout::UnknownLayout{T}
-    update_states::Dict{String,Vector{Float64}}
-    settings::Dict{String,Any}
+    update_states::Dict{String, Vector{Float64}}
+    settings::Dict{String, Any}
     segment::Int
     saved_count::Int
-    summary::Dict{String,Any}
-    stepper::Dict{String,Any}
+    summary::Dict{String, Any}
+    stepper::Dict{String, Any}
     source::String
 end
 
-const SUMMARY_COUNTS = ("attempted_steps", "accepted_steps", "newton_iterations", "krylov_iterations")
+const SUMMARY_COUNTS = (
+    "attempted_steps", "accepted_steps", "newton_iterations", "krylov_iterations")
 
 # the summary of a run after a segment with the statistics `stats`, given the summary
 # `before` the segment (empty for the first)
@@ -106,8 +118,10 @@ function _run_summary(before::AbstractDict, stats, wall_time::Real)
     summary = SettingsRecord()
     summary["attempted_steps"] = get(before, "attempted_steps", 0) + length(stats.accepted)
     summary["accepted_steps"] = get(before, "accepted_steps", 0) + count(stats.accepted)
-    summary["newton_iterations"] = get(before, "newton_iterations", 0) + sum(stats.newton_iterations)
-    summary["krylov_iterations"] = get(before, "krylov_iterations", 0) + sum(stats.krylov_iterations)
+    summary["newton_iterations"] = get(before, "newton_iterations", 0) +
+                                   sum(stats.newton_iterations)
+    summary["krylov_iterations"] = get(before, "krylov_iterations", 0) +
+                                   sum(stats.krylov_iterations)
     summary["wall_time"] = Float64(get(before, "wall_time", 0.0)) + Float64(wall_time)
     return summary
 end
@@ -137,13 +151,14 @@ synced. With `previous`, the file at `path` is first renamed to `previous`. A fa
 Between the two renames `path` does not exist and `previous` holds the last good file,
 which is why a reader of checkpoints falls back on it.
 """
-function write_atomically(write_file, path::AbstractString; previous::Union{Nothing,AbstractString}=nothing)
+function write_atomically(write_file, path::AbstractString; previous::Union{
+        Nothing, AbstractString} = nothing)
     directory = dirname(abspath(path))
     temporary = joinpath(directory, "." * basename(path) * "." * string(getpid()) * ".tmp")
     try
         write_file(temporary)
     catch
-        rm(temporary; force=true)
+        rm(temporary; force = true)
         rethrow()
     end
     _sync(temporary)
@@ -169,8 +184,8 @@ Read a checkpoint as a [`StoredState`](@ref). Reading with the settings falls ba
 previous checkpoint when the last one is missing or cannot be read, and returns `nothing`
 when neither file exists. When checkpoint files exist and none of them can be read it
 throws an `ArgumentError`, so that a run with `resume = true` does not start again from
-its initial state over its own files. Defined by the package extension `Runes2PHDF5Ext`, which loads with
-HDF5.
+its initial state over its own files. Defined by the package extension `Runes2PHDF5Ext`,
+which loads with HDF5.
 """
 function read_checkpoint end
 
@@ -195,10 +210,10 @@ settings are those of the last file. Segments in the wrong order, or whose joine
 repeat one (two runs from the same start), are refused with an `ArgumentError`. So is a
 segment that did not resume from the one before it: its `resumed_from_segment` must be the
 index of that segment and its `previous_setup_hash` the setup hash of that segment, where
-both records hold them. The higher segments of an earlier run under the same
-name with the same setup pass this check; a run refuses to start while segment files with
-higher numbers than its own exist ([`CheckpointSettings`](@ref)). Defined by the package extension `Runes2PHDF5Ext`, which
-loads with HDF5.
+both records hold them. The higher segments of an earlier run under the same name with the
+same setup pass this check; a run refuses to start while segment files with higher numbers
+than its own exist ([`CheckpointSettings`](@ref)). Defined by the package extension
+`Runes2PHDF5Ext`, which loads with HDF5.
 """
 function read_output end
 
@@ -213,28 +228,33 @@ function _resume_state(resume, checkpoint)
         _require_hdf5(read_checkpoint, "resuming from a checkpoint")
         return read_checkpoint(checkpoint)
     end
-    resume isa AbstractString || throw(ArgumentError("resume must be true, false, a file name or a StoredState"))
+    resume isa AbstractString ||
+        throw(ArgumentError("resume must be true, false, a file name or a StoredState"))
     _require_hdf5(read_state, "resuming from a file")
     return read_state(resume)
 end
 
-_require_hdf5(f, what) =
-    isempty(methods(f)) && throw(ArgumentError("$what needs the HDF5 package: add `using HDF5` to the script"))
+function _require_hdf5(f, what)
+    isempty(methods(f)) &&
+        throw(ArgumentError("$what needs the HDF5 package: add `using HDF5` to the script"))
+end
 
 # sections of the setup whose hash differs between two settings records
 function changed_sections(before::AbstractDict, now::AbstractDict)
     old, new = get(before, "hashes", SettingsRecord()), get(now, "hashes", SettingsRecord())
-    return sort!(String[section for section in union(keys(old), keys(new))
+    return sort!(String[section
+                        for section in union(keys(old), keys(new))
                         if get(old, section, "") != get(new, section, "")])
 end
 
 # record of the segment in the settings of a run: outside the setup hash. The status, the
 # time reached and the number of accepted steps follow the run (`_update_segment!`).
-function _segment_record(segment::Integer, stored, settings::AbstractDict, start_time::Real, saved_before::Integer)
+function _segment_record(segment::Integer, stored, settings::AbstractDict,
+        start_time::Real, saved_before::Integer)
     record = SettingsRecord("index" => Int(segment), "start_time" => Float64(start_time),
-                            "resumed" => stored !== nothing, "saved_before" => Int(saved_before),
-                            "status" => "running", "end_time" => Float64(start_time), "steps" => 0,
-                            "checkpoint_written" => false)
+        "resumed" => stored !== nothing, "saved_before" => Int(saved_before),
+        "status" => "running", "end_time" => Float64(start_time), "steps" => 0,
+        "checkpoint_written" => false)
     # the attempted steps of the run before the segment, by which read_output cuts the
     # statistics of the segment before at the checkpoint (a failed attempt is recorded at
     # the time it aimed at, which may lie beyond the checkpoint); a state from an output
@@ -257,17 +277,16 @@ function _segment_record(segment::Integer, stored, settings::AbstractDict, start
     return record
 end
 
-# Clean stop of a segment. Julia exits
-# on SIGTERM without running user code, so a run cannot react to the signal at the time
-# limit. It stops by itself instead, after an accepted step, when the wall time left
-# does not cover another step or when a stop file appears, which the batch script
-# creates on the warning signal of the batch system.
+# Clean stop of a segment. Julia exits on SIGTERM without running user code, so a run cannot
+# react to the signal at the time limit. It stops by itself instead, after an accepted step,
+# when the wall time left does not cover another step or when a stop file appears, which a
+# batch script can create on the warning signal of the batch system.
 
 """
     StopCondition(; end_time=nothing, wall_budget=nothing, stop_file=nothing, slack=300)
 
 When a segment stops before the last time point. [`integrate`](@ref) asks after every
-accepted step (formerly at the time points only). It stops when
+accepted step. It stops when
 
 - the wall time left until `end_time` is less than the margin: the longest accepted step
   of the segment so far, plus the longest write of a checkpoint with its output so far,
@@ -290,10 +309,12 @@ struct StopCondition
     slack::Float64
 end
 
-function StopCondition(; end_time::Union{Nothing,Real}=nothing, wall_budget::Union{Nothing,Real}=nothing,
-                       stop_file::Union{Nothing,AbstractString}=nothing, slack::Real=300)
+function StopCondition(; end_time::Union{Nothing, Real} = nothing,
+        wall_budget::Union{Nothing, Real} = nothing,
+        stop_file::Union{Nothing, AbstractString} = nothing, slack::Real = 300)
     slack >= 0 || throw(ArgumentError("the slack must not be negative"))
-    wall_budget === nothing || wall_budget > 0 || throw(ArgumentError("the wall budget must be positive"))
+    wall_budget === nothing || wall_budget > 0 ||
+        throw(ArgumentError("the wall budget must be positive"))
     ends = Float64[]
     if end_time !== nothing
         push!(ends, Float64(end_time))
@@ -302,13 +323,16 @@ function StopCondition(; end_time::Union{Nothing,Real}=nothing, wall_budget::Uni
         from_slurm === nothing || push!(ends, from_slurm)
     end
     wall_budget === nothing || push!(ends, time() + Float64(wall_budget))
-    return StopCondition(isempty(ends) ? Inf : minimum(ends), stop_file === nothing ? "" : String(stop_file),
-                         Float64(slack))
+    return StopCondition(
+        isempty(ends) ? Inf : minimum(ends), stop_file === nothing ? "" : String(stop_file),
+        Float64(slack))
 end
 
-describe(stop::StopCondition) =
-    SettingsRecord("type" => "StopCondition", "end_time" => stop.end_time, "stop_file" => stop.stop_file,
-                   "slack" => stop.slack)
+function describe(stop::StopCondition)
+    SettingsRecord("type" => "StopCondition", "end_time" => stop.end_time,
+        "stop_file" => stop.stop_file,
+        "slack" => stop.slack)
+end
 
 """
     stop_reason(stop, longest_step, longest_write; now=time())
@@ -317,12 +341,12 @@ Why the segment stops now, `"stop file"` or `"wall time"`, or `nothing` when it 
 `longest_step` and `longest_write` are the wall times in seconds of the longest
 accepted step and of the longest checkpoint write of the segment so far.
 """
-function stop_reason(stop::StopCondition, longest_step::Real, longest_write::Real; now::Real=time())
+function stop_reason(stop::StopCondition, longest_step::Real, longest_write::Real; now::Real = time())
     isempty(stop.stop_file) || !isfile(stop.stop_file) || return "stop file"
     now + longest_step + longest_write + stop.slack >= stop.end_time && return "wall time"
     return nothing
 end
-stop_reason(::Nothing, longest_step, longest_write; now=time()) = nothing
+stop_reason(::Nothing, longest_step, longest_write; now = time()) = nothing
 
 "Exit status of a script whose run finished."
 const EXIT_FINISHED = 0
@@ -338,7 +362,9 @@ const EXIT_STOPPED_WITHOUT_CHECKPOINT = 86
 before it ([`StopCondition`](@ref)). `solution.settings["segment"]` has the reason
 (`stop_reason`) and the time reached (`end_time`).
 """
-run_status(solution) = Symbol(get(get(solution.settings, "segment", SettingsRecord()), "status", "finished"))
+function run_status(solution)
+    Symbol(get(get(solution.settings, "segment", SettingsRecord()), "status", "finished"))
+end
 
 """
     exit_status(solution)
@@ -351,5 +377,6 @@ when it stopped without checkpoints, where another segment would start from the 
 function exit_status(solution)
     run_status(solution) === :finished && return EXIT_FINISHED
     segment = solution.settings["segment"]
-    return get(segment, "checkpoint_written", false) ? EXIT_STOPPED : EXIT_STOPPED_WITHOUT_CHECKPOINT
+    return get(segment, "checkpoint_written", false) ? EXIT_STOPPED :
+           EXIT_STOPPED_WITHOUT_CHECKPOINT
 end

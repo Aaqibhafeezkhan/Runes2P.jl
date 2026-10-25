@@ -4,7 +4,8 @@ NonlinearSolve can drive Runes2P systems without making SciML a dependency of Ru
 """
 module Runes2PSciMLBaseExt
 
-using Runes2P: Runes2P, EquationSystem, rhs!, mass_matrix, jacobian!, jacobian_prototype, jacobian_operator, lags_in_ode_form
+using Runes2P: Runes2P, EquationSystem, rhs!, mass_matrix, jacobian!, jacobian_prototype,
+               jacobian_operator, lags_in_ode_form
 using LinearAlgebra: mul!
 using SciMLBase: ODEFunction
 
@@ -24,9 +25,9 @@ step is the state itself, and the stored Jacobian leaves out the derivative of t
 part. The solver then takes its own derivatives. The parameter `p` is ignored.
 
 Cost: `jvp` assembles the whole stored Jacobian at `u` on every call (one AD pass per
-color, about 23 operator applications for the Fokker-Planck stencil) before the product; a
-forward-mode pushforward seeded with `v` would cost one. Fine for occasional products; a
-Krylov solver driven through SciML should reuse an assembled Jacobian instead.
+color, about 23 operator applications for the Fokker-Planck stencil) before the product.
+Fine for occasional products; a Krylov solver driven through SciML should reuse an
+assembled Jacobian instead.
 """
 function Runes2P.ode_function(system::EquationSystem)
     f!(du, u, p, t) = (rhs!(du, u, system, t); nothing)
@@ -39,14 +40,18 @@ function Runes2P.ode_function(system::EquationSystem)
     M = mass_matrix(system)
     # a term lagged to the start of the step: in the ODE form that is the state itself, and
     # the stored Jacobian leaves out the derivative of the lagged part
+    #! format: off
     any(lags_in_ode_form(term) for equation in system.equations for term in equation.terms) &&
         return ODEFunction{true}(f!; mass_matrix=M)
-    if isempty(system.matrix_free_terms) && isempty(system.explicit_terms) && system.stored_jacobian_exact
+    #! format: on
+    if isempty(system.matrix_free_terms) && isempty(system.explicit_terms) &&
+       system.stored_jacobian_exact
         jac!(J, u, p, t) = (jacobian!(J, system, u, t); nothing)
-        return ODEFunction{true}(f!; mass_matrix=M, jac=jac!, jac_prototype=jacobian_prototype(system),
-                                 jvp=jvp!)
+        return ODEFunction{true}(
+            f!; mass_matrix = M, jac = jac!, jac_prototype = jacobian_prototype(system),
+            jvp = jvp!)
     end
-    return ODEFunction{true}(f!; mass_matrix=M, jvp=jvp!)
+    return ODEFunction{true}(f!; mass_matrix = M, jvp = jvp!)
 end
 
 end # module Runes2PSciMLBaseExt

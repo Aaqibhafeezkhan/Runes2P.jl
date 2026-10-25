@@ -1,5 +1,4 @@
-# Terms of the algebraic equations: a multiple of an unknown and a value prescribed in
-# time. Moved out of terms.jl.
+# Terms of the algebraic equations: a multiple of an unknown and a value prescribed in time.
 
 """
     LinearTerm(unknown; coefficient=1)
@@ -10,13 +9,15 @@ equation, or a decay rate). `coefficient` is a number, or one number per radius 
 radial or kinetic unknown: a conductivity in Ohm's law `0 = σ E − j`. The vector is
 referenced, so an update of the run may change its values between the intervals.
 """
-struct LinearTerm{C<:Union{Float64,Vector{Float64}}} <: EquationTerm
+struct LinearTerm{C <: Union{Float64, Vector{Float64}}} <: EquationTerm
     unknown::Symbol
     coefficient::C
 end
-LinearTerm(unknown::Symbol; coefficient::Union{Real,AbstractVector{<:Real}}=1.0) =
-    LinearTerm(unknown, coefficient isa Real ? Float64(coefficient) :
-                        coefficient isa Vector{Float64} ? coefficient : collect(Float64, coefficient))
+function LinearTerm(unknown::Symbol; coefficient::Union{Real, AbstractVector{<:Real}} = 1.0)
+    LinearTerm(unknown,
+        coefficient isa Real ? Float64(coefficient) :
+        coefficient isa Vector{Float64} ? coefficient : collect(Float64, coefficient))
+end
 
 dependencies(term::LinearTerm) = [term.unknown]
 is_linear(::LinearTerm) = true
@@ -26,7 +27,8 @@ function validate(term::LinearTerm, layout, row)
     layout.kinds[id] === layout.kinds[row] && layout.sizes[id, :] == layout.sizes[row, :] ||
         throw(DimensionMismatch("LinearTerm needs an unknown of the same kind and sizes as its row"))
     if term.coefficient isa Vector
-        layout.kinds[row] !== :scalar && length(term.coefficient) == radial_cell_count(layout) ||
+        layout.kinds[row] !== :scalar &&
+        length(term.coefficient) == radial_cell_count(layout) ||
             throw(DimensionMismatch("a coefficient per radius needs a radial or kinetic unknown and one value " *
                                     "per radius"))
     end
@@ -38,9 +40,11 @@ Base.@propagate_inbounds _coefficient_at(coefficient::Vector{Float64}, k) = coef
 
 # the (row range, column range) pairs of a LinearTerm: one per radius, or one for scalars
 _range_count(layout, row) = layout.kinds[row] === :scalar ? 1 : radial_cell_count(layout)
-_paired_ranges(layout, row, id, k) =
-    layout.kinds[row] === :scalar ? (unknown_range(layout, row), unknown_range(layout, id)) :
+function _paired_ranges(layout, row, id, k)
+    layout.kinds[row] === :scalar ?
+    (unknown_range(layout, row), unknown_range(layout, id)) :
     (unknown_range(layout, row, k), unknown_range(layout, id, k))
+end
 
 function rhs!(out, term::LinearTerm, u, layout, row, t)
     id = unknown_id(layout, term.unknown)
@@ -78,13 +82,15 @@ state.
 struct PrescribedValueTerm{V} <: EquationTerm
     values::V
     points::Base.RefValue{Vector{Float64}}                  # cell centres, set by validate
-    evaluated::Base.RefValue{Tuple{Float64,Vector{Float64}}} # (time, values) of a profile
+    evaluated::Base.RefValue{Tuple{Float64, Vector{Float64}}} # (time, values) of a profile
 end
 
 # The points and the cache belong to the term object: a term shared between systems on
 # different radial grids takes the points of the last `validate`, and the cache is not safe
 # for concurrent calls of `rhs!` at different times.
-PrescribedValueTerm(values) = PrescribedValueTerm(values, Ref(Float64[]), Ref((NaN, Float64[])))
+function PrescribedValueTerm(values)
+    PrescribedValueTerm(values, Ref(Float64[]), Ref((NaN, Float64[])))
+end
 
 dependencies(::PrescribedValueTerm) = Symbol[]
 is_linear(::PrescribedValueTerm) = true
@@ -109,8 +115,9 @@ function validate(term::PrescribedValueTerm, layout, row)
         throw(ArgumentError("PrescribedValueTerm adds to a scalar unknown or to a radial unknown with one component"))
     kind === :radial && (term.points[] = collect(Float64, layout.radial_grid.r_centers))
     term.values isa Function && return nothing
-    term.values isa Real || (term.values isa AbstractVector{<:Real} && kind === :radial &&
-                             length(term.values) == radial_cell_count(layout)) ||
+    term.values isa Real ||
+        (term.values isa AbstractVector{<:Real} && kind === :radial &&
+         length(term.values) == radial_cell_count(layout)) ||
         throw(ArgumentError("the values of a PrescribedValueTerm are a number, one number per radius of a radial " *
                             "unknown, or a function of time"))
     return nothing
@@ -122,7 +129,8 @@ function rhs!(out, term::PrescribedValueTerm, u, layout, row, t)
         out[first(unknown_range(layout, row))] += values
     else
         for ir in 1:radial_cell_count(layout)
-            out[first(unknown_range(layout, row, ir))] += values isa Real ? values : values[ir]
+            out[first(unknown_range(layout, row, ir))] += values isa Real ? values :
+                                                          values[ir]
         end
     end
     return out

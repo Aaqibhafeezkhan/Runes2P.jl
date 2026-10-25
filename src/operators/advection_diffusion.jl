@@ -57,16 +57,15 @@ Boundary conditions:
   two interior faces (DREAM `BC_DPHI_CONST`, "known to cause instabilities near `p_max`";
   needs at least 3 momentum cells, no `:exponential_fitting` counterpart). Ported literally
   from DREAM `PXiExternalLoss.cpp`, including an apparent index inconsistency: both terms
-  share the last interior face's `𝒱'` and are
-  multiplied by that face's own `Aᵖ`, while the second term's interpolation (upstream
-  direction and weights) and diffusion coefficient are the second-to-last face's own; or
+  share the last interior face's `𝒱'` and are multiplied by that face's own `Aᵖ`, while the
+  second term's interpolation (upstream direction and weights) and diffusion coefficient
+  are the second-to-last face's own; or
   `:extrapolated_flux_consistent`, `𝒱'Γᵖ` linearly extrapolated with every face's own `𝒱'`
   and `Γᵖ` throughout, matching DREAM's stated definition of `BC_DPHI_CONST` ("dΦ/dp
   constant", `Φ = 𝒱'Γᵖ`) rather than its code, which besides the `Aᵖ` index above also
-  shares one `𝒱'` between the two terms (needs at least 3 momentum
-  cells). Runes2P departure: DREAM comparisons keep `:extrapolated_flux` so they stay exact to
-  round-off; new Runes2P setups that want `BC_DPHI_CONST`'s extrapolation without reproducing
-  DREAM's apparent bugs should use this instead.
+  shares one `𝒱'` between the two terms (needs at least 3 momentum cells). DREAM
+  comparisons keep `:extrapolated_flux`, so they stay exact to round-off; this boundary
+  follows the stated definition instead (see the docs page *Comparison with DREAM*).
   Or `:interface`, the counterpart of the lower boundary: the face is shared with the
   grid of a kinetic unknown above, and the [`MomentumInterfaceTerm`](@ref) carries the flux.
   The ghost cells of the four-point schemes beyond an interface hold zero, as beyond any
@@ -117,18 +116,18 @@ The radial diffusion is central. Ghost cells as in DREAM: mirrored at the axis, 
 the edge of the plasma. The flux through the edge is the upwind outflow. It needs one pitch
 grid at all radii, and with fewer than three radii the face value is central.
 """
-struct AdvectionDiffusion{T<:AbstractFloat,C<:Real}
+struct AdvectionDiffusion{T <: AbstractFloat, C <: Real}
     grid::KineticGrid{T}
-    advection_p::Array{C,3}       # on p faces (p cells + 1, ξ cells, radii)
-    diffusion_p_p::Array{C,3}
-    diffusion_p_xi::Array{C,3}
-    advection_xi::Array{C,3}      # on ξ faces (p cells, ξ cells + 1, radii)
-    diffusion_xi_xi::Array{C,3}
-    diffusion_xi_p::Array{C,3}
-    advection_r::Array{C,3}       # on r faces (p cells, face pitch cells, radii + 1)
-    diffusion_r_r::Array{C,3}
-    unit_field_advection_p::Array{C,3}   # Aᵖ of a field of 1 V/m, on p faces
-    unit_field_advection_xi::Array{C,3}  # Aᵠ of a field of 1 V/m, on ξ faces
+    advection_p::Array{C, 3}       # on p faces (p cells + 1, ξ cells, radii)
+    diffusion_p_p::Array{C, 3}
+    diffusion_p_xi::Array{C, 3}
+    advection_xi::Array{C, 3}      # on ξ faces (p cells, ξ cells + 1, radii)
+    diffusion_xi_xi::Array{C, 3}
+    diffusion_xi_p::Array{C, 3}
+    advection_r::Array{C, 3}       # on r faces (p cells, face pitch cells, radii + 1)
+    diffusion_r_r::Array{C, 3}
+    unit_field_advection_p::Array{C, 3}   # Aᵖ of a field of 1 V/m, on p faces
+    unit_field_advection_xi::Array{C, 3}  # Aᵠ of a field of 1 V/m, on ξ faces
     p_flux_at_lower_boundary::Matrix{C}      # Γᵖ at p_min (ξ cells, radii)
     advection_p_times_p2_at_zero::Matrix{C}  # lim p²Aᵖ at p = 0 (ξ cells, radii)
     p_scheme::Symbol
@@ -140,10 +139,10 @@ struct AdvectionDiffusion{T<:AbstractFloat,C<:Real}
     # grid data read in the flux loops (the same cell counts and p faces at all radii)
     momentum_grids::Vector{MomentumGrid{T}}  # per radius
     radial_overlaps::Vector{PitchOverlap{T}} # per radial face
-    jacobian_centers::Array{T,3}
-    jacobian_p_faces::Array{T,3}
-    jacobian_xi_faces::Array{T,3}
-    jacobian_r_faces::Array{T,3}
+    jacobian_centers::Array{T, 3}
+    jacobian_p_faces::Array{T, 3}
+    jacobian_xi_faces::Array{T, 3}
+    jacobian_r_faces::Array{T, 3}
     jacobian_over_p2_at_zero::Matrix{T}
     # what the coefficients were last built from by set_fokker_planck_coefficients!
     # (`nothing` for coefficients set by hand); read by `describe`, shared by with_scheme
@@ -158,22 +157,24 @@ end
 
 Operator with all coefficients zero; set them in place, e.g. `op.diffusion_p_p .= 1`.
 """
-function AdvectionDiffusion(grid::KineticGrid{T}; scheme::Symbol=:upwind, p_scheme::Symbol=scheme,
-                            xi_scheme::Symbol=scheme,
-                            r_scheme::Symbol=is_four_point_scheme(scheme) ? :central : scheme,
-                            p_lower_boundary::Symbol=:zero_flux,
-                            p_upper_boundary::Symbol=:outflow,
-                            r_boundary::Symbol=:zero_flux) where {T}
+function AdvectionDiffusion(
+        grid::KineticGrid{T}; scheme::Symbol = :upwind, p_scheme::Symbol = scheme,
+        xi_scheme::Symbol = scheme,
+        r_scheme::Symbol = is_four_point_scheme(scheme) ? :central : scheme,
+        p_lower_boundary::Symbol = :zero_flux,
+        p_upper_boundary::Symbol = :outflow,
+        r_boundary::Symbol = :zero_flux) where {T}
     for s in (p_scheme, xi_scheme)
         s in (:upwind, :central, :exponential_fitting) || is_four_point_scheme(s) ||
             throw(ArgumentError("unknown scheme $s"))
     end
-    r_scheme in (:upwind, :central, :exponential_fitting) || is_four_point_scheme(r_scheme) ||
+    r_scheme in (:upwind, :central, :exponential_fitting) ||
+        is_four_point_scheme(r_scheme) ||
         throw(ArgumentError("unknown scheme $r_scheme"))
     p_lower_boundary in (:zero_flux, :prescribed, :interface) ||
         throw(ArgumentError("unknown lower p boundary condition $p_lower_boundary"))
     p_upper_boundary in (:outflow, :f_zero, :constant_flux, :extrapolated_flux,
-                        :extrapolated_flux_consistent, :interface) ||
+        :extrapolated_flux_consistent, :interface) ||
         throw(ArgumentError("unknown upper p boundary condition $p_upper_boundary"))
     (has_same_cell_counts(grid) && has_same_p_faces(grid)) ||
         throw(ArgumentError("AdvectionDiffusion needs the same cell counts and the same p faces at all " *
@@ -181,15 +182,16 @@ function AdvectionDiffusion(grid::KineticGrid{T}; scheme::Symbol=:upwind, p_sche
     grid.radial_overlaps === nothing &&
         throw(ArgumentError("AdvectionDiffusion needs pitch grids that cover the same interval at all radii"))
     is_four_point_scheme(r_scheme) && !all(has_identical_grids, grid.radial_overlaps) &&
-        throw(ArgumentError("the four-point scheme $r_scheme in r needs one pitch grid at all radii " *
-                            "(issue #72); the pitch faces of this grid differ between radii"))
+        throw(ArgumentError("the four-point scheme $r_scheme in r needs one pitch grid at all radii" *
+                            "; the pitch faces of this grid differ between radii"))
     np, nxi, nr = size(grid)
     face_cells = radial_face_pitch_cell_count(grid)
     if p_upper_boundary === :constant_flux && np < 2
         throw(ArgumentError("constant_flux p_max boundary needs at least 2 momentum cells"))
     end
     if p_upper_boundary === :extrapolated_flux
-        np < 3 && throw(ArgumentError("extrapolated_flux p_max boundary needs at least 3 momentum cells"))
+        np < 3 &&
+            throw(ArgumentError("extrapolated_flux p_max boundary needs at least 3 momentum cells"))
         p_scheme === :exponential_fitting &&
             throw(ArgumentError("extrapolated_flux has no exponential_fitting counterpart in DREAM " *
                                 "(BC_DPHI_CONST); its flux does not split into Aᵖ times a face value"))
@@ -209,19 +211,19 @@ function AdvectionDiffusion(grid::KineticGrid{T}; scheme::Symbol=:upwind, p_sche
     on_xi_faces() = zeros(T, np, nxi + 1, nr)
     on_r_faces() = zeros(T, np, face_cells, nr + 1)
     radii = 1:nr
-    return AdvectionDiffusion{T,T}(grid, on_p_faces(), on_p_faces(), on_p_faces(),
-                                 on_xi_faces(), on_xi_faces(), on_xi_faces(),
-                                 on_r_faces(), on_r_faces(), on_p_faces(), on_xi_faces(), zeros(T, nxi, nr),
-                                 zeros(T, nxi, nr),
-                                 p_scheme, xi_scheme, r_scheme, p_lower_boundary, p_upper_boundary, r_boundary,
-                                 [momentum_grid(grid, ir) for ir in radii],
-                                 [radial_face_overlap(grid, k) for k in 1:nr+1],
-                                 stack(phase_space_jacobian(grid, ir) for ir in radii),
-                                 stack(phase_space_jacobian_p_faces(grid, ir) for ir in radii),
-                                 stack(phase_space_jacobian_xi_faces(grid, ir) for ir in radii),
-                                 copy(phase_space_jacobian_r_faces(grid)),
-                                 stack(phase_space_jacobian_over_p2_at_zero(grid, ir) for ir in radii),
-                                 Ref{Any}(nothing))
+    return AdvectionDiffusion{T, T}(grid, on_p_faces(), on_p_faces(), on_p_faces(),
+        on_xi_faces(), on_xi_faces(), on_xi_faces(),
+        on_r_faces(), on_r_faces(), on_p_faces(), on_xi_faces(), zeros(T, nxi, nr),
+        zeros(T, nxi, nr),
+        p_scheme, xi_scheme, r_scheme, p_lower_boundary, p_upper_boundary, r_boundary,
+        [momentum_grid(grid, ir) for ir in radii],
+        [radial_face_overlap(grid, k) for k in 1:(nr + 1)],
+        stack(phase_space_jacobian(grid, ir) for ir in radii),
+        stack(phase_space_jacobian_p_faces(grid, ir) for ir in radii),
+        stack(phase_space_jacobian_xi_faces(grid, ir) for ir in radii),
+        copy(phase_space_jacobian_r_faces(grid)),
+        stack(phase_space_jacobian_over_p2_at_zero(grid, ir) for ir in radii),
+        Ref{Any}(nothing))
 end
 
 """
@@ -233,8 +235,9 @@ array, boundary value and boundary condition with `op` (a rebuild of `op`'s coef
 unchanged. Used by the Jacobian modes of [`FokkerPlanckTerm`](@ref): the
 residual of one scheme with the stored Jacobian of another.
 """
-function with_scheme(op::AdvectionDiffusion{T,C}, scheme::Symbol; p_scheme::Symbol=scheme,
-                     xi_scheme::Symbol=scheme) where {T,C}
+function with_scheme(
+        op::AdvectionDiffusion{T, C}, scheme::Symbol; p_scheme::Symbol = scheme,
+        xi_scheme::Symbol = scheme) where {T, C}
     for s in (p_scheme, xi_scheme)
         s in (:upwind, :central, :exponential_fitting) || is_four_point_scheme(s) ||
             throw(ArgumentError("unknown scheme $s"))
@@ -242,14 +245,15 @@ function with_scheme(op::AdvectionDiffusion{T,C}, scheme::Symbol; p_scheme::Symb
     p_scheme === :exponential_fitting && op.p_upper_boundary === :extrapolated_flux &&
         throw(ArgumentError("extrapolated_flux has no exponential_fitting counterpart in DREAM " *
                             "(BC_DPHI_CONST); its flux does not split into Aᵖ times a face value"))
-    return AdvectionDiffusion{T,C}(op.grid, op.advection_p, op.diffusion_p_p, op.diffusion_p_xi, op.advection_xi,
-                                 op.diffusion_xi_xi, op.diffusion_xi_p, op.advection_r, op.diffusion_r_r,
-                                 op.unit_field_advection_p, op.unit_field_advection_xi,
-                                 op.p_flux_at_lower_boundary, op.advection_p_times_p2_at_zero, p_scheme, xi_scheme,
-                                 op.r_scheme, op.p_lower_boundary, op.p_upper_boundary, op.r_boundary,
-                                 op.momentum_grids, op.radial_overlaps,
-                                 op.jacobian_centers, op.jacobian_p_faces, op.jacobian_xi_faces, op.jacobian_r_faces,
-                                 op.jacobian_over_p2_at_zero, op.coefficient_source)
+    return AdvectionDiffusion{T, C}(
+        op.grid, op.advection_p, op.diffusion_p_p, op.diffusion_p_xi, op.advection_xi,
+        op.diffusion_xi_xi, op.diffusion_xi_p, op.advection_r, op.diffusion_r_r,
+        op.unit_field_advection_p, op.unit_field_advection_xi,
+        op.p_flux_at_lower_boundary, op.advection_p_times_p2_at_zero, p_scheme, xi_scheme,
+        op.r_scheme, op.p_lower_boundary, op.p_upper_boundary, op.r_boundary,
+        op.momentum_grids, op.radial_overlaps,
+        op.jacobian_centers, op.jacobian_p_faces, op.jacobian_xi_faces, op.jacobian_r_faces,
+        op.jacobian_over_p2_at_zero, op.coefficient_source)
 end
 
 """
@@ -260,17 +264,18 @@ coefficients of the number type `C`: coefficients that hold dual numbers,
 whose application to a distribution gives the derivative of the residual with respect to
 the plasma values the coefficients are built from, through the scheme's own face weights.
 """
-function similar_coefficients(op::AdvectionDiffusion{T}, ::Type{C}) where {T,C<:Real}
+function similar_coefficients(op::AdvectionDiffusion{T}, ::Type{C}) where {T, C <: Real}
     zeroed(A) = zeros(C, size(A))
-    return AdvectionDiffusion{T,C}(op.grid, zeroed(op.advection_p), zeroed(op.diffusion_p_p),
-                                   zeroed(op.diffusion_p_xi), zeroed(op.advection_xi), zeroed(op.diffusion_xi_xi),
-                                   zeroed(op.diffusion_xi_p), zeroed(op.advection_r), zeroed(op.diffusion_r_r),
-                                   zeroed(op.unit_field_advection_p), zeroed(op.unit_field_advection_xi),
-                                   zeroed(op.p_flux_at_lower_boundary), zeroed(op.advection_p_times_p2_at_zero),
-                                   op.p_scheme, op.xi_scheme, op.r_scheme, op.p_lower_boundary, op.p_upper_boundary,
-                                   op.r_boundary, op.momentum_grids, op.radial_overlaps, op.jacobian_centers,
-                                   op.jacobian_p_faces, op.jacobian_xi_faces, op.jacobian_r_faces,
-                                   op.jacobian_over_p2_at_zero, Ref{Any}(nothing))
+    return AdvectionDiffusion{T, C}(
+        op.grid, zeroed(op.advection_p), zeroed(op.diffusion_p_p),
+        zeroed(op.diffusion_p_xi), zeroed(op.advection_xi), zeroed(op.diffusion_xi_xi),
+        zeroed(op.diffusion_xi_p), zeroed(op.advection_r), zeroed(op.diffusion_r_r),
+        zeroed(op.unit_field_advection_p), zeroed(op.unit_field_advection_xi),
+        zeroed(op.p_flux_at_lower_boundary), zeroed(op.advection_p_times_p2_at_zero),
+        op.p_scheme, op.xi_scheme, op.r_scheme, op.p_lower_boundary, op.p_upper_boundary,
+        op.r_boundary, op.momentum_grids, op.radial_overlaps, op.jacobian_centers,
+        op.jacobian_p_faces, op.jacobian_xi_faces, op.jacobian_r_faces,
+        op.jacobian_over_p2_at_zero, Ref{Any}(nothing))
 end
 
 # the scheme of a direction with too few cells for a four-point scheme: central, as in DREAM
@@ -278,12 +283,14 @@ end
 
 # advection of a face: that of the operator, plus the electric field of the radius times the
 # coefficient of a unit field when the field is given (an unknown of the system)
+#! format: off
 Base.@propagate_inbounds _advection_p(op::AdvectionDiffusion, ::Nothing, k, j, ir) = op.advection_p[k, j, ir]
 Base.@propagate_inbounds _advection_p(op::AdvectionDiffusion, field, k, j, ir) =
     op.advection_p[k, j, ir] + field[ir] * op.unit_field_advection_p[k, j, ir]
 Base.@propagate_inbounds _advection_xi(op::AdvectionDiffusion, ::Nothing, i, k, ir) = op.advection_xi[i, k, ir]
 Base.@propagate_inbounds _advection_xi(op::AdvectionDiffusion, field, i, k, ir) =
     op.advection_xi[i, k, ir] + field[ir] * op.unit_field_advection_xi[i, k, ir]
+#! format: on
 
 @inline function _face_value(scheme, advection, f_left, f_right, weight_left)
     if scheme === :upwind
@@ -313,7 +320,8 @@ end
         end
         return A * (A >= 0 ? f_left : f_right) - D * (f_right - f_left) / distance
     end
-    return A * _face_value(scheme, A, f_left, f_right, weight_left) - D * (f_right - f_left) / distance
+    return A * _face_value(scheme, A, f_left, f_right, weight_left) -
+           D * (f_right - f_left) / distance
 end
 
 # Centred derivative of f in ξ at cell (i, j), one-sided at the ξ edges.
@@ -321,7 +329,8 @@ Base.@propagate_inbounds function _xi_derivative(f, grid::MomentumGrid, i, j, ir
     j_lower = max(j - 1, 1)
     j_upper = min(j + 1, pitch_cell_count(grid))
     j_lower == j_upper && return zero(eltype(f))
-    return (f[i, j_upper, ir] - f[i, j_lower, ir]) / (grid.xi_centers[j_upper] - grid.xi_centers[j_lower])
+    return (f[i, j_upper, ir] - f[i, j_lower, ir]) /
+           (grid.xi_centers[j_upper] - grid.xi_centers[j_lower])
 end
 
 # Centred derivative of f in p at cell (i, j), one-sided at the p edges.
@@ -329,73 +338,93 @@ Base.@propagate_inbounds function _p_derivative(f, grid::MomentumGrid, i, j, ir)
     i_lower = max(i - 1, 1)
     i_upper = min(i + 1, momentum_cell_count(grid))
     i_lower == i_upper && return zero(eltype(f))
-    return (f[i_upper, j, ir] - f[i_lower, j, ir]) / (grid.p_centers[i_upper] - grid.p_centers[i_lower])
+    return (f[i_upper, j, ir] - f[i_lower, j, ir]) /
+           (grid.p_centers[i_upper] - grid.p_centers[i_lower])
 end
 
 # Four-point face value on p face `k` with the ghost cells DREAM uses for the hot-tail
 # distribution (mirrored at p = 0, zero at a lower boundary p_min > 0 and beyond p_max);
 # with `state` given, the limiter weights come from `state` (frozen limiter)
-Base.@propagate_inbounds function _p_four_point_face(op::AdvectionDiffusion, f, state, A, k, j, ir)
+Base.@propagate_inbounds function _p_four_point_face(
+        op::AdvectionDiffusion, f, state, A, k, j, ir)
     m = op.momentum_grids[ir]
     np = momentum_cell_count(m)
     # upstream U1, U2 and downstream D1 by the sign of A (DREAM: A > 0 is positive flow)
     i_u, i_uu, i_d = A > 0 ? (k - 1, k - 2, k) : (k, k + 1, k - 1)
     centers, faces = m.p_centers, m.p_faces
     mirrored = faces[1] == 0
-    value(g, i) = i < 1 ? (mirrored ? g[1-i, j, ir] : zero(eltype(g))) : (i > np ? zero(eltype(g)) : g[i, j, ir])
+    value(g, i) = i < 1 ? (mirrored ? g[1 - i, j, ir] : zero(eltype(g))) :
+                  (i > np ? zero(eltype(g)) : g[i, j, ir])
+    #! format: off
     x_d, x_u, x_uu = _ghost_center(centers, faces, i_d), _ghost_center(centers, faces, i_u), _ghost_center(centers, faces, i_uu)
+    #! format: on
     if state === nothing || !is_nonlinear_scheme(op.p_scheme)
-        return _four_point_face_value(op.p_scheme, faces[k], x_d, x_u, x_uu, value(f, i_d), value(f, i_u), value(f, i_uu))
+        return _four_point_face_value(op.p_scheme, faces[k], x_d, x_u, x_uu,
+            value(f, i_d), value(f, i_u), value(f, i_uu))
     end
-    return _frozen_face_value(op.p_scheme, faces[k], x_d, x_u, x_uu, value(state, i_d), value(state, i_u),
-                              value(state, i_uu), value(f, i_d), value(f, i_u), value(f, i_uu))
+    return _frozen_face_value(
+        op.p_scheme, faces[k], x_d, x_u, x_uu, value(state, i_d), value(state, i_u),
+        value(state, i_uu), value(f, i_d), value(f, i_u), value(f, i_uu))
 end
 
 # Four-point face value on ξ face `k`, mirrored at ξ = ±1 (DREAM AD_BC_MIRRORED)
-Base.@propagate_inbounds function _xi_four_point_face(op::AdvectionDiffusion, f, state, A, i, k, ir)
+Base.@propagate_inbounds function _xi_four_point_face(
+        op::AdvectionDiffusion, f, state, A, i, k, ir)
     m = op.momentum_grids[ir]
     nxi = pitch_cell_count(m)
     j_u, j_uu, j_d = A > 0 ? (k - 1, k - 2, k) : (k, k + 1, k - 1)
     centers, faces = m.xi_centers, m.xi_faces
     value(g, j) = g[i, _ghost_index(j, nxi), ir]
+    #! format: off
     x_d, x_u, x_uu = _ghost_center(centers, faces, j_d), _ghost_center(centers, faces, j_u), _ghost_center(centers, faces, j_uu)
+    #! format: on
     if state === nothing || !is_nonlinear_scheme(op.xi_scheme)
-        return _four_point_face_value(op.xi_scheme, faces[k], x_d, x_u, x_uu, value(f, j_d), value(f, j_u), value(f, j_uu))
+        return _four_point_face_value(op.xi_scheme, faces[k], x_d, x_u, x_uu,
+            value(f, j_d), value(f, j_u), value(f, j_uu))
     end
-    return _frozen_face_value(op.xi_scheme, faces[k], x_d, x_u, x_uu, value(state, j_d), value(state, j_u),
-                              value(state, j_uu), value(f, j_d), value(f, j_u), value(f, j_uu))
+    return _frozen_face_value(
+        op.xi_scheme, faces[k], x_d, x_u, x_uu, value(state, j_d), value(state, j_u),
+        value(state, j_uu), value(f, j_d), value(f, j_u), value(f, j_uu))
 end
 
 # Four-point face value on r face `k` for pitch grids that are the same on both sides,
 # mirrored at the axis and zero beyond the edge (DREAM AD_BC_MIRRORED and AD_BC_DIRICHLET)
-Base.@propagate_inbounds function _r_four_point_face(op::AdvectionDiffusion, f, state, A, i, j, k)
+Base.@propagate_inbounds function _r_four_point_face(
+        op::AdvectionDiffusion, f, state, A, i, j, k)
     rg = op.grid.radial_grid
     nr = radial_cell_count(rg)
     r_u, r_uu, r_d = A > 0 ? (k - 1, k - 2, k) : (k, k + 1, k - 1)
     centers, faces = rg.r_centers, rg.r_faces
-    value(g, ir) = ir < 1 ? g[i, j, 1-ir] : (ir > nr ? zero(eltype(g)) : g[i, j, ir])
+    value(g, ir) = ir < 1 ? g[i, j, 1 - ir] : (ir > nr ? zero(eltype(g)) : g[i, j, ir])
+    #! format: off
     x_d, x_u, x_uu = _ghost_center(centers, faces, r_d), _ghost_center(centers, faces, r_u), _ghost_center(centers, faces, r_uu)
+    #! format: on
     if state === nothing || !is_nonlinear_scheme(op.r_scheme)
-        return _four_point_face_value(op.r_scheme, faces[k], x_d, x_u, x_uu, value(f, r_d), value(f, r_u), value(f, r_uu))
+        return _four_point_face_value(op.r_scheme, faces[k], x_d, x_u, x_uu,
+            value(f, r_d), value(f, r_u), value(f, r_uu))
     end
-    return _frozen_face_value(op.r_scheme, faces[k], x_d, x_u, x_uu, value(state, r_d), value(state, r_u),
-                              value(state, r_uu), value(f, r_d), value(f, r_u), value(f, r_uu))
+    return _frozen_face_value(
+        op.r_scheme, faces[k], x_d, x_u, x_uu, value(state, r_d), value(state, r_u),
+        value(state, r_uu), value(f, r_d), value(f, r_u), value(f, r_uu))
 end
 
 # Γᵖ (not multiplied by 𝒱') through interior p face `k` (2 <= k <= momentum cell count),
 # between cells k-1 and k.
-Base.@propagate_inbounds function _p_interior_gamma(op::AdvectionDiffusion, f, k, j, ir, state, field=nothing)
+Base.@propagate_inbounds function _p_interior_gamma(
+        op::AdvectionDiffusion, f, k, j, ir, state, field = nothing)
     m = op.momentum_grids[ir]
     np = momentum_cell_count(m)
     A = _advection_p(op, field, k, j, ir)
-    f_left = f[k-1, j, ir]
+    f_left = f[k - 1, j, ir]
     f_right = f[k, j, ir]
-    distance = m.p_centers[k] - m.p_centers[k-1]
+    distance = m.p_centers[k] - m.p_centers[k - 1]
     weight_left = (m.p_centers[k] - m.p_faces[k]) / distance
     F = if is_four_point_scheme(op.p_scheme) && np >= 3
-        A * _p_four_point_face(op, f, state, A, k, j, ir) - op.diffusion_p_p[k, j, ir] * (f_right - f_left) / distance
+        A * _p_four_point_face(op, f, state, A, k, j, ir) -
+        op.diffusion_p_p[k, j, ir] * (f_right - f_left) / distance
     else
-        _face_flux(op.p_scheme, A, op.diffusion_p_p[k, j, ir], f_left, f_right, distance, weight_left)
+        _face_flux(op.p_scheme, A, op.diffusion_p_p[k, j, ir],
+            f_left, f_right, distance, weight_left)
     end
     D = op.diffusion_p_xi[k, j, ir]
     if D != 0
@@ -410,17 +439,20 @@ end
 The element type of the fluxes of `op` applied to `f` with the electric field `field` (one
 value per radius, `nothing` for none): that of `f` promoted with those of the coefficients
 and of the field, so that every branch of a flux returns one type. With dual coefficients (the
-plasma columns) and a Float64 `f`, the element type of `f` alone made the
-fluxes return `Union{Float64, Dual}`, and [`apply!`](@ref) returned wrong partials under
-exponential fitting at the default optimization level, though not at `-O0`, with 23 partials
-on Julia 1.13.1.
+derivatives with respect to the plasma values) and a Float64 `f`, the element type of `f`
+alone would make the fluxes return `Union{Float64, Dual}`, and [`apply!`](@ref) would then
+return wrong partials under exponential fitting at the default optimization level, though
+not at `-O0`, with 23 partials on Julia 1.13.1.
 """
-_flux_eltype(::AdvectionDiffusion{<:Any,C}, f, field=nothing) where {C} =
-    field === nothing ? promote_type(eltype(f), C) : promote_type(eltype(f), C, eltype(field))
+function _flux_eltype(::AdvectionDiffusion{<:Any, C}, f, field = nothing) where {C}
+    field === nothing ? promote_type(eltype(f), C) :
+    promote_type(eltype(f), C, eltype(field))
+end
 
 # Flux Γᵖ through p face `k` (between cells k-1 and k), multiplied by 𝒱'. `state` gives the
 # limiter weights of a frozen limiter (`nothing`: the limiter at f itself).
-Base.@propagate_inbounds function _p_flux(op::AdvectionDiffusion, f, k, j, ir, state=nothing, field=nothing)
+Base.@propagate_inbounds function _p_flux(
+        op::AdvectionDiffusion, f, k, j, ir, state = nothing, field = nothing)
     m = op.momentum_grids[ir]
     np = momentum_cell_count(m)
     V = op.jacobian_p_faces[k, j, ir]
@@ -430,11 +462,15 @@ Base.@propagate_inbounds function _p_flux(op::AdvectionDiffusion, f, k, j, ir, s
             # p²Aᵖ times the face value, which is f₁ for the two-point schemes and the
             # limiters (mirrored ghost cell) and the scheme's own value for QUICK and
             # second-order upwind (DREAM AdvectionTerm, F1PSqAtZero with the p = 0 deltas)
+            #! format: off
             face = is_four_point_scheme(op.p_scheme) && np >= 3 ?
                    _p_four_point_face(op, f, state, _advection_p(op, field, 1, j, ir), 1, j, ir) : f[1, j, ir]
-            return T(op.jacobian_over_p2_at_zero[j, ir] * op.advection_p_times_p2_at_zero[j, ir] * face)
+            #! format: on
+            return T(op.jacobian_over_p2_at_zero[j, ir] *
+                     op.advection_p_times_p2_at_zero[j, ir] * face)
         end
-        return op.p_lower_boundary === :prescribed ? T(V * op.p_flux_at_lower_boundary[j, ir]) : zero(T)
+        return op.p_lower_boundary === :prescribed ?
+               T(V * op.p_flux_at_lower_boundary[j, ir]) : zero(T)
     end
     V == 0 && return zero(T)
     A = _advection_p(op, field, k, j, ir)
@@ -447,45 +483,48 @@ Base.@propagate_inbounds function _p_flux(op::AdvectionDiffusion, f, k, j, ir, s
             return _p_flux(op, f, np, j, ir, state, field)
         elseif op.p_upper_boundary === :extrapolated_flux
             # linear extrapolation of 𝒱'Γᵖ from the last two interior faces (DREAM
-            # BC_DPHI_CONST, PXiExternalLoss.cpp), ported literally including an apparent
-            # index inconsistency: both advective terms are multiplied by the last
-            # interior face's Aᵖ (not each term's own), while the
-            # second term's interpolation (upstream direction and weights) and diffusion
-            # are the second-to-last face's own. Both terms share the last interior face's
-            # 𝒱'.
+            # BC_DPHI_CONST, PXiExternalLoss.cpp), ported as DREAM's code has it: both
+            # advective terms are multiplied by the last interior face's Aᵖ (not each
+            # term's own), while the second term's interpolation (upstream direction and
+            # weights) and diffusion are the second-to-last face's own. Both terms share
+            # the last interior face's 𝒱'.
             A_last = _advection_p(op, field, np, j, ir)
             A_prev = _advection_p(op, field, np-1, j, ir)
             gamma_last = _p_interior_gamma(op, f, np, j, ir, state, field)
             face_value_prev = if is_four_point_scheme(op.p_scheme) && np >= 3
                 _p_four_point_face(op, f, state, A_prev, np - 1, j, ir)
             else
-                f_left = f[np-2, j, ir]
-                f_right = f[np-1, j, ir]
-                distance_prev = m.p_centers[np-1] - m.p_centers[np-2]
-                weight_left = (m.p_centers[np-1] - m.p_faces[np-1]) / distance_prev
+                f_left = f[np - 2, j, ir]
+                f_right = f[np - 1, j, ir]
+                distance_prev = m.p_centers[np - 1] - m.p_centers[np - 2]
+                weight_left = (m.p_centers[np - 1] - m.p_faces[np - 1]) / distance_prev
                 _face_value(op.p_scheme, A_prev, f_left, f_right, weight_left)
             end
-            distance_prev = m.p_centers[np-1] - m.p_centers[np-2]
+            distance_prev = m.p_centers[np - 1] - m.p_centers[np - 2]
             gamma_prev_dream = A_last * face_value_prev -
-                                op.diffusion_p_p[np-1, j, ir] * (f[np-1, j, ir] - f[np-2, j, ir]) / distance_prev
-            dd = m.p_widths[np] / m.p_widths[np-1]
-            return op.jacobian_p_faces[np, j, ir] * ((1 + dd) * gamma_last - dd * gamma_prev_dream)
+                               op.diffusion_p_p[np - 1, j, ir] *
+                               (f[np - 1, j, ir] - f[np - 2, j, ir]) / distance_prev
+            dd = m.p_widths[np] / m.p_widths[np - 1]
+            return op.jacobian_p_faces[np, j, ir] *
+                   ((1 + dd) * gamma_last - dd * gamma_prev_dream)
         elseif op.p_upper_boundary === :extrapolated_flux_consistent
             # linear extrapolation of 𝒱'Γᵖ (DREAM's own "dΦ/dp constant", Φ = 𝒱'Γᵖ) using
-            # each face's own 𝒱' and Γᵖ throughout, unlike DREAM's code (which
-            # also shares one 𝒱' between the two terms, a second deviation from its
-            # stated definition beside the Aᵖ index)
+            # each face's own 𝒱' and Γᵖ throughout, unlike DREAM's code (which also shares
+            # one 𝒱' between the two terms, a second deviation from its stated definition
+            # beside the Aᵖ index)
             phi_last = _p_flux(op, f, np, j, ir, state, field)
             phi_prev = _p_flux(op, f, np - 1, j, ir, state, field)
-            dd = m.p_widths[np] / m.p_widths[np-1]
+            dd = m.p_widths[np] / m.p_widths[np - 1]
             return (1 + dd) * phi_last - dd * phi_prev
         elseif op.p_upper_boundary === :f_zero && np > 1  # one cell: outflow below
-            distance = m.p_centers[np] - m.p_centers[np-1]
+            distance = m.p_centers[np] - m.p_centers[np - 1]
             if op.p_scheme === :exponential_fitting
                 # the ghost cell with f = 0 at one spacing beyond the last centre
-                return V * _face_flux(op.p_scheme, A, op.diffusion_p_p[k, j, ir], f_last, zero(T), distance, 0.5)
+                return V * _face_flux(op.p_scheme, A, op.diffusion_p_p[k, j, ir],
+                    f_last, zero(T), distance, 0.5)
             end
-            return V * ((A > 0 ? A * f_last : zero(T)) + op.diffusion_p_p[k, j, ir] * f_last / distance)
+            return V * ((A > 0 ? A * f_last : zero(T)) +
+                    op.diffusion_p_p[k, j, ir] * f_last / distance)
         end
         return V * (A > 0 ? A * f_last : zero(T))
     end
@@ -493,22 +532,25 @@ Base.@propagate_inbounds function _p_flux(op::AdvectionDiffusion, f, k, j, ir, s
 end
 
 # Flux Γᵠ through ξ face `k` (between cells k-1 and k), multiplied by 𝒱'.
-Base.@propagate_inbounds function _xi_flux(op::AdvectionDiffusion, f, i, k, ir, state=nothing, field=nothing)
+Base.@propagate_inbounds function _xi_flux(
+        op::AdvectionDiffusion, f, i, k, ir, state = nothing, field = nothing)
     m = op.momentum_grids[ir]
     T = _flux_eltype(op, f, field)
     (k == 1 || k == pitch_cell_count(m) + 1) && return zero(T)
     V = op.jacobian_xi_faces[i, k, ir]
     V == 0 && return zero(T)
-    f_left = f[i, k-1, ir]
+    f_left = f[i, k - 1, ir]
     f_right = f[i, k, ir]
     A = _advection_xi(op, field, i, k, ir)
-    distance = m.xi_centers[k] - m.xi_centers[k-1]
+    distance = m.xi_centers[k] - m.xi_centers[k - 1]
     weight_left = (m.xi_centers[k] - m.xi_faces[k]) / distance
     nxi = pitch_cell_count(m)
     F = if is_four_point_scheme(op.xi_scheme) && nxi >= 3
-        A * _xi_four_point_face(op, f, state, A, i, k, ir) - op.diffusion_xi_xi[i, k, ir] * (f_right - f_left) / distance
+        A * _xi_four_point_face(op, f, state, A, i, k, ir) -
+        op.diffusion_xi_xi[i, k, ir] * (f_right - f_left) / distance
     else
-        _face_flux(op.xi_scheme, A, op.diffusion_xi_xi[i, k, ir], f_left, f_right, distance, weight_left)
+        _face_flux(op.xi_scheme, A, op.diffusion_xi_xi[i, k, ir],
+            f_left, f_right, distance, weight_left)
     end
     D = op.diffusion_xi_p[i, k, ir]
     if D != 0
@@ -531,7 +573,8 @@ struct _RadialOverlap end
 
 function _radial_flux_mode(op::AdvectionDiffusion)
     all(overlap -> overlap.identical, op.radial_overlaps) || return _RadialOverlap()
-    is_four_point_scheme(op.r_scheme) && radial_cell_count(op.grid) >= 3 && return _RadialFourPoint()
+    is_four_point_scheme(op.r_scheme) && radial_cell_count(op.grid) >= 3 &&
+        return _RadialFourPoint()
     return _RadialTwoPoint(_two_point_scheme(op.r_scheme))
 end
 
@@ -541,8 +584,8 @@ end
 function _r_edge_distance(op::AdvectionDiffusion)
     rg = op.grid.radial_grid
     nr = radial_cell_count(rg)
-    op.r_boundary === :absorbing && return rg.r_faces[nr+1] - rg.r_centers[nr]
-    return nr > 1 ? rg.r_centers[nr] - rg.r_centers[nr-1] : one(eltype(rg.r_centers))
+    op.r_boundary === :absorbing && return rg.r_faces[nr + 1] - rg.r_centers[nr]
+    return nr > 1 ? rg.r_centers[nr] - rg.r_centers[nr - 1] : one(eltype(rg.r_centers))
 end
 
 # Flux Γʳ through the edge face `k = nr + 1` on the side of pitch cell `j`, multiplied by 𝒱'
@@ -564,37 +607,43 @@ end
 # radius `ir` (k - 1 or k), multiplied by 𝒱': the sum over the overlap cells of the pitch
 # cell, each with its share of the cell. Pitch cell `j` itself with one pitch grid on both
 # sides.
+#! format: off
 Base.@propagate_inbounds _r_flux(op::AdvectionDiffusion, f, i, j, ir, k, state=nothing) =
     _r_flux(op, f, i, j, ir, k, state, _RadialOverlap())
+#! format: on
 
-Base.@propagate_inbounds function _r_flux(op::AdvectionDiffusion, f, i, j, ir, k, state, mode::_RadialTwoPoint)
+Base.@propagate_inbounds function _r_flux(
+        op::AdvectionDiffusion, f, i, j, ir, k, state, mode::_RadialTwoPoint)
     T = _flux_eltype(op, f)
     k == 1 && return zero(T)
     rg = op.grid.radial_grid
     k == radial_cell_count(rg) + 1 && return _r_edge_flux(op, f, i, j, k)
     V = op.jacobian_r_faces[i, j, k]
     V == 0 && return zero(T)
-    distance = rg.r_centers[k] - rg.r_centers[k-1]
+    distance = rg.r_centers[k] - rg.r_centers[k - 1]
     weight_left = (rg.r_centers[k] - rg.r_faces[k]) / distance
     F = _face_flux(mode.scheme, op.advection_r[i, j, k], op.diffusion_r_r[i, j, k],
-                   f[i, j, k-1], f[i, j, k], distance, weight_left)
+        f[i, j, k - 1], f[i, j, k], distance, weight_left)
     return V * F
 end
 
-Base.@propagate_inbounds function _r_flux(op::AdvectionDiffusion, f, i, j, ir, k, state, ::_RadialFourPoint)
+Base.@propagate_inbounds function _r_flux(
+        op::AdvectionDiffusion, f, i, j, ir, k, state, ::_RadialFourPoint)
     T = _flux_eltype(op, f)
     k == 1 && return zero(T)
     rg = op.grid.radial_grid
     k == radial_cell_count(rg) + 1 && return _r_edge_flux(op, f, i, j, k)
     V = op.jacobian_r_faces[i, j, k]
     V == 0 && return zero(T)
-    distance = rg.r_centers[k] - rg.r_centers[k-1]
+    distance = rg.r_centers[k] - rg.r_centers[k - 1]
     A = op.advection_r[i, j, k]
     face_value = A == 0 ? zero(T) : _r_four_point_face(op, f, state, A, i, j, k)
-    return V * (A * face_value - op.diffusion_r_r[i, j, k] * (f[i, j, k] - f[i, j, k-1]) / distance)
+    return V * (A * face_value -
+            op.diffusion_r_r[i, j, k] * (f[i, j, k] - f[i, j, k - 1]) / distance)
 end
 
-Base.@propagate_inbounds function _r_flux(op::AdvectionDiffusion, f, i, j, ir, k, state, ::_RadialOverlap)
+Base.@propagate_inbounds function _r_flux(
+        op::AdvectionDiffusion, f, i, j, ir, k, state, ::_RadialOverlap)
     rg = op.grid.radial_grid
     nr = radial_cell_count(rg)
     T = _flux_eltype(op, f)
@@ -606,15 +655,16 @@ Base.@propagate_inbounds function _r_flux(op::AdvectionDiffusion, f, i, j, ir, k
                _RadialTwoPoint(_two_point_scheme(op.r_scheme))
         return _r_flux(op, f, i, j, ir, k, state, mode)
     end
-    distance = rg.r_centers[k] - rg.r_centers[k-1]
+    distance = rg.r_centers[k] - rg.r_centers[k - 1]
     weight_left = (rg.r_centers[k] - rg.r_faces[k]) / distance
     total = zero(T)
     if ir == k - 1
         for s in overlap.left_ranges[j]
             V = op.jacobian_r_faces[i, s, k]
             V == 0 && continue
-            F = _face_flux(op.r_scheme, op.advection_r[i, s, k], op.diffusion_r_r[i, s, k], f[i, j, k-1],
-                           f[i, overlap.right_cells[s], k], distance, weight_left)
+            F = _face_flux(op.r_scheme, op.advection_r[i, s, k],
+                op.diffusion_r_r[i, s, k], f[i, j, k - 1],
+                f[i, overlap.right_cells[s], k], distance, weight_left)
             total += overlap.left_fractions[s] * (V * F)
         end
     else
@@ -622,7 +672,7 @@ Base.@propagate_inbounds function _r_flux(op::AdvectionDiffusion, f, i, j, ir, k
             V = op.jacobian_r_faces[i, s, k]
             V == 0 && continue
             F = _face_flux(op.r_scheme, op.advection_r[i, s, k], op.diffusion_r_r[i, s, k],
-                           f[i, overlap.left_cells[s], k-1], f[i, j, k], distance, weight_left)
+                f[i, overlap.left_cells[s], k - 1], f[i, j, k], distance, weight_left)
             total += overlap.right_fractions[s] * (V * F)
         end
     end
@@ -641,13 +691,15 @@ operator is linear in `f` except for a prescribed lower-p flux, which adds a con
 source, and for the flux limiters, whose face values depend on `f`. With
 `limiter_state`, the limiter weights are evaluated at that state and applied linearly to
 `f`: the limiter frozen at `limiter_state` (DREAM's linearly implicit solver takes them
-from the previous time level; the frozen-limiter Jacobian).
+from the previous time level; the `:frozen_limiter` Jacobian of [`FokkerPlanckTerm`](@ref)).
 """
-function apply!(df::AbstractArray{<:Any,3}, op::AdvectionDiffusion, f::AbstractArray{<:Any,3};
-                scale=true, limiter_state=nothing, electric_field=nothing)
+function apply!(
+        df::AbstractArray{<:Any, 3}, op::AdvectionDiffusion, f::AbstractArray{<:Any, 3};
+        scale = true, limiter_state = nothing, electric_field = nothing)
     electric_field === nothing || length(electric_field) == radial_cell_count(op.grid) ||
         throw(DimensionMismatch("the electric field needs one value per radius"))
-    size(f) == size(df) == size(op.grid) || throw(DimensionMismatch("f and df must match grid"))
+    size(f) == size(df) == size(op.grid) ||
+        throw(DimensionMismatch("f and df must match grid"))
     limiter_state === nothing || size(limiter_state) == size(f) ||
         throw(DimensionMismatch("limiter_state must match the grid"))
     radial_mode = _radial_flux_mode(op)
@@ -665,17 +717,21 @@ Operator contribution to all momentum cells at radius index `ir`. Writes only to
 computation of the radial fluxes (`_radial_flux_mode`), a function barrier: the
 loop over the cells is compiled for it.
 """
-@inline function apply_radius!(df, op::AdvectionDiffusion, f, ir, scale, state=nothing, field=nothing,
-                               radial_mode=_radial_flux_mode(op))
+@inline function apply_radius!(
+        df, op::AdvectionDiffusion, f, ir, scale, state = nothing, field = nothing,
+        radial_mode = _radial_flux_mode(op))
     m = op.momentum_grids[ir]
     rg = op.grid.radial_grid
     np, nxi = momentum_cell_count(m), pitch_cell_count(m)
     @inbounds for j in 1:nxi, i in 1:np
+
         V = op.jacobian_centers[i, j, ir]
         V == 0 && continue
-        divergence = (_p_flux(op, f, i + 1, j, ir, state, field) - _p_flux(op, f, i, j, ir, state, field)) /
+        divergence = (_p_flux(op, f, i + 1, j, ir, state, field) -
+                      _p_flux(op, f, i, j, ir, state, field)) /
                      m.p_widths[i] +
-                     (_xi_flux(op, f, i, j + 1, ir, state, field) - _xi_flux(op, f, i, j, ir, state, field)) /
+                     (_xi_flux(op, f, i, j + 1, ir, state, field) -
+                      _xi_flux(op, f, i, j, ir, state, field)) /
                      m.xi_widths[j] +
                      (_r_flux(op, f, i, j, ir, ir + 1, state, radial_mode) -
                       _r_flux(op, f, i, j, ir, ir, state, radial_mode)) / rg.r_widths[ir]
@@ -700,8 +756,8 @@ there, and [`interface_flux`](@ref) gives the flux between the grids.
 `electric_field` (one value per radius) is the field of an operator that takes it as an
 argument ([`apply!`](@ref)).
 """
-function momentum_flux(op::AdvectionDiffusion, f::AbstractArray{<:Any,3}, face::Integer,
-                       ir::Integer=1; electric_field=nothing)
+function momentum_flux(op::AdvectionDiffusion, f::AbstractArray{<:Any, 3}, face::Integer,
+        ir::Integer = 1; electric_field = nothing)
     m = momentum_grid(op.grid, ir)
     1 <= face <= momentum_cell_count(m) + 1 ||
         throw(ArgumentError("momentum face $face outside the grid (1 to $(momentum_cell_count(m) + 1))"))

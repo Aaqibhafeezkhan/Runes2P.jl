@@ -24,8 +24,9 @@ using HDF5
                 target = cutoff_target(temperature, threshold)
                 @test target.policy === :log_midpoint
                 @test update.policy[ir] === :log_midpoint
-                expected = choose_cutoff_face(faces, target.p_cutoff, momentum_at_energy(temperature), threshold;
-                                              current_cutoff=before[ir])
+                expected = choose_cutoff_face(
+                    faces, target.p_cutoff, momentum_at_energy(temperature), threshold;
+                    current_cutoff = before[ir])
                 cutoff = case.knockon.p_cutoff[ir]
                 @test cutoff == expected.p_cutoff
                 @test update.inside_window[ir] === true
@@ -33,7 +34,7 @@ using HDF5
                 # inside the window of the rule, and within one cell of its target
                 @test momentum_at_energy(temperature) < cutoff < threshold
                 k = findfirst(==(cutoff), faces)
-                @test faces[k-1] < target.p_cutoff < faces[k+1]
+                @test faces[k - 1] < target.p_cutoff < faces[k + 1]
                 push!(seen, cutoff)
             end
             @test changed == (case.knockon.p_cutoff != before)
@@ -47,7 +48,7 @@ using HDF5
         # one cutoff for all radii, as DREAM has it: the largest temperature and the
         # smallest threshold
         case = _checkpoint_case()
-        single = KnockOnCutoffUpdate(case.knockon, case.plasma_at; per_radius=false)
+        single = KnockOnCutoffUpdate(case.knockon, case.plasma_at; per_radius = false)
         for t in case.times
             before = copy(case.knockon.p_cutoff)
             Runes2P.apply_update!(single, case.u0, case.layout, t)
@@ -55,44 +56,50 @@ using HDF5
             temperature = maximum(plasma.cold_electron_temperature)
             threshold = minimum(total_critical_momentum(plasma, ir) for ir in 1:2)
             target = cutoff_target(temperature, threshold)
-            expected = choose_cutoff_face(faces, target.p_cutoff, momentum_at_energy(temperature), threshold;
-                                          current_cutoff=before[1])
+            expected = choose_cutoff_face(
+                faces, target.p_cutoff, momentum_at_energy(temperature), threshold;
+                current_cutoff = before[1])
             @test case.knockon.p_cutoff == fill(expected.p_cutoff, 2)
         end
 
-        # the placement in the window: inside the window, kept while it stays inside
+        # the placement `:window`: inside the window, kept while it stays inside
         case = _checkpoint_case()
-        window_update = KnockOnCutoffUpdate(case.knockon, case.plasma_at; placement=:window,
-                                            critical_momentum_at=free_critical_momentum)
+        window_update = KnockOnCutoffUpdate(
+            case.knockon, case.plasma_at; placement = :window,
+            critical_momentum_at = free_critical_momentum)
         for t in case.times
             before = copy(case.knockon.p_cutoff)
             Runes2P.apply_update!(window_update, case.u0, case.layout, t)
             plasma = case.plasma_at(t)
             for ir in 1:2
-                window = cutoff_window(thermal_momentum(plasma.cold_electron_temperature[ir]),
-                                       free_critical_momentum(plasma, ir))
-                expected = choose_cutoff(faces, window.lower, window.upper; current_cutoff=before[ir])
+                window = cutoff_window(
+                    thermal_momentum(plasma.cold_electron_temperature[ir]),
+                    free_critical_momentum(plasma, ir))
+                expected = choose_cutoff(faces, window.lower, window.upper; current_cutoff = before[ir])
                 @test case.knockon.p_cutoff[ir] == expected.p_cutoff
                 @test window_update.inside_window[ir] == expected.inside_window
                 @test window_update.policy[ir] === :window
-                window.lower <= before[ir] < window.upper && @test case.knockon.p_cutoff[ir] == before[ir]
+                window.lower <= before[ir] < window.upper &&
+                    @test case.knockon.p_cutoff[ir] == before[ir]
             end
         end
 
         # a threshold below the thermal energy: the lower bound counts, and the choice is flagged
         case = _checkpoint_case()
-        closed = KnockOnCutoffUpdate(case.knockon, t -> _checkpoint_plasma(0.0); critical_momentum_at=(plasma, ir) -> 0.03)
+        closed = KnockOnCutoffUpdate(case.knockon, t -> _checkpoint_plasma(0.0);
+            critical_momentum_at = (plasma, ir) -> 0.03)
         Runes2P.apply_update!(closed, case.u0, case.layout, 0.0)
         @test closed.policy == [:closed, :closed]
         @test closed.inside_window == [false, false]
         for (ir, temperature) in enumerate((1000.0, 2000.0))
             target = momentum_at_energy(10 * temperature)
             k = findfirst(==(case.knockon.p_cutoff[ir]), faces)
-            @test faces[k-1] < target < faces[k+1]
+            @test faces[k - 1] < target < faces[k + 1]
         end
         # no threshold: ten times the temperature
         case = _checkpoint_case()
-        free_of_threshold = KnockOnCutoffUpdate(case.knockon, case.plasma_at; critical_momentum_at=(plasma, ir) -> Inf)
+        free_of_threshold = KnockOnCutoffUpdate(
+            case.knockon, case.plasma_at; critical_momentum_at = (plasma, ir) -> Inf)
         Runes2P.apply_update!(free_of_threshold, case.u0, case.layout, 0.0)
         @test free_of_threshold.policy == [:no_ceiling, :no_ceiling]
         @test free_of_threshold.inside_window == [true, true]
@@ -107,27 +114,32 @@ using HDF5
         @test total_critical_momentum(plasma, 1) == free_critical_momentum(plasma, 1)     # no bound electrons
         argon = zeros(19, 2)
         argon[1, :] .= 5e19                     # neutral: 18 bound electrons each
-        with_argon = PlasmaState(cold_electron_temperature=[1000.0, 1000.0], cold_electron_density=[1e20, 1e20],
-                                 ions=[IonSpecies("D", 1, 1, fill(1e20, 2)), IonSpecies("Ar", 18, argon)],
-                                 electric_field=[1.0, 0.5], magnetic_field=[5.0, 5.0])
+        with_argon = PlasmaState(cold_electron_temperature = [1000.0, 1000.0],
+            cold_electron_density = [1e20, 1e20],
+            ions = [IonSpecies("D", 1, 1, fill(1e20, 2)), IonSpecies("Ar", 18, argon)],
+            electric_field = [1.0, 0.5], magnetic_field = [5.0, 5.0])
         @test free_critical_momentum(with_argon, 1) == free_critical_momentum(plasma, 1)
         total = critical_field(1e20 + 18 * 5e19, logarithm)
         @test total_critical_momentum(with_argon, 1) == critical_momentum(1.0, total)
-        @test total_critical_momentum(with_argon, 1) > 3 * free_critical_momentum(with_argon, 1)
+        @test total_critical_momentum(with_argon, 1) >
+              3 * free_critical_momentum(with_argon, 1)
         @test total_critical_momentum(with_argon, 2) == Inf          # 0.5 V/m is below the total critical field
         @test isfinite(free_critical_momentum(with_argon, 2))
         # Before the quench of a fully kinetic run most free electrons are hot. The Coulomb
         # logarithm takes all free electrons, as DREAM's lnLambdaC does, and the free
-        # critical field the cold ones. The values are those of a synthetic
-        # hot plasma before the thermal quench: the cold electrons are 1 % of the free ones,
-        # so the cold density alone gives the larger logarithm.
-        hot = PlasmaState(cold_electron_temperature=[5000.0], cold_electron_density=[1e-2 * 1e20],
-                          ions=[IonSpecies("D", 1, 1, [1e20])], electric_field=[1.0], magnetic_field=[5.0])
+        # critical field the cold ones. The values are those of a synthetic hot plasma before
+        # the thermal quench: the cold electrons are 1 % of the free ones, so the cold density
+        # alone gives the larger logarithm.
+        hot = PlasmaState(
+            cold_electron_temperature = [5000.0], cold_electron_density = [1e-2 * 1e20],
+            ions = [IonSpecies("D", 1, 1, [1e20])], electric_field = [1.0], magnetic_field = [5.0])
         all_free = relativistic_coulomb_logarithm(5000.0, 1e20)
         cold_only = relativistic_coulomb_logarithm(5000.0, 1e-2 * 1e20)
         @test cold_only > all_free
-        @test free_critical_momentum(hot, 1) == critical_momentum(1.0, critical_field(1e-2 * 1e20, all_free))
-        @test total_critical_momentum(hot, 1) == critical_momentum(1.0, critical_field(1e20, all_free))
+        @test free_critical_momentum(hot, 1) ==
+              critical_momentum(1.0, critical_field(1e-2 * 1e20, all_free))
+        @test total_critical_momentum(hot, 1) ==
+              critical_momentum(1.0, critical_field(1e20, all_free))
 
         # restoring a state sets the operator, and the kernels are those of a fresh operator
         state = Runes2P.update_state(update)
@@ -139,7 +151,7 @@ using HDF5
         @test energy_kernel(other.knockon, 1).rates == energy_kernel(fresh, 1).rates
         @test_throws DimensionMismatch Runes2P.restore_update!(restored, [0.1])
 
-        record = describe(update, DescriptionContext(times=case.times))
+        record = describe(update, DescriptionContext(times = case.times))
         @test record["type"] == "KnockOnCutoffUpdate"
         @test record["name"] == "knockon_cutoff"
         @test record["placement"] == "energy_midpoint"
@@ -151,30 +163,34 @@ using HDF5
         @test record["plasma_table"] == "table_1"
         @test describe(window_update, DescriptionContext())["placement"] == "window"
         fields = settings_fields(KnockOnCutoffUpdate)
-        @test Set(union(fields.described, fields.derived)) == Set(fieldnames(KnockOnCutoffUpdate))
+        @test Set(union(fields.described, fields.derived)) ==
+              Set(fieldnames(KnockOnCutoffUpdate))
 
-        @test_throws ArgumentError KnockOnCutoffUpdate(case.knockon, case.plasma_at; thermal_factor=0)
-        @test_throws ArgumentError KnockOnCutoffUpdate(case.knockon, case.plasma_at; no_ceiling_factor=1)
-        @test_throws ArgumentError KnockOnCutoffUpdate(case.knockon, case.plasma_at; placement=:nearest)
-        @test_throws ArgumentError integrate(case.system, case.u0, case.times; updates=(update, case.update()))
-        @test_throws ArgumentError integrate(case.system, case.u0, case.times; updates=(1,))
+        @test_throws ArgumentError KnockOnCutoffUpdate(case.knockon, case.plasma_at; thermal_factor = 0)
+        @test_throws ArgumentError KnockOnCutoffUpdate(case.knockon, case.plasma_at; no_ceiling_factor = 1)
+        @test_throws ArgumentError KnockOnCutoffUpdate(case.knockon, case.plasma_at; placement = :nearest)
+        @test_throws ArgumentError integrate(
+            case.system, case.u0, case.times; updates = (update, case.update()))
+        @test_throws ArgumentError integrate(case.system, case.u0, case.times; updates = (1,))
     end
 
     @testset "a run with the cutoff update" begin
         case = _checkpoint_case()
-        solution = integrate(case.system, case.u0, case.times; save_times=case.save_times, updates=(case.update(),))
+        solution = integrate(case.system, case.u0, case.times;
+            save_times = case.save_times, updates = (case.update(),))
         cutoffs = solution.update_states["knockon_cutoff"]
         @test size(cutoffs) == (2, length(case.save_times))
         @test length(unique(cutoffs)) >= 4
         # the state of a saved time is the cutoff of the interval that computed it
         reference = _checkpoint_case()
         update = reference.update()
-        in_force = Dict{Float64,Vector{Float64}}()
-        for (k, t) in enumerate(reference.times[1:end-1])
+        in_force = Dict{Float64, Vector{Float64}}()
+        for (k, t) in enumerate(reference.times[1:(end - 1)])
             Runes2P.apply_update!(update, reference.u0, reference.layout, t)
             k == 1 && (in_force[t] = copy(reference.knockon.p_cutoff))
             for s in reference.save_times
-                t < s <= reference.times[k+1] && (in_force[s] = copy(reference.knockon.p_cutoff))
+                t < s <= reference.times[k + 1] &&
+                    (in_force[s] = copy(reference.knockon.p_cutoff))
             end
         end
         for (k, s) in enumerate(case.save_times)
@@ -183,27 +199,31 @@ using HDF5
         # the record describes the setup as built: the cutoff the operator was given
         operator = solution.settings["system"]["equations"]["f"]["terms"]["term_3"]["operator"]
         @test operator["p_cutoff"] == [0.45, 0.45]
-        @test solution.settings["updates"]["knockon_cutoff"]["type"] == "KnockOnCutoffUpdate"
+        @test solution.settings["updates"]["knockon_cutoff"]["type"] ==
+              "KnockOnCutoffUpdate"
         @test collect(keys(solution.settings["prescribed"])) == ["table_1"]   # one table for the one function
         @test solution.settings["segment"] ==
-              Dict{String,Any}("index" => 1, "start_time" => 0.0, "resumed" => false, "saved_before" => 0,
-                               "status" => "finished", "end_time" => 8e-4, "steps" => 8,
-                               "checkpoint_written" => false, "attempts_before" => 0)
-        @test solution.settings["stop"] == Dict{String,Any}("type" => "none")
+              Dict{String, Any}(
+            "index" => 1, "start_time" => 0.0, "resumed" => false, "saved_before" => 0,
+            "status" => "finished", "end_time" => 8e-4, "steps" => 8,
+            "checkpoint_written" => false, "attempts_before" => 0)
+        @test solution.settings["stop"] == Dict{String, Any}("type" => "none")
         @test run_status(solution) === :finished
         @test exit_status(solution) == 0
-        @test solution.settings["checkpoint"] == Dict{String,Any}("type" => "none")
+        @test solution.settings["checkpoint"] == Dict{String, Any}("type" => "none")
         # with a fixed cutoff the run differs: the update changes the result
         fixed = _checkpoint_case()
-        other = integrate(fixed.system, fixed.u0, fixed.times; save_times=fixed.save_times)
+        other = integrate(fixed.system, fixed.u0, fixed.times; save_times = fixed.save_times)
         @test other.states[:, end] != solution.states[:, end]
         @test isempty(other.update_states)
     end
 
     @testset "atomic write" begin
         directory = _checkpoint_directory()
-        path, previous = joinpath(directory, "file.txt"), joinpath(directory, "file.prev.txt")
-        @test Runes2P.write_atomically(temporary -> write(temporary, "first"), path; previous) == path
+        path, previous = joinpath(directory, "file.txt"),
+        joinpath(directory, "file.prev.txt")
+        @test Runes2P.write_atomically(temporary -> write(temporary, "first"), path; previous) ==
+              path
         @test read(path, String) == "first"
         @test !isfile(previous)
         Runes2P.write_atomically(temporary -> write(temporary, "second"), path; previous)
@@ -222,47 +242,51 @@ using HDF5
     end
 
     @testset "checkpoint settings and files" begin
-        settings = CheckpointSettings("run"; directory="/scratch/case", interval=600)
+        settings = CheckpointSettings("run"; directory = "/scratch/case", interval = 600)
         @test Runes2P.checkpoint_file(settings) == "/scratch/case/run.checkpoint.h5"
-        @test Runes2P.previous_checkpoint_file(settings) == "/scratch/case/run.checkpoint.prev.h5"
+        @test Runes2P.previous_checkpoint_file(settings) ==
+              "/scratch/case/run.checkpoint.prev.h5"
         @test Runes2P.segment_file(settings, 3) == "/scratch/case/run.segment0003.h5"
         @test settings.interval == 600.0
         @test CheckpointSettings("run").interval == 1800.0
         @test_throws ArgumentError CheckpointSettings("")
         @test_throws ArgumentError CheckpointSettings("a/b")
-        @test_throws ArgumentError CheckpointSettings("run"; interval=-1)
+        @test_throws ArgumentError CheckpointSettings("run"; interval = -1)
         @test isempty(Runes2P.segment_files(settings))
-        @test describe(settings) == Dict{String,Any}("type" => "CheckpointSettings", "name" => "run",
-                                                     "directory" => "/scratch/case", "interval" => 600.0,
-                                                     "overwrite" => false)
+        @test describe(settings) ==
+              Dict{String, Any}("type" => "CheckpointSettings", "name" => "run",
+            "directory" => "/scratch/case", "interval" => 600.0,
+            "overwrite" => false)
         case = _checkpoint_case()
-        @test_throws ArgumentError integrate(case.system, case.u0, case.times; resume=true)
-        @test_throws ArgumentError integrate(case.system, case.u0, case.times; resume=1)
+        @test_throws ArgumentError integrate(case.system, case.u0, case.times; resume = true)
+        @test_throws ArgumentError integrate(case.system, case.u0, case.times; resume = 1)
     end
 
     @testset "a resumed run repeats the uninterrupted one" begin
         solvers = [("direct", NewtonSolver(), :explicit, true),
-                   ("GMRES, every iteration",
-                    NewtonSolver(linear_solver=GMRES(preconditioner_refresh=:every_iteration)), :implicit, true),
-                   ("GMRES, every step",
-                    NewtonSolver(linear_solver=GMRES(preconditioner_refresh=:every_step)), :implicit, true),
-                   ("GMRES, on demand",
-                    NewtonSolver(linear_solver=GMRES(preconditioner_refresh=:on_demand)), :implicit, false),
-                   ("GMRES with FluidSchurLU, every iteration",
-                    NewtonSolver(linear_solver=GMRES(preconditioner=FluidSchurLU(),
-                                                     preconditioner_refresh=:every_iteration)), :implicit, true)]
+            ("GMRES, every iteration",
+                NewtonSolver(linear_solver = GMRES(preconditioner_refresh = :every_iteration)), :implicit, true),
+            ("GMRES, every step",
+                NewtonSolver(linear_solver = GMRES(preconditioner_refresh = :every_step)), :implicit, true),
+            ("GMRES, on demand",
+                NewtonSolver(linear_solver = GMRES(preconditioner_refresh = :on_demand)), :implicit, false),
+            ("GMRES with FluidSchurLU, every iteration",
+                NewtonSolver(linear_solver = GMRES(preconditioner = FluidSchurLU(),
+                    preconditioner_refresh = :every_iteration)), :implicit, true)]
         @testset "$name" for (name, solver, treatment, exact) in solvers
             case = _checkpoint_case(; treatment)
-            whole = integrate(case.system, case.u0, case.times; solver, save_times=case.save_times,
-                              updates=(case.update(),))
+            whole = integrate(
+                case.system, case.u0, case.times; solver, save_times = case.save_times,
+                updates = (case.update(),))
 
             # first segment: to the fifth time point, then the run from its checkpoint
             case = _checkpoint_case(; treatment)
-            checkpoint = CheckpointSettings("run"; directory=_checkpoint_directory(), interval=0)
+            checkpoint = CheckpointSettings("run"; directory = _checkpoint_directory(), interval = 0)
             stop = 5
             first_saves = filter(<=(case.times[stop]), case.save_times)
-            first_segment = integrate(case.system, case.u0, case.times[1:stop]; solver, save_times=first_saves,
-                                      updates=(case.update(),), checkpoint)
+            first_segment = integrate(
+                case.system, case.u0, case.times[1:stop]; solver, save_times = first_saves,
+                updates = (case.update(),), checkpoint)
             @test first_segment.states == whole.states[:, 1:length(first_saves)]
             @test isfile(Runes2P.checkpoint_file(checkpoint))
             @test isfile(Runes2P.previous_checkpoint_file(checkpoint))
@@ -272,28 +296,34 @@ using HDF5
             @test stored.saved_count == length(first_saves)
             @test stored.state == first_segment.states[:, end] ||
                   case.times[stop] != last(first_saves)       # the last state is saved when it is a save time
-            @test stored.update_states["knockon_cutoff"] == first_segment.update_states["knockon_cutoff"][:, end]
+            @test stored.update_states["knockon_cutoff"] ==
+                  first_segment.update_states["knockon_cutoff"][:, end]
             @test stored.summary["accepted_steps"] == stop - 1
-            @test stored.summary["newton_iterations"] == sum(first_segment.statistics.newton_iterations)
+            @test stored.summary["newton_iterations"] ==
+                  sum(first_segment.statistics.newton_iterations)
             # at the last time point of the segment no interval follows: the record says so,
             # and the resumed run takes the length of its own interval
-            @test stored.stepper == Dict{String,Any}("type" => "FixedSteps", "dt" => 0.0, "halvings" => 0)
+            @test stored.stepper ==
+                  Dict{String, Any}("type" => "FixedSteps", "dt" => 0.0, "halvings" => 0)
             @test unknown_names(stored.layout) == unknown_names(case.layout)
-            @test read_checkpoint(Runes2P.previous_checkpoint_file(checkpoint)).time == case.times[stop-1]
+            @test read_checkpoint(Runes2P.previous_checkpoint_file(checkpoint)).time ==
+                  case.times[stop - 1]
 
             # the script of the second segment builds the setup again
             case = _checkpoint_case(; treatment)
             second_segment = @test_logs (:warn, r"changed settings") integrate(
-                case.system, case.u0, case.times; solver, save_times=case.save_times, updates=(case.update(),),
-                checkpoint, resume=true)
-            later = length(first_saves)+1:length(case.save_times)
+                case.system, case.u0, case.times; solver,
+                save_times = case.save_times, updates = (case.update(),),
+                checkpoint, resume = true)
+            later = (length(first_saves) + 1):length(case.save_times)
             @test second_segment.times == case.save_times[later]
             if exact
                 @test second_segment.states == whole.states[:, later]
             else
                 @test second_segment.states ≈ whole.states[:, later] rtol = 1e-8
             end
-            @test second_segment.update_states["knockon_cutoff"] == whole.update_states["knockon_cutoff"][:, later]
+            @test second_segment.update_states["knockon_cutoff"] ==
+                  whole.update_states["knockon_cutoff"][:, later]
             record = second_segment.settings["segment"]
             @test record["index"] == 2
             @test record["resumed"] === true
@@ -305,7 +335,8 @@ using HDF5
             @test record["changed_sections"] == ["prescribed", "time"]   # the first segment had fewer time points
 
             # the segments joined are the output of the uninterrupted run
-            @test Runes2P.segment_files(checkpoint) == [Runes2P.segment_file(checkpoint, 1), Runes2P.segment_file(checkpoint, 2)]
+            @test Runes2P.segment_files(checkpoint) ==
+                  [Runes2P.segment_file(checkpoint, 1), Runes2P.segment_file(checkpoint, 2)]
             joined = read_output(checkpoint)
             @test joined.times == whole.times
             @test unknown_names(joined.layout) == unknown_names(whole.layout)
@@ -332,11 +363,13 @@ using HDF5
         # leaves an output that reaches beyond the last checkpoint: here the checkpoint at
         # the sixth time point is removed, so the one before it is the last.
         case = _checkpoint_case()
-        whole = integrate(case.system, case.u0, case.times; save_times=case.save_times, updates=(case.update(),))
+        whole = integrate(case.system, case.u0, case.times;
+            save_times = case.save_times, updates = (case.update(),))
         case = _checkpoint_case()
-        checkpoint = CheckpointSettings("killed"; directory=_checkpoint_directory(), interval=0)
-        integrate(case.system, case.u0, case.times[1:6]; save_times=filter(<=(case.times[6]), case.save_times),
-                  updates=(case.update(),), checkpoint)
+        checkpoint = CheckpointSettings("killed"; directory = _checkpoint_directory(), interval = 0)
+        integrate(case.system, case.u0, case.times[1:6];
+            save_times = filter(<=(case.times[6]), case.save_times),
+            updates = (case.update(),), checkpoint)
         rm(Runes2P.checkpoint_file(checkpoint))
         stored = read_checkpoint(checkpoint)
         @test stored.time == case.times[5]
@@ -349,8 +382,9 @@ using HDF5
 
         case = _checkpoint_case()
         second = @test_logs (:warn, r"cannot be read") (:warn, r"changed settings") integrate(
-            case.system, case.u0, case.times; save_times=case.save_times, updates=(case.update(),), checkpoint,
-            resume=true)
+            case.system, case.u0, case.times; save_times = case.save_times,
+            updates = (case.update(),), checkpoint,
+            resume = true)
         @test second.settings["segment"]["start_time"] == case.times[5]
         joined = read_output(checkpoint)
         @test joined.times == whole.times          # no saved time twice, none missing
@@ -359,20 +393,22 @@ using HDF5
         @test _same_statistics(joined.statistics, whole.statistics)
         # checkpoints that exist and cannot be read stop the run: it must not start again
         # from its initial state over its own segment files
-        broken = CheckpointSettings("broken"; directory=_checkpoint_directory(), interval=0)
+        broken = CheckpointSettings("broken"; directory = _checkpoint_directory(), interval = 0)
         write(Runes2P.checkpoint_file(broken), "not an HDF5 file")
         write(Runes2P.previous_checkpoint_file(broken), "not an HDF5 file")
         @test_throws ArgumentError read_checkpoint(broken)
         case = _checkpoint_case()
-        @test_throws ArgumentError integrate(case.system, case.u0, case.times; save_times=case.save_times,
-                                            updates=(case.update(),), checkpoint=broken, resume=true)
+        @test_throws ArgumentError integrate(
+            case.system, case.u0, case.times; save_times = case.save_times,
+            updates = (case.update(),), checkpoint = broken, resume = true)
         @test !isfile(Runes2P.segment_file(broken, 1))
         # and with neither checkpoint the run starts from its initial state
-        empty_run = CheckpointSettings("empty"; directory=_checkpoint_directory(), interval=0)
+        empty_run = CheckpointSettings("empty"; directory = _checkpoint_directory(), interval = 0)
         @test read_checkpoint(empty_run) === nothing
         case = _checkpoint_case()
-        fresh = integrate(case.system, case.u0, case.times; save_times=case.save_times, updates=(case.update(),),
-                          checkpoint=empty_run, resume=true)
+        fresh = integrate(case.system, case.u0, case.times;
+            save_times = case.save_times, updates = (case.update(),),
+            checkpoint = empty_run, resume = true)
         @test fresh.states == whole.states
         @test fresh.settings["segment"]["index"] == 1
         @test fresh.settings["segment"]["resumed"] === false
@@ -382,61 +418,70 @@ using HDF5
         # The attempt leaves the file of its segment, and the checkpoint names the segment
         # before. The run submitted again replaces the file.
         case = _checkpoint_case()
-        whole = integrate(case.system, case.u0, case.times; save_times=case.save_times, updates=(case.update(),))
+        whole = integrate(case.system, case.u0, case.times;
+            save_times = case.save_times, updates = (case.update(),))
         case = _checkpoint_case()
-        checkpoint = CheckpointSettings("attempt"; directory=_checkpoint_directory(), interval=1e6)
-        integrate(case.system, case.u0, case.times[1:5]; save_times=filter(<=(case.times[5]), case.save_times),
-                  updates=(case.update(),), checkpoint)
+        checkpoint = CheckpointSettings("attempt"; directory = _checkpoint_directory(), interval = 1e6)
+        integrate(case.system, case.u0, case.times[1:5];
+            save_times = filter(<=(case.times[5]), case.save_times),
+            updates = (case.update(),), checkpoint)
         cp(Runes2P.segment_file(checkpoint, 1), Runes2P.segment_file(checkpoint, 2))
         case = _checkpoint_case()
         second = @test_logs (:warn, r"changed settings") integrate(
-            case.system, case.u0, case.times; save_times=case.save_times, updates=(case.update(),), checkpoint,
-            resume=true)
+            case.system, case.u0, case.times; save_times = case.save_times,
+            updates = (case.update(),), checkpoint,
+            resume = true)
         @test second.settings["segment"]["index"] == 2
         joined = read_output(checkpoint)
         @test joined.times == whole.times
         @test joined.states == whole.states
         # the same in the first segment of a run, which has no checkpoint yet
-        first_run = CheckpointSettings("first"; directory=_checkpoint_directory(), interval=1e6)
+        first_run = CheckpointSettings("first"; directory = _checkpoint_directory(), interval = 1e6)
         mkpath(first_run.directory)
         cp(Runes2P.segment_file(checkpoint, 1), Runes2P.segment_file(first_run, 1))
         case = _checkpoint_case()
-        solution = integrate(case.system, case.u0, case.times; save_times=case.save_times, updates=(case.update(),),
-                             checkpoint=first_run, resume=true)
+        solution = integrate(case.system, case.u0, case.times;
+            save_times = case.save_times, updates = (case.update(),),
+            checkpoint = first_run, resume = true)
         @test solution.settings["segment"]["index"] == 1
         @test read_output(first_run).states == whole.states
         # without resume = true the file is another run's: a run from its start, and a run
         # from a stored state given by hand, which would write the second segment
         case = _checkpoint_case()
-        @test_throws ArgumentError integrate(case.system, case.u0, case.times; checkpoint=first_run)
+        @test_throws ArgumentError integrate(case.system, case.u0, case.times; checkpoint = first_run)
         stored = read_checkpoint(Runes2P.previous_checkpoint_file(checkpoint))
         @test stored.segment == 1
-        @test_throws ArgumentError integrate(case.system, case.u0, case.times; save_times=case.save_times,
-                                             updates=(case.update(),), checkpoint, resume=stored)
+        @test_throws ArgumentError integrate(
+            case.system, case.u0, case.times; save_times = case.save_times,
+            updates = (case.update(),), checkpoint, resume = stored)
     end
 
     @testset "segments of an earlier run under the same name" begin
         # two segments of a run, to the fifth time point and from there
         directory = _checkpoint_directory()
-        checkpoint = CheckpointSettings("earlier"; directory, interval=0)
+        checkpoint = CheckpointSettings("earlier"; directory, interval = 0)
         stop = 5
         case = _checkpoint_case()
-        integrate(case.system, case.u0, case.times[1:stop]; save_times=filter(<=(case.times[stop]), case.save_times),
-                  updates=(case.update(),), checkpoint)
+        integrate(case.system, case.u0, case.times[1:stop];
+            save_times = filter(<=(case.times[stop]), case.save_times),
+            updates = (case.update(),), checkpoint)
         case = _checkpoint_case()
-        @test_logs (:warn, r"changed settings") integrate(case.system, case.u0, case.times; save_times=case.save_times,
-                                                         updates=(case.update(),), checkpoint, resume=true)
-        first_file, second_file = Runes2P.segment_file(checkpoint, 1), Runes2P.segment_file(checkpoint, 2)
+        @test_logs (:warn, r"changed settings") integrate(
+            case.system, case.u0, case.times; save_times = case.save_times,
+            updates = (case.update(),), checkpoint, resume = true)
+        first_file, second_file = Runes2P.segment_file(checkpoint, 1),
+        Runes2P.segment_file(checkpoint, 2)
         @test Runes2P.segment_files(checkpoint) == [first_file, second_file]
         joined = read_output(checkpoint)
         @test joined.times == case.save_times
 
         # a fresh run under the same name refuses to start while the second segment of the
         # earlier run exists, with overwrite as well, and deletes no file
-        again = CheckpointSettings("earlier"; directory, interval=0, overwrite=true)
+        again = CheckpointSettings("earlier"; directory, interval = 0, overwrite = true)
         case = _checkpoint_case()
         refusal = try
-            integrate(case.system, case.u0, case.times; save_times=case.save_times, checkpoint=again)
+            integrate(case.system, case.u0, case.times;
+                save_times = case.save_times, checkpoint = again)
             nothing
         catch error
             error
@@ -449,8 +494,9 @@ using HDF5
         # the reader refuses a segment after a first one with another setup (other save
         # times): start times and joined times alone would pass
         case = _checkpoint_case()
-        other = integrate(case.system, case.u0, case.times[1:stop]; save_times=case.times[1:stop],
-                          updates=(case.update(),))
+        other = integrate(
+            case.system, case.u0, case.times[1:stop]; save_times = case.times[1:stop],
+            updates = (case.update(),))
         @test other.settings["setup_hash"] != read_settings(first_file)["setup_hash"]
         other_file = tempname() * ".h5"
         write_output(other_file, other)
@@ -466,8 +512,9 @@ using HDF5
         # and a segment that resumed from another segment than the one before it: the third
         # segment of a run, resumed from the first state of the second, after the first
         case = _checkpoint_case()
-        third = integrate(case.system, case.u0, case.times; save_times=case.save_times, updates=(case.update(),),
-                          resume=read_state(second_file; time_index=1))
+        third = integrate(case.system, case.u0, case.times;
+            save_times = case.save_times, updates = (case.update(),),
+            resume = read_state(second_file; time_index = 1))
         @test third.settings["segment"]["resumed_from_segment"] == 2
         third_file = tempname() * ".h5"
         write_output(third_file, third)
@@ -488,8 +535,9 @@ using HDF5
         aside = tempname() * ".h5"
         mv(first_file, aside)
         case = _checkpoint_case()
-        @test_throws r"earlier\.segment0002" integrate(case.system, case.u0, case.times; save_times=case.save_times,
-                                                       checkpoint)
+        @test_throws r"earlier\.segment0002" integrate(
+            case.system, case.u0, case.times; save_times = case.save_times,
+            checkpoint)
         mv(aside, first_file)
 
         # a run resumed from the first segment would write a second segment before the third
@@ -497,16 +545,18 @@ using HDF5
         third_segment = Runes2P.segment_file(checkpoint, 3)
         write_output(third_segment, third)
         case = _checkpoint_case()
-        @test_throws r"earlier\.segment0003" integrate(case.system, case.u0, case.times; save_times=case.save_times,
-                                                       updates=(case.update(),), checkpoint=again,
-                                                       resume=read_state(first_file; time_index=2))
+        @test_throws r"earlier\.segment0003" integrate(
+            case.system, case.u0, case.times; save_times = case.save_times,
+            updates = (case.update(),), checkpoint = again,
+            resume = read_state(first_file; time_index = 2))
         rm(third_segment)
 
         # without the earlier segments above the first the fresh run starts, and replaces
         # the first
         rm(second_file)
         case = _checkpoint_case()
-        fresh = integrate(case.system, case.u0, case.times; save_times=case.save_times, checkpoint=again)
+        fresh = integrate(case.system, case.u0, case.times;
+            save_times = case.save_times, checkpoint = again)
         @test Runes2P.segment_files(checkpoint) == [first_file]
         @test read_output(checkpoint).states == fresh.states
     end
@@ -515,8 +565,9 @@ using HDF5
         case = _checkpoint_case()
         directory = _checkpoint_directory()
         # an interval no run of the test reaches: one checkpoint, at the end
-        checkpoint = CheckpointSettings("long"; directory, interval=1e6)
-        solution = integrate(case.system, case.u0, case.times; save_times=case.save_times, checkpoint)
+        checkpoint = CheckpointSettings("long"; directory, interval = 1e6)
+        solution = integrate(
+            case.system, case.u0, case.times; save_times = case.save_times, checkpoint)
         @test isfile(Runes2P.checkpoint_file(checkpoint))
         @test !isfile(Runes2P.previous_checkpoint_file(checkpoint))
         @test read_checkpoint(checkpoint).time == last(case.times)
@@ -528,21 +579,23 @@ using HDF5
 
         # a run does not replace the segment file of another
         @test_throws ArgumentError integrate(case.system, case.u0, case.times; checkpoint)
-        again = integrate(case.system, case.u0, case.times; save_times=case.save_times,
-                          checkpoint=CheckpointSettings("long"; directory, interval=1e6, overwrite=true))
+        again = integrate(case.system, case.u0, case.times; save_times = case.save_times,
+            checkpoint = CheckpointSettings("long"; directory, interval = 1e6, overwrite = true))
         @test again.states == solution.states
 
         # the settings of a resumed run that are the same are not reported: the state before
         # the last of a run with the full time points
         case = _checkpoint_case()
-        checkpoint = CheckpointSettings("every"; directory, interval=0)
-        whole = integrate(case.system, case.u0, case.times; save_times=case.save_times, updates=(case.update(),),
-                          checkpoint)
+        checkpoint = CheckpointSettings("every"; directory, interval = 0)
+        whole = integrate(case.system, case.u0, case.times;
+            save_times = case.save_times, updates = (case.update(),),
+            checkpoint)
         stored = read_checkpoint(Runes2P.previous_checkpoint_file(checkpoint))
-        @test stored.time == case.times[end-1]
+        @test stored.time == case.times[end - 1]
         case = _checkpoint_case()
-        last_step = @test_logs integrate(case.system, case.u0, case.times; save_times=case.save_times,
-                                         updates=(case.update(),), resume=stored)
+        last_step = @test_logs integrate(
+            case.system, case.u0, case.times; save_times = case.save_times,
+            updates = (case.update(),), resume = stored)
         @test last_step.settings["segment"]["settings_changed"] === false
         @test !haskey(last_step.settings["segment"], "changed_sections")
         @test last_step.settings["setup_hash"] == whole.settings["setup_hash"]
@@ -552,14 +605,16 @@ using HDF5
         # a setup used by a run before is another setup: its operator has the cutoff that run
         # left, and the record says so
         used = @test_logs (:warn, r"changed settings") integrate(
-            case.system, case.u0, case.times; save_times=case.save_times, updates=(case.update(),), resume=stored)
+            case.system, case.u0, case.times; save_times = case.save_times,
+            updates = (case.update(),), resume = stored)
         @test used.settings["segment"]["changed_sections"] == ["system", "updates"]
         @test used.states == last_step.states       # the stored cutoff is restored all the same
 
         # a state at the end of the run leaves nothing to do
         case = _checkpoint_case()
-        done = @test_logs integrate(case.system, case.u0, case.times; save_times=case.save_times,
-                                    updates=(case.update(),), resume=read_checkpoint(checkpoint))
+        done = @test_logs integrate(
+            case.system, case.u0, case.times; save_times = case.save_times,
+            updates = (case.update(),), resume = read_checkpoint(checkpoint))
         @test isempty(done.times)
         @test size(done.states) == (length(case.layout), 0)
         # a solution without a saved state is written and read back as such
@@ -581,23 +636,26 @@ using HDF5
         k = 4.0
         times = [0.0, 0.24, 0.26]
         system = single_unknown_system(TimeDerivative(), SquareRootDecayTerm(:x, k))
-        whole = integrate(system, [0.2], times; save_times=[0.0, 0.24, 0.26])
+        whole = integrate(system, [0.2], times; save_times = [0.0, 0.24, 0.26])
         @test whole.statistics.time_step ≈ [0.24, 0.12, 0.12, 0.02]
-        checkpoint = CheckpointSettings("halved"; directory=_checkpoint_directory(), interval=0)
+        checkpoint = CheckpointSettings("halved"; directory = _checkpoint_directory(), interval = 0)
         # a budget spent at once: the segment stops after its first accepted step, inside
         # the first interval
-        first_segment = integrate(system, [0.2], times; save_times=[0.0, 0.24, 0.26], checkpoint,
-                                  stop=StopCondition(wall_budget=1e-9, slack=0))
+        first_segment = integrate(
+            system, [0.2], times; save_times = [0.0, 0.24, 0.26], checkpoint,
+            stop = StopCondition(wall_budget = 1e-9, slack = 0))
         @test run_status(first_segment) === :stopped
         @test first_segment.settings["segment"]["end_time"] == 0.12
         @test first_segment.settings["segment"]["steps"] == 1
         @test first_segment.times == [0.0]
         stored = read_checkpoint(checkpoint)
         @test stored.time == 0.12
-        @test stored.stepper == Dict{String,Any}("type" => "FixedSteps", "dt" => 0.12, "halvings" => 1)
+        @test stored.stepper ==
+              Dict{String, Any}("type" => "FixedSteps", "dt" => 0.12, "halvings" => 1)
         @test stored.summary["attempted_steps"] == 2
-        second_segment = @test_logs integrate(system, [0.2], times; save_times=[0.0, 0.24, 0.26], checkpoint,
-                                              resume=true)
+        second_segment = @test_logs integrate(
+            system, [0.2], times; save_times = [0.0, 0.24, 0.26], checkpoint,
+            resume = true)
         @test run_status(second_segment) === :finished
         @test second_segment.times == [0.24, 0.26]
         @test second_segment.states == whole.states[:, 2:3]
@@ -608,42 +666,50 @@ using HDF5
         @test joined.times == whole.times
         @test _same_statistics(joined.statistics, whole.statistics)
         # a state without the record of the stepper resumes at a time point only
-        without = StoredState(stored.time, stored.state, stored.layout, stored.update_states, stored.settings,
-                              stored.segment, stored.saved_count, stored.summary, Dict{String,Any}(), stored.source)
-        @test_throws ArgumentError integrate(system, [0.2], times; resume=without)
-        at_point = StoredState(0.24, whole.states[:, 2], stored.layout, stored.update_states, stored.settings,
-                               stored.segment, 2, stored.summary, Dict{String,Any}(), stored.source)
-        last_step = @test_logs integrate(system, [0.2], times; save_times=[0.0, 0.24, 0.26], resume=at_point)
+        without = StoredState(
+            stored.time, stored.state, stored.layout, stored.update_states, stored.settings,
+            stored.segment, stored.saved_count, stored.summary, Dict{String, Any}(), stored.source)
+        @test_throws ArgumentError integrate(system, [0.2], times; resume = without)
+        at_point = StoredState(
+            0.24, whole.states[:, 2], stored.layout, stored.update_states, stored.settings,
+            stored.segment, 2, stored.summary, Dict{String, Any}(), stored.source)
+        last_step = @test_logs integrate(
+            system, [0.2], times; save_times = [0.0, 0.24, 0.26], resume = at_point)
         @test last_step.states == whole.states[:, 3:3]
         @test last_step.statistics.time_step == whole.statistics.time_step[4:4]
         # a stored time outside the time points is refused
-        outside = StoredState(0.5, stored.state, stored.layout, stored.update_states, stored.settings,
-                              stored.segment, stored.saved_count, stored.summary, stored.stepper, stored.source)
-        @test_throws ArgumentError integrate(system, [0.2], times; resume=outside)
+        outside = StoredState(
+            0.5, stored.state, stored.layout, stored.update_states, stored.settings,
+            stored.segment, stored.saved_count, stored.summary, stored.stepper, stored.source)
+        @test_throws ArgumentError integrate(system, [0.2], times; resume = outside)
     end
 
     @testset "checkpoints before the first saved state" begin
-        # Many time points and few saved states, the pattern of a production run: a
+        # Many time points and few saved states, the pattern of a long run: a
         # checkpoint comes before the segment has saved anything, in a run from its start
         # and in a resumed one.
         save_times = [4e-4, 8e-4]
         case = _checkpoint_case()
-        whole = integrate(case.system, case.u0, case.times; save_times, updates=(case.update(),))
+        whole = integrate(
+            case.system, case.u0, case.times; save_times, updates = (case.update(),))
         case = _checkpoint_case()
-        checkpoint = CheckpointSettings("sparse"; directory=_checkpoint_directory(), interval=0)
-        first_segment = integrate(case.system, case.u0, case.times[1:3]; save_times=Float64[],
-                                  updates=(case.update(),), checkpoint)
+        checkpoint = CheckpointSettings("sparse"; directory = _checkpoint_directory(), interval = 0)
+        first_segment = integrate(
+            case.system, case.u0, case.times[1:3]; save_times = Float64[],
+            updates = (case.update(),), checkpoint)
         @test isempty(first_segment.times)
         @test read_checkpoint(checkpoint).saved_count == 0
         only_statistics = read_output(Runes2P.segment_file(checkpoint, 1))
         @test isempty(only_statistics.times)
         @test only_statistics.statistics.time == case.times[2:3]
         h5open(Runes2P.segment_file(checkpoint, 1)) do h5
-            @test sort(collect(keys(h5))) == ["layout", "settings", "solver_statistics", "update_states"]
+            @test sort(collect(keys(h5))) ==
+                  ["layout", "settings", "solver_statistics", "update_states"]
         end
         case = _checkpoint_case()
         second_segment = @test_logs (:warn, r"changed settings") integrate(
-            case.system, case.u0, case.times; save_times, updates=(case.update(),), checkpoint, resume=true)
+            case.system, case.u0, case.times; save_times,
+            updates = (case.update(),), checkpoint, resume = true)
         @test second_segment.times == save_times
         @test second_segment.states == whole.states
         @test second_segment.settings["segment"]["saved_before"] == 0
@@ -654,9 +720,10 @@ using HDF5
         @test _same_statistics(joined.statistics, whole.statistics)
         # the run in one segment, with a checkpoint at every time point
         case = _checkpoint_case()
-        single = CheckpointSettings("sparse-single"; directory=_checkpoint_directory(), interval=0)
-        solution = integrate(case.system, case.u0, case.times; save_times, updates=(case.update(),),
-                             checkpoint=single)
+        single = CheckpointSettings("sparse-single"; directory = _checkpoint_directory(), interval = 0)
+        solution = integrate(
+            case.system, case.u0, case.times; save_times, updates = (case.update(),),
+            checkpoint = single)
         @test solution.states == whole.states
         @test read_output(single).states == whole.states
         # only segments without a saved state
@@ -665,25 +732,30 @@ using HDF5
 
     @testset "resume from an output file" begin
         case = _checkpoint_case()
-        whole = integrate(case.system, case.u0, case.times; save_times=case.save_times, updates=(case.update(),))
+        whole = integrate(case.system, case.u0, case.times;
+            save_times = case.save_times, updates = (case.update(),))
         file = tempname() * ".h5"
         write_output(file, whole)
         h5open(file) do h5
-            @test read(h5["update_states/knockon_cutoff"]) == whole.update_states["knockon_cutoff"]
+            @test read(h5["update_states/knockon_cutoff"]) ==
+                  whole.update_states["knockon_cutoff"]
         end
         # the third saved state is at the fifth time point
-        stored = read_state(file; time_index=3)
+        stored = read_state(file; time_index = 3)
         @test stored.time == case.save_times[3] == case.times[5]
         @test stored.state == whole.states[:, 3]
-        @test stored.update_states["knockon_cutoff"] == whole.update_states["knockon_cutoff"][:, 3]
+        @test stored.update_states["knockon_cutoff"] ==
+              whole.update_states["knockon_cutoff"][:, 3]
         @test stored.saved_count == 3
         @test stored.segment == 1
         case = _checkpoint_case()
-        resumed = @test_logs integrate(case.system, case.u0, case.times; save_times=case.save_times,
-                                       updates=(case.update(),), resume=stored)
+        resumed = @test_logs integrate(
+            case.system, case.u0, case.times; save_times = case.save_times,
+            updates = (case.update(),), resume = stored)
         @test resumed.times == case.save_times[4:end]
         @test resumed.states == whole.states[:, 4:end]
-        @test resumed.update_states["knockon_cutoff"] == whole.update_states["knockon_cutoff"][:, 4:end]
+        @test resumed.update_states["knockon_cutoff"] ==
+              whole.update_states["knockon_cutoff"][:, 4:end]
         @test resumed.settings["segment"]["index"] == 2
         @test resumed.settings["segment"]["saved_before"] == 3
         # a state from an output file has no count of the attempts before it: the join
@@ -704,21 +776,24 @@ using HDF5
         # the last saved state by default, by file name
         @test read_state(file).time == last(case.times)
         case = _checkpoint_case()
-        done = @test_logs integrate(case.system, case.u0, case.times; save_times=case.save_times,
-                                    updates=(case.update(),), resume=file)
+        done = @test_logs integrate(
+            case.system, case.u0, case.times; save_times = case.save_times,
+            updates = (case.update(),), resume = file)
         @test isempty(done.times)
         # other save times are a changed setting
         case = _checkpoint_case()
-        done = @test_logs (:warn, r"changed settings") integrate(case.system, case.u0, case.times;
-                                                                 updates=(case.update(),), resume=file)
+        done = @test_logs (:warn, r"changed settings") integrate(
+            case.system, case.u0, case.times;
+            updates = (case.update(),), resume = file)
         @test done.settings["segment"]["changed_sections"] == ["time"]
-        @test_throws ArgumentError read_state(file; time_index=8)
+        @test_throws ArgumentError read_state(file; time_index = 8)
 
         # a stored state between two time points (none is saved, so one is built by hand) is
         # not a state to resume from without the record of the stepper
-        between = StoredState(1.5e-4, stored.state, stored.layout, stored.update_states, stored.settings,
-                              stored.segment, stored.saved_count, stored.summary, Dict{String,Any}(), stored.source)
-        @test_throws ArgumentError integrate(case.system, case.u0, case.times; resume=between)
+        between = StoredState(
+            1.5e-4, stored.state, stored.layout, stored.update_states, stored.settings,
+            stored.segment, stored.saved_count, stored.summary, Dict{String, Any}(), stored.source)
+        @test_throws ArgumentError integrate(case.system, case.u0, case.times; resume = between)
 
         # one file read back is the solution written
         back = read_output(file)
@@ -734,42 +809,48 @@ using HDF5
 
     @testset "changed setups" begin
         directory = _checkpoint_directory()
-        case = _checkpoint_case(; with_density=false)
-        checkpoint = CheckpointSettings("kinetic"; directory, interval=0)
+        case = _checkpoint_case(; with_density = false)
+        checkpoint = CheckpointSettings("kinetic"; directory, interval = 0)
         integrate(case.system, case.u0, case.times[1:5]; checkpoint)
         stored = read_checkpoint(checkpoint)
 
         # the step controller keeps its step on the new layout and drops the predictor's
         # history, since the stored state does not fit
-        controller = StepController(initial_step=5e-5, relative_tolerance=1e-2)
-        controlled = CheckpointSettings("kinetic-controlled"; directory, interval=0)
-        integrate(case.system, case.u0, case.times[1:3]; checkpoint=controlled, stepper=controller)
+        controller = StepController(initial_step = 5e-5, relative_tolerance = 1e-2)
+        controlled = CheckpointSettings("kinetic-controlled"; directory, interval = 0)
+        integrate(case.system, case.u0, case.times[1:3];
+            checkpoint = controlled, stepper = controller)
         stored_controlled = read_checkpoint(controlled)
         @test stored_controlled.stepper["type"] == "StepController"
         @test length(stored_controlled.stepper["previous_state"]) == length(case.layout)
-        extended_for_controller = _checkpoint_case(; with_density=true)
-        resumed_controlled = @test_logs (:warn, r"changed settings") (:warn, r"history of the predictor is dropped") integrate(
+        extended_for_controller = _checkpoint_case(; with_density = true)
+        resumed_controlled = @test_logs (:warn, r"changed settings") (
+            :warn, r"history of the predictor is dropped") integrate(
             extended_for_controller.system, extended_for_controller.u0, extended_for_controller.times[3:5];
-            resume=stored_controlled, stepper=controller)
+            resume = stored_controlled, stepper = controller)
         stats = resumed_controlled.statistics
         @test stats.kind[1:3] == [:half_step, :half_step, :step]      # the doubling of a fresh start
-        @test stats.time_step[3] ≈ stored_controlled.stepper["dt"] || stats.time_step[3] < stored_controlled.stepper["dt"]
+        @test stats.time_step[3] ≈ stored_controlled.stepper["dt"] ||
+              stats.time_step[3] < stored_controlled.stepper["dt"]
         @test run_status(resumed_controlled) === :finished
 
         # an unknown the stored state does not have starts from the setup's initial state
-        extended = _checkpoint_case(; with_density=true)
+        extended = _checkpoint_case(; with_density = true)
         u0 = copy(extended.u0)
         for ir in 1:2
             unknown_view(u0, extended.layout, :hot_density, ir) .= 7.0
             unknown_view(u0, extended.layout, :f, ir) .= 0.0      # replaced by the stored values
         end
-        solution = @test_logs (:warn, r"changed settings") integrate(extended.system, u0, extended.times[5:6];
-                                                                     resume=stored)
-        reference = _checkpoint_case(; with_density=false)
-        plain = @test_logs (:warn, r"changed settings") integrate(reference.system, reference.u0,
-                                                                  reference.times[5:6]; resume=stored)
+        solution = @test_logs (:warn, r"changed settings") integrate(
+            extended.system, u0, extended.times[5:6];
+            resume = stored)
+        reference = _checkpoint_case(; with_density = false)
+        plain = @test_logs (:warn, r"changed settings") integrate(
+            reference.system, reference.u0,
+            reference.times[5:6]; resume = stored)
         final = solution.states[:, end]
-        distribution = stack(collect(unknown_view(final, extended.layout, :f, ir)) for ir in 1:2)
+        distribution = stack(collect(unknown_view(final, extended.layout, :f, ir))
+        for ir in 1:2)
         for ir in 1:2
             # the same distribution from a larger linear system: equal to round-off
             @test unknown_view(final, extended.layout, :f, ir) ≈
@@ -782,26 +863,28 @@ using HDF5
         @test "system" in solution.settings["segment"]["changed_sections"]
 
         # a changed solver setting is one section
-        case = _checkpoint_case(; with_density=false)
+        case = _checkpoint_case(; with_density = false)
         changed = @test_logs (:warn, r"changed settings") integrate(
-            case.system, case.u0, case.times[1:6]; solver=NewtonSolver(max_iterations=29),
-            resume=read_checkpoint(Runes2P.previous_checkpoint_file(checkpoint)))
-        @test changed.settings["segment"]["changed_sections"] == ["prescribed", "solver", "time"]
+            case.system, case.u0, case.times[1:6]; solver = NewtonSolver(max_iterations = 29),
+            resume = read_checkpoint(Runes2P.previous_checkpoint_file(checkpoint)))
+        @test changed.settings["segment"]["changed_sections"] ==
+              ["prescribed", "solver", "time"]
 
-        # another momentum grid is refused until the conservative remap exists
+        # another momentum grid is refused: f is not remapped from one grid to another
         mom = MomentumGrid(uniform_p_faces(10, 0.0, 1.2), uniform_xi_faces(4))
         grid = cylindrical_grid(mom, RadialGrid(uniform_r_faces(2, 1.0)))
-        layout = UnknownLayout(grid.radial_grid, [KineticUnknown(:f, grid; scale=1e20)])
-        system = EquationSystem(layout, [Equation(:f, TimeDerivative(), LinearTerm(:f; coefficient=-1.0))])
-        @test_throws Union{ArgumentError,DimensionMismatch} integrate(system, ones(length(layout)), case.times[5:6];
-                                                                      resume=stored)
+        layout = UnknownLayout(grid.radial_grid, [KineticUnknown(:f, grid; scale = 1e20)])
+        system = EquationSystem(layout, [Equation(:f, TimeDerivative(), LinearTerm(:f; coefficient = -1.0))])
+        @test_throws Union{ArgumentError, DimensionMismatch} integrate(
+            system, ones(length(layout)), case.times[5:6];
+            resume = stored)
 
-        # files of before the numbering hold no state to resume from
-        old = tempname() * ".h5"
-        h5open(old, "w") do h5
-            attributes(h5)["format_version"] = 1
+        # a file of a format older than the readers take is refused
+        older = tempname() * ".h5"
+        h5open(older, "w") do h5
+            attributes(h5)["format_version"] = "0.0.0"
         end
-        @test_throws ArgumentError read_state(old)
-        rm(old)
+        @test_throws "older than this Runes2P reads" read_state(older)
+        rm(older)
     end
 end

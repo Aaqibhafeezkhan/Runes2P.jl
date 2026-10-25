@@ -1,7 +1,7 @@
-# Overlap of two pitch grids: the common refinement of their faces, which
-# carries fluxes and cell contents between grids without loss. Used for the radial faces
-# between radii with different pitch grids, for the momentum face between the hot-tail and
-# the runaway grid, and for a remap onto a changed grid.
+# Overlap of two pitch grids: the common refinement of their faces, which carries fluxes
+# and cell contents between grids without loss. Used for the radial faces between radii
+# with different pitch grids, for the momentum face between the hot-tail and the runaway
+# grid, and for a remap onto a changed grid.
 
 """
     PitchOverlap{T}
@@ -29,7 +29,7 @@ grid's value is kept), so that faces equal up to round-off, such as `cos(π/2)` 
 leave no sliver. The fractions of a cell then sum to 1 within that tolerance, and to
 round-off otherwise.
 """
-struct PitchOverlap{T<:AbstractFloat}
+struct PitchOverlap{T <: AbstractFloat}
     xi_faces::Vector{T}                    # faces of the overlap cells
     xi_centers::Vector{T}
     xi_widths::Vector{T}
@@ -52,10 +52,10 @@ _interval_width(a, b) = b - a
 Overlap of the pitch grids with the given faces. Both must cover the same interval.
 """
 function PitchOverlap(left_xi_faces::AbstractVector{T}, right_xi_faces::AbstractVector{T};
-                      measure=_interval_width) where {T<:AbstractFloat}
+        measure = _interval_width) where {T <: AbstractFloat}
     (length(left_xi_faces) >= 2 && length(right_xi_faces) >= 2) ||
         throw(ArgumentError("a pitch grid needs at least one cell"))
-    (issorted(left_xi_faces; lt=<=) && issorted(right_xi_faces; lt=<=)) ||
+    (issorted(left_xi_faces; lt = <=) && issorted(right_xi_faces; lt = <=)) ||
         throw(ArgumentError("ξ faces must be strictly increasing"))
     tolerance = T(1e-12) * (last(left_xi_faces) - first(left_xi_faces))
     (abs(first(left_xi_faces) - first(right_xi_faces)) <= tolerance &&
@@ -70,7 +70,7 @@ function PitchOverlap(left_xi_faces::AbstractVector{T}, right_xi_faces::Abstract
     while j_left <= left_count && j_right <= right_count
         push!(left_cells, j_left)
         push!(right_cells, j_right)
-        upper_left, upper_right = left_xi_faces[j_left+1], right_xi_faces[j_right+1]
+        upper_left, upper_right = left_xi_faces[j_left + 1], right_xi_faces[j_right + 1]
         if abs(upper_left - upper_right) <= tolerance
             push!(faces, upper_left)
             j_left += 1
@@ -86,14 +86,18 @@ function PitchOverlap(left_xi_faces::AbstractVector{T}, right_xi_faces::Abstract
     (j_left == left_count + 1 && j_right == right_count + 1) ||
         throw(ArgumentError("the ξ faces of the two grids could not be merged (a cell narrower than " *
                             "1e-12 of the interval)"))
-    measures = T[measure(faces[s], faces[s+1]) for s in eachindex(left_cells)]
-    all(>(0), measures) || throw(ArgumentError("the measure of every overlap cell must be positive"))
+    measures = T[measure(faces[s], faces[s + 1]) for s in eachindex(left_cells)]
+    all(>(0), measures) ||
+        throw(ArgumentError("the measure of every overlap cell must be positive"))
     left_ranges = _cell_ranges(left_cells, left_count)
     right_ranges = _cell_ranges(right_cells, right_count)
-    left_measures = T[measure(left_xi_faces[j], left_xi_faces[j+1]) for j in 1:left_count]
-    right_measures = T[measure(right_xi_faces[j], right_xi_faces[j+1]) for j in 1:right_count]
-    left_fractions = T[measures[s] / left_measures[left_cells[s]] for s in eachindex(measures)]
-    right_fractions = T[measures[s] / right_measures[right_cells[s]] for s in eachindex(measures)]
+    left_measures = T[measure(left_xi_faces[j], left_xi_faces[j + 1]) for j in 1:left_count]
+    right_measures = T[measure(right_xi_faces[j], right_xi_faces[j + 1])
+                       for j in 1:right_count]
+    left_fractions = T[measures[s] / left_measures[left_cells[s]]
+                       for s in eachindex(measures)]
+    right_fractions = T[measures[s] / right_measures[right_cells[s]]
+                        for s in eachindex(measures)]
     identical = left_xi_faces == right_xi_faces
     if identical
         # one overlap cell per grid cell: the fractions are exactly 1, so that fluxes between
@@ -101,13 +105,15 @@ function PitchOverlap(left_xi_faces::AbstractVector{T}, right_xi_faces::Abstract
         fill!(left_fractions, one(T))
         fill!(right_fractions, one(T))
     end
-    centers = (faces[1:end-1] .+ faces[2:end]) ./ 2
-    return PitchOverlap{T}(faces, centers, diff(faces), measures, left_cells, right_cells, left_ranges,
-                           right_ranges, left_fractions, right_fractions, identical)
+    centers = (faces[1:(end - 1)] .+ faces[2:end]) ./ 2
+    return PitchOverlap{T}(
+        faces, centers, diff(faces), measures, left_cells, right_cells, left_ranges,
+        right_ranges, left_fractions, right_fractions, identical)
 end
 
-PitchOverlap(left::MomentumGrid, right::MomentumGrid; measure=_interval_width) =
+function PitchOverlap(left::MomentumGrid, right::MomentumGrid; measure = _interval_width)
     PitchOverlap(left.xi_faces, right.xi_faces; measure)
+end
 
 # contiguous ranges of the overlap cells of each grid cell, from the sorted cell indices
 function _cell_ranges(cells::Vector{Int}, cell_count::Int)
@@ -115,7 +121,7 @@ function _cell_ranges(cells::Vector{Int}, cell_count::Int)
     start = 1
     for j in 1:cell_count
         stop = start - 1
-        while stop < length(cells) && cells[stop+1] == j
+        while stop < length(cells) && cells[stop + 1] == j
             stop += 1
         end
         ranges[j] = start:stop
@@ -159,8 +165,9 @@ cell width: a remap to another grid and back smooths the source. Allocation free
 not add to the target, it overwrites it.
 """
 function remap_to_right!(f_right::AbstractVecOrMat, overlap::PitchOverlap, f_left::AbstractVecOrMat)
-    return _remap!(f_right, f_left, overlap.right_ranges, overlap.right_fractions, overlap.left_cells,
-                   length(overlap.left_ranges))
+    return _remap!(
+        f_right, f_left, overlap.right_ranges, overlap.right_fractions, overlap.left_cells,
+        length(overlap.left_ranges))
 end
 
 """
@@ -170,14 +177,18 @@ Conservative remap of cell averages from the right pitch grid of `overlap` to th
 the reverse of [`remap_to_right!`](@ref), with the same properties.
 """
 function remap_to_left!(f_left::AbstractVecOrMat, overlap::PitchOverlap, f_right::AbstractVecOrMat)
-    return _remap!(f_left, f_right, overlap.left_ranges, overlap.left_fractions, overlap.right_cells,
-                   length(overlap.right_ranges))
+    return _remap!(
+        f_left, f_right, overlap.left_ranges, overlap.left_fractions, overlap.right_cells,
+        length(overlap.right_ranges))
 end
 
-function _remap!(target::AbstractVector, source::AbstractVector, ranges, fractions, source_cells,
-                 source_count)
-    length(target) == length(ranges) || throw(DimensionMismatch("the target does not match its pitch grid"))
-    length(source) == source_count || throw(DimensionMismatch("the source does not match its pitch grid"))
+function _remap!(
+        target::AbstractVector, source::AbstractVector, ranges, fractions, source_cells,
+        source_count)
+    length(target) == length(ranges) ||
+        throw(DimensionMismatch("the target does not match its pitch grid"))
+    length(source) == source_count ||
+        throw(DimensionMismatch("the source does not match its pitch grid"))
     @inbounds for j in eachindex(ranges)
         value = zero(eltype(target))
         for s in ranges[j]
@@ -188,13 +199,17 @@ function _remap!(target::AbstractVector, source::AbstractVector, ranges, fractio
     return target
 end
 
-function _remap!(target::AbstractMatrix, source::AbstractMatrix, ranges, fractions, source_cells,
-                 source_count)
-    size(target, 2) == length(ranges) || throw(DimensionMismatch("the target does not match its pitch grid"))
-    size(source, 2) == source_count || throw(DimensionMismatch("the source does not match its pitch grid"))
+function _remap!(
+        target::AbstractMatrix, source::AbstractMatrix, ranges, fractions, source_cells,
+        source_count)
+    size(target, 2) == length(ranges) ||
+        throw(DimensionMismatch("the target does not match its pitch grid"))
+    size(source, 2) == source_count ||
+        throw(DimensionMismatch("the source does not match its pitch grid"))
     size(target, 1) == size(source, 1) ||
         throw(DimensionMismatch("the target and the source need the same momentum cells"))
     @inbounds for j in eachindex(ranges), i in axes(target, 1)
+
         value = zero(eltype(target))
         for s in ranges[j]
             value += fractions[s] * source[i, source_cells[s]]

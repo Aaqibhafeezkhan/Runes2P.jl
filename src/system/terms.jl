@@ -172,7 +172,8 @@ end
 3D array view `f[i, j, ir]` of a kinetic unknown with the same cell counts at all radii in
 a state vector, so that operators written for 3D arrays apply to the state directly.
 """
-struct LayoutKineticArray{T,V<:AbstractVector{T},O<:AbstractVector{Int}} <: AbstractArray{T,3}
+struct LayoutKineticArray{T, V <: AbstractVector{T}, O <: AbstractVector{Int}} <:
+       AbstractArray{T, 3}
     state::V
     offsets::O   # per radius: index before the first entry (a range when equally spaced)
     p_cells::Int
@@ -180,10 +181,12 @@ struct LayoutKineticArray{T,V<:AbstractVector{T},O<:AbstractVector{Int}} <: Abst
 end
 
 Base.size(a::LayoutKineticArray) = (a.p_cells, a.xi_cells, length(a.offsets))
+#! format: off
 Base.@propagate_inbounds Base.getindex(a::LayoutKineticArray, i::Int, j::Int, ir::Int) =
     a.state[a.offsets[ir] + i + (j - 1) * a.p_cells]
 Base.@propagate_inbounds Base.setindex!(a::LayoutKineticArray, x, i::Int, j::Int, ir::Int) =
     (a.state[a.offsets[ir] + i + (j - 1) * a.p_cells] = x)
+#! format: on
 
 """
     kinetic_array(u, layout, id)
@@ -206,7 +209,8 @@ The values of a radial unknown with one component over the radii, as a vector vi
 state vector: `values[ir]` is the value at radius index `ir`. Operators take the electric
 field of the state in this form.
 """
-struct LayoutRadialValues{T,V<:AbstractVector{T},O<:AbstractVector{Int}} <: AbstractVector{T}
+struct LayoutRadialValues{T, V <: AbstractVector{T}, O <: AbstractVector{Int}} <:
+       AbstractVector{T}
     state::V
     offsets::O   # per radius: index before the entry
 end
@@ -233,7 +237,7 @@ _field_values(name::Symbol, u, layout) = radial_values(u, layout, unknown_id(lay
 
 function _equally_spaced(offsets)
     for k in 3:length(offsets)
-        offsets[k] - offsets[k-1] == offsets[2] - offsets[1] || return false
+        offsets[k] - offsets[k - 1] == offsets[2] - offsets[1] || return false
     end
     return true
 end
@@ -243,21 +247,24 @@ function _offset_range(layout::UnknownLayout, id)
     offsets = layout.radius_offsets[id]
     # with one radius the step is never used, but `range` rejects a zero step
     step = length(offsets) > 1 ? offsets[2] - offsets[1] : 1
-    return range(first(offsets); step, length=length(offsets))
+    return range(first(offsets); step, length = length(offsets))
 end
 
 # whether two kinetic grids have the same radii and the same momentum grid at each of them
 function _same_momentum_grids(a::KineticGrid, b::KineticGrid)
     a === b && return true
     a.radial_grid.r_faces == b.radial_grid.r_faces || return false
-    return all(ir -> momentum_grid(a, ir).p_faces == momentum_grid(b, ir).p_faces &&
-                     momentum_grid(a, ir).xi_faces == momentum_grid(b, ir).xi_faces,
-               1:radial_cell_count(a))
+    return all(
+        ir -> momentum_grid(a, ir).p_faces == momentum_grid(b, ir).p_faces &&
+              momentum_grid(a, ir).xi_faces == momentum_grid(b, ir).xi_faces,
+        1:radial_cell_count(a))
 end
 
 # index of cell (i, j) of kinetic unknown `id` at radius `ir`
+#! format: off
 @inline _kinetic_index(layout::UnknownLayout, id, ir, i, j) =
     layout.offsets[id, ir] + i + (j - 1) * layout.shapes[id, ir][1]
+#! format: on
 
 # tag of the dual numbers of jacobian_correction_product!
 struct JacobianCorrectionTag end
@@ -299,14 +306,16 @@ of `ids`, without their lower limits, whose references may be missing. With
 [`add_local_jacobian!`](@ref) a term evaluates on the state of this layout.
 """
 function local_layout(layout::UnknownLayout, ids)
-    all(id -> layout.kinds[id] === :radial, ids) || throw(ArgumentError("a local layout holds radial unknowns alone"))
-    unknowns = [(u = layout.unknowns[id]; RadialUnknown(u.name; components=u.components, scale=u.scale, groups=u.groups))
+    all(id -> layout.kinds[id] === :radial, ids) ||
+        throw(ArgumentError("a local layout holds radial unknowns alone"))
+    unknowns = [(u = layout.unknowns[id];
+                    RadialUnknown(u.name; components = u.components, scale = u.scale, groups = u.groups))
                 for id in ids]
     return UnknownLayout(layout.radial_grid, unknowns)
 end
 
 function _add_local_jacobian!(J, term, u, layout, row, t, ids, ::Val{K}) where {K}
-    D = ForwardDiff.Dual{LocalColumnTag,Float64,K}
+    D = ForwardDiff.Dual{LocalColumnTag, Float64, K}
     local_ids = row in ids ? ids : [ids; row]
     reduced = local_layout(layout, local_ids)
     seeded = zeros(D, length(reduced))
@@ -317,7 +326,9 @@ function _add_local_jacobian!(J, term, u, layout, row, t, ids, ::Val{K}) where {
             for (a, i) in enumerate(unknown_range(layout, id, ir))
                 if m <= length(ids)
                     k += 1
+                    #! format: off
                     seeded[target[a]] = D(u[i], ForwardDiff.Partials(ntuple(q -> Float64(q == k), Val(K))))
+                    #! format: on
                 else
                     seeded[target[a]] = D(u[i])
                 end
@@ -339,8 +350,8 @@ function _add_local_jacobian!(J, term, u, layout, row, t, ids, ::Val{K}) where {
     return J
 end
 
-# the interface of a term whose Jacobian is a sum of low-rank blocks (the
-# field-particle term), which the linear solvers add by a Woodbury update
+# the interface of a term whose Jacobian is a sum of low-rank blocks (the field-particle
+# term), which the linear solvers add by a Woodbury update
 """
     LowRankBlock(rows, columns, left, right)
 

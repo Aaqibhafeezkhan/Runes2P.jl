@@ -1,9 +1,8 @@
-# Records of a run's settings. Every object
-# a run is built from has a `describe` method that returns a plain record: a dictionary
-# with string keys whose values are strings, booleans, integers, floating-point numbers,
-# arrays of numbers, lists of strings, or records. `run_settings` (solvers/time_stepping.jl)
-# collects them into the `settings` group of the output file, with the code version, the
-# environment and a hash per section.
+# Records of a run's settings. Every object a run is built from has a `describe` method
+# that returns a plain record: a dictionary with string keys whose values are strings,
+# booleans, integers, floating-point numbers, arrays of numbers, lists of strings, or
+# records. `run_settings` (solvers/time_stepping.jl) collects them into the `settings` group
+# of the output file, with the code version, the environment and a hash per section.
 
 using SHA: sha256
 using LibGit2: LibGit2
@@ -12,18 +11,16 @@ using LinearAlgebra: BLAS
 """
     OUTPUT_FORMAT_VERSION
 
-Version of the output file format, written as the string `"major.minor"` in the root
-attribute `format_version`. The minor number counts up (0.1, 0.2, …, 0.10, …) with every
-change of the file's content until the first release of Runes2P, which starts 1.0. Files
-with the integer 1 in the attribute were written before the numbering.
+Version of the output file format, written as the string `"major.minor.patch"` in the
+root attribute `format_version`. It counts up with every change of the file's content.
 """
-const OUTPUT_FORMAT_VERSION = v"0.33"
+const OUTPUT_FORMAT_VERSION = v"0.0.1"
 
-"The format version as written to files, `\"major.minor\"`."
-output_format_version() = "$(OUTPUT_FORMAT_VERSION.major).$(OUTPUT_FORMAT_VERSION.minor)"
+"The format version as written to files, `\"major.minor.patch\"`."
+output_format_version() = string(OUTPUT_FORMAT_VERSION)
 
 "A plain record: string keys, plain values (see the head of `src/settings.jl`)."
-const SettingsRecord = Dict{String,Any}
+const SettingsRecord = Dict{String, Any}
 
 # ---------------------------------------------------------------------------------------
 # plain values
@@ -38,11 +35,11 @@ function _plain(x::AbstractArray{<:Real})
     isempty(x) && throw(ArgumentError("a settings record cannot hold an empty array"))
     return eltype(x) <: Integer ? Array{Int}(x) : Array{Float64}(x)
 end
-function _plain(x::AbstractVector{<:Union{Symbol,AbstractString}})
+function _plain(x::AbstractVector{<:Union{Symbol, AbstractString}})
     isempty(x) && throw(ArgumentError("a settings record cannot hold an empty list"))
     return String[String(v) for v in x]
 end
-function _plain(x::Union{AbstractDict,NamedTuple})
+function _plain(x::Union{AbstractDict, NamedTuple})
     record = SettingsRecord()
     for (key, value) in pairs(x)
         name = String(key isa Symbol ? key : string(key))
@@ -53,18 +50,23 @@ function _plain(x::Union{AbstractDict,NamedTuple})
     end
     return record
 end
-_plain(x) = throw(ArgumentError("a settings record cannot hold a value of type $(typeof(x)); " *
-                                "use strings, numbers, arrays of numbers, lists of strings or dictionaries of them"))
+function _plain(x)
+    throw(ArgumentError("a settings record cannot hold a value of type $(typeof(x)); " *
+                        "use strings, numbers, arrays of numbers, lists of strings or dictionaries of them"))
+end
 
-const PlainValue = Union{Bool,Integer,AbstractFloat,Symbol,AbstractString,VersionNumber,AbstractArray,
-                         AbstractDict,NamedTuple}
+const PlainValue = Union{
+    Bool, Integer, AbstractFloat, Symbol, AbstractString, VersionNumber, AbstractArray,
+    AbstractDict, NamedTuple}
 
 _type_name(x) = String(nameof(typeof(x)))
 
 # record of an object without a `describe` method: named, and marked as not described,
 # which makes the run's record incomplete
-_undescribed(x, reason::AbstractString="no describe method") =
-    SettingsRecord("type" => _type_name(x), "described" => false, "reason" => String(reason))
+function _undescribed(x, reason::AbstractString = "no describe method")
+    SettingsRecord("type" => _type_name(x), "described" => false, "reason" =>
+        String(reason))
+end
 
 _describe_value(x::PlainValue) = _plain(x)
 _describe_value(x) = hasmethod(describe, Tuple{typeof(x)}) ? describe(x) : _undescribed(x)
@@ -86,7 +88,7 @@ holds, and those it leaves out because they follow from the described ones (work
 caches, Jacobians of a grid). Every field is in one of the two, which the tests check, so
 a field added to a type must be classified. Types without a method describe every field.
 """
-settings_fields(T::Type) = (described=fieldnames(T), derived=())
+settings_fields(T::Type) = (described = fieldnames(T), derived = ())
 
 # ---------------------------------------------------------------------------------------
 # context of a description: the grids referred to by name, the time points at which
@@ -111,8 +113,10 @@ struct DescriptionContext
     tables::Vector{SettingsRecord}
     table_sources::Vector{Any}
 end
-DescriptionContext(; times=Float64[], max_table_bytes::Integer=MAX_PRESCRIBED_TABLE_BYTES) =
-    DescriptionContext(KineticGrid[], collect(Float64, times), Int(max_table_bytes), SettingsRecord[], Any[])
+function DescriptionContext(; times = Float64[], max_table_bytes::Integer = MAX_PRESCRIBED_TABLE_BYTES)
+    DescriptionContext(KineticGrid[], collect(Float64, times),
+        Int(max_table_bytes), SettingsRecord[], Any[])
+end
 
 "Name of `grid` in the context, registering it at its first use."
 function grid_name!(context::DescriptionContext, grid::KineticGrid)
@@ -125,8 +129,9 @@ function grid_name!(context::DescriptionContext, grid::KineticGrid)
 end
 
 "Records of the grids registered in the context, by name."
-describe(context::DescriptionContext) =
+function describe(context::DescriptionContext)
     SettingsRecord("grid_$k" => describe(grid) for (k, grid) in enumerate(context.grids))
+end
 
 "Name of the table of the prescribed plasma `plasma_at` in the context, which builds it at the first use."
 function prescribed_table!(context::DescriptionContext, plasma_at)
@@ -140,20 +145,27 @@ function prescribed_table!(context::DescriptionContext, plasma_at)
 end
 
 "Records of the tables registered in the context, by name."
-describe_tables(context::DescriptionContext) =
+function describe_tables(context::DescriptionContext)
     SettingsRecord("table_$k" => table for (k, table) in enumerate(context.tables))
+end
 
 # ---------------------------------------------------------------------------------------
 # grids
 
-settings_fields(::Type{<:MomentumGrid}) =
-    (described=(:p_faces, :xi_faces), derived=(:p_centers, :p_widths, :xi_centers, :xi_widths))
-settings_fields(::Type{<:RadialGrid}) =
-    (described=(:r_faces,), derived=(:r_centers, :r_widths, :spatial_jacobian, :spatial_jacobian_faces))
-settings_fields(::Type{<:KineticGrid}) =
-    (described=(:radial_grid, :momentum_grids, :shared, :jacobian_centers),
-     derived=(:jacobian_p_faces, :jacobian_xi_faces, :jacobian_r_faces, :jacobian_over_p2_at_zero,
-              :same_p_faces, :same_cell_counts, :radial_overlaps))
+function settings_fields(::Type{<:MomentumGrid})
+    (described = (:p_faces, :xi_faces),
+        derived = (:p_centers, :p_widths, :xi_centers, :xi_widths))
+end
+function settings_fields(::Type{<:RadialGrid})
+    (described = (:r_faces,),
+        derived = (:r_centers, :r_widths, :spatial_jacobian, :spatial_jacobian_faces))
+end
+function settings_fields(::Type{<:KineticGrid})
+    (described = (:radial_grid, :momentum_grids, :shared, :jacobian_centers),
+        derived = (:jacobian_p_faces, :jacobian_xi_faces,
+            :jacobian_r_faces, :jacobian_over_p2_at_zero,
+            :same_p_faces, :same_cell_counts, :radial_overlaps))
+end
 
 """
     describe(object)
@@ -168,10 +180,14 @@ time points. An object without a method gets a record with `"described" => false
 
 A term defined outside the package adds `Runes2P.describe(term::MyTerm, context::Runes2P.DescriptionContext)`.
 """
-describe(grid::MomentumGrid) =
-    SettingsRecord("type" => "MomentumGrid", "p_faces" => _plain(grid.p_faces), "xi_faces" => _plain(grid.xi_faces))
+function describe(grid::MomentumGrid)
+    SettingsRecord("type" => "MomentumGrid", "p_faces" => _plain(grid.p_faces),
+        "xi_faces" => _plain(grid.xi_faces))
+end
 
-describe(grid::RadialGrid) = SettingsRecord("type" => "RadialGrid", "r_faces" => _plain(grid.r_faces))
+function describe(grid::RadialGrid)
+    SettingsRecord("type" => "RadialGrid", "r_faces" => _plain(grid.r_faces))
+end
 
 # whether the phase-space Jacobian at the cell centres is the cylindrical 2π p² V'
 function _is_cylindrical(grid::KineticGrid)
@@ -179,15 +195,18 @@ function _is_cylindrical(grid::KineticGrid)
     return all(1:radial_cell_count(grid)) do ir
         m = momentum_grid(grid, ir)
         jacobian = phase_space_jacobian(grid, ir)
+        #! format: off
         all(jacobian[i, j] == 2pi * m.p_centers[i]^2 * volume[ir]
             for i in 1:momentum_cell_count(m), j in 1:pitch_cell_count(m))
+        #! format: on
     end
 end
 
 function describe(grid::KineticGrid)
-    record = SettingsRecord("type" => "KineticGrid", "r_faces" => _plain(grid.radial_grid.r_faces),
-                            "shared_momentum_grid" => has_shared_momentum_grid(grid),
-                            "radial_cell_count" => radial_cell_count(grid))
+    record = SettingsRecord(
+        "type" => "KineticGrid", "r_faces" => _plain(grid.radial_grid.r_faces),
+        "shared_momentum_grid" => has_shared_momentum_grid(grid),
+        "radial_cell_count" => radial_cell_count(grid))
     if _is_cylindrical(grid)
         record["geometry"] = "cylindrical"
     else
@@ -198,8 +217,10 @@ function describe(grid::KineticGrid)
     if has_shared_momentum_grid(grid)
         record["momentum_grid"] = describe(momentum_grid(grid))
     else
+        #! format: off
         record["momentum_grids"] = SettingsRecord("radius_$ir" => describe(momentum_grid(grid, ir))
                                                   for ir in 1:radial_cell_count(grid))
+        #! format: on
     end
     return record
 end
@@ -207,10 +228,12 @@ end
 # ---------------------------------------------------------------------------------------
 # layout
 
-settings_fields(::Type{<:UnknownLayout}) =
-    (described=(:radial_grid, :unknowns, :scalars),
-     derived=(:ids, :kinds, :offsets, :radius_offsets, :sizes, :shapes, :kinetic_grids, :scalar_offsets,
-              :radius_blocks, :scalar_block, :length))
+function settings_fields(::Type{<:UnknownLayout})
+    (described = (:radial_grid, :unknowns, :scalars),
+        derived = (:ids, :kinds, :offsets, :radius_offsets, :sizes,
+            :shapes, :kinetic_grids, :scalar_offsets,
+            :radius_blocks, :scalar_block, :length))
+end
 
 """
     describe(layout)
@@ -222,7 +245,7 @@ are named in it (the `layout` section of the settings, next to their `grids` sec
 Without one, the record holds the records of its grids under `grids` and is
 self-contained: it is the root group `layout` of the output and checkpoint files, which
 a resume reads to match the unknowns by name ([`copy_unknowns!`](@ref)) and to rebuild
-the grids (`layout_version` 2; version 1 held the faces per unknown).
+the grids (`layout_version` 2).
 """
 function describe(layout::UnknownLayout)
     context = DescriptionContext()
@@ -234,26 +257,29 @@ end
 function describe(layout::UnknownLayout, context::DescriptionContext)
     unknowns = SettingsRecord()
     for (id, u) in enumerate(layout.unknowns)
-        entry = SettingsRecord("kind" => String(layout.kinds[id]), "scale" => u.scale, "position" => id,
-                               "sizes" => u isa ScalarUnknown ? [1] : layout.sizes[id, :])
+        entry = SettingsRecord(
+            "kind" => String(layout.kinds[id]), "scale" => u.scale, "position" => id,
+            "sizes" => u isa ScalarUnknown ? [1] : layout.sizes[id, :])
         u isa RadialUnknown && (entry["components"] = u.components)
         # the first component of each group, recorded only for more than one group
-        u isa RadialUnknown && length(u.groups) > 1 && (entry["group_starts"] = first.(u.groups))
+        u isa RadialUnknown && length(u.groups) > 1 &&
+            (entry["group_starts"] = first.(u.groups))
         u isa KineticUnknown && (entry["grid"] = grid_name!(context, u.grid))
         if u.lower_limit !== nothing
             entry["lower_limit_tolerance"] = u.lower_limit.tolerance
-            # recorded only when set, so that the records of earlier limits keep their content
-            iszero(u.lower_limit.value) || (entry["lower_limit_value"] = u.lower_limit.value)
+            # the value is recorded only when it is not zero; a reader takes 0.0 when it is missing
+            iszero(u.lower_limit.value) ||
+                (entry["lower_limit_value"] = u.lower_limit.value)
             u.lower_limit.reference === nothing ||
                 (entry["lower_limit_reference"] = String(u.lower_limit.reference))
         end
         unknowns[String(u.name)] = entry
     end
     return SettingsRecord("type" => "UnknownLayout", "layout_version" => 2,
-                          "scalars" => String(layout.scalars),
-                          "order" => String[String(u.name) for u in layout.unknowns],
-                          "r_faces" => _plain(layout.radial_grid.r_faces),
-                          "unknown_count" => length(layout), "unknowns" => unknowns)
+        "scalars" => String(layout.scalars),
+        "order" => String[String(u.name) for u in layout.unknowns],
+        "r_faces" => _plain(layout.radial_grid.r_faces),
+        "unknown_count" => length(layout), "unknowns" => unknowns)
 end
 
 # ---------------------------------------------------------------------------------------
@@ -267,15 +293,20 @@ function describe(plasma::PlasmaState)
     for field in (:cold_electron_temperature, :cold_electron_density, :electric_field, :magnetic_field)
         record[String(field)] = _plain(getfield(plasma, field))
     end
+    #! format: off
     record["ions"] = SettingsRecord("species_$k" => describe(s) for (k, s) in enumerate(plasma.ions))
+    #! format: on
     return record
 end
 # whether the cold density was given or is the free-electron default: the record holds the
-# density itself, which is what the results depend on; the flag only lets a check
-# refuse a system before it runs
-settings_fields(::Type{<:PlasmaState}) =
-    (described=(:cold_electron_temperature, :cold_electron_density, :electric_field, :magnetic_field, :ions),
-     derived=(:cold_density_given,))
+# density itself, which is what the results depend on; the flag only lets a system refuse,
+# before it runs, a cold density that counts the electrons of the kinetic grids twice
+function settings_fields(::Type{<:PlasmaState})
+    (
+        described = (:cold_electron_temperature, :cold_electron_density,
+            :electric_field, :magnetic_field, :ions),
+        derived = (:cold_density_given,))
+end
 
 function _callable_name(f)
     name = String(nameof(f isa Function ? f : typeof(f)))
@@ -284,12 +315,14 @@ end
 
 function _sample_indices(count::Integer, max_samples::Integer)
     count <= max_samples && return collect(1:count)
-    return unique(round.(Int, range(1, count; length=max(max_samples, 2))))
+    return unique(round.(Int, range(1, count; length = max(max_samples, 2))))
 end
 
 # numbers in the record of one plasma state
-_plasma_size(plasma::PlasmaState) =
-    4 * radial_cell_count(plasma) + sum(s -> length(s.charge_state_densities), plasma.ions; init=0)
+function _plasma_size(plasma::PlasmaState)
+    4 * radial_cell_count(plasma) +
+    sum(s -> length(s.charge_state_densities), plasma.ions; init = 0)
+end
 
 """
     describe_prescribed_plasma(plasma_at, context)
@@ -304,7 +337,8 @@ marked `thinned`. Without time points, or when the function fails at one, the re
 marked as not described.
 """
 function describe_prescribed_plasma(plasma_at, context::DescriptionContext)
-    record = SettingsRecord("type" => "prescribed PlasmaState", "source" => _callable_name(plasma_at))
+    record = SettingsRecord("type" => "prescribed PlasmaState", "source" =>
+        _callable_name(plasma_at))
     function incomplete(reason)
         record["described"] = false
         record["reason"] = reason
@@ -314,9 +348,11 @@ function describe_prescribed_plasma(plasma_at, context::DescriptionContext)
     first_state = try
         plasma_at(first(context.times))
     catch error
-        return incomplete("the function failed at a time point: " * sprint(showerror, error))
+        return incomplete("the function failed at a time point: " *
+                          sprint(showerror, error))
     end
-    first_state isa PlasmaState || return incomplete("the function does not return a PlasmaState")
+    first_state isa PlasmaState ||
+        return incomplete("the function does not return a PlasmaState")
     max_samples = context.max_table_bytes ÷ (8 * _plasma_size(first_state))
     indices = _sample_indices(length(context.times), max_samples)
     times = context.times[indices]
@@ -324,14 +360,17 @@ function describe_prescribed_plasma(plasma_at, context::DescriptionContext)
     states = try
         [k == 1 ? first_state : plasma_at(t) for (k, t) in enumerate(times)]
     catch error
-        return incomplete("the function failed at a time point: " * sprint(showerror, error))
+        return incomplete("the function failed at a time point: " *
+                          sprint(showerror, error))
     end
-    all(s -> s isa PlasmaState, states) || return incomplete("the function does not return a PlasmaState")
+    all(s -> s isa PlasmaState, states) ||
+        return incomplete("the function does not return a PlasmaState")
     reference = first_state
     same_species(s) = length(s.ions) == length(reference.ions) &&
-                      all(k -> s.ions[k].name == reference.ions[k].name &&
-                               s.ions[k].nuclear_charge == reference.ions[k].nuclear_charge,
-                          eachindex(s.ions))
+                      all(
+        k -> s.ions[k].name == reference.ions[k].name &&
+             s.ions[k].nuclear_charge == reference.ions[k].nuclear_charge,
+        eachindex(s.ions))
     all(same_species, states) || return incomplete("the ion species change in time")
     record["times"] = times
     record["time_count"] = length(context.times)
@@ -341,8 +380,10 @@ function describe_prescribed_plasma(plasma_at, context::DescriptionContext)
     ions = SettingsRecord()
     for (k, species) in enumerate(reference.ions)
         ions["species_$k"] = SettingsRecord(
-            "type" => "IonSpecies", "name" => species.name, "nuclear_charge" => species.nuclear_charge,
-            "charge_state_densities" => _plain(stack(s.ions[k].charge_state_densities for s in states)))
+            "type" => "IonSpecies", "name" => species.name, "nuclear_charge" =>
+                species.nuclear_charge,
+            "charge_state_densities" =>
+                _plain(stack(s.ions[k].charge_state_densities for s in states)))
     end
     record["ions"] = ions
     record["thinned"] = length(indices) < length(context.times)
@@ -352,16 +393,22 @@ end
 # ---------------------------------------------------------------------------------------
 # operators
 
-const COEFFICIENT_FIELDS = (:advection_p, :diffusion_p_p, :diffusion_p_xi, :advection_xi, :diffusion_xi_xi,
-                            :diffusion_xi_p, :advection_r, :diffusion_r_r, :advection_p_times_p2_at_zero)
-const OPERATOR_OPTION_FIELDS = (:p_scheme, :xi_scheme, :r_scheme, :p_lower_boundary, :p_upper_boundary,
-                                :r_boundary)
+const COEFFICIENT_FIELDS = (
+    :advection_p, :diffusion_p_p, :diffusion_p_xi, :advection_xi, :diffusion_xi_xi,
+    :diffusion_xi_p, :advection_r, :diffusion_r_r, :advection_p_times_p2_at_zero)
+const OPERATOR_OPTION_FIELDS = (
+    :p_scheme, :xi_scheme, :r_scheme, :p_lower_boundary, :p_upper_boundary,
+    :r_boundary)
 
-settings_fields(::Type{<:AdvectionDiffusion}) =
-    (described=(:grid, COEFFICIENT_FIELDS..., :p_flux_at_lower_boundary, OPERATOR_OPTION_FIELDS...,
-                :coefficient_source),
-     derived=(:momentum_grids, :radial_overlaps, :jacobian_centers, :jacobian_p_faces, :jacobian_xi_faces,
-              :jacobian_r_faces, :jacobian_over_p2_at_zero, :unit_field_advection_p, :unit_field_advection_xi))
+function settings_fields(::Type{<:AdvectionDiffusion})
+    (
+        described = (:grid, COEFFICIENT_FIELDS...,
+            :p_flux_at_lower_boundary, OPERATOR_OPTION_FIELDS...,
+            :coefficient_source),
+        derived = (:momentum_grids, :radial_overlaps, :jacobian_centers,
+            :jacobian_p_faces, :jacobian_xi_faces,
+            :jacobian_r_faces, :jacobian_over_p2_at_zero, :unit_field_advection_p, :unit_field_advection_xi))
+end
 
 """
     describe(op::AdvectionDiffusion, context=DescriptionContext(); coefficients=true)
@@ -374,9 +421,11 @@ collision settings they were built from are recorded under `coefficient_source`.
 arrays are the definition of the operator, the source is what explains them. Arrays
 changed by hand afterwards leave the source as it was.
 """
-function describe(op::AdvectionDiffusion, context::DescriptionContext=DescriptionContext();
-                  coefficients::Bool=true)
-    record = SettingsRecord("type" => "AdvectionDiffusion", "grid" => grid_name!(context, op.grid))
+function describe(
+        op::AdvectionDiffusion, context::DescriptionContext = DescriptionContext();
+        coefficients::Bool = true)
+    record = SettingsRecord("type" => "AdvectionDiffusion", "grid" =>
+        grid_name!(context, op.grid))
     for field in OPERATOR_OPTION_FIELDS
         record[String(field)] = String(getfield(op, field))
     end
@@ -387,24 +436,28 @@ function describe(op::AdvectionDiffusion, context::DescriptionContext=Descriptio
     zero_names = String[]
     for field in COEFFICIENT_FIELDS
         array = getfield(op, field)
-        any(!iszero, array) ? (values[String(field)] = _plain(array)) : push!(zero_names, String(field))
+        any(!iszero, array) ? (values[String(field)] = _plain(array)) :
+        push!(zero_names, String(field))
     end
     record["coefficients"] = values
     isempty(zero_names) || (record["zero_coefficients"] = zero_names)
     source = op.coefficient_source[]
     if source !== nothing
         record["coefficient_source"] = SettingsRecord("plasma" => describe(source.plasma),
-                                                      "collision_settings" => describe(source.settings),
-                                                      "synchrotron" => source.synchrotron)
+            "collision_settings" => describe(source.settings),
+            "synchrotron" => source.synchrotron)
         # the field of the plasma is left out when the field is an unknown of the system
-        get(source, :electric_field, true) || (record["coefficient_source"]["electric_field"] = false)
+        get(source, :electric_field, true) ||
+            (record["coefficient_source"]["electric_field"] = false)
     end
     return record
 end
 
-settings_fields(::Type{<:KnockOnOperator}) =
-    (described=(:knockon, :primary, :method, :pitch_options, :p_cutoff),
-     derived=(:kernels, :cache, :primary_weights, :knockon_row, :gathered_weights, :slice_products))
+function settings_fields(::Type{<:KnockOnOperator})
+    (described = (:knockon, :primary, :method, :pitch_options, :p_cutoff),
+        derived = (:kernels, :cache, :primary_weights, :knockon_row,
+            :gathered_weights, :slice_products))
+end
 
 """
     describe(op::KnockOnOperator, context=DescriptionContext())
@@ -413,20 +466,22 @@ Record of the operator: the knock-on and primary grids, the evaluation method, t
 momentum per radius as it is now, and the options of the kernels with their defaults
 filled in ([`resolved_pitch_options`](@ref)).
 """
-function describe(op::KnockOnOperator, context::DescriptionContext=DescriptionContext())
-    return SettingsRecord("type" => "KnockOnOperator", "knockon" => grid_name!(context, op.knockon),
-                          "primary" => grid_name!(context, op.primary), "method" => String(op.method),
-                          "p_cutoff" => _plain(op.p_cutoff),
-                          "pitch_options" => _plain(resolved_pitch_options(op.pitch_options)))
+function describe(op::KnockOnOperator, context::DescriptionContext = DescriptionContext())
+    return SettingsRecord(
+        "type" => "KnockOnOperator", "knockon" => grid_name!(context, op.knockon),
+        "primary" => grid_name!(context, op.primary), "method" => String(op.method),
+        "p_cutoff" => _plain(op.p_cutoff),
+        "pitch_options" => _plain(resolved_pitch_options(op.pitch_options)))
 end
 
 # ---------------------------------------------------------------------------------------
 # terms
 
 function _term_record(term::EquationTerm)
-    record = SettingsRecord("type" => _type_name(term), "treatment" => String(treatment(term)),
-                            "coupling" => String(coupling(term)), "linear" => is_linear(term),
-                            "jacobian_kind" => String(jacobian_kind(term)))
+    record = SettingsRecord(
+        "type" => _type_name(term), "treatment" => String(treatment(term)),
+        "coupling" => String(coupling(term)), "linear" => is_linear(term),
+        "jacobian_kind" => String(jacobian_kind(term)))
     names = dependencies(term)
     isempty(names) || (record["dependencies"] = String[String(name) for name in names])
     return record
@@ -441,23 +496,28 @@ function describe(term::EquationTerm, context::DescriptionContext)
 end
 describe(term::EquationTerm) = describe(term, DescriptionContext())
 
-settings_fields(::Type{<:FokkerPlanckTerm}) =
-    (described=(:unknown, :operator, :jacobian, :electric_field, :plasma, :settings, :synchrotron, :lag_all,
-                :lagged),
-     derived=(:stored_operator, :values, :correction, :dual_input, :dual_output, :field_values, :dual_field,
-              :plasma_key, :rebuilds, :dual_operator, :dual_columns, :ion_state))
+function settings_fields(::Type{<:FokkerPlanckTerm})
+    (
+        described = (:unknown, :operator, :jacobian, :electric_field,
+            :plasma, :settings, :synchrotron, :lag_all,
+            :lagged),
+        derived = (:stored_operator, :values, :correction, :dual_input,
+            :dual_output, :field_values, :dual_field,
+            :plasma_key, :rebuilds, :dual_operator, :dual_columns, :ion_state))
+end
 
 function describe(term::FokkerPlanckTerm, context::DescriptionContext)
     record = _term_record(term)
     record["unknown"] = String(term.unknown)
     record["jacobian"] = String(term.jacobian)
-    term.electric_field === nothing || (record["electric_field"] = String(term.electric_field))
+    term.electric_field === nothing ||
+        (record["electric_field"] = String(term.electric_field))
     if term.plasma === nothing
         record["operator"] = describe(term.operator, context)
     else
         # the coefficients follow the plasma, so the plasma is their record: the function
         # by its name here, its values in a table of the context
-        record["operator"] = describe(term.operator, context; coefficients=false)
+        record["operator"] = describe(term.operator, context; coefficients = false)
         record["collision_settings"] = describe(term.settings)
         record["synchrotron"] = term.synchrotron
         # recorded only when set: "all" for the whole plasma, or the lagged groups
@@ -471,17 +531,21 @@ function describe(term::FokkerPlanckTerm, context::DescriptionContext)
     return record
 end
 
-settings_fields(::Type{<:PrescribedPlasma}) = (described=(:plasma_at,), derived=(:time, :state))
-settings_fields(::Type{<:PlasmaFromUnknowns}) =
-    (described=(:prescribed, :temperature, :density, :temperature_floor, :ions), derived=(:composition,))
+function settings_fields(::Type{<:PrescribedPlasma})
+    (described = (:plasma_at,), derived = (:time, :state))
+end
+function settings_fields(::Type{<:PlasmaFromUnknowns})
+    (described = (:prescribed, :temperature, :density, :temperature_floor, :ions),
+        derived = (:composition,))
+end
 
 # a plasma from the unknowns: their names, the floor, and the prescribed rest
 function _describe_plasma_source!(record, source::PlasmaFromUnknowns, context::DescriptionContext)
     record["plasma_unknowns"] = SettingsRecord("temperature" => String(source.temperature),
-                                               "density" => source.density === nothing ? "prescribed" :
-                                                            String(source.density),
-                                               "temperature_floor" => source.temperature_floor)
-    # recorded only when set, so that the records of plasmas with prescribed ions keep their content
+        "density" => source.density === nothing ? "prescribed" :
+                     String(source.density),
+        "temperature_floor" => source.temperature_floor)
+    # recorded only when set: a plasma with prescribed ions has no `ions` entry
     source.ions === nothing || (record["plasma_unknowns"]["ions"] = String(source.ions))
     return _describe_plasma_source!(record, source.prescribed, context)
 end
@@ -503,18 +567,22 @@ function describe(term::KnockOnTerm, context::DescriptionContext)
     # the treatment asked for; `treatment` above is where the system places the term
     record["knock_on_treatment"] = String(term.treatment)
     record["primary"] = String(term.primary)
-    record["target_density"] = term.target_density isa Symbol ? String(term.target_density) :
+    record["target_density"] = term.target_density isa Symbol ?
+                               String(term.target_density) :
                                _plain(term.target_density)
     record["operator"] = describe(term.operator, context)
     return record
 end
 
-settings_fields(::Type{<:PrescribedValueTerm}) = (described=(:values,), derived=(:points, :evaluated))
+function settings_fields(::Type{<:PrescribedValueTerm})
+    (described = (:values,), derived = (:points, :evaluated))
+end
 
 function describe(term::PrescribedValueTerm, context::DescriptionContext)
     record = _term_record(term)
     points = isempty(term.points[]) ? nothing : term.points[]
-    record["values"] = term.values isa Function ? describe_prescribed_levels(term.values, context; points) :
+    record["values"] = term.values isa Function ?
+                       describe_prescribed_levels(term.values, context; points) :
                        _plain(term.values)
     return record
 end
@@ -526,9 +594,12 @@ function describe(term::LinearTerm, context::DescriptionContext)
     return record
 end
 
-settings_fields(::Type{<:RadiatedPowerTerm}) =
-    (described=(:plasma, :temperature, :density, :radiation, :extrapolation, :bremsstrahlung_corrections, :ions, :kinetic),
-     derived=(:tables,))
+function settings_fields(::Type{<:RadiatedPowerTerm})
+    (
+        described = (:plasma, :temperature, :density, :radiation, :extrapolation,
+            :bremsstrahlung_corrections, :ions, :kinetic),
+        derived = (:tables,))
+end
 
 function describe(term::RadiatedPowerTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -538,16 +609,21 @@ function describe(term::RadiatedPowerTerm, context::DescriptionContext)
     record["extrapolation"] = String(term.extrapolation)
     record["bremsstrahlung_corrections"] = String(term.bremsstrahlung_corrections)
     term.ions === nothing || (record["ions"] = String(term.ions))
-    term.kinetic === nothing || (record["kinetic_ionization"] = describe(term.kinetic, context))
+    term.kinetic === nothing ||
+        (record["kinetic_ionization"] = describe(term.kinetic, context))
     # the ADF11 files of each element, by name: the cache itself is not part of the record
+    #! format: off
     record["adf11_files"] = SettingsRecord(element => SettingsRecord(String(class) => basename(getproperty(tables, class).source)
                                                                      for class in ADF11_CLASSES)
                                            for (element, tables) in term.tables)
+    #! format: on
     return _describe_plasma_source!(record, term.plasma, context)
 end
 
-settings_fields(::Type{<:IonRateTerm}) =
-    (described=(:composition, :ions, :temperature, :density, :extrapolation, :kinetic), derived=(:tables,))
+function settings_fields(::Type{<:IonRateTerm})
+    (described = (:composition, :ions, :temperature, :density, :extrapolation, :kinetic),
+        derived = (:tables,))
+end
 
 function describe(term::IonRateTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -557,20 +633,26 @@ function describe(term::IonRateTerm, context::DescriptionContext)
     for field in (:ions, :temperature, :density, :extrapolation)
         record[String(field)] = String(getfield(term, field))
     end
-    term.kinetic === nothing || (record["kinetic_ionization"] = describe(term.kinetic, context))
+    term.kinetic === nothing ||
+        (record["kinetic_ionization"] = describe(term.kinetic, context))
     # the ADF11 files of each element, by name: the cache itself is not part of the record
+    #! format: off
     record["adf11_files"] = SettingsRecord(name => SettingsRecord(String(class) => basename(getproperty(tables, class).source)
                                                                   for class in (:scd, :acd))
                                            for (name, tables) in zip(c.names, term.tables))
+    #! format: on
     return record
 end
 
-settings_fields(::Type{<:KnockOnTerm}) =
-    (described=(:primary, :operator, :target_density, :treatment),
-     derived=(:lagged, :prepared, :prepared_from, :preparations))
+function settings_fields(::Type{<:KnockOnTerm})
+    (described = (:primary, :operator, :target_density, :treatment),
+        derived = (:lagged, :prepared, :prepared_from, :preparations))
+end
 
-settings_fields(::Type{<:IonDiffusionTerm}) =
-    (described=(:composition, :ions, :level, :level_in_time, :states, :edge), derived=(:faces, :time))
+function settings_fields(::Type{<:IonDiffusionTerm})
+    (described = (:composition, :ions, :level, :level_in_time, :states, :edge),
+        derived = (:faces, :time))
+end
 
 function describe(term::IonDiffusionTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -583,14 +665,19 @@ function describe(term::IonDiffusionTerm, context::DescriptionContext)
     return record
 end
 
-settings_fields(::Type{<:PiecewiseConstant}) = (described=(:values, :switch_times), derived=())
+function settings_fields(::Type{<:PiecewiseConstant})
+    (described = (:values, :switch_times), derived = ())
+end
 function describe(history::PiecewiseConstant)
-    record = SettingsRecord("type" => "PiecewiseConstant", "switch_times" => _plain(history.switch_times))
+    record = SettingsRecord("type" => "PiecewiseConstant", "switch_times" =>
+        _plain(history.switch_times))
     if any(_is_radial_profile, history.values)
         # profiles on points of their own, one record per interval
+        #! format: off
         record["profiles"] = SettingsRecord("interval_$k" => _is_radial_profile(v) ? _describe_profile(v) :
                                                              _describe_value(v)
                                             for (k, v) in enumerate(history.values))
+        #! format: on
     else
         record["values"] = _plain(stack(history.values))
     end
@@ -607,9 +694,10 @@ may return a callable of r ([`radial_values`](@ref)): the values are those at `p
 `profile` records the callable (an interpolator by its points), or `profiles` one per
 sampled time where it changes in time.
 """
-function describe_prescribed_levels(levels_at, context::DescriptionContext; points=nothing)
+function describe_prescribed_levels(levels_at, context::DescriptionContext; points = nothing)
     levels_at isa PiecewiseConstant && return describe(levels_at)
-    record = SettingsRecord("type" => "prescribed levels", "source" => _callable_name(levels_at))
+    record = SettingsRecord("type" => "prescribed levels", "source" =>
+        _callable_name(levels_at))
     function incomplete(reason)
         record["described"] = false
         record["reason"] = reason
@@ -618,7 +706,8 @@ function describe_prescribed_levels(levels_at, context::DescriptionContext; poin
     isempty(context.times) && return incomplete("no time points to sample the function at")
     values = try
         first_value = levels_at(first(context.times))
-        width = points !== nothing && _is_radial_profile(first_value) ? length(points) : length(first_value)
+        width = points !== nothing && _is_radial_profile(first_value) ? length(points) :
+                length(first_value)
         max_samples = context.max_table_bytes ÷ (8 * width)
         indices = _sample_indices(length(context.times), max_samples)
         record["times"] = context.times[indices]
@@ -629,15 +718,19 @@ function describe_prescribed_levels(levels_at, context::DescriptionContext; poin
             if all(p -> p == first(profiles), profiles)
                 record["profile"] = _describe_profile(first(profiles))
             else
+                #! format: off
                 record["profiles"] = SettingsRecord("sample_$k" => _is_radial_profile(v) ? _describe_profile(v) :
                                                                    _describe_value(v)
                                                     for (k, v) in enumerate(sampled))
+                #! format: on
             end
         end
         # numbers and values are recorded as given, profiles by their values at the points
-        [collect(Float64, isempty(profiles) ? vcat(v) : radial_values(v, points)) for v in sampled]
+        [collect(Float64, isempty(profiles) ? vcat(v) : radial_values(v, points))
+         for v in sampled]
     catch error
-        return incomplete("the function failed at a time point: " * sprint(showerror, error))
+        return incomplete("the function failed at a time point: " *
+                          sprint(showerror, error))
     end
     record["time_count"] = length(context.times)
     record["values"] = _plain(stack(values))
@@ -646,23 +739,26 @@ end
 
 # record of a radial profile given as a callable: an interpolator by its points (extension),
 # a function by its name
-_describe_profile(profile) = hasmethod(describe, Tuple{typeof(profile)}) ? describe(profile) :
-                             SettingsRecord("type" => "callable", "source" => _callable_name(profile))
+function _describe_profile(profile)
+    hasmethod(describe, Tuple{typeof(profile)}) ? describe(profile) :
+    SettingsRecord("type" => "callable", "source" => _callable_name(profile))
+end
 
 # the record of the level of a radial transport term: a number or a vector as given, a
 # history in time by its levels at the time points of the context (a `PiecewiseConstant` by
-# its values and switch times), a profile by its source and its values on the faces
-# (the name alone lost the levels of a transport history)
+# its values and switch times), a profile by its source and its values on the faces (the
+# name of a function alone would not record its levels)
 function _describe_radial_level(level, in_time::Bool, faces, context)
-    level isa Union{Real,AbstractVector} && return _plain(level)
+    level isa Union{Real, AbstractVector} && return _plain(level)
     in_time && return describe_prescribed_levels(level, context)
     record = SettingsRecord("profile" => _describe_profile(level))
     isempty(faces) || (record["faces"] = _plain(faces))
     return record
 end
 
-settings_fields(::Type{<:SecondaryHeatingTerm}) =
-    (described=(:kinetic, :temperature, :cut, :spectrum, :widths), derived=(:energies,))
+function settings_fields(::Type{<:SecondaryHeatingTerm})
+    (described = (:kinetic, :temperature, :cut, :spectrum, :widths), derived = (:energies,))
+end
 
 function describe(term::SecondaryHeatingTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -670,14 +766,19 @@ function describe(term::SecondaryHeatingTerm, context::DescriptionContext)
     record["temperature"] = String(term.temperature)
     record["cut"] = String(term.cut)
     record["spectrum"] = String(term.spectrum)
+    #! format: off
     term.spectrum === :opal &&
         (record["widths"] = SettingsRecord(name => width for (name, width) in zip(term.kinetic.composition.names, term.widths)))
+    #! format: on
     return record
 end
 
-settings_fields(::Type{<:RosenbluthPutvinskiSourceTerm}) =
-    (described=(:kinetic, :grid, :runaway_density, :total_density, :electric_field, :p_cutoff),
-     derived=(:positive, :negative))
+function settings_fields(::Type{<:RosenbluthPutvinskiSourceTerm})
+    (
+        described = (
+            :kinetic, :grid, :runaway_density, :total_density, :electric_field, :p_cutoff),
+        derived = (:positive, :negative))
+end
 
 function describe(term::RosenbluthPutvinskiSourceTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -685,15 +786,19 @@ function describe(term::RosenbluthPutvinskiSourceTerm, context::DescriptionConte
     record["grid"] = grid_name!(context, term.grid)
     record["runaway_density"] = String(term.runaway_density)
     record["total_density"] = String(term.total_density)
-    term.electric_field === nothing || (record["electric_field"] = String(term.electric_field))
+    term.electric_field === nothing ||
+        (record["electric_field"] = String(term.electric_field))
     record["p_cutoff"] = term.p_cutoff
     return record
 end
 
-settings_fields(::Type{<:ExternalAvalancheTerm}) =
-    (described=(:plasma, :p_cutoff, :runaway_density, :total_density, :electric_field, :temperature, :density, :ions,
-                :settings, :exponent),
-     derived=(:cache,))
+function settings_fields(::Type{<:ExternalAvalancheTerm})
+    (
+        described = (:plasma, :p_cutoff, :runaway_density, :total_density,
+            :electric_field, :temperature, :density, :ions,
+            :settings, :exponent),
+        derived = (:cache,))
+end
 
 function describe(term::ExternalAvalancheTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -708,8 +813,10 @@ function describe(term::ExternalAvalancheTerm, context::DescriptionContext)
     return record
 end
 
-settings_fields(::Type{<:KineticIonizationTerm}) =
-    (described=(:composition, :kinetic, :grid, :ions, :envelopes, :cross_section_form), derived=(:rates, :weights))
+function settings_fields(::Type{<:KineticIonizationTerm})
+    (described = (:composition, :kinetic, :grid, :ions, :envelopes, :cross_section_form),
+        derived = (:rates, :weights))
+end
 
 function describe(term::KineticIonizationTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -720,17 +827,20 @@ function describe(term::KineticIonizationTerm, context::DescriptionContext)
     record["ions"] = String(term.ions)
     record["cross_sections"] = term.cross_section_form === :chianti ?
                                "CHIANTI (Dere 2007) continued by the relativistic Bethe form above 100 keV, " *
-                               "DREAM's form for elements without CHIANTI data (issue #244)" :
+                               "DREAM's form for elements without CHIANTI data" :
                                term.cross_section_form === :dream ?
                                "Burgess-Chidichimo with Garland's extension, DREAM's fits" :
-                               "Burgess-Chidichimo with the Bethe term over beta^2, refitted (issue #189)"
+                               "Burgess-Chidichimo with the Bethe term over beta^2, refitted"
     return _describe_region!(record, term.envelopes, context)
 end
 
-settings_fields(::Type{<:HeatTransportTerm}) =
-    (described=(:temperature, :density, :model, :level, :level_in_time, :safety_factor, :major_radius, :edge,
-                :coefficient),
-     derived=(:faces, :time, :safety_factor_faces))
+function settings_fields(::Type{<:HeatTransportTerm})
+    (
+        described = (:temperature, :density, :model, :level,
+            :level_in_time, :safety_factor, :major_radius, :edge,
+            :coefficient),
+        derived = (:faces, :time, :safety_factor_faces))
+end
 
 function describe(term::HeatTransportTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -743,14 +853,18 @@ function describe(term::HeatTransportTerm, context::DescriptionContext)
     record[name] = _describe_radial_level(term.level, term.level_in_time, term.faces[], context)
     if term.model === :rechester_rosenbluth
         record["major_radius"] = term.major_radius
-        record["safety_factor"] = _describe_radial_level(term.safety_factor, false, term.safety_factor_faces[], context)
+        record["safety_factor"] = _describe_radial_level(
+            term.safety_factor, false, term.safety_factor_faces[], context)
     end
     return record
 end
 
-settings_fields(::Type{<:IonEnergyExchangeTerm}) =
-    (described=(:plasma, :side, :ion_energy, :temperature, :density, :ion_ion, :ion_coulomb_logarithm, :masses, :ions),
-     derived=())
+function settings_fields(::Type{<:IonEnergyExchangeTerm})
+    (
+        described = (:plasma, :side, :ion_energy, :temperature, :density,
+            :ion_ion, :ion_coulomb_logarithm, :masses, :ions),
+        derived = ())
+end
 
 function describe(term::IonEnergyExchangeTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -775,8 +889,10 @@ function describe(term::RunawayFluidEnergyTransferTerm, context::DescriptionCont
     return _describe_plasma_source!(record, term.plasma, context)
 end
 
-settings_fields(::Type{<:KineticEnergyLossTerm}) =
-    (described=(:kinetic, :source, :part, :coefficient, :envelopes), derived=(:lagged_plasma,))
+function settings_fields(::Type{<:KineticEnergyLossTerm})
+    (described = (:kinetic, :source, :part, :coefficient, :envelopes),
+        derived = (:lagged_plasma,))
+end
 
 function describe(term::KineticEnergyLossTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -816,15 +932,15 @@ Record of a momentum region: the side, the envelope and the limit. A limit that 
 the temperature is recorded with its factor and the temperatures at the time points of
 `context`, another function of time with its values at the time points.
 """
-function describe(region::MomentumRegion, context::DescriptionContext=DescriptionContext())
+function describe(region::MomentumRegion, context::DescriptionContext = DescriptionContext())
     record = SettingsRecord("type" => "MomentumRegion", "side" => String(region.side),
-                            "envelope" => String(region.envelope))
+        "envelope" => String(region.envelope))
     region.envelope === :smooth && (record["smooth_width"] = region.smooth_width)
     record["limit"] = _describe_limit(region.limit, context)
     return record
 end
 
-_describe_limit(limit::Union{Real,AbstractVector{<:Real}}, context) = _plain(limit)
+_describe_limit(limit::Union{Real, AbstractVector{<:Real}}, context) = _plain(limit)
 _describe_limit(limit, context) = describe_prescribed_levels(limit, context)
 function _describe_limit(limit::ThermalMomentum, context)
     record = SettingsRecord("type" => "ThermalMomentum", "factor" => limit.factor)
@@ -832,9 +948,11 @@ function _describe_limit(limit::ThermalMomentum, context)
         record["temperature"] = SettingsRecord("unknown" => String(limit.temperature))
         return record
     end
-    record["temperature"] = limit.temperature isa AbstractVector ? _plain(limit.temperature) :
+    record["temperature"] = limit.temperature isa AbstractVector ?
+                            _plain(limit.temperature) :
                             describe_prescribed_levels(t -> _temperatures(limit.temperature, t), context)
-    limit.temperature isa AbstractVector || (record["temperature"]["source"] = _callable_name(limit.temperature))
+    limit.temperature isa AbstractVector ||
+        (record["temperature"]["source"] = _callable_name(limit.temperature))
     return record
 end
 
@@ -844,7 +962,9 @@ function _describe_region!(record, envelopes, context)
     return record
 end
 
-settings_fields(::Type{<:DensityMomentTerm}) = (described=(:kinetic, :coefficient, :envelopes), derived=())
+function settings_fields(::Type{<:DensityMomentTerm})
+    (described = (:kinetic, :coefficient, :envelopes), derived = ())
+end
 
 function describe(term::DensityMomentTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -860,8 +980,10 @@ function describe(term::EnergyMomentTerm, context::DescriptionContext)
     return _describe_region!(record, term.envelopes, context)
 end
 
-settings_fields(::Type{<:CurrentMomentTerm}) =
-    (described=(:kinetic, :grid, :coefficient, :pitch_rule, :envelopes), derived=(:pitch_weights,))
+function settings_fields(::Type{<:CurrentMomentTerm})
+    (described = (:kinetic, :grid, :coefficient, :pitch_rule, :envelopes),
+        derived = (:pitch_weights,))
+end
 
 function describe(term::CurrentMomentTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -872,8 +994,10 @@ function describe(term::CurrentMomentTerm, context::DescriptionContext)
     return _describe_region!(record, term.envelopes, context)
 end
 
-settings_fields(::Type{<:ParticleSourceTerm}) =
-    (described=(:source, :grid, :temperature, :shape_kind), derived=(:shape, :temperatures, :time))
+function settings_fields(::Type{<:ParticleSourceTerm})
+    (described = (:source, :grid, :temperature, :shape_kind),
+        derived = (:shape, :temperatures, :time))
+end
 
 function describe(term::ParticleSourceTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -887,7 +1011,7 @@ function describe(term::ParticleSourceTerm, context::DescriptionContext)
     else
         describe_prescribed_levels(t -> _temperatures(term.temperature, t), context)
     end
-    term.temperature isa Union{Symbol,AbstractVector} ||
+    term.temperature isa Union{Symbol, AbstractVector} ||
         (record["temperature"]["source"] = _callable_name(term.temperature))
     return record
 end
@@ -898,12 +1022,14 @@ function describe(term::MomentumBoundaryFluxTerm, context::DescriptionContext)
     record["weight"] = String(term.weight)
     record["coefficient"] = term.coefficient
     operator = _operator_of(term.source)
-    record["operator"] = describe(operator, context; coefficients=false)
+    record["operator"] = describe(operator, context; coefficients = false)
     return record
 end
 
-settings_fields(::Type{<:ConductivityTerm}) =
-    (described=(:electric_field, :model, :coefficient), derived=(:values, :plasma_key, :operator_rebuilds))
+function settings_fields(::Type{<:ConductivityTerm})
+    (described = (:electric_field, :model, :coefficient),
+        derived = (:values, :plasma_key, :operator_rebuilds))
+end
 
 """
     describe(model::ConductivityModel, context)
@@ -912,12 +1038,13 @@ Record of a conductivity model: the reference, what is subtracted for the kineti
 operator, and the conductivity per radius at the time points of `context` (at the first
 one for a plasma that is constant in time).
 """
-function describe(model::ConductivityModel, context::DescriptionContext=DescriptionContext())
-    record = SettingsRecord("type" => "ConductivityModel", "reference" => String(model.reference),
-                            "kinetic" => String(model.kinetic))
+function describe(model::ConductivityModel, context::DescriptionContext = DescriptionContext())
+    record = SettingsRecord(
+        "type" => "ConductivityModel", "reference" => String(model.reference),
+        "kinetic" => String(model.kinetic))
     if model.kinetic === :discrete_operator
         record["pitch_rule"] = String(model.pitch_rule)
-        record["operator"] = describe(_operator_of(model.operator), context; coefficients=false)
+        record["operator"] = describe(_operator_of(model.operator), context; coefficients = false)
     end
     _describe_plasma_source!(record, model.plasma, context)
     # the first time of the run need not be 0, and an operator rebuilt in time makes the
@@ -931,8 +1058,9 @@ function describe(model::ConductivityModel, context::DescriptionContext=Descript
         SettingsRecord("described" => false, "reason" => "no time points to sample the model at")
     elseif model.kinetic === :discrete_operator
         # each time costs a sparse factorization of the bordered operator per radius
-        SettingsRecord("time" => first_time, "values" => _plain(model(first_time)), "sampled" => "first time point",
-                       "reason" => "the conductivity of the discrete operator costs a factorization per time")
+        SettingsRecord("time" => first_time, "values" => _plain(model(first_time)),
+            "sampled" => "first time point",
+            "reason" => "the conductivity of the discrete operator costs a factorization per time")
     else
         describe_prescribed_levels(model, context)
     end
@@ -962,9 +1090,10 @@ function describe(term::CrossSectionIntegralTerm, context::DescriptionContext)
     return record
 end
 
-settings_fields(::Type{<:MaxwellianSourceTerm}) =
-    (described=(:kinetic, :grid, :target_density, :rate, :temperature, :bulk_momentum),
-     derived=(:shape, :bulk_cells))
+function settings_fields(::Type{<:MaxwellianSourceTerm})
+    (described = (:kinetic, :grid, :target_density, :rate, :temperature, :bulk_momentum),
+        derived = (:shape, :bulk_cells))
+end
 
 function describe(term::MaxwellianSourceTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -983,7 +1112,7 @@ function describe(term::RadialEdgeLossTerm, context::DescriptionContext)
     record["coefficient"] = term.coefficient
     # the coefficients belong to the Fokker-Planck term of the radial transport, or to an
     # update of the run, which hold their record
-    record["operator"] = describe(term.operator, context; coefficients=false)
+    record["operator"] = describe(term.operator, context; coefficients = false)
     return record
 end
 
@@ -994,9 +1123,12 @@ function describe(term::LossRateTerm, context::DescriptionContext)
     return record
 end
 
-settings_fields(::Type{<:MomentumInterfaceTerm}) =
-    (described=(:lower, :upper, :lower_term, :lower_grid, :upper_grid, :pitch_mapping, :scheme),
-     derived=(:overlaps, :interpolation_cells, :interpolation_weights))
+function settings_fields(::Type{<:MomentumInterfaceTerm})
+    (
+        described = (
+            :lower, :upper, :lower_term, :lower_grid, :upper_grid, :pitch_mapping, :scheme),
+        derived = (:overlaps, :interpolation_cells, :interpolation_weights))
+end
 
 function describe(term::MomentumInterfaceTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -1012,31 +1144,34 @@ function describe(term::MomentumInterfaceTerm, context::DescriptionContext)
     return record
 end
 
-settings_fields(::Type{<:FieldParticleOperator}) =
-    (described=(:grid, :modes, :scheme, :pitch_rule, :coefficient_source),
-     derived=(:momentum_weights, :loss_functionals, :restoring_shapes))
+function settings_fields(::Type{<:FieldParticleOperator})
+    (described = (:grid, :modes, :scheme, :pitch_rule, :coefficient_source),
+        derived = (:momentum_weights, :loss_functionals, :restoring_shapes))
+end
 
 """
     describe(op::FieldParticleOperator, context=DescriptionContext())
 
-Record of the field-particle operator: the grid, the number of modes, the
-scheme of its electron-electron operator, the pitch rule of the momentum weights, and the
-plasma and the collision settings it was built from. The functionals and the shapes
-follow from them.
+Record of the field-particle operator: the grid, the number of modes, the scheme of its
+electron-electron operator, the pitch rule of the momentum weights, and the plasma and the
+collision settings it was built from. The functionals and the shapes follow from them.
 """
-function describe(op::FieldParticleOperator, context::DescriptionContext=DescriptionContext())
-    record = SettingsRecord("type" => "FieldParticleOperator", "grid" => grid_name!(context, op.grid),
-                            "modes" => op.modes, "scheme" => String(op.scheme), "pitch_rule" => String(op.pitch_rule))
+function describe(op::FieldParticleOperator, context::DescriptionContext = DescriptionContext())
+    record = SettingsRecord(
+        "type" => "FieldParticleOperator", "grid" => grid_name!(context, op.grid),
+        "modes" => op.modes, "scheme" => String(op.scheme), "pitch_rule" =>
+            String(op.pitch_rule))
     source = op.coefficient_source[]
     if source !== nothing
         record["coefficient_source"] = SettingsRecord("plasma" => describe(source.plasma),
-                                                      "collision_settings" => describe(source.settings))
+            "collision_settings" => describe(source.settings))
     end
     return record
 end
 
-settings_fields(::Type{<:FieldParticleTerm}) =
-    (described=(:unknown, :operator, :plasma, :settings), derived=(:plasma_key,))
+function settings_fields(::Type{<:FieldParticleTerm})
+    (described = (:unknown, :operator, :plasma, :settings), derived = (:plasma_key,))
+end
 
 function describe(term::FieldParticleTerm, context::DescriptionContext)
     record = _term_record(term)
@@ -1055,16 +1190,22 @@ end
 # ---------------------------------------------------------------------------------------
 # equation system and solvers
 
-settings_fields(::Type{<:EquationSystem}) =
-    (described=(:layout, :equations, :time_scale, :newton_tolerances, :time_step_tolerances),
-     derived=(:sparse_terms, :matrix_free_terms, :explicit_terms, :correction_terms, :direct_terms, :column_terms,
-              :automatic_jacobian, :automatic_positions, :stored_jacobian_exact,
-              :linear, :mass, :mass_columns, :row_scales, :pattern, :sparse_rhs!, :preparation, :backend, :prototype, :time, :buffer,
-              :product))
+function settings_fields(::Type{<:EquationSystem})
+    (
+        described = (
+            :layout, :equations, :time_scale, :newton_tolerances, :time_step_tolerances),
+        derived = (:sparse_terms, :matrix_free_terms, :explicit_terms,
+            :correction_terms, :direct_terms, :column_terms,
+            :automatic_jacobian, :automatic_positions, :stored_jacobian_exact,
+            :linear, :mass, :mass_columns, :row_scales, :pattern, :sparse_rhs!,
+            :preparation, :backend, :prototype, :time, :buffer,
+            :product))
+end
 
 function describe(tolerance::Tolerance)
-    record = SettingsRecord("absolute" => tolerance.absolute, "relative" => tolerance.relative)
-    # recorded only when set, so that the records of other tolerances keep their content
+    record = SettingsRecord("absolute" => tolerance.absolute, "relative" =>
+        tolerance.relative)
+    # recorded only when set: a tolerance of group 0 has no `group` entry
     iszero(tolerance.group) || (record["group"] = tolerance.group)
     return record
 end
@@ -1076,25 +1217,32 @@ Record of the system: per unknown the kind of its equation and its terms (`term_
 `term_2`, … in the order given), the time scale, and the Newton and time-step tolerances
 of every unknown as they apply (the defaults filled in). The layout has its own record.
 """
-function describe(system::EquationSystem, context::DescriptionContext=DescriptionContext())
+function describe(system::EquationSystem, context::DescriptionContext = DescriptionContext())
     equations = SettingsRecord()
     for equation in system.equations
+        #! format: off
         terms = SettingsRecord("term_$k" => describe(term, context) for (k, term) in enumerate(equation.terms))
-        record = SettingsRecord("kind" => equation.kind isa TimeDerivative ? "time_derivative" :
-                                          equation.kind isa Constraint ? "constraint" : "algebraic",
-                                "term_count" => length(equation.terms), "terms" => terms)
+        #! format: on
+        record = SettingsRecord(
+            "kind" =>
+                equation.kind isa TimeDerivative ? "time_derivative" :
+                equation.kind isa Constraint ? "constraint" : "algebraic",
+            "term_count" => length(equation.terms), "terms" => terms)
         # the unknown whose time derivative the row holds, when it is another one
         equation.kind isa TimeDerivative && equation.kind.of !== nothing &&
             (record["time_derivative_of"] = String(equation.kind.of))
         equation.scale === nothing || (record["scale"] = equation.scale)
-        equation.initial_value === :given || (record["initial_value"] = String(equation.initial_value))
+        equation.initial_value === :given ||
+            (record["initial_value"] = String(equation.initial_value))
         equations[String(equation.unknown)] = record
     end
+    #! format: off
     tolerances(kind) = SettingsRecord(String(u.name) => describe(tolerance(system, u.name; kind))
                                       for u in system.layout.unknowns)
+    #! format: on
     return SettingsRecord("type" => "EquationSystem", "equations" => equations,
-                          "time_scale" => system.time_scale, "newton_tolerances" => tolerances(:newton),
-                          "time_step_tolerances" => tolerances(:time_step))
+        "time_scale" => system.time_scale, "newton_tolerances" => tolerances(:newton),
+        "time_step_tolerances" => tolerances(:time_step))
 end
 
 describe(solver::LinearSolver) = _describe_fields(solver)
@@ -1104,7 +1252,7 @@ describe(solver::NewtonSolver) = _describe_fields(solver)
 # ---------------------------------------------------------------------------------------
 # code version and environment
 
-const _CODE_VERSION = Ref{Union{Nothing,SettingsRecord}}(nothing)
+const _CODE_VERSION = Ref{Union{Nothing, SettingsRecord}}(nothing)
 
 """
     code_version()
@@ -1118,9 +1266,10 @@ function code_version()
     cached = _CODE_VERSION[]
     cached === nothing || return deepcopy(cached)
     version = pkgversion(@__MODULE__)
-    record = SettingsRecord("package" => "Runes2P", "package_version" => version === nothing ? "unknown" : string(version),
-                            "commit" => "unknown", "commit_known" => false, "tree_clean" => false,
-                            "branch" => "unknown", "julia_version" => string(VERSION))
+    record = SettingsRecord("package" => "Runes2P",
+        "package_version" => version === nothing ? "unknown" : string(version),
+        "commit" => "unknown", "commit_known" => false, "tree_clean" => false,
+        "branch" => "unknown", "julia_version" => string(VERSION))
     root = pkgdir(@__MODULE__)
     if root !== nothing
         try
@@ -1141,7 +1290,7 @@ function code_version()
     return deepcopy(record)
 end
 
-const _CPU_MODEL = Ref{Union{Nothing,String}}(nothing)
+const _CPU_MODEL = Ref{Union{Nothing, String}}(nothing)
 
 # Read once per session: `Sys.cpu_info()` queries every core and takes a noticeable time on a
 # machine with many cores, which every call of `integrate` would pay.
@@ -1165,12 +1314,14 @@ BLAS, the BLAS libraries, the start time, and the Slurm job when there is one. I
 part of the setup hash. The CPU model is read once per session.
 """
 function run_environment()
+    #! format: off
     libraries = join((basename(library.libname) for library in BLAS.get_config().loaded_libs), ", ")
+    #! format: on
     record = SettingsRecord("hostname" => gethostname(), "cpu_model" => _cpu_model(),
-                            "cpu_threads" => Sys.CPU_THREADS, "julia_threads" => Threads.nthreads(),
-                            "blas_threads" => BLAS.get_num_threads(),
-                            "blas_libraries" => isempty(libraries) ? "unknown" : libraries,
-                            "start_time" => Libc.strftime("%Y-%m-%dT%H:%M:%S%z", time()))
+        "cpu_threads" => Sys.CPU_THREADS, "julia_threads" => Threads.nthreads(),
+        "blas_threads" => BLAS.get_num_threads(),
+        "blas_libraries" => isempty(libraries) ? "unknown" : libraries,
+        "start_time" => Libc.strftime("%Y-%m-%dT%H:%M:%S%z", time()))
     for name in ("SLURM_JOB_ID", "SLURM_JOB_NAME", "SLURM_RESTART_COUNT")
         value = get(ENV, name, "")
         isempty(value) || (record[lowercase(name)] = value)
@@ -1192,10 +1343,14 @@ function _canonical!(io::IO, record::AbstractDict)
     end
     return io
 end
-_canonical!(io::IO, x::AbstractString) = (write(io, UInt8('s'), htol(Int64(ncodeunits(x)))); write(io, x); io)
+function _canonical!(io::IO, x::AbstractString)
+    (write(io, UInt8('s'), htol(Int64(ncodeunits(x)))); write(io, x); io)
+end
 _canonical!(io::IO, x::Bool) = (write(io, UInt8('b'), UInt8(x)); io)
 _canonical!(io::IO, x::Integer) = (write(io, UInt8('i'), htol(Int64(x))); io)
-_canonical!(io::IO, x::AbstractFloat) = (write(io, UInt8('f'), htol(reinterpret(UInt64, Float64(x)))); io)
+function _canonical!(io::IO, x::AbstractFloat)
+    (write(io, UInt8('f'), htol(reinterpret(UInt64, Float64(x)))); io)
+end
 function _canonical!(io::IO, x::AbstractArray{<:Real})
     write(io, UInt8(eltype(x) <: Integer ? 'I' : 'F'), htol(Int64(ndims(x))))
     foreach(n -> write(io, htol(Int64(n))), size(x))

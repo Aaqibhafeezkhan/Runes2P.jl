@@ -2,11 +2,12 @@
 # reference/dream/cases/collision_frequencies.py.
 using HDF5
 
-const DREAM_COLLISION_DATA = joinpath(@__DIR__, "data", "dream_collisions.h5")
+const DREAM_COLLISION_DATA = reference_file("dream_collisions.h5")
 
 const DREAM_MODES = Dict(1 => :superthermal, 2 => :full, 3 => :ultra_relativistic)
 const DREAM_SCREENING = Dict(1 => :complete, 2 => :none, 3 => :partial)
-const DREAM_COULOMB_LOGARITHM = Dict(1 => :relativistic, 2 => :energy_dependent, 3 => :thermal)
+const DREAM_COULOMB_LOGARITHM = Dict(1 => :relativistic, 2 => :energy_dependent, 3 =>
+    :thermal)
 const DREAM_SCREENED_DIFFUSION = Dict(1 => :zero, 2 => :maxwellian)
 
 function _dream_plasma(h5, grp, nr_)
@@ -15,9 +16,9 @@ function _dream_plasma(h5, grp, nr_)
     Z0s = read(h5["ions/Z0"])
     n = read(h5["ions/n"])  # (nr, nspecies)
     ions = [IonSpecies(names[k], Zs[k], Z0s[k], n[:, k]) for k in eachindex(Zs)]
-    return PlasmaState(cold_electron_temperature=read(grp["T_cold"]),
-                       cold_electron_density=read(grp["n_cold"]), ions=ions,
-                       electric_field=read(h5["E"]), magnetic_field=fill(read(h5["B"]), nr_))
+    return PlasmaState(cold_electron_temperature = read(grp["T_cold"]),
+        cold_electron_density = read(grp["n_cold"]), ions = ions,
+        electric_field = read(h5["E"]), magnetic_field = fill(read(h5["B"]), nr_))
 end
 
 function _maxrel(a, b)
@@ -40,16 +41,16 @@ end
         n1, n2 = momentum_cell_count(mom), pitch_cell_count(mom)
 
         for variant in ("full_partial_thermal", "superthermal_partial_energy",
-                        "full_non_energy_zero", "ultrarel_complete_constant")
+            "full_non_energy_zero", "ultrarel_complete_constant")
             @testset "$variant" begin
                 grp = h5[variant]
                 attr = attributes(grp)
                 settings = CollisionSettings(
-                    mode=DREAM_MODES[read(attr["collfreq_mode"])],
-                    screening=DREAM_SCREENING[read(attr["collfreq_type"])],
-                    coulomb_logarithm=DREAM_COULOMB_LOGARITHM[read(attr["lnlambda"])],
-                    screened_diffusion=DREAM_SCREENED_DIFFUSION[read(attr["screened_diffusion"])],
-                    ion_size_table=:dream, screening_window=:dream, bremsstrahlung=:neglect)
+                    mode = DREAM_MODES[read(attr["collfreq_mode"])],
+                    screening = DREAM_SCREENING[read(attr["collfreq_type"])],
+                    coulomb_logarithm = DREAM_COULOMB_LOGARITHM[read(attr["lnlambda"])],
+                    screened_diffusion = DREAM_SCREENED_DIFFUSION[read(attr["screened_diffusion"])],
+                    ion_size_table = :dream, screening_window = :dream, bremsstrahlung = :neglect)
                 plasma = _dream_plasma(h5, grp, nr_)
                 cm = CollisionModel(plasma, settings)
                 # Observed maxima: 1e-12 (superthermal), 9e-12 (full mode). The exception
@@ -58,23 +59,30 @@ end
                 # by ~1e6 in both codes: 1.1e-10 at p = 0.01, T = 2 keV.
                 rtol = 1e-9
 
-                f1(fun) = [fun(ir, p_f[k]) for k in 1:n1+1, _ in 1:n2, ir in 1:nr_]
-                f2(fun) = [fun(ir, mom.p_centers[i]) for i in 1:n1, _ in 1:n2+1, ir in 1:nr_]
-                lnee(ir, p) = coulomb_logarithm(:electron_electron, settings.coulomb_logarithm, p,
-                                                plasma.cold_electron_temperature[ir],
-                                                free_electron_density(plasma, ir))
-                lnei(ir, p) = coulomb_logarithm(:electron_ion, settings.coulomb_logarithm, p,
-                                                plasma.cold_electron_temperature[ir],
-                                                free_electron_density(plasma, ir))
+                f1(fun) = [fun(ir, p_f[k]) for k in 1:(n1 + 1), _ in 1:n2, ir in 1:nr_]
+                f2(fun) = [fun(ir, mom.p_centers[i])
+                           for i in 1:n1, _ in 1:(n2 + 1), ir in 1:nr_]
+                lnee(ir, p) = coulomb_logarithm(
+                    :electron_electron, settings.coulomb_logarithm, p,
+                    plasma.cold_electron_temperature[ir],
+                    free_electron_density(plasma, ir))
+                lnei(ir, p) = coulomb_logarithm(
+                    :electron_ion, settings.coulomb_logarithm, p,
+                    plasma.cold_electron_temperature[ir],
+                    free_electron_density(plasma, ir))
 
                 @test _maxrel(f1(lnee), read(grp["lnLambda_ee_f1"])) < 1e-13
                 @test _maxrel(f2(lnei), read(grp["lnLambda_ei_f2"])) < 1e-13
-                @test _maxrel(f1((ir, p) -> slowing_down_frequency(cm, ir, p)), read(grp["nu_s_f1"])) < rtol
-                @test _maxrel(f2((ir, p) -> slowing_down_frequency(cm, ir, p)), read(grp["nu_s_f2"])) < rtol
-                @test _maxrel(f1((ir, p) -> deflection_frequency(cm, ir, p)), read(grp["nu_D_f1"])) < rtol
-                @test _maxrel(f2((ir, p) -> deflection_frequency(cm, ir, p)), read(grp["nu_D_f2"])) < rtol
+                @test _maxrel(f1((ir, p) -> slowing_down_frequency(cm, ir, p)), read(grp["nu_s_f1"])) <
+                      rtol
+                @test _maxrel(f2((ir, p) -> slowing_down_frequency(cm, ir, p)), read(grp["nu_s_f2"])) <
+                      rtol
+                @test _maxrel(f1((ir, p) -> deflection_frequency(cm, ir, p)), read(grp["nu_D_f1"])) <
+                      rtol
+                @test _maxrel(f2((ir, p) -> deflection_frequency(cm, ir, p)), read(grp["nu_D_f2"])) <
+                      rtol
                 @test _maxrel(f1((ir, p) -> parallel_diffusion_frequency(cm, ir, p)),
-                              read(grp["nu_par_f1"])) < rtol
+                    read(grp["nu_par_f1"])) < rtol
 
                 g = cylindrical_grid(mom, RadialGrid(uniform_r_faces(nr_, 0.5)))
                 op = add_synchrotron!(AdvectionDiffusion(g), plasma)
@@ -83,11 +91,11 @@ end
             end
         end
 
-        @testset "intended ion size table differs only for the misaligned entries" begin
-            @test ion_size(18, 16; table=:dream) == ion_size(18, 16; table=:hesslow)
-            @test ion_size(18, 17; table=:dream) != ion_size(18, 17; table=:hesslow)
-            @test ion_size(74, 3; table=:dream) ≈ ion_size(54, 3; table=:hesslow)
-            @test ion_size(74, 30; table=:dream) == ion_size(74, 30; table=:hesslow)
+        @testset "DREAM's ion size table differs from Hesslow's only at its misaligned entries" begin
+            @test ion_size(18, 16; table = :dream) == ion_size(18, 16; table = :hesslow)
+            @test ion_size(18, 17; table = :dream) != ion_size(18, 17; table = :hesslow)
+            @test ion_size(74, 3; table = :dream) ≈ ion_size(54, 3; table = :hesslow)
+            @test ion_size(74, 30; table = :dream) == ion_size(74, 30; table = :hesslow)
         end
     end
 end

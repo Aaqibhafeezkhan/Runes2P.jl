@@ -4,20 +4,22 @@
 # solver that assembles and factorizes in every iteration, bit for bit. The key of the
 # reuse is the end time and the length of the step, which identify the start state.
 
-function reuse_case(scheme; radii=1)
+function reuse_case(scheme; radii = 1)
     mom = MomentumGrid(biuniform_p_faces(24, 10, 0.0, 0.2, 1.5), uniform_xi_faces(6))
     g = cylindrical_grid(mom, RadialGrid(uniform_r_faces(radii, 1.0)))
     temperature(t) = 2000.0 * (100.0 / 2000.0)^(t / 1e-3)
-    plasma_at(t) = PlasmaState(cold_electron_temperature=fill(temperature(t), radii),
-                               cold_electron_density=fill(1e20, radii),
-                               ions=[IonSpecies("D", 1, 1, fill(1e20, radii))],
-                               electric_field=fill(0.5, radii), magnetic_field=fill(5.0, radii))
-    f0 = [exp(-p^2 / (2 * 2000.0 / Constants.ELECTRON_REST_ENERGY)) for p in mom.p_centers,
-          _ in 1:pitch_cell_count(mom), _ in 1:radii]
-    layout = UnknownLayout(g.radial_grid, [KineticUnknown(:f, g; scale=maximum(f0))])
-    operator = AdvectionDiffusion(g; scheme, p_upper_boundary=:f_zero)
-    system = EquationSystem(layout, [Equation(:f, TimeDerivative(),
-                                              PrescribedFokkerPlanckTerm(:f, operator, plasma_at))])
+    plasma_at(t) = PlasmaState(cold_electron_temperature = fill(temperature(t), radii),
+        cold_electron_density = fill(1e20, radii),
+        ions = [IonSpecies("D", 1, 1, fill(1e20, radii))],
+        electric_field = fill(0.5, radii), magnetic_field = fill(5.0, radii))
+    f0 = [exp(-p^2 / (2 * 2000.0 / Constants.ELECTRON_REST_ENERGY))
+          for p in mom.p_centers,
+    _ in 1:pitch_cell_count(mom), _ in 1:radii]
+    layout = UnknownLayout(g.radial_grid, [KineticUnknown(:f, g; scale = maximum(f0))])
+    operator = AdvectionDiffusion(g; scheme, p_upper_boundary = :f_zero)
+    system = EquationSystem(layout,
+        [Equation(:f, TimeDerivative(),
+            PrescribedFokkerPlanckTerm(:f, operator, plasma_at))])
     return system, vec(f0)
 end
 
@@ -27,7 +29,7 @@ end
         system, u0 = reuse_case(:exponential_fitting)
         @test system.linear
         kept = NewtonWorkspace(system, NewtonSolver())
-        fresh = NewtonWorkspace(system, NewtonSolver(reuse_linear_matrix=false))
+        fresh = NewtonWorkspace(system, NewtonSolver(reuse_linear_matrix = false))
         @test kept.linear && fresh.linear
         u_kept, u_fresh = copy(u0), copy(u0)
         result_kept = newton_solve!(u_kept, u0, kept, dt, dt)
@@ -91,11 +93,12 @@ end
     end
 
     @testset "a run with coefficients that change in time" begin
-        system, u0 = reuse_case(:exponential_fitting; radii=2)
+        system, u0 = reuse_case(:exponential_fitting; radii = 2)
         times = collect(0:dt:20dt)
-        for linear_solver in (SparseLU(), GMRES(), GMRES(preconditioner_refresh=:every_step))
-            kept = integrate(system, u0, times; solver=NewtonSolver(; linear_solver))
-            fresh = integrate(system, u0, times; solver=NewtonSolver(; linear_solver, reuse_linear_matrix=false))
+        for linear_solver in (SparseLU(), GMRES(), GMRES(preconditioner_refresh = :every_step))
+            kept = integrate(system, u0, times; solver = NewtonSolver(; linear_solver))
+            fresh = integrate(system, u0, times;
+                solver = NewtonSolver(; linear_solver, reuse_linear_matrix = false))
             @test all(kept.statistics.accepted)
             @test kept.statistics.newton_iterations == fresh.statistics.newton_iterations
             @test kept.statistics.krylov_iterations == fresh.statistics.krylov_iterations

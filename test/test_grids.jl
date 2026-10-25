@@ -16,12 +16,12 @@
         n, n1, thsep = 15, 10, 0.5
         faces = biuniform_theta_xi_faces(n, n1, thsep)
         @test length(faces) == n + 1
-        @test issorted(faces; lt=<=)
+        @test issorted(faces; lt = <=)
         @test faces[1] == -1.0
         @test faces[end] == 1.0
         # the separation face θ = thsep is near ξ = 1 (θ near 0), so in increasing-ξ order
         # it is the (n - n1 + 1)-th face, not the (n1 + 1)-th
-        @test faces[n-n1+1] ≈ cos(thsep) rtol = 1e-14
+        @test faces[n - n1 + 1] ≈ cos(thsep) rtol = 1e-14
         @test count(<=(cos(thsep)), faces) == n - n1 + 1  # the coarse (upper-θ) region
 
         # literal 1-indexed port of DREAM's XiBiUniformThetaGridGenerator::Rebuild loop
@@ -32,13 +32,13 @@
         th = zeros(n + 1)
         th[1] = 0.0
         for k in 2:n
-            th[k] = th[k-1] + dth[k-1]
+            th[k] = th[k - 1] + dth[k - 1]
         end
         xi = zeros(n + 1)
-        xi[n+1] = cos(0.0)
+        xi[n + 1] = cos(0.0)
         xi[1] = cos(pi)
         for k in 2:n
-            xi[n-k+2] = cos(th[k])
+            xi[n - k + 2] = cos(th[k])
         end
         @test faces ≈ xi rtol = 1e-14
 
@@ -52,11 +52,12 @@
         rad = RadialGrid(uniform_r_faces(3, 1.0))
         g = cylindrical_grid(mom, rad)
         θ = 0.01  # T/(m c²)
-        f = [exp(-mom.p_centers[i]^2 / (2θ)) for i in 1:momentum_cell_count(g), _ in 1:pitch_cell_count(g),
-                                                _ in 1:radial_cell_count(g)]
+        f = [exp(-mom.p_centers[i]^2 / (2θ))
+             for i in 1:momentum_cell_count(g), _ in 1:pitch_cell_count(g),
+        _ in 1:radial_cell_count(g)]
         # ∫ 2π p² exp(-p²/2θ) dp dξ over ξ ∈ [-1,1] = 2 · 2π · √(π/2) θ^(3/2)
         exact = 4π * sqrt(π / 2) * θ^1.5
-        @test all(isapprox.(density(g, f), exact; rtol=1e-4))
+        @test all(isapprox.(density(g, f), exact; rtol = 1e-4))
         @test total_particles(g, f) ≈ exact * sum(rad.spatial_jacobian .* rad.r_widths)
     end
 end

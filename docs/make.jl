@@ -2,7 +2,8 @@
 #   julia --project=docs docs/make.jl
 #   julia --project=docs -e 'using Revise, LiveServer; servedocs(include_dirs=["src", "ext"], skip_dirs=[joinpath("docs", "src", "api")], launch_browser=true)'
 # The build is strict: every exported name needs a docstring, and a broken `@ref` link
-# fails it.
+# fails it. In CI (CI=true) the URLs are pretty, and deploydocs publishes the build when a
+# GITHUB_TOKEN is set; locally it only reports that it does not deploy.
 using Documenter
 using Runes2P
 # the extensions load with their trigger packages, and their docstrings are part of the API
@@ -15,7 +16,8 @@ any(isnothing, EXTENSIONS) && error("an extension of Runes2P did not load")
 # checkdocs = :exports only checks that the existing docstrings appear on a page: an
 # exported name without any docstring passes it unnoticed
 let undocumented = Docs.undocumented_names(Runes2P)
-    isempty(undocumented) || error("exported names without a docstring: ", join(sort(string.(undocumented)), ", "))
+    isempty(undocumented) ||
+        error("exported names without a docstring: ", join(sort(string.(undocumented)), ", "))
 end
 
 const SOURCE = joinpath(dirname(@__DIR__), "src")
@@ -25,6 +27,7 @@ const API = joinpath(@__DIR__, "src", "api")
 # Categories of the API reference: a landing page each, with subpages that group source
 # files (paths relative to src/). A source file of a category directory that no subpage
 # lists lands on the subpage "Other" of its category, so a new file is never left out.
+#! format: off
 const CATEGORIES = [
     (slug = "grids", title = "Grids", directory = "grids",
      summary = "Momentum, pitch and radial grids, the kinetic grid that combines them, radial profiles and momentum regions.",
@@ -36,7 +39,7 @@ const CATEGORIES = [
     (slug = "physics", title = "Physics", directory = "physics",
      summary = "The plasma state, the Coulomb logarithm, collision frequencies, conductivity, runaway rates and the physical constants.",
      subpages = [
-         ("plasma", "Plasma state and atomic data", ["physics/plasma.jl", "physics/plasma_source.jl", "physics/atomic_data.jl", "physics/adas.jl", "physics/ionization_energies.jl", "physics/ionization_cross_sections.jl",
+         ("plasma", "Plasma state and atomic data", ["physics/plasma.jl", "physics/plasma_source.jl", "physics/data_files.jl", "physics/atomic_data.jl", "physics/adas.jl", "physics/ionization_energies.jl", "physics/ionization_cross_sections.jl",
                                                  "physics/ionization_bethe_fits.jl", "physics/ionization_chianti.jl", "physics/ionization_chianti_fits.jl"]),
          ("collisions", "Collisions", ["physics/coulomb_logarithm.jl", "physics/collision_frequencies.jl"]),
          ("conductivity", "Conductivity and runaway rates", ["physics/conductivity.jl", "physics/runaway_rates.jl",
@@ -79,22 +82,26 @@ const CATEGORIES = [
          ("time_stepping", "Time stepping", ["solvers/time_stepping.jl", "solvers/legs.jl"]),
          ("interval_updates", "Updates between intervals", ["solvers/interval_updates.jl", "solvers/transport_update.jl"]),
          ("checkpoints", "Checkpoints and progress log", ["solvers/checkpoint.jl", "solvers/progress_log.jl"]),
-         ("settings", "Run settings", ["settings.jl", "deprecations.jl"]),
+         ("settings", "Run settings", ["settings.jl"]),
      ]),
 ]
+#! format: on
 
-source_files(directory) = sort([relpath(joinpath(root, file), SOURCE)
-                                for (root, _, files) in walkdir(joinpath(SOURCE, directory))
-                                for file in files if endswith(file, ".jl")])
+function source_files(directory)
+    sort([relpath(joinpath(root, file), SOURCE)
+          for (root, _, files) in walkdir(joinpath(SOURCE, directory))
+          for file in files if endswith(file, ".jl")])
+end
 
 # Number of docstrings of Runes2P per source file, exported and internal, so that a page
 # leaves out empty sections. Documenter's `Public` makes the same test of the binding.
 # Methods of functions of other modules (`Base.size(::KineticGrid)`) are documented in Runes2P
 # but not listed by `@autodocs`; they get a `@docs` block of their own, by signature.
 function docstring_counts()
-    counts = Dict{String,Vector{Int}}()
-    foreign = Dict{String,Vector{String}}()
+    counts = Dict{String, Vector{Int}}()
+    foreign = Dict{String, Vector{String}}()
     for (binding, multidoc) in Docs.meta(Runes2P), docstring in values(multidoc.docs)
+
         path = get(docstring.data, :path, nothing)
         path === nothing && continue
         file = relpath(realpath(path), realpath(SOURCE))
@@ -120,14 +127,16 @@ autodocs_block(file, public) = """
 
     """
 
-# a file without docstrings (a data table) gets no heading
+# a file without docstrings gets no heading
 function file_section(file)
     exported, internal = get(COUNTS, file, [0, 0])
     methods = get(FOREIGN, file, String[])
     exported + internal + length(methods) == 0 && return ""
     text = "## `src/$(file)`\n\n"
     exported > 0 && (text *= "### Exported\n\n" * autodocs_block(file, true))
-    isempty(methods) || (text *= "### Methods of other modules\n\n```@docs\n" * join(methods, "\n") * "\n```\n\n")
+    isempty(methods) ||
+        (text *= "### Methods of other modules\n\n```@docs\n" * join(methods, "\n") *
+                 "\n```\n\n")
     internal > 0 && (text *= "### Internal\n\n" * autodocs_block(file, false))
     return text
 end
@@ -162,11 +171,16 @@ function write_category(category)
         isfile(joinpath(SOURCE, file)) || error("$(file) in the API table does not exist")
     end
     unlisted = setdiff(source_files(category.directory), listed)
-    subpages = isempty(unlisted) ? category.subpages : [category.subpages; ("other", "Other", unlisted)]
-    pages = [write_subpage(category, slug, title, files) for (slug, title, files) in subpages]
+    subpages = isempty(unlisted) ? category.subpages :
+               [category.subpages; ("other", "Other", unlisted)]
+    pages = [write_subpage(category, slug, title, files)
+             for (slug, title, files) in subpages]
 
-    links = join(("- [$(title)]($(category.slug)/$(slug).md): " *
-                  join(("`src/$(file)`" for file in files), ", ") for (slug, title, files) in subpages), "\n")
+    links = join(
+        ("- [$(title)]($(category.slug)/$(slug).md): " *
+         join(("`src/$(file)`" for file in files), ", ")
+        for (slug, title, files) in subpages),
+        "\n")
     write_page(joinpath(API, "$(category.slug).md"), "# $(category.title)\n\n$(category.summary)\n\n$(links)\n")
     return category.title => ["Overview" => "api/$(category.slug).md", pages...]
 end
@@ -174,38 +188,40 @@ end
 rm(API; recursive = true, force = true)
 const API_PAGES = [write_category(category) for category in CATEGORIES]
 
-# The feature parity tracker against DREAM is kept outside docs/src and is copied to a
-# gitignored page at every build. Its links into the repository become links to the file
-# on GitHub, since the strict build refuses a local link outside docs/src.
-const PARITY_SOURCE = joinpath(dirname(@__DIR__), "research", "dream-parity.md")
-const PARITY_PAGE = joinpath(@__DIR__, "src", "dream-parity.md")
-const REPOSITORY = "https://github.com/osrep/Runes2P.jl/blob/main/"
-
-function repository_link(link)
-    target = match(r"\]\(([^)\s]+)\)", link)[1]
-    return "](" * REPOSITORY * replace(normpath(joinpath("research", target)), '\\' => '/') * ")"
-end
-
-let text = read(PARITY_SOURCE, String)
-    text = replace(text, r"\]\((?!https?://|#|mailto:)[^)\s]+\)" => repository_link)
-    note = "\n\nThis page is generated from `research/dream-parity.md` of the repository at every build of the docs.\n"
-    title_end = findfirst('\n', text)
-    write_page(PARITY_PAGE, text[1:title_end - 1] * note * text[title_end:end])
-end
-
 # every source file with docstrings is on a page (the module docstring of Runes2P.jl is on
 # the home page)
-let listed = reduce(vcat, [source_files(category.directory) for category in CATEGORIES]; init = ["settings.jl", "deprecations.jl", "Runes2P.jl"])
+let listed = reduce(vcat, [source_files(category.directory) for category in CATEGORIES];
+        init = ["settings.jl", "Runes2P.jl"])
     files = union(keys(COUNTS), keys(FOREIGN))
     missing_files = setdiff(filter(file -> !startswith(file, ".."), collect(files)), listed)
-    isempty(missing_files) || error("source files with docstrings on no page: ", join(sort(missing_files), ", "))
+    isempty(missing_files) ||
+        error("source files with docstrings on no page: ", join(sort(missing_files), ", "))
 end
 
+#! format: off
 makedocs(;
     sitename = "Runes2P",
     modules = [Runes2P, Runes2P.Constants, EXTENSIONS...],
-    format = Documenter.HTML(; prettyurls = false, size_threshold = 200 * 2^10),
-    pages = ["Home" => "index.md", "DREAM parity" => "dream-parity.md", "API" => [API_PAGES..., "Extensions" => "extensions.md"]],
+    format = Documenter.HTML(; prettyurls = get(ENV, "CI", nothing) == "true", size_threshold = 200 * 2^10,
+                             assets = ["assets/favicon.ico", "assets/favicon.js"]),
+    pages = ["Home" => "index.md",
+             "Getting started" => "getting-started.md",
+             "Model and numerics" => [
+                                    "Unknowns and the equation system" => "model/unknowns.md",
+                                    "Grids" => "model/grids.md",
+                                    "Collision models" => "model/collisions.md",
+                                    "Atomic data and ionization" => "model/atomic-data.md",
+                                    "Energy and current balance" => "model/energy-current.md",
+                                    "Positivity and flux limiters" => "model/positivity.md",
+                                    "Time stepping and solvers" => "model/time-stepping.md",
+                                    "Output files" => "model/output.md"],
+             "Choices of this package" => "choices.md",
+             "Comparison with DREAM" => "dream-comparison.md",
+             "Reference data" => "reference-data.md",
+             "API" => ["Overview" => "api-overview.md", API_PAGES..., "Extensions" => "extensions.md"]],
     checkdocs = :exports,
     warnonly = false,
 )
+#! format: on
+
+deploydocs(; repo = "github.com/osrep/Runes2P.jl", devbranch = "dev", push_preview = false)

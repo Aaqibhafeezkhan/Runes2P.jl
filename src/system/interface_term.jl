@@ -1,7 +1,7 @@
 # Flux handover between two kinetic unknowns whose momentum grids meet at a momentum face:
-# the hot-tail grid below, the runaway grid above. The particle flux
-# through the upper momentum boundary of the lower grid enters the upper grid at its lower
-# boundary, carried between the two pitch grids by their overlap.
+# the hot-tail grid below, the runaway grid above. The particle flux through the upper
+# momentum boundary of the lower grid enters the upper grid at its lower boundary, carried
+# between the two pitch grids by their overlap.
 
 const INTERFACE_SCHEMES = (:upwind, :central, :exponential_fitting)
 
@@ -56,7 +56,7 @@ DREAM either, and zero for the collision operator).
 Both conserve particles to round-off. Linear in the state, stored sparse.
 [`interface_flux`](@ref) gives the flux through the face as a rate per volume.
 """
-struct MomentumInterfaceTerm{T,F} <: EquationTerm
+struct MomentumInterfaceTerm{T, F} <: EquationTerm
     lower::Symbol
     upper::Symbol
     lower_term::F                          # the term or operator that holds the coefficients
@@ -84,15 +84,18 @@ _coefficient_sources(term::MomentumInterfaceTerm) = (term.lower_term,)
 
 # the operator with its coefficients at the state u and the time t
 _operator_at(source, u, layout, t) = _operator_of(source)
-_operator_at(term::FokkerPlanckTerm, u, layout, t) = refresh_coefficients!(term, u, layout, t)
+function _operator_at(term::FokkerPlanckTerm, u, layout, t)
+    refresh_coefficients!(term, u, layout, t)
+end
 
 function MomentumInterfaceTerm(lower::Symbol, upper::Symbol, lower_term, upper_operator;
-                               pitch_mapping::Symbol=:overlap, scheme::Union{Nothing,Symbol}=nothing)
-    lower_term isa Union{AdvectionDiffusion,FokkerPlanckTerm} ||
+        pitch_mapping::Symbol = :overlap, scheme::Union{Nothing, Symbol} = nothing)
+    lower_term isa Union{AdvectionDiffusion, FokkerPlanckTerm} ||
         throw(ArgumentError("lower_term must be a Fokker-Planck term or an AdvectionDiffusion operator"))
-    upper_operator isa Union{AdvectionDiffusion,FokkerPlanckTerm} ||
+    upper_operator isa Union{AdvectionDiffusion, FokkerPlanckTerm} ||
         throw(ArgumentError("upper_operator must be an AdvectionDiffusion operator or a Fokker-Planck term"))
-    lower != upper || throw(ArgumentError("the interface lies between two different unknowns"))
+    lower != upper ||
+        throw(ArgumentError("the interface lies between two different unknowns"))
     pitch_mapping in (:overlap, :dream) ||
         throw(ArgumentError("pitch_mapping must be :overlap or :dream, not $pitch_mapping"))
     lower_operator, upper_op = _operator_of(lower_term), _operator_of(upper_operator)
@@ -103,7 +106,8 @@ function MomentumInterfaceTerm(lower::Symbol, upper::Symbol, lower_term, upper_o
         throw(ArgumentError("the upper operator needs p_lower_boundary = :interface, it has " *
                             ":$(upper_op.p_lower_boundary)"))
     if scheme === nothing
-        scheme = lower_operator.p_scheme in INTERFACE_SCHEMES ? lower_operator.p_scheme : :upwind
+        scheme = lower_operator.p_scheme in INTERFACE_SCHEMES ? lower_operator.p_scheme :
+                 :upwind
     end
     scheme in INTERFACE_SCHEMES ||
         throw(ArgumentError("the scheme of the interface flux must be one of $(join(INTERFACE_SCHEMES, ", ")), " *
@@ -120,18 +124,20 @@ function MomentumInterfaceTerm(lower::Symbol, upper::Symbol, lower_term, upper_o
             throw(ArgumentError("at radius $ir the lower grid ends at p = $p_interface and the upper grid " *
                                 "starts at p = $p_lower_face: the two must be the same face"))
     end
-    built = Dict{Tuple{UInt,UInt},PitchOverlap{T}}()
+    built = Dict{Tuple{UInt, UInt}, PitchOverlap{T}}()
     overlaps = map(1:nr) do ir
         left, right = momentum_grid(lower_grid, ir), momentum_grid(upper_grid, ir)
         get!(() -> PitchOverlap(left, right), built, (objectid(left), objectid(right)))
     end
     cells, weights = Vector{Vector{Int}}(undef, nr), Vector{Vector{T}}(undef, nr)
     for ir in 1:nr
-        cells[ir], weights[ir] = _dream_pitch_interpolation(momentum_grid(lower_grid, ir).xi_centers,
-                                                            momentum_grid(upper_grid, ir).xi_centers)
+        cells[ir], weights[ir] = _dream_pitch_interpolation(
+            momentum_grid(lower_grid, ir).xi_centers,
+            momentum_grid(upper_grid, ir).xi_centers)
     end
-    return MomentumInterfaceTerm{T,typeof(lower_term)}(lower, upper, lower_term, lower_grid, upper_grid,
-                                                       pitch_mapping, scheme, overlaps, cells, weights)
+    return MomentumInterfaceTerm{T, typeof(lower_term)}(
+        lower, upper, lower_term, lower_grid, upper_grid,
+        pitch_mapping, scheme, overlaps, cells, weights)
 end
 
 # DREAM's interpolation of the upper distribution to the pitch centres of the lower grid
@@ -153,7 +159,7 @@ function _dream_pitch_interpolation(lower_centers::Vector{T}, upper_centers::Vec
         elseif upper_centers[cell] < xi
             zero(T)
         else
-            (xi - upper_centers[cell-1]) / (upper_centers[cell] - upper_centers[cell-1])
+            (xi - upper_centers[cell - 1]) / (upper_centers[cell] - upper_centers[cell - 1])
         end
     end
     return cells, weights
@@ -167,10 +173,10 @@ is_linear(term::MomentumInterfaceTerm) = _electric_field_of(term) === nothing
 
 function validate(term::MomentumInterfaceTerm, layout, row)
     # the flux follows the plasma unknowns of the Fokker-Planck term, whose columns this
-    # term does not have yet
+    # term does not have
     has_plasma_columns(term.lower_term) &&
         throw(ArgumentError("MomentumInterfaceTerm reads the coefficients of a Fokker-Planck term whose plasma follows unknowns, " *
-                            "and has no Jacobian columns for them yet (issue #143): use lagged = :all"))
+                            "and has no Jacobian columns for them: use lagged = :all"))
     lower, upper = unknown_id(layout, term.lower), unknown_id(layout, term.upper)
     layout.kinds[lower] === :kinetic && layout.kinds[upper] === :kinetic ||
         throw(ArgumentError("MomentumInterfaceTerm lies between two kinetic unknowns"))
@@ -191,11 +197,12 @@ Base.@propagate_inbounds function _dream_upper_value(term::MomentumInterfaceTerm
 end
 
 # Γᵖ through the face between lower pitch cell j and upper pitch cell J (not multiplied by 𝒱')
-Base.@propagate_inbounds function _interface_gamma(term::MomentumInterfaceTerm, op, f_lower, f_upper, j, J, ir,
-                                                   distance, weight_left, field=nothing)
+Base.@propagate_inbounds function _interface_gamma(
+        term::MomentumInterfaceTerm, op, f_lower, f_upper, j, J, ir,
+        distance, weight_left, field = nothing)
     np = size(f_lower, 1)
     A = _advection_p(op, field, np + 1, j, ir)
-    D = op.diffusion_p_p[np+1, j, ir]
+    D = op.diffusion_p_p[np + 1, j, ir]
     f_left = f_lower[np, j]
     if term.pitch_mapping === :dream
         f_right = _dream_upper_value(term, f_upper, j, ir)
@@ -205,34 +212,41 @@ Base.@propagate_inbounds function _interface_gamma(term::MomentumInterfaceTerm, 
 end
 
 # 𝒱'Γᵖ Δξ through the part of the face in lower pitch cell j, divided by Δξ_j
-Base.@propagate_inbounds function _lower_cell_flux(term::MomentumInterfaceTerm, op, f_lower, f_upper, j, ir,
-                                                   distance, weight_left, field=nothing)
+Base.@propagate_inbounds function _lower_cell_flux(
+        term::MomentumInterfaceTerm, op, f_lower, f_upper, j, ir,
+        distance, weight_left, field = nothing)
     np = size(f_lower, 1)
-    V = op.jacobian_p_faces[np+1, j, ir]
+    V = op.jacobian_p_faces[np + 1, j, ir]
     overlap = term.overlaps[ir]
     if term.pitch_mapping === :dream
-        return V * _interface_gamma(term, op, f_lower, f_upper, j, 0, ir, distance, weight_left, field)
+        return V * _interface_gamma(
+            term, op, f_lower, f_upper, j, 0, ir, distance, weight_left, field)
     end
     flux = zero(promote_type(eltype(f_lower), eltype(f_upper)))
     for s in overlap.left_ranges[j]
+        #! format: off
         flux += overlap.left_fractions[s] *
                 (V * _interface_gamma(term, op, f_lower, f_upper, j, overlap.right_cells[s], ir, distance,
                                       weight_left, field))
+        #! format: on
     end
     return flux
 end
 
 # the same divided by Δξ_J of upper pitch cell J
-Base.@propagate_inbounds function _upper_cell_flux(term::MomentumInterfaceTerm, op, f_lower, f_upper, J, ir,
-                                                   distance, weight_left, field=nothing)
+Base.@propagate_inbounds function _upper_cell_flux(
+        term::MomentumInterfaceTerm, op, f_lower, f_upper, J, ir,
+        distance, weight_left, field = nothing)
     np = size(f_lower, 1)
     overlap = term.overlaps[ir]
     flux = zero(promote_type(eltype(f_lower), eltype(f_upper)))
     for s in overlap.right_ranges[J]
         j = overlap.left_cells[s]
-        V = op.jacobian_p_faces[np+1, j, ir]
+        V = op.jacobian_p_faces[np + 1, j, ir]
+        #! format: off
         flux += overlap.right_fractions[s] *
                 (V * _interface_gamma(term, op, f_lower, f_upper, j, J, ir, distance, weight_left, field))
+        #! format: on
     end
     return flux
 end
@@ -249,7 +263,8 @@ function rhs!(out, term::MomentumInterfaceTerm, u, layout, row, t)
     lower, upper = unknown_id(layout, term.lower), unknown_id(layout, term.upper)
     field = _field_values(_electric_field_of(term), u, layout)
     for ir in 1:radial_cell_count(layout)
-        f_lower, f_upper = kinetic_view(u, layout, lower, ir), kinetic_view(u, layout, upper, ir)
+        f_lower, f_upper = kinetic_view(u, layout, lower, ir),
+        kinetic_view(u, layout, upper, ir)
         target = kinetic_view(out, layout, row, ir)
         distance, weight_left = _interface_distance(term, ir)
         if row == lower
@@ -258,7 +273,8 @@ function rhs!(out, term::MomentumInterfaceTerm, u, layout, row, t)
             np = momentum_cell_count(m)
             @inbounds for j in 1:pitch_cell_count(m)
                 jacobian[np, j] == 0 && continue
-                flux = _lower_cell_flux(term, op, f_lower, f_upper, j, ir, distance, weight_left, field)
+                flux = _lower_cell_flux(
+                    term, op, f_lower, f_upper, j, ir, distance, weight_left, field)
                 target[np, j] -= flux / (jacobian[np, j] * m.p_widths[np])
             end
         else
@@ -266,7 +282,8 @@ function rhs!(out, term::MomentumInterfaceTerm, u, layout, row, t)
             jacobian = phase_space_jacobian(term.upper_grid, ir)
             @inbounds for J in 1:pitch_cell_count(m)
                 jacobian[1, J] == 0 && continue
-                flux = _upper_cell_flux(term, op, f_lower, f_upper, J, ir, distance, weight_left, field)
+                flux = _upper_cell_flux(
+                    term, op, f_lower, f_upper, J, ir, distance, weight_left, field)
                 target[1, J] += flux / (jacobian[1, J] * m.p_widths[1])
             end
         end
@@ -294,7 +311,8 @@ function sparsity!(entries, term::MomentumInterfaceTerm, layout, row)
         if field !== nothing
             # the field of the radius acts on the cells at the face
             column = first(unknown_range(layout, unknown_id(layout, field), ir))
-            cells = row == lower ? (_kinetic_index(layout, lower, ir, np, j) for j in 1:layout.shapes[lower, ir][2]) :
+            cells = row == lower ?
+                    (_kinetic_index(layout, lower, ir, np, j) for j in 1:layout.shapes[lower, ir][2]) :
                     (_kinetic_index(layout, upper, ir, 1, J) for J in 1:layout.shapes[upper, ir][2])
             append!(entries, ((r, column) for r in cells))
         end
@@ -335,17 +353,20 @@ upper grid gains particles from the lower one, in the normalization of
 [`density`](@ref) and [`momentum_flux`](@ref). With the interface above the critical
 momentum this is the runaway rate.
 """
-function interface_flux(term::MomentumInterfaceTerm, u::AbstractVector, layout::UnknownLayout, ir::Integer,
-                        t::Real=0.0)
+function interface_flux(
+        term::MomentumInterfaceTerm, u::AbstractVector, layout::UnknownLayout, ir::Integer,
+        t::Real = 0.0)
     op = _operator_at(term.lower_term, u, layout, t)
     lower, upper = unknown_id(layout, term.lower), unknown_id(layout, term.upper)
-    f_lower, f_upper = kinetic_view(u, layout, lower, ir), kinetic_view(u, layout, upper, ir)
+    f_lower, f_upper = kinetic_view(u, layout, lower, ir),
+    kinetic_view(u, layout, upper, ir)
     field = _field_values(_electric_field_of(term), u, layout)
     distance, weight_left = _interface_distance(term, ir)
     m = momentum_grid(term.lower_grid, ir)
     total = zero(eltype(u))
     for j in 1:pitch_cell_count(m)
-        total += m.xi_widths[j] * _lower_cell_flux(term, op, f_lower, f_upper, j, ir, distance, weight_left, field)
+        total += m.xi_widths[j] * _lower_cell_flux(
+            term, op, f_lower, f_upper, j, ir, distance, weight_left, field)
     end
     return total / term.lower_grid.radial_grid.spatial_jacobian[ir]
 end

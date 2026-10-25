@@ -3,15 +3,16 @@
 using HDF5
 using LinearAlgebra: I
 
-const DREAM_KINETIC_DATA = joinpath(@__DIR__, "data", "dream_kinetic_operator.h5")
+const DREAM_KINETIC_DATA = reference_file("dream_kinetic_operator.h5")
 
 @testset "kinetic operator step vs DREAM" begin
     h5open(DREAM_KINETIC_DATA) do h5
         mom = MomentumGrid(read(h5["grid/p1_f"]), read(h5["grid/p2_f"]))
         g = cylindrical_grid(mom, RadialGrid(read(h5["grid/r_f"])))
         # DREAM's cylindrical Jacobian differs from Runes2P's by the constant 4π²
-        ratio = read(h5["grid/Vprime"]) ./ stack(phase_space_jacobian(g, ir) for ir in 1:radial_cell_count(g))
-        @test all(r -> isapprox(r, 4π^2; rtol=1e-14), ratio)
+        ratio = read(h5["grid/Vprime"]) ./
+                stack(phase_space_jacobian(g, ir) for ir in 1:radial_cell_count(g))
+        @test all(r -> isapprox(r, 4π^2; rtol = 1e-14), ratio)
 
         names = read(h5["ions/name"])
         Zs = read(h5["ions/Z"])
@@ -20,9 +21,14 @@ const DREAM_KINETIC_DATA = joinpath(@__DIR__, "data", "dream_kinetic_operator.h5
         ions = [IonSpecies(names[k], Zs[k], Z0s[k], n[:, k]) for k in eachindex(Zs)]
         dt = read(h5["dt"])
         variants = (
-            "full_partial_thermal" => (CollisionSettings(ion_size_table=:dream, screening_window=:dream, bremsstrahlung=:neglect), 1e-9),
-            "superthermal_complete_energy" => (CollisionSettings(mode=:superthermal,
-                screening=:complete, coulomb_logarithm=:energy_dependent, bremsstrahlung=:neglect), 1e-12),
+            "full_partial_thermal" => (
+                CollisionSettings(ion_size_table = :dream, screening_window = :dream,
+                    bremsstrahlung = :neglect),
+                1e-9),
+            "superthermal_complete_energy" => (
+                CollisionSettings(mode = :superthermal,
+                    screening = :complete, coulomb_logarithm = :energy_dependent, bremsstrahlung = :neglect),
+                1e-12)
         )
         for (variant, (settings, rtol)) in variants
             @testset "$variant" begin
@@ -31,18 +37,20 @@ const DREAM_KINETIC_DATA = joinpath(@__DIR__, "data", "dream_kinetic_operator.h5
                 f0 = f[:, :, :, 1]
                 f1 = f[:, :, :, end]
                 # linearly implicit: coefficients from the previous time level
-                plasma = PlasmaState(cold_electron_temperature=read(grp["T_cold"])[:, 1],
-                                     cold_electron_density=read(grp["n_cold"])[:, 1], ions=ions,
-                                     electric_field=read(h5["E"]),
-                                     magnetic_field=fill(read(h5["B"]), radial_cell_count(g)))
-                op = fokker_planck_operator(g, plasma, settings; synchrotron=true, scheme=:central)  # DREAM's default
+                plasma = PlasmaState(cold_electron_temperature = read(grp["T_cold"])[:, 1],
+                    cold_electron_density = read(grp["n_cold"])[:, 1], ions = ions,
+                    electric_field = read(h5["E"]),
+                    magnetic_field = fill(read(h5["B"]), radial_cell_count(g)))
+                op = fokker_planck_operator(
+                    g, plasma, settings; synchrotron = true, scheme = :central)  # DREAM's default
                 M = operator_matrix(op)
                 f1_runes2p = reshape((I - dt * M) \ vec(f0), size(g))
                 for ir in 1:radial_cell_count(g)
                     a = f1[:, :, ir]
                     b = f1_runes2p[:, :, ir]
                     cut = 1e-12 * maximum(abs, a)
-                    rel = maximum(abs(a[k] - b[k]) / abs(a[k]) for k in eachindex(a) if abs(a[k]) > cut)
+                    rel = maximum(abs(a[k] - b[k]) / abs(a[k])
+                    for k in eachindex(a) if abs(a[k]) > cut)
                     @test rel < rtol
                 end
                 # particles leave only through p = 0, equally in both codes
@@ -51,18 +59,22 @@ const DREAM_KINETIC_DATA = joinpath(@__DIR__, "data", "dream_kinetic_operator.h5
                 # (CurrentDensityFromDistributionFunction: e v ξ f Δp Δξ 2π p²)
                 j_dream = read(grp["j_hot"])[:, end]
                 if variant == "superthermal_complete_energy"
-                    @test current_density(g, f1; pitch_rule=:cell_center) ≈ j_dream rtol = 1e-12
-                    @test !isapprox(current_density(g, f1), j_dream; rtol=1e-3)
+                    @test current_density(g, f1; pitch_rule = :cell_center) ≈ j_dream rtol = 1e-12
+                    @test !isapprox(current_density(g, f1), j_dream; rtol = 1e-3)
                 else
                     # the full variant: the current of the hot region, above 7 thermal momenta
                     # of the cold temperature with DREAM's envelope
                     region = MomentumRegion(ThermalMomentum(read(grp["T_cold"])[:, end]))
                     @test all(!iszero, j_dream)
-                    @test current_density(g, f1; pitch_rule=:cell_center, region) ≈ j_dream rtol = 1e-12
-                    whole = current_density(g, f1; pitch_rule=:cell_center)
-                    @test !isapprox(whole, j_dream; rtol=1e-3)
-                    fraction = MomentumRegion(region.limit; envelope=:cell_fraction)
-                    @test !isapprox(current_density(g, f1; pitch_rule=:cell_center, region=fraction), j_dream; rtol=1e-6)
+                    @test current_density(g, f1; pitch_rule = :cell_center, region) ≈
+                          j_dream rtol = 1e-12
+                    whole = current_density(g, f1; pitch_rule = :cell_center)
+                    @test !isapprox(whole, j_dream; rtol = 1e-3)
+                    fraction = MomentumRegion(region.limit; envelope = :cell_fraction)
+                    @test !isapprox(
+                        current_density(g, f1; pitch_rule = :cell_center, region = fraction),
+                        j_dream;
+                        rtol = 1e-6)
                 end
             end
         end
@@ -70,27 +82,19 @@ const DREAM_KINETIC_DATA = joinpath(@__DIR__, "data", "dream_kinetic_operator.h5
 end
 
 @testset "DREAM reference data provenance" begin
-    checkout = joinpath(@__DIR__, "..", "reference", "dream", "DREAM")
-    for file in (joinpath(@__DIR__, "data", "dream_collisions.h5"), DREAM_KINETIC_DATA,
-                 joinpath(@__DIR__, "data", "dream_time_stepping.h5"),
-                 joinpath(@__DIR__, "data", "dream_cooling_positivity.h5"),
-                 joinpath(@__DIR__, "data", "dream_runaway_rates.h5"),
-                 joinpath(@__DIR__, "data", "dream_dreicer_kinetic.h5"),
-                 joinpath(@__DIR__, "data", "dream_example_runaway.h5"),
-                 joinpath(@__DIR__, "data", "dream_example_avalanche.h5"),
-                 joinpath(@__DIR__, "data", "dream_avalanche_kinetic.h5"),
-                 joinpath(@__DIR__, "data", "dream_flux_limiters.h5"),
-                 joinpath(@__DIR__, "data", "dream_pmax_boundary.h5"),
-                 joinpath(@__DIR__, "data", "dream_two_grids.h5"),
-                 joinpath(@__DIR__, "data", "dream_radial_transport.h5"),
-                 joinpath(@__DIR__, "data", "dream_cold_energy.h5"),
-                 joinpath(@__DIR__, "data", "dream_self_consistent_field.h5"),
-                 joinpath(@__DIR__, "data", "dream_rp_avalanche.h5"),
-                 joinpath(@__DIR__, "data", "dream_disruption_small.h5"))
-        h5open(file) do h5
+    for name in sort!([name
+                       for (name, file) in REFERENCE_FILES
+                       if haskey(DREAM_REFERENCE_SETS, file.set)])
+        set = reference_set(name)
+        dream = DREAM_REFERENCE_SETS[set]
+        checkout = joinpath(@__DIR__, "..", "reference", "dream", set, "DREAM")
+        h5open(reference_file(name)) do h5
             attr = attributes(h5)
-            @test haskey(attr, "dream_commit")
-            @test read(attr["dream_branch"]) == "boltzmann-eqterm"
+            @test read(attr["dream_commit"]) == dream.commit
+            @test read(attr["dream_branch"]) == dream.branch
+            example_commit = REFERENCE_FILES[name].example_commit
+            @test haskey(attr, "example") == (example_commit !== nothing)
+            haskey(attr, "example") && @test read(attr["example_commit"]) == example_commit
             if isdir(joinpath(checkout, ".git"))
                 head = readchomp(`git -C $checkout rev-parse HEAD`)
                 @test read(attr["dream_commit"]) == head

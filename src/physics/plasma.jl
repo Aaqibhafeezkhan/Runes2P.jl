@@ -23,12 +23,14 @@ end
 Ion species with nuclear charge `nuclear_charge` (Z) and charge-state densities
 `charge_state_densities[Z0 + 1, ir]` [m⁻³] for charge states `Z0 = 0, …, Z` at each radius.
 """
-struct IonSpecies{T<:Real}
+struct IonSpecies{T <: Real}
     name::String
     nuclear_charge::Int
     charge_state_densities::Matrix{T}
-    function IonSpecies(name::AbstractString, Z::Integer, densities::AbstractMatrix{T}) where {T<:Real}
-        size(densities, 1) == Z + 1 || throw(ArgumentError("need Z + 1 charge-state rows for $name"))
+    function IonSpecies(name::AbstractString, Z::Integer, densities::AbstractMatrix{T}) where {T <:
+                                                                                               Real}
+        size(densities, 1) == Z + 1 ||
+            throw(ArgumentError("need Z + 1 charge-state rows for $name"))
         return new{T}(String(name), Int(Z), Matrix(densities))
     end
 end
@@ -38,10 +40,11 @@ end
 
 Species in a single charge state `Z0` with density profile `density` (vector over radius).
 """
-function IonSpecies(name::AbstractString, Z::Integer, Z0::Integer, density::AbstractVector{T}) where {T<:Real}
+function IonSpecies(name::AbstractString, Z::Integer, Z0::Integer, density::AbstractVector{T}) where {T <:
+                                                                                                      Real}
     0 <= Z0 <= Z || throw(ArgumentError("charge state must lie in 0:Z"))
     densities = zeros(T, Z + 1, length(density))
-    densities[Z0+1, :] .= density
+    densities[Z0 + 1, :] .= density
     return IonSpecies(name, Z, densities)
 end
 
@@ -62,17 +65,25 @@ struct IonComposition
     function IonComposition(names::AbstractVector{<:AbstractString}, nuclear_charges::AbstractVector{<:Integer})
         length(names) == length(nuclear_charges) ||
             throw(DimensionMismatch("one nuclear charge per species name"))
-        all(>=(1), nuclear_charges) || throw(ArgumentError("a nuclear charge is at least 1"))
-        allunique(names) || throw(ArgumentError("the species names of an ion composition must differ"))
-        offsets = cumsum([0; nuclear_charges[1:end-1] .+ 1])
+        all(>=(1), nuclear_charges) ||
+            throw(ArgumentError("a nuclear charge is at least 1"))
+        allunique(names) ||
+            throw(ArgumentError("the species names of an ion composition must differ"))
+        offsets = cumsum([0; nuclear_charges[1:(end - 1)] .+ 1])
         return new(String.(names), Int.(nuclear_charges), offsets)
     end
 end
-IonComposition(ions::AbstractVector{<:IonSpecies}) = IonComposition([s.name for s in ions], [s.nuclear_charge for s in ions])
-IonComposition(ions::AbstractVector{<:Pair}) = IonComposition([String(first(p)) for p in ions], [last(p) for p in ions])
+function IonComposition(ions::AbstractVector{<:IonSpecies})
+    IonComposition([s.name for s in ions], [s.nuclear_charge for s in ions])
+end
+function IonComposition(ions::AbstractVector{<:Pair})
+    IonComposition([String(first(p)) for p in ions], [last(p) for p in ions])
+end
 
 Base.length(c::IonComposition) = length(c.names)
-Base.:(==)(a::IonComposition, b::IonComposition) = a.names == b.names && a.nuclear_charges == b.nuclear_charges
+function Base.:(==)(a::IonComposition, b::IonComposition)
+    a.names == b.names && a.nuclear_charges == b.nuclear_charges
+end
 
 """
     component_count(composition::IonComposition)
@@ -80,7 +91,9 @@ Base.:(==)(a::IonComposition, b::IonComposition) = a.names == b.names && a.nucle
 The number of charge states of all species, `Σ (Z_s + 1)`: the components of the unknown of
 the ion densities.
 """
-component_count(c::IonComposition) = isempty(c.offsets) ? 0 : last(c.offsets) + last(c.nuclear_charges) + 1
+function component_count(c::IonComposition)
+    isempty(c.offsets) ? 0 : last(c.offsets) + last(c.nuclear_charges) + 1
+end
 
 """
     species_components(composition, s)
@@ -88,8 +101,12 @@ component_count(c::IonComposition) = isempty(c.offsets) ? 0 : last(c.offsets) + 
 The components of the charge states `Z0 = 0, …, Z` of species `s` (an index or a name) in
 the unknown of the ion densities.
 """
-species_components(c::IonComposition, s::Integer) = c.offsets[s]+1:c.offsets[s]+c.nuclear_charges[s]+1
-species_components(c::IonComposition, name::AbstractString) = species_components(c, species_index(c, name))
+function species_components(c::IonComposition, s::Integer)
+    (c.offsets[s] + 1):(c.offsets[s] + c.nuclear_charges[s] + 1)
+end
+function species_components(c::IonComposition, name::AbstractString)
+    species_components(c, species_index(c, name))
+end
 
 """
     species_index(composition, name)
@@ -98,7 +115,8 @@ The index of the species `name` in `composition`.
 """
 function species_index(c::IonComposition, name::AbstractString)
     s = findfirst(==(name), c.names)
-    s === nothing && throw(ArgumentError("no ion species $name in the composition ($(join(c.names, ", ")))"))
+    s === nothing &&
+        throw(ArgumentError("no ion species $name in the composition ($(join(c.names, ", ")))"))
     return s
 end
 
@@ -112,7 +130,7 @@ temperature [eV] and density [m⁻³], ion species, the electric field [V/m] (DR
 free-electron density of the ions by default: a system that holds the electrons of the
 grids as unknowns refuses that default as the target of the e-e collisions.
 """
-struct PlasmaState{T<:Real}
+struct PlasmaState{T <: Real}
     cold_electron_temperature::Vector{T}
     cold_electron_density::Vector{T}
     ions::Vector{IonSpecies{T}}
@@ -120,8 +138,10 @@ struct PlasmaState{T<:Real}
     magnetic_field::Vector{T}
     cold_density_given::Bool
 end
-PlasmaState{T}(temperature, density, ions, electric_field, magnetic_field) where {T} =
+function PlasmaState{T}(
+        temperature, density, ions, electric_field, magnetic_field) where {T}
     PlasmaState{T}(temperature, density, ions, electric_field, magnetic_field, true)
+end
 
 """
     PlasmaState(; cold_electron_temperature, ions, electric_field, magnetic_field,
@@ -132,17 +152,21 @@ free-electron density from quasi-neutrality ([`free_electron_density`](@ref)) at
 radius.
 """
 function PlasmaState(; cold_electron_temperature, ions, electric_field, magnetic_field,
-                     cold_electron_density=nothing)
+        cold_electron_density = nothing)
     ions = collect(ions)
     density = cold_electron_density === nothing ?
-              [free_electron_density(ions, ir) for ir in eachindex(cold_electron_temperature)] :
+              [free_electron_density(ions, ir)
+               for ir in eachindex(cold_electron_temperature)] :
               cold_electron_density
-    T = promote_type(eltype(cold_electron_temperature), eltype(density), eltype(electric_field),
-                     eltype(magnetic_field), (eltype(s.charge_state_densities) for s in ions)...)
+    T = promote_type(
+        eltype(cold_electron_temperature), eltype(density), eltype(electric_field),
+        eltype(magnetic_field), (eltype(s.charge_state_densities) for s in ions)...)
+    #! format: off
     return PlasmaState{T}(collect(T, cold_electron_temperature), collect(T, density),
                           IonSpecies{T}[IonSpecies(s.name, s.nuclear_charge, T.(s.charge_state_densities))
                                         for s in ions],
                           collect(T, electric_field), collect(T, magnetic_field), cold_electron_density !== nothing)
+    #! format: on
 end
 
 radial_cell_count(plasma::PlasmaState) = length(plasma.cold_electron_temperature)
@@ -156,14 +180,17 @@ the state of a run in place of a prescribed one.
 function with_electric_field(plasma::PlasmaState, electric_field::AbstractVector)
     length(electric_field) == radial_cell_count(plasma) ||
         throw(DimensionMismatch("the electric field needs one value per radius"))
-    state = PlasmaState(; plasma.cold_electron_temperature, plasma.cold_electron_density, plasma.ions,
-                        electric_field, plasma.magnetic_field)
-    return PlasmaState{eltype(state.cold_electron_temperature)}(state.cold_electron_temperature,
-                                                                state.cold_electron_density, state.ions,
-                                                                state.electric_field, state.magnetic_field,
-                                                                plasma.cold_density_given)
+    state = PlasmaState(;
+        plasma.cold_electron_temperature, plasma.cold_electron_density, plasma.ions,
+        electric_field, plasma.magnetic_field)
+    return PlasmaState{eltype(state.cold_electron_temperature)}(
+        state.cold_electron_temperature,
+        state.cold_electron_density, state.ions,
+        state.electric_field, state.magnetic_field,
+        plasma.cold_density_given)
 end
 
+#! format: off
 """
     free_electron_density(ions, ir)
 
@@ -172,8 +199,10 @@ end
 free_electron_density(ions, ir) =
     sum((Z0 * s.charge_state_densities[Z0+1, ir] for s in ions for Z0 in 0:s.nuclear_charge);
         init=zero(eltype(first(ions).charge_state_densities)))
+#! format: on
 free_electron_density(plasma::PlasmaState, ir) = free_electron_density(plasma.ions, ir)
 
+#! format: off
 """
     bound_electron_density(plasma, ir)
 
@@ -183,5 +212,6 @@ bound_electron_density(plasma::PlasmaState, ir) =
     sum(((s.nuclear_charge - Z0) * s.charge_state_densities[Z0+1, ir]
          for s in plasma.ions for Z0 in 0:s.nuclear_charge);
         init=zero(eltype(plasma.cold_electron_temperature)))
+#! format: on
 
 IonComposition(plasma::PlasmaState) = IonComposition(plasma.ions)

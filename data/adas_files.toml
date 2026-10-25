@@ -1,0 +1,97 @@
+[metadata]
+source = "DREAM, tools/elements.json"
+version_or_date = "DREAM commit 93d27e1763827e19dafb1fe790e99c2688ad6d62 (branch boltzmann-eqterm); tools/elements.json identical in DREAM v26.5"
+licence = "MIT, see THIRD_PARTY_NOTICES.md"
+generator = "none: written once from the Julia constant"
+description = "the ADF11 file of each element and class (acd, scd, ccd, plt, prb): a year yy, which names the file <class><yy>_<element>.dat of OpenADAS, or a file name; the files are those of ADAS (H. P. Summers, The ADAS User Manual, version 2.6 (2004), https://www.adas.ac.uk), the data of OpenADAS, https://open.adas.ac.uk"
+
+[data.H]
+acd = "acd12_h.high_dens.dat"
+scd = "scd12_h.high_dens.dat"
+ccd = "96"
+plt = "plt12_h.high_dens.dat"
+prb = "prb12_h.high_dens.dat"
+
+[data.D]
+acd = "acd12_h.high_dens.dat"
+scd = "scd12_h.high_dens.dat"
+ccd = "96"
+plt = "plt12_h.high_dens.dat"
+prb = "prb12_h.high_dens.dat"
+
+[data.T]
+acd = "acd12_h.high_dens.dat"
+scd = "scd12_h.high_dens.dat"
+ccd = "96"
+plt = "plt12_h.high_dens.dat"
+prb = "prb12_h.high_dens.dat"
+
+[data.He]
+acd = "96"
+scd = "96"
+ccd = "96"
+plt = "96"
+prb = "96"
+
+[data.Li]
+acd = "96"
+scd = "96"
+ccd = "89"
+plt = "96"
+prb = "96"
+
+[data.Be]
+acd = "96"
+scd = "96"
+ccd = "89"
+plt = "96"
+prb = "96"
+
+[data.B]
+acd = "89"
+scd = "89"
+ccd = "89"
+plt = "89"
+prb = "89"
+
+[data.C]
+acd = "96"
+scd = "96"
+ccd = "96"
+plt = "96"
+prb = "96"
+
+[data.O]
+acd = "96"
+scd = "96"
+ccd = "89"
+plt = "96"
+prb = "96"
+
+[data.Ne]
+acd = "96"
+scd = "96"
+ccd = "89"
+plt = "96"
+prb = "96"
+
+[data.Ar]
+acd = "89"
+scd = "89"
+ccd = "89"
+plt = "89"
+prb = "89"
+
+[data.Fe]
+acd = "85"
+scd = "85"
+ccd = "89"
+plt = "89"
+prb = "89"
+
+[data.W]
+acd = "50"
+scd = "50"
+ccd = "89"
+plt = "42"
+prb = "50"

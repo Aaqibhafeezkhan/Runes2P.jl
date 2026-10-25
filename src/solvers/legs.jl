@@ -29,24 +29,29 @@ struct Leg
     Leg(::Val{:checked}, duration, steps, saves) = new(duration, steps, saves)
 end
 
-Leg(duration, args...) =
+function Leg(duration, args...)
     throw(ArgumentError("Leg takes keywords: Leg(duration; steps=, saves=), Leg(duration; dt=, save_dt=) " *
                         "or Leg(duration; save_dt=)"))
+end
 
-function Leg(duration::Real; steps::Union{Nothing,Integer}=nothing, saves::Union{Nothing,Integer}=nothing,
-             dt::Union{Nothing,Real}=nothing, save_dt::Union{Nothing,Real}=nothing)
+function Leg(duration::Real; steps::Union{Nothing, Integer} = nothing,
+        saves::Union{Nothing, Integer} = nothing,
+        dt::Union{Nothing, Real} = nothing, save_dt::Union{Nothing, Real} = nothing)
     duration > 0 || throw(ArgumentError("Leg($duration): the duration must be positive"))
     given = (steps !== nothing, saves !== nothing, dt !== nothing, save_dt !== nothing)
     if given == (true, true, false, false)
-        steps >= 1 || throw(ArgumentError("Leg($duration; steps=$steps, saves=$saves): steps must be at least 1"))
+        steps >= 1 ||
+            throw(ArgumentError("Leg($duration; steps=$steps, saves=$saves): steps must be at least 1"))
         1 <= saves <= steps ||
             throw(ArgumentError("Leg($duration; steps=$steps, saves=$saves): saves must lie between 1 and steps"))
         return Leg(Val(:checked), Float64(duration), Int(steps), Int(saves))
     elseif given == (false, false, true, true)
         name = "Leg($duration; dt=$dt, save_dt=$save_dt)"
-        dt > 0 && save_dt > 0 || throw(ArgumentError("$name: dt and save_dt must be positive"))
+        dt > 0 && save_dt > 0 ||
+            throw(ArgumentError("$name: dt and save_dt must be positive"))
         save_dt >= dt || throw(ArgumentError("$name: save_dt must not be shorter than dt"))
-        return Leg(Val(:checked), Float64(duration), _count(duration, dt, "dt", name), _count(duration, save_dt, "save_dt", name))
+        return Leg(Val(:checked), Float64(duration), _count(duration, dt, "dt", name),
+            _count(duration, save_dt, "save_dt", name))
     elseif given == (false, false, false, true)
         name = "Leg($duration; save_dt=$save_dt)"
         save_dt > 0 || throw(ArgumentError("$name: save_dt must be positive"))
@@ -75,14 +80,15 @@ the time points and its save times in between, which a [`StepController`](@ref) 
 ceilings of its steps. The end of each leg is `start` plus the durations so far, in one
 arithmetic for both vectors.
 """
-function time_points(legs; start::Real=0.0)
+function time_points(legs; start::Real = 0.0)
     isempty(legs) && throw(ArgumentError("time_points needs at least one leg"))
     times, save_times = [Float64(start)], [Float64(start)]
     for leg in legs
         leg_start = last(times)
         leg_end = leg_start + leg.duration
         if leg.steps > 0
-            points = [k == leg.steps ? leg_end : leg_start + k * leg.duration / leg.steps for k in 1:leg.steps]
+            points = [k == leg.steps ? leg_end : leg_start + k * leg.duration / leg.steps
+                      for k in 1:leg.steps]
             append!(times, points)
             for k in 1:leg.saves
                 push!(save_times, points[round(Int, k * leg.steps / leg.saves)])
@@ -90,7 +96,8 @@ function time_points(legs; start::Real=0.0)
         else
             push!(times, leg_end)
             for k in 1:leg.saves
-                push!(save_times, k == leg.saves ? leg_end : leg_start + k * leg.duration / leg.saves)
+                push!(save_times, k == leg.saves ? leg_end :
+                                  leg_start + k * leg.duration / leg.saves)
             end
         end
     end

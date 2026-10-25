@@ -5,7 +5,7 @@
 # values in the recorded settings and rebuilds its grid from them.
 using HDF5
 
-const DREAM_EXAMPLE_AVALANCHE_DATA = joinpath(@__DIR__, "data", "dream_example_avalanche.h5")
+const DREAM_EXAMPLE_AVALANCHE_DATA = reference_file("dream_example_avalanche.h5")
 
 @testset "DREAM example avalanche/generateCylindrical.py" begin
     h5open(DREAM_EXAMPLE_AVALANCHE_DATA) do h5
@@ -25,7 +25,7 @@ const DREAM_EXAMPLE_AVALANCHE_DATA = joinpath(@__DIR__, "data", "dream_example_a
         @test setting("collisions/lnlambda") == 2             # ENERGY_DEPENDENT
         # pitch faces with geometric growth, nxiexp = 1.5: 30 faces, 29 cells
         xi_faces = read(h5["settings/hottailgrid/xi_f"])
-        @test xi_faces ≈ reverse(1 .- 2 .* range(0, 1; length=30) .^ 1.5) rtol = 1e-14
+        @test xi_faces ≈ reverse(1 .- 2 .* range(0, 1; length = 30) .^ 1.5) rtol = 1e-14
         p_faces = read(h5["grid/p1_f"])
         @test p_faces ≈ biuniform_p_faces(200, 40, 0.0, 0.7, 30.0) rtol = 1e-14
         @test read(h5["grid/p2_f"]) ≈ xi_faces rtol = 1e-14
@@ -33,13 +33,14 @@ const DREAM_EXAMPLE_AVALANCHE_DATA = joinpath(@__DIR__, "data", "dream_example_a
         mom = MomentumGrid(p_faces, read(h5["grid/p2_f"]))
         g = cylindrical_grid(mom, RadialGrid(read(h5["grid/r_f"])))
         jacobian = stack(phase_space_jacobian(g, ir) for ir in 1:radial_cell_count(g))
-        @test all(r -> isapprox(r, 4π^2; rtol=1e-14), read(h5["grid/Vprime"]) ./ jacobian)
+        @test all(r -> isapprox(r, 4π^2; rtol = 1e-14), read(h5["grid/Vprime"]) ./ jacobian)
         p_cut = setting("eqsys/n_re/pCutAvalanche")
         f = read(h5["f_hot"])          # (np, nξ, nr, stored times)
         C_dream = read(h5["C_boltz"])  # C_boltz[n] from f_hot[n]
         n_tot = read(h5["n_tot"])      # (nr, stored times)
 
-        dream = KnockOnOperator(g, g, p_cut; dream_compatible=true, primary_pitch_points=1, table_size=80)
+        dream = KnockOnOperator(
+            g, g, p_cut; dream_compatible = true, primary_pitch_points = 1, table_size = 80)
         default = KnockOnOperator(g, g, p_cut)
         for n in axes(C_dream, 4)
             C = zeros(size(g))

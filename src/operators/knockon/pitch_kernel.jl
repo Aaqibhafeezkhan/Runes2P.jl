@@ -43,14 +43,15 @@ at `xi1` (DREAM). A primary at `xi1 = -1` whose knock-on pitch is exactly `-1` i
 to the first cell.
 """
 function pitch_kernel_column!(column::AbstractVector, xi_faces::AbstractVector, xi_s;
-                              primary_cell, nodes=(0.0,), weights=(2.0,))
+        primary_cell, nodes = (0.0,), weights = (2.0,))
     nxi = length(column)
     lower, upper = primary_cell
     fill!(column, 0)
     for (x, w) in zip(nodes, weights)
         xi1 = (lower + upper) / 2 + x * (upper - lower) / 2
         for j in 1:nxi
-            column[j] += w / 2 * pitch_cell_fraction(xi_faces[j], xi_faces[j+1], xi1, xi_s)
+            column[j] += w / 2 *
+                         pitch_cell_fraction(xi_faces[j], xi_faces[j + 1], xi1, xi_s)
         end
         # point mass at ξ = -1 (half-open cells exclude it)
         if (1 - xi_s^2) * (1 - xi1^2) <= 5 * eps(xi_s) && xi_s * xi1 == xi_faces[1]
@@ -59,7 +60,7 @@ function pitch_kernel_column!(column::AbstractVector, xi_faces::AbstractVector, 
     end
     norm = sum(column)
     for j in 1:nxi
-        column[j] /= (xi_faces[j+1] - xi_faces[j])
+        column[j] /= (xi_faces[j + 1] - xi_faces[j])
     end
     if norm > 0
         column ./= norm
@@ -81,7 +82,7 @@ with the Gauss `nodes` and `weights` (on `[-1, 1]`) in the variable `s` of
 a smooth one.
 """
 function pitch_kernel_column_split!(column::AbstractVector, xi_faces::AbstractVector, xi_s;
-                                    primary_cell, nodes, weights)
+        primary_cell, nodes, weights)
     nxi = length(column)
     lower, upper = primary_cell
     upper > lower || throw(ArgumentError("the primary cell must have positive width"))
@@ -95,22 +96,23 @@ function pitch_kernel_column_split!(column::AbstractVector, xi_faces::AbstractVe
     end
     sort!(cuts)
     fill!(column, 0)
-    for q in 1:length(cuts)-1
-        u, v = cuts[q], cuts[q+1]
+    for q in 1:(length(cuts) - 1)
+        u, v = cuts[q], cuts[q + 1]
         v > u || continue
         mid, h = (u + v) / 2, (v - u) / 2
         for (x, w) in zip(nodes, weights)
             xi1 = mid + h * sin(pi * x / 2)
             weight = w * h * (pi / 2) * cos(pi * x / 2)
             for j in 1:nxi
-                column[j] += weight * pitch_cell_fraction(xi_faces[j], xi_faces[j+1], xi1, xi_s)
+                column[j] += weight *
+                             pitch_cell_fraction(xi_faces[j], xi_faces[j + 1], xi1, xi_s)
             end
         end
     end
     column ./= (upper - lower)
     norm = sum(column)
     for j in 1:nxi
-        column[j] /= (xi_faces[j+1] - xi_faces[j])
+        column[j] /= (xi_faces[j + 1] - xi_faces[j])
     end
     if norm > 0
         column ./= norm
@@ -139,9 +141,9 @@ cells `j`, tabulated on a uniform grid of `ξ*` values and interpolated linearly
 In cylindrical geometry the kernel does not depend on radius; one table serves all
 radii (DREAM stores one per radius).
 """
-struct MollerPitchKernel{T<:AbstractFloat}
+struct MollerPitchKernel{T <: AbstractFloat}
     xi_star_values::Vector{T}   # length table_size
-    table::Array{T,3}           # (knock-on ξ cells, primary ξ cells, table_size)
+    table::Array{T, 3}           # (knock-on ξ cells, primary ξ cells, table_size)
     lower_slice::Matrix{Int}    # (knock-on p cells, primary p cells)
     upper_weight::Matrix{T}     # (knock-on p cells, primary p cells)
     xi_star_mode::Symbol
@@ -161,8 +163,8 @@ end
   over the table slices its `ξ*` range covers, with the weights of
   [`KnockOnKernels`](@ref); the table then covers the `ξ*` of the interval ends of all
   contributing pairs, so that no pair is clamped and the production stays exact.
-  `:midpoint` evaluates `ξ*` once, at the midpoint of the interval (the earlier scheme),
-  and `:centre` once at the knock-on cell centre (DREAM). `:midpoint` keeps `ξ* < 1`.
+  `:midpoint` evaluates `ξ*` once, at the midpoint of the interval, and `:centre` once at
+  the knock-on cell centre (DREAM). `:midpoint` keeps `ξ* < 1`.
   `:centre` does not on a knock-on grid coarser than the primary grid, where a cell
   centre can lie above `p1`: a pair with `ξ* > 1` in the table range is refused with an
   `ArgumentError`, since no pitch distribution exists for it. The table of the two
@@ -182,11 +184,12 @@ end
   knock-ons to quadrature accuracy. `:gauss` averages with `primary_pitch_points` plain
   Gauss points over the whole cell (slow convergence; kept for comparison).
 """
-function MollerPitchKernel(knockon::MomentumGrid{T}, primary::MomentumGrid{T}, p_cutoff::Real;
-                           table_size::Integer=80, dream_compatible::Bool=false,
-                           xi_star_mode::Symbol=(dream_compatible ? :centre : :interval),
-                           primary_pitch::Symbol=(dream_compatible ? :centre : :split),
-                           primary_pitch_points::Integer=4) where {T}
+function MollerPitchKernel(
+        knockon::MomentumGrid{T}, primary::MomentumGrid{T}, p_cutoff::Real;
+        table_size::Integer = 80, dream_compatible::Bool = false,
+        xi_star_mode::Symbol = (dream_compatible ? :centre : :interval),
+        primary_pitch::Symbol = (dream_compatible ? :centre : :split),
+        primary_pitch_points::Integer = 4) where {T}
     table_size >= 2 || throw(ArgumentError("table_size must be at least 2"))
     primary_pitch in (:centre, :split, :gauss) ||
         throw(ArgumentError("unknown primary_pitch $primary_pitch"))
@@ -194,7 +197,8 @@ function MollerPitchKernel(knockon::MomentumGrid{T}, primary::MomentumGrid{T}, p
         throw(ArgumentError("unknown xi_star_mode $xi_star_mode"))
     !(dream_compatible && xi_star_mode !== :centre) ||
         throw(ArgumentError("dream_compatible = true requires xi_star_mode = :centre"))
-    primary_pitch_points >= 1 || throw(ArgumentError("primary_pitch_points must be at least 1"))
+    primary_pitch_points >= 1 ||
+        throw(ArgumentError("primary_pitch_points must be at least 1"))
     p_cutoff > 0 || throw(ArgumentError("p_cutoff must be positive"))
     # the gyro-averaged knock-on pitch covers [-1, 1]; on a partial grid the column
     # normalization would move the knock-ons outside it onto the grid
@@ -206,17 +210,20 @@ function MollerPitchKernel(knockon::MomentumGrid{T}, primary::MomentumGrid{T}, p
     pair_xi_star = zeros(T, np_knockon, np_primary)
     lowest, highest = T(Inf), T(-Inf)
     for i in 1:np_knockon, k in 1:np_primary
+
         p1 = primary.p_centers[k]
         p_lower = max(knockon.p_faces[i], T(p_cutoff))
-        p_upper = min(knockon.p_faces[i+1], max_knockon_momentum(p1))
+        p_upper = min(knockon.p_faces[i + 1], max_knockon_momentum(p1))
         if xi_star_mode === :centre
             xi_s = xi_star(knockon.p_centers[i], p1)
             in_range = dream_compatible ?
-                       knockon.p_faces[i+1] > p_cutoff && gamma(knockon.p_faces[i]) < gamma(p1) - 1 :
+                       knockon.p_faces[i + 1] > p_cutoff &&
+                       gamma(knockon.p_faces[i]) < gamma(p1) - 1 :
                        p_upper > p_lower
         else
             in_range = p_upper > p_lower
-            xi_s = in_range ? xi_star((p_lower + p_upper) / 2, p1) : xi_star(knockon.p_centers[i], p1)
+            xi_s = in_range ? xi_star((p_lower + p_upper) / 2, p1) :
+                   xi_star(knockon.p_centers[i], p1)
         end
         pair_xi_star[i, k] = xi_s
         (in_range && isfinite(xi_s)) || continue
@@ -239,23 +246,25 @@ function MollerPitchKernel(knockon::MomentumGrid{T}, primary::MomentumGrid{T}, p
         lowest, highest = zero(T), one(T)
     end
     spacing = (highest - lowest) / (table_size - 1)
-    xi_star_values = [lowest + m * spacing for m in 0:table_size-1]
+    xi_star_values = [lowest + m * spacing for m in 0:(table_size - 1)]
 
-    nodes, weights = primary_pitch === :centre ? ([zero(T)], [T(2)]) : gauss(T, primary_pitch_points)
+    nodes, weights = primary_pitch === :centre ? ([zero(T)], [T(2)]) :
+                     gauss(T, primary_pitch_points)
     nxi_knockon, nxi_primary = pitch_cell_count(knockon), pitch_cell_count(primary)
     table = zeros(T, nxi_knockon, nxi_primary, table_size)
     for m in 1:table_size, l in 1:nxi_primary
+
         column = view(table, :, l, m)
         norm = if primary_pitch === :centre
             pitch_kernel_column!(column, knockon.xi_faces, xi_star_values[m];
-                                 primary_cell=(primary.xi_centers[l], primary.xi_centers[l]))
+                primary_cell = (primary.xi_centers[l], primary.xi_centers[l]))
         elseif primary_pitch === :gauss
             pitch_kernel_column!(column, knockon.xi_faces, xi_star_values[m];
-                                 primary_cell=(primary.xi_faces[l], primary.xi_faces[l+1]), nodes, weights)
+                primary_cell = (primary.xi_faces[l], primary.xi_faces[l + 1]), nodes, weights)
         else
             pitch_kernel_column_split!(column, knockon.xi_faces, xi_star_values[m];
-                                       primary_cell=(primary.xi_faces[l], primary.xi_faces[l+1]),
-                                       nodes, weights)
+                primary_cell = (primary.xi_faces[l], primary.xi_faces[l + 1]),
+                nodes, weights)
         end
         norm > 0 || no_contributing_pairs ||
             throw(ErrorException("empty knock-on pitch column at l = $l, ξ* = $(xi_star_values[m])"))
@@ -264,6 +273,7 @@ function MollerPitchKernel(knockon::MomentumGrid{T}, primary::MomentumGrid{T}, p
     lower_slice = ones(Int, np_knockon, np_primary)
     upper_weight = zeros(T, np_knockon, np_primary)
     for i in 1:np_knockon, k in 1:np_primary
+
         xi_s = pair_xi_star[i, k]
         if !(xi_s > lowest) || spacing == 0
             lower_slice[i, k], upper_weight[i, k] = 1, zero(T)
@@ -275,8 +285,9 @@ function MollerPitchKernel(knockon::MomentumGrid{T}, primary::MomentumGrid{T}, p
             lower_slice[i, k], upper_weight[i, k] = m + 1, s - m
         end
     end
-    return MollerPitchKernel{T}(xi_star_values, table, lower_slice, upper_weight, xi_star_mode,
-                                no_contributing_pairs)
+    return MollerPitchKernel{T}(
+        xi_star_values, table, lower_slice, upper_weight, xi_star_mode,
+        no_contributing_pairs)
 end
 
 """
@@ -294,6 +305,6 @@ interval and otherwise the same interpolation. `rates[i, k]` times this matrix i
 function pitch_kernel_matrix!(D::AbstractMatrix, kernel::MollerPitchKernel, i, k)
     m = kernel.lower_slice[i, k]
     w = kernel.upper_weight[i, k]
-    @views D .= (1 - w) .* kernel.table[:, :, m] .+ w .* kernel.table[:, :, m+1]
+    @views D .= (1 - w) .* kernel.table[:, :, m] .+ w .* kernel.table[:, :, m + 1]
     return D
 end

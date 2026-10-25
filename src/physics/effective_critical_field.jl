@@ -21,13 +21,13 @@ function runaway_fluid_settings(s::CollisionSettings; role::Symbol)
     role in (:critical_field, :critical_momentum) ||
         throw(ArgumentError("role must be :critical_field or :critical_momentum, not $role"))
     field = role === :critical_field
-    return CollisionSettings(; mode=:superthermal, screening=s.screening,
-                             coulomb_logarithm=field ? :energy_dependent : s.coulomb_logarithm,
-                             screened_diffusion=s.screened_diffusion, ion_size_table=s.ion_size_table,
-                             screening_window=s.screening_window, screening_window_start=s.screening_window_start,
-                             screening_window_end=s.screening_window_end,
-                             bremsstrahlung=field ? :stopping_power : :neglect,
-                             bremsstrahlung_constant=s.bremsstrahlung_constant)
+    return CollisionSettings(; mode = :superthermal, screening = s.screening,
+        coulomb_logarithm = field ? :energy_dependent : s.coulomb_logarithm,
+        screened_diffusion = s.screened_diffusion, ion_size_table = s.ion_size_table,
+        screening_window = s.screening_window, screening_window_start = s.screening_window_start,
+        screening_window_end = s.screening_window_end,
+        bremsstrahlung = field ? :stopping_power : :neglect,
+        bremsstrahlung_constant = s.bremsstrahlung_constant)
 end
 
 """
@@ -39,11 +39,15 @@ the radiation reaction of the Abraham-Lorentz-Dirac force, L. Hesslow et al., Pl
 Control. Fusion 60, 074010 (2018), doi:10.1088/1361-6587/aac33e, eq. (5)).
 """
 const SYNCHROTRON_RATE_PER_FIELD_SQUARED = Constants.ELEMENTARY_CHARGE^4 /
-                                           (6π * Constants.VACUUM_PERMITTIVITY * Constants.ELECTRON_MASS^3 *
+                                           (6π * Constants.VACUUM_PERMITTIVITY *
+                                            Constants.ELECTRON_MASS^3 *
                                             Constants.SPEED_OF_LIGHT^3)
 
 # the field in units of a frequency, e|E|/(mₑc) [s⁻¹]
-_field_frequency(E) = Constants.ELEMENTARY_CHARGE * abs(E) / (Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT)
+function _field_frequency(E)
+    Constants.ELEMENTARY_CHARGE * abs(E) /
+    (Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT)
+end
 
 # the Langevin function L(A) = coth A − 1/A, the mean of ξ₀ in the pitch distribution exp(−A(1 − ξ₀)),
 # and L(A)/A; series below A = 1e-2, where the difference cancels
@@ -74,7 +78,8 @@ function critical_field_advection(model::CollisionModel, ir, p, field_frequency)
     nu_d = deflection_frequency(model, ir, p)
     A = 2field_frequency / (p * nu_d)
     tau_inverse = SYNCHROTRON_RATE_PER_FIELD_SQUARED * model.plasma.magnetic_field[ir]^2
-    return field_frequency * _langevin(A) - p * nu_s - p * sqrt(1 + p^2) * tau_inverse * 2 * _langevin_over(A)
+    return field_frequency * _langevin(A) - p * nu_s -
+           p * sqrt(1 + p^2) * tau_inverse * 2 * _langevin_over(A)
 end
 
 # the maximum over p of the advection U at the field frequency Ê, and its momentum: a scan
@@ -84,7 +89,7 @@ end
 # 309-337): where U(p) has two maxima the two codes can take different ones.
 function _advection_maximum(model, ir, field_frequency)
     U(x) = critical_field_advection(model, ir, exp(x), field_frequency)
-    xs = range(log(1e-3), log(1e3); length=61)
+    xs = range(log(1e-3), log(1e3); length = 61)
     values = U.(xs)
     k = argmax(values)
     k == length(xs) && return values[k], exp(xs[k])
@@ -109,7 +114,7 @@ end
 
 # the root of the increasing function g on [a, b] with g(a) < 0 < g(b), by the Illinois
 # variant of the regula falsi, to the relative tolerance tol of the argument
-function _illinois(g, a, b, ga, gb; tol=1e-13, iterations=200)
+function _illinois(g, a, b, ga, gb; tol = 1e-13, iterations = 200)
     side = 0
     for _ in 1:iterations
         c = (a * gb - b * ga) / (gb - ga)
@@ -129,12 +134,15 @@ function _illinois(g, a, b, ga, gb; tol=1e-13, iterations=200)
 end
 
 # the values of a plasma state in dual numbers
-_plain_plasma(plasma::PlasmaState{<:ForwardDiff.Dual}) =
-    PlasmaState(; cold_electron_temperature=ForwardDiff.value.(plasma.cold_electron_temperature),
-                cold_electron_density=ForwardDiff.value.(plasma.cold_electron_density),
-                ions=[IonSpecies(s.name, s.nuclear_charge, ForwardDiff.value.(s.charge_state_densities)) for s in plasma.ions],
-                electric_field=ForwardDiff.value.(plasma.electric_field),
-                magnetic_field=ForwardDiff.value.(plasma.magnetic_field))
+function _plain_plasma(plasma::PlasmaState{<:ForwardDiff.Dual})
+    PlasmaState(;
+        cold_electron_temperature = ForwardDiff.value.(plasma.cold_electron_temperature),
+        cold_electron_density = ForwardDiff.value.(plasma.cold_electron_density),
+        ions = [IonSpecies(s.name, s.nuclear_charge, ForwardDiff.value.(s.charge_state_densities))
+                for s in plasma.ions],
+        electric_field = ForwardDiff.value.(plasma.electric_field),
+        magnetic_field = ForwardDiff.value.(plasma.magnetic_field))
+end
 _plain_plasma(plasma::PlasmaState) = plasma
 
 """
@@ -153,9 +161,11 @@ last call; this solves to 1e-13 and 1e-10. Returns the field and the momentum of
 advection. A `plasma` in dual numbers ([`dual_plasma`](@ref)) gives the field with the exact
 derivatives: the envelope of the maximum, `dE_ceff/dx = −(∂U/∂x)/(∂U/∂E)` at that momentum.
 """
-function effective_critical_field(plasma::PlasmaState, ir::Integer; settings::CollisionSettings=CollisionSettings())
-    s = runaway_fluid_settings(settings; role=:critical_field)
-    dual = eltype(plasma.cold_electron_temperature) <: ForwardDiff.Dual ? CollisionModel(plasma, s) : nothing
+function effective_critical_field(
+        plasma::PlasmaState, ir::Integer; settings::CollisionSettings = CollisionSettings())
+    s = runaway_fluid_settings(settings; role = :critical_field)
+    dual = eltype(plasma.cold_electron_temperature) <: ForwardDiff.Dual ?
+           CollisionModel(plasma, s) : nothing
     return effective_critical_field(CollisionModel(_plain_plasma(plasma), s), ir; dual)
 end
 
@@ -167,7 +177,7 @@ The effective critical field of the collisions of `model` as they are, without t
 limits with other collisions (a constant Coulomb logarithm in the tests). `dual`, a model of
 the same plasma in dual numbers, gives the derivatives.
 """
-function effective_critical_field(plain::CollisionModel, ir::Integer; dual=nothing)
+function effective_critical_field(plain::CollisionModel, ir::Integer; dual = nothing)
     plasma = plain.plasma
     g(w) = first(_advection_maximum(plain, ir, w))
     # bracket from the Connor-Hastie field of all electrons, as DREAM's first guess
@@ -187,7 +197,9 @@ function effective_critical_field(plain::CollisionModel, ir::Integer; dual=nothi
         slope = ForwardDiff.derivative(v -> critical_field_advection(plain, ir, p_opt, v), w)
         w = w - critical_field_advection(dual, ir, p_opt, w) / slope
     end
+    #! format: off
     return w * Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT / Constants.ELEMENTARY_CHARGE, p_opt
+    #! format: on
 end
 
 # the Connor-Hastie field of all electrons, free and bound, with the relativistic Coulomb
@@ -216,11 +228,13 @@ in a cylinder, where the passing fraction is 1. Solved to 1e-12 relative (DREAM:
 dual numbers in the plasma or the field the derivatives follow from one Newton correction.
 """
 function avalanche_critical_momentum(plasma::PlasmaState, ir::Integer, field_frequency;
-                                     settings::CollisionSettings=CollisionSettings())
-    s = runaway_fluid_settings(settings; role=:critical_momentum)
-    dual = eltype(plasma.cold_electron_temperature) <: ForwardDiff.Dual || field_frequency isa ForwardDiff.Dual
-    return avalanche_critical_momentum(CollisionModel(_plain_plasma(plasma), s), ir, field_frequency;
-                                       dual=dual ? CollisionModel(plasma, s) : nothing)
+        settings::CollisionSettings = CollisionSettings())
+    s = runaway_fluid_settings(settings; role = :critical_momentum)
+    dual = eltype(plasma.cold_electron_temperature) <: ForwardDiff.Dual ||
+           field_frequency isa ForwardDiff.Dual
+    return avalanche_critical_momentum(
+        CollisionModel(_plain_plasma(plasma), s), ir, field_frequency;
+        dual = dual ? CollisionModel(plasma, s) : nothing)
 end
 
 """
@@ -230,9 +244,11 @@ end
 method behind the one of a plasma. `dual`, a model of the same plasma in dual numbers, or a
 field frequency in dual numbers, gives the derivatives.
 """
-function avalanche_critical_momentum(plain::CollisionModel, ir::Integer, field_frequency; dual=nothing)
-    G(model, p, w) = (q = _collision_hats(model, ir, p); sqrt(sqrt(q.s * (q.d + 4q.s))) / sqrt(w) - p)
-    w0 = field_frequency isa ForwardDiff.Dual ? ForwardDiff.value(field_frequency) : field_frequency
+function avalanche_critical_momentum(plain::CollisionModel, ir::Integer, field_frequency; dual = nothing)
+    G(model, p, w) = (
+        q = _collision_hats(model, ir, p); sqrt(sqrt(q.s * (q.d + 4q.s))) / sqrt(w) - p)
+    w0 = field_frequency isa ForwardDiff.Dual ? ForwardDiff.value(field_frequency) :
+         field_frequency
     g(p) = -G(plain, p, w0)     # increasing in p
     lower, upper = 1.0, 1.0
     while g(lower) >= 0
@@ -241,7 +257,7 @@ function avalanche_critical_momentum(plain::CollisionModel, ir::Integer, field_f
     while g(upper) <= 0
         upper *= 1.4
     end
-    p = _illinois(g, lower, upper, g(lower), g(upper); tol=1e-12)
+    p = _illinois(g, lower, upper, g(lower), g(upper); tol = 1e-12)
     dual === nothing && !(field_frequency isa ForwardDiff.Dual) && return p
     slope = ForwardDiff.derivative(x -> G(plain, x, w0), p)
     return p - G(dual === nothing ? plain : dual, p, field_frequency) / slope
@@ -250,7 +266,8 @@ end
 # the hats ν̂_s = p³ν_s/γ² and ν̂_D = p³ν_D/γ of DREAM's RunawayFluid.cpp:665-673
 function _collision_hats(model, ir, p)
     gamma = sqrt(1 + p^2)
-    return (s=p^3 * slowing_down_frequency(model, ir, p) / gamma^2, d=p^3 * deflection_frequency(model, ir, p) / gamma)
+    return (s = p^3 * slowing_down_frequency(model, ir, p) / gamma^2,
+        d = p^3 * deflection_frequency(model, ir, p) / gamma)
 end
 
 """
@@ -271,15 +288,16 @@ the effective critical field [V/m] and `p⋆`. Dual numbers in `plasma` (also in
 `electric_field`) or in `total_density` give its exact derivatives.
 """
 function fluid_avalanche_growth_rate(plasma::PlasmaState, ir::Integer, total_density;
-                                     settings::CollisionSettings=CollisionSettings())
-    field_settings = runaway_fluid_settings(settings; role=:critical_field)
-    momentum_settings = runaway_fluid_settings(settings; role=:critical_momentum)
+        settings::CollisionSettings = CollisionSettings())
+    field_settings = runaway_fluid_settings(settings; role = :critical_field)
+    momentum_settings = runaway_fluid_settings(settings; role = :critical_momentum)
     plain = _plain_plasma(plasma)
     dual = eltype(plasma.cold_electron_temperature) <: ForwardDiff.Dual
-    return fluid_avalanche_growth_rate(CollisionModel(plain, field_settings), CollisionModel(plain, momentum_settings),
-                                       ir, total_density;
-                                       field_dual=dual ? CollisionModel(plasma, field_settings) : nothing,
-                                       momentum_dual=dual ? CollisionModel(plasma, momentum_settings) : nothing)
+    return fluid_avalanche_growth_rate(
+        CollisionModel(plain, field_settings), CollisionModel(plain, momentum_settings),
+        ir, total_density;
+        field_dual = dual ? CollisionModel(plasma, field_settings) : nothing,
+        momentum_dual = dual ? CollisionModel(plasma, momentum_settings) : nothing)
 end
 
 """
@@ -291,15 +309,17 @@ The growth rate of the collisions of `field_model` (for the effective critical f
 behind the one of a plasma, and the way to the limits with other collisions. The field is that
 of the plasma of the models; the models in dual numbers give the derivatives.
 """
-function fluid_avalanche_growth_rate(field_model::CollisionModel, momentum_model::CollisionModel, ir::Integer,
-                                     total_density; field_dual=nothing, momentum_dual=nothing)
-    field, _ = effective_critical_field(field_model, ir; dual=field_dual)
+function fluid_avalanche_growth_rate(
+        field_model::CollisionModel, momentum_model::CollisionModel, ir::Integer,
+        total_density; field_dual = nothing, momentum_dual = nothing)
+    field, _ = effective_critical_field(field_model, ir; dual = field_dual)
     source = field_dual === nothing ? field_model.plasma : field_dual.plasma
     w = _field_frequency(source.electric_field[ir])
     w_c = _field_frequency(field)
     w_eff = ForwardDiff.value(w) >= ForwardDiff.value(w_c) ? w : w_c
-    p_star = avalanche_critical_momentum(momentum_model, ir, w_eff; dual=momentum_dual)
-    rate = total_density * 4π * Constants.CLASSICAL_ELECTRON_RADIUS^2 * Constants.SPEED_OF_LIGHT * (w - w_c) /
+    p_star = avalanche_critical_momentum(momentum_model, ir, w_eff; dual = momentum_dual)
+    rate = total_density * 4π * Constants.CLASSICAL_ELECTRON_RADIUS^2 *
+           Constants.SPEED_OF_LIGHT * (w - w_c) /
            (p_star^2 * w_eff)
     return rate, field, p_star
 end

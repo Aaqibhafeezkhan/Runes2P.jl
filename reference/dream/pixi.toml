@@ -1,0 +1,40 @@
+# Reference builds of DREAM for the public reference data of Runes2P: one PETSc
+# shared by two DREAM builds (release v26.5 and boltzmann-eqterm @ 93d27e17), each in
+# its own set directory (SET_DIR). pixi.lock fixes the toolchain, GSL 2.8 among it.
+# PETSc is built from source without MPI and with MKL PARDISO, following DREAM's
+# recommended configuration; conda-forge PETSc is MPI-only and has no PARDISO support.
+[workspace]
+name = "dream-reference"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+c-compiler = "*"
+cxx-compiler = "*"
+cmake = ">=3.20"
+make = "*"
+pkg-config = "*"
+git = "*"
+gsl = "*"
+hdf5 = { version = "*", build = "nompi*" }
+mkl = "*"
+mkl-devel = "*"
+python = "3.13.*"
+numpy = "*"
+scipy = "*"
+h5py = "*"
+matplotlib = "*"
+packaging = "*"
+
+[activation.env]
+PETSC_VERSION = "v3.25.5"
+PETSC_ARCH = "arch-dream-opt"
+# DREAM_REF, DREAM_COMMIT, DREAM_BRANCH, SET_DIR, DREAMPATH and PYTHONPATH are set per
+# data set by build_all.sh and run_all.sh.
+
+[tasks]
+fetch-petsc = "bash scripts/fetch-petsc.sh"
+build-petsc = { cmd = "bash scripts/build-petsc.sh", depends-on = ["fetch-petsc"] }
+fetch-dream = "bash scripts/fetch-dream.sh"
+build-dream = { cmd = "bash scripts/build-dream.sh", depends-on = ["fetch-dream"] }
+test-dream = "bash scripts/test-dream.sh"

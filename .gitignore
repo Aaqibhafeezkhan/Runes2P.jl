@@ -1,7 +1,6 @@
 # Simulation output
 *.h5
 *.jld2
-!test/data/*.h5
 
 # Julia local settings
 LocalPreferences.toml
@@ -18,3 +17,17 @@ __pycache__/
 # Documenter build output
 docs/build/
 docs/src/api/
+
+# DREAM reference build and outputs (reference/dream/README.md). Without trailing slashes
+# these also cover symbolic links to a shared build.
+reference/dream/.pixi
+reference/dream/petsc
+reference/dream/build
+reference/dream/dream-*
+reference/dream/out
+reference/dream/work
+reference/dream/logs
+reference/dream/*.log
+
+# summaries of test runs (runtests.jl --results), which record the host name
+results/

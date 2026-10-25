@@ -13,7 +13,7 @@ using HDF5
         @info "no ADF11 cache at $(adas_cache_directory()): the comparison with DREAM is skipped"
         @test_skip isdir(adas_cache_directory())
     else
-        data = h5open(joinpath(@__DIR__, "data", "dream_kinetic_ionization.h5"), "r") do h5
+        data = h5open(reference_file("dream_kinetic_ionization.h5"), "r") do h5
             Dict(name => read(h5[name]) for name in keys(h5))
         end
         # DREAM stores its arrays transposed in HDF5: n_i is (radius, state, time) and
@@ -24,13 +24,15 @@ using HDF5
         @test radial.r_centers ≈ data["r_grid"] rtol = 1e-12
         grid = cylindrical_grid(MomentumGrid(data["p1_f"], data["p2_f"]), radial)
         composition = IonComposition(["D" => 1, "Ar" => 18])
-        layout = UnknownLayout(radial, [ion_densities_unknown(composition),
-                                        RadialUnknown(:cold_electron_density; scale=1e19),
-                                        RadialUnknown(:cold_electron_temperature; scale=10.0),
-                                        KineticUnknown(:f, grid; scale=1e19)])
-        region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor=data["threshold"]))
+        layout = UnknownLayout(radial,
+            [ion_densities_unknown(composition),
+                RadialUnknown(:cold_electron_density; scale = 1e19),
+                RadialUnknown(:cold_electron_temperature; scale = 10.0),
+                KineticUnknown(:f, grid; scale = 1e19)])
+        region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor = data["threshold"]))
         # DREAM's form and fits of the cross sections
-        kinetic = KineticIonizationTerm(composition, :f, grid; region, cross_section_form=:dream)
+        kinetic = KineticIonizationTerm(
+            composition, :f, grid; region, cross_section_form = :dream)
         fluid = IonRateTerm(composition)
         # the state of the end of the step
         u = zeros(length(layout))
@@ -42,7 +44,8 @@ using HDF5
         radial_values(u, layout, 3) .= data["T_cold"][:, 2]
         # the hot density of DREAM is the moment of f above the threshold
         hot = DensityMomentTerm(:f, grid; region)
-        n_hot = [Runes2P.rhs!(zeros(length(u)), hot, u, layout, 2, 0.0)[first(unknown_range(layout, 2, ir))] for ir in 1:nr]
+        n_hot = [Runes2P.rhs!(zeros(length(u)), hot, u, layout, 2, 0.0)[first(unknown_range(layout, 2, ir))]
+                 for ir in 1:nr]
         @test n_hot ≈ data["n_hot"][:, 2] rtol = 1e-10
         rates = Runes2P.rhs!(zeros(length(u)), fluid, u, layout, 1, 0.0) .+
                 Runes2P.rhs!(zeros(length(u)), kinetic, u, layout, 1, 0.0)
@@ -52,7 +55,8 @@ using HDF5
             computed = rates[unknown_range(layout, 1, ir)]
             for s in 1:2
                 states = species_components(composition, s)
-                @test maximum(abs, computed[states] .- change[states]) <= 1e-7 * maximum(abs, change[states])
+                @test maximum(abs, computed[states] .- change[states]) <=
+                      1e-7 * maximum(abs, change[states])
             end
         end
         # the kinetic part is not negligible: without it the argon rates miss by more than 1e-4

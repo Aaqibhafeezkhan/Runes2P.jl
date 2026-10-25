@@ -1,5 +1,4 @@
-# Equations: the unknown of a row, the kind of the row and its terms. Moved out of
-# equation_system.jl.
+# Equations: the unknown of a row, the kind of the row and its terms.
 
 """
     TimeDerivative()
@@ -16,7 +15,7 @@ the terms of that equation, or the equation of `of` must reach it through algebr
 the temperature in DREAM's pairing of the energy of the cold electrons.
 """
 struct TimeDerivative
-    of::Union{Nothing,Symbol}
+    of::Union{Nothing, Symbol}
 end
 TimeDerivative() = TimeDerivative(nothing)
 
@@ -35,10 +34,10 @@ Kind of [`Equation`](@ref) `0 = Σ terms` that does not hold its unknown: the un
 fixed through the equations of other unknowns, which hold it. The magnitude of the particle
 source is of this kind: its equation is the density that the distribution has to keep,
 `0 = n(f) − n_cold − n_hot`, and the magnitude stands in the kinetic equation (DREAM's
-`S_particle`). The system then has the index 2 in that unknown, which backward Euler
-solves, and the diagonal entry of the row in the Jacobian is zero. A constraint names
-the scale of the quantity it balances (`Equation(...; scale)`): its unknown is a rate, whose
-scale does not fit the row.
+`S_particle`). The system then has the index 2 in that unknown, which
+backward Euler solves, and the diagonal entry of the row in the Jacobian is zero. A
+constraint names the scale of the quantity it balances (`Equation(...; scale)`): its
+unknown is a rate, whose scale does not fit the row.
 """
 struct Constraint end
 
@@ -60,23 +59,28 @@ equation from its row at the start of a run (DREAM's `INITRULE_EVAL_EQUATION`), 
 of the value in the initial state: [`fill_initial_values!`](@ref). The default `:given`
 takes the initial state as it is.
 """
-struct Equation{K,TT<:Tuple}
+struct Equation{K, TT <: Tuple}
     unknown::Symbol
     kind::K
     terms::TT
-    scale::Union{Nothing,Float64}
+    scale::Union{Nothing, Float64}
     initial_value::Symbol
 end
-function Equation(unknown::Symbol, kind, terms::Tuple; scale::Union{Nothing,Real}=nothing,
-                  initial_value::Symbol=:given)
-    scale === nothing || scale > 0 || throw(ArgumentError("the scale of an equation must be positive"))
+function Equation(
+        unknown::Symbol, kind, terms::Tuple; scale::Union{Nothing, Real} = nothing,
+        initial_value::Symbol = :given)
+    scale === nothing || scale > 0 ||
+        throw(ArgumentError("the scale of an equation must be positive"))
     initial_value in (:given, :from_equation) ||
         throw(ArgumentError("initial_value must be :given or :from_equation, not $initial_value"))
     initial_value === :from_equation && !(kind isa Algebraic) &&
         throw(ArgumentError("the equation of $unknown takes its initial value from its row, which needs an " *
                             "algebraic equation"))
-    return Equation(unknown, kind, terms, scale === nothing ? nothing : Float64(scale), initial_value)
+    return Equation(
+        unknown, kind, terms, scale === nothing ? nothing : Float64(scale), initial_value)
 end
-Equation(unknown::Symbol, kind, terms::EquationTerm...; scale::Union{Nothing,Real}=nothing,
-         initial_value::Symbol=:given) =
+function Equation(unknown::Symbol, kind, terms::EquationTerm...;
+        scale::Union{Nothing, Real} = nothing,
+        initial_value::Symbol = :given)
     Equation(unknown, kind, terms; scale, initial_value)
+end

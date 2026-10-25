@@ -1,0 +1,20 @@
+[metadata]
+source = "Z = 1 to 40: DREAM, src/IonHandler.cpp:35-46 (atomicMassInMu), the IUPAC standard atomic weights, which DREAM does not name; Z = 41 to 92: the standard atomic weights of the Commission on Isotopic Abundances and Atomic Weights of IUPAC (CIAAW), https://www.ciaaw.org/atomic-weights.htm, and for thallium and lead, which have an interval, its conventional values 204.38 and 207.2"
+version_or_date = "DREAM commit 93d27e1763827e19dafb1fe790e99c2688ad6d62 (branch boltzmann-eqterm), src/IonHandler.cpp identical in DREAM v26.5; CIAAW read on 2026-10-12"
+licence = "Z = 1 to 40: DREAM, MIT, see THIRD_PARTY_NOTICES.md; Z = 41 to 92: the standard atomic weights of CIAAW (IUPAC), https://www.ciaaw.org/atomic-weights.htm; no licence terms of CIAAW are recorded"
+generator = "none: written once from the Julia constant"
+description = "the standard atomic weight [u] of the element, index Z = 1, ..., 92; nan for the elements without one (technetium, promethium, polonium to actinium)"
+
+[data]
+masses = [
+    1.008, 4.0026, 6.94, 9.0122, 10.81, 12.011, 14.007, 15.999, 18.998, 20.18,
+    22.99, 24.305, 26.982, 28.085, 30.974, 32.06, 35.45, 39.95, 39.098, 40.078,
+    44.956, 47.867, 50.942, 51.996, 54.938, 55.845, 58.933, 58.693, 63.546, 65.38,
+    69.723, 72.63, 74.922, 78.971, 79.904, 83.798, 85.468, 87.62, 88.906, 91.224,
+    92.90637, 95.95, nan, 101.07, 102.90549, 106.42, 107.8682, 112.414, 114.818, 118.71,
+    121.76, 127.6, 126.90447, 131.293, 132.90545196, 137.327, 138.90547, 140.116, 140.90766, 144.242,
+    nan, 150.36, 151.964, 157.249, 158.925354, 162.5, 164.930329, 167.259, 168.934219, 173.045,
+    174.96669, 178.486, 180.94788, 183.84, 186.207, 190.23, 192.217, 195.084, 196.96657, 200.592,
+    204.38, 207.2, 208.9804, nan, nan, nan, nan, nan, nan, 232.0377,
+    231.03588, 238.02891,
+]

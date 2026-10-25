@@ -10,7 +10,8 @@ Schemes whose advective face value uses four cells: DREAM's `:quick` and
 `:upwind_second_order` (linear in f) and the flux limiters `:tcdf`, `:muscl`, `:smart`,
 `:ospre` (DREAM) and `:van_albada` (Runes2P), which are nonlinear in f.
 """
-const FOUR_POINT_SCHEMES = (:quick, :upwind_second_order, :tcdf, :muscl, :smart, :ospre, :van_albada)
+const FOUR_POINT_SCHEMES = (
+    :quick, :upwind_second_order, :tcdf, :muscl, :smart, :ospre, :van_albada)
 const NONLINEAR_SCHEMES = (:tcdf, :muscl, :smart, :ospre, :van_albada)
 
 is_four_point_scheme(scheme::Symbol) = scheme in FOUR_POINT_SCHEMES
@@ -42,7 +43,7 @@ end
 # `AdvectionInterpolationCoefficient.cpp:239-251`), OSPRE and van Albada as ψ(r) with its
 # derivative ψ'(r). TCDF is C¹ for r > 0 (ψ' = 3/4 on both sides of r = 1/2 and r = 2),
 # but ψ' jumps from 1 to 2 at r = 0, where DREAM's comment calls it C¹; its r < 0 branch is
-# DREAM's and is not checked against the paper. OSPRE is smooth for every r. OSPRE is DREAM's formula for every r,
+# DREAM's. OSPRE is smooth for every r. OSPRE is DREAM's formula for every r,
 # without a cutoff at r ≤ 0 (ψ < 0 for -1 < r < 0, ψ → 1.5 for r → -∞), which the
 # round-off agreement with DREAM needs. Van Albada is Runes2P's own and is zero for r ≤ 0.
 @inline function _limiter(scheme, r)
@@ -50,7 +51,9 @@ end
         r < 0 && return r * (1 + r) / (1 + r * r), (1 + 2r - r * r) / (1 + r * r)^2
         r < 0.5 && return r * r * r - 2 * r * r + 2 * r, 3 * r * r - 4 * r + 2
         r < 2 && return 0.25 + 0.75 * r, 0.75
+        #! format: off
         return (2 * r * r - 2 * r - 2.25) / (r * r - r - 1), 0.25 * (2r - 1) / (r * r - r - 1)^2
+        #! format: on
     elseif scheme === :ospre
         return 1.5 * r * (r + 1) / (r * r + r + 1), 1.5 * (1 + 2r) / (r * r + r + 1)^2
     elseif scheme === :van_albada
@@ -99,7 +102,8 @@ the limiter; zero where r is clamped). For the linear schemes both triples are e
     # face = v_u + ψ(r) dx s_u (DREAM SetFluxLimitedCoefficient); its derivative
     # ∂(ψ s_u) = ψ'(r) (∂s_d - r ∂s_u) + ψ ∂s_u
     weights = (0.0, 1 + psi * dx * e_u, -psi * dx * e_u)
-    derivatives = (dx * dpsi * e_d, 1 + dx * (dpsi * (-e_d - r * e_u) + psi * e_u), dx * (dpsi * r * e_u - psi * e_u))
+    derivatives = (dx * dpsi * e_d, 1 + dx * (dpsi * (-e_d - r * e_u) + psi * e_u),
+        dx * (dpsi * r * e_u - psi * e_u))
     return weights, derivatives
 end
 
@@ -114,7 +118,8 @@ although the derivative is bounded (DREAM writes its full Jacobian the same way)
 """
 @inline function _four_point_face_value(scheme, x_face, x_d, x_u, x_uu, y_d, y_u, y_uu)
     v_d, v_u, v_uu = _value(y_d), _value(y_u), _value(y_uu)
-    (w_d, w_u, w_uu), (c_d, c_u, c_uu) = _four_point_weights(scheme, x_face, x_d, x_u, x_uu, v_d, v_u, v_uu)
+    (w_d, w_u, w_uu), (c_d, c_u, c_uu) = _four_point_weights(
+        scheme, x_face, x_d, x_u, x_uu, v_d, v_u, v_uu)
     is_nonlinear_scheme(scheme) || return w_d * y_d + w_u * y_u + w_uu * y_uu
     face = w_d * v_d + w_u * v_u + w_uu * v_uu
     return face + c_d * (y_d - v_d) + c_u * (y_u - v_u) + c_uu * (y_uu - v_uu)
@@ -123,8 +128,10 @@ end
 # face value with the weights of the limiter evaluated on another state (s_*), applied
 # linearly to y_*: the limiter frozen at that state (DREAM's linearly implicit solver
 # takes the weights from the previous time level)
-@inline function _frozen_face_value(scheme, x_face, x_d, x_u, x_uu, s_d, s_u, s_uu, y_d, y_u, y_uu)
-    (w_d, w_u, w_uu), _ = _four_point_weights(scheme, x_face, x_d, x_u, x_uu, _value(s_d), _value(s_u), _value(s_uu))
+@inline function _frozen_face_value(
+        scheme, x_face, x_d, x_u, x_uu, s_d, s_u, s_uu, y_d, y_u, y_uu)
+    (w_d, w_u, w_uu), _ = _four_point_weights(
+        scheme, x_face, x_d, x_u, x_uu, _value(s_d), _value(s_u), _value(s_uu))
     return w_d * y_d + w_u * y_u + w_uu * y_uu
 end
 
@@ -133,8 +140,8 @@ end
 # (p_min > 0, beyond p_max) are set by the caller, `_p_four_point_face`
 @inline function _ghost_center(centers, faces, i)
     n = length(centers)
-    i < 1 && return 2 * faces[1] - centers[1-i]
-    i > n && return 2 * faces[end] - centers[2n+1-i]
+    i < 1 && return 2 * faces[1] - centers[1 - i]
+    i > n && return 2 * faces[end] - centers[2n + 1 - i]
     return centers[i]
 end
 @inline _ghost_index(i, n) = i < 1 ? 1 - i : (i > n ? 2n + 1 - i : i)

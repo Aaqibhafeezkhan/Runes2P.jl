@@ -7,35 +7,43 @@
 #
 #   julia --project=examples examples/relaxation.jl
 #   julia --project=examples examples/relaxation.jl scheme=van_albada solver=gmres np=400
-#   julia --project=examples examples/relaxation.jl grid=production e_over_ec=10 T=1e3 t_end=2e-3
+#   julia --project=examples examples/relaxation.jl grid=biuniform_270 e_over_ec=10 T=1e3 t_end=2e-3
 #   julia --project=examples examples/relaxation.jl scheme=tcdf jacobian=upwind solver=gmres operator=stored
 #   julia --project=examples examples/relaxation.jl mode=superthermal screening=partial n_ar=1e19
 #
-# Values: deuterium at 1 keV and 1e20 m⁻³ with E = 5 E_c (the Dreicer regime), 200
-# momentum cells to p = 2 and 15 pitch cells, dt = 1e-5 s to 1 ms.
+# Values (a choice of this package; see the docs page *Choices of this package*):
+# deuterium at 1 keV and 1e20 m⁻³ with E = 5 E_c, 200 momentum cells to p = 2 and 15
+# pitch cells, dt = 1e-5 s to 1 ms.
 include(joinpath(@__DIR__, "common.jl"))
 
 nr = 1
-mom = momentum_grid_from_switches(np=200, nxi=15, p_max=2.0)
+mom = momentum_grid_from_switches(np = 200, nxi = 15, p_max = 2.0)
 grid = cylindrical_grid(mom, RadialGrid(uniform_r_faces(nr, 1.0)))
-plasma = plasma_from_switches(nr; T=1e3, n=1e20, e_over_ec=5.0)
+plasma = plasma_from_switches(nr; T = 1e3, n = 1e20, e_over_ec = 5.0)
 settings = collision_settings_from_switches()
 schemes = scheme_switches()
-op = fokker_planck_operator(grid, plasma, settings; schemes..., synchrotron=boolean("synchrotron", false))
-println("scheme p/ξ: ", op.p_scheme, "/", op.xi_scheme, ", Jacobian ", jacobian_switch(), ", p_max boundary ", op.p_upper_boundary,
-        ", collisions ", settings.mode, ", E/E_c = ",
-        round(plasma.electric_field[1] / critical_field(plasma.cold_electron_density[1],
-              thermal_coulomb_logarithm(plasma.cold_electron_temperature[1], plasma.cold_electron_density[1])); digits=2))
+op = fokker_planck_operator(
+    grid, plasma, settings; schemes..., synchrotron = boolean("synchrotron", false))
+println("scheme p/ξ: ", op.p_scheme, "/", op.xi_scheme, ", Jacobian ",
+    jacobian_switch(), ", p_max boundary ", op.p_upper_boundary,
+    ", collisions ", settings.mode, ", E/E_c = ",
+    round(
+        plasma.electric_field[1] / critical_field(plasma.cold_electron_density[1],
+            thermal_coulomb_logarithm(plasma.cold_electron_temperature[1], plasma.cold_electron_density[1]));
+        digits = 2))
 
 f0 = maxwellian(grid, number("T0", plasma.cold_electron_temperature[1]), plasma.cold_electron_density[1], nr)
-layout = UnknownLayout(grid.radial_grid, [KineticUnknown(:f, grid; scale=maximum(f0), nonnegative=boolean("nonnegative", false))])
-system = EquationSystem(layout, [Equation(:f, TimeDerivative(), FokkerPlanckTerm(:f, op; jacobian=jacobian_switch()))])
+layout = UnknownLayout(grid.radial_grid,
+    [KineticUnknown(:f, grid; scale = maximum(f0), nonnegative = boolean("nonnegative", false))])
+system = EquationSystem(layout,
+    [Equation(:f, TimeDerivative(), FokkerPlanckTerm(:f, op; jacobian = jacobian_switch()))])
 solver = solver_from_switches()
-times, save_times = times_from_switches(dt=1e-5, t_end=1e-3)
+times, save_times = times_from_switches(dt = 1e-5, t_end = 1e-3)
 
 integrate(system, vec(f0), times[1:min(3, end)]; solver)   # compile
 description = Dict("example" => "relaxation", "initial_state" => "Maxwellian")
-wall = @elapsed solution = integrate(system, vec(f0), times; solver, save_times, description, run_options()...)
+wall = @elapsed solution = integrate(
+    system, vec(f0), times; solver, save_times, description, run_options()...)
 report(solution, grid; wall)
 
 p_star = number("p_star", 0.0)

@@ -5,22 +5,29 @@ using SciMLBase: SciMLBase
     rad = RadialGrid(uniform_r_faces(2, 0.5))
     mom = MomentumGrid(uniform_p_faces(8, 0.0, 2.0), uniform_xi_faces(4))
     g = cylindrical_grid(mom, rad)
-    plasma = PlasmaState(cold_electron_temperature=[100.0, 200.0], ions=[IonSpecies("D", 1, 1, [1e20, 1e20])],
-                         electric_field=[2.0, 1.0], magnetic_field=[5.0, 5.0])
+    plasma = PlasmaState(cold_electron_temperature = [100.0, 200.0],
+        ions = [IonSpecies("D", 1, 1, [1e20, 1e20])],
+        electric_field = [2.0, 1.0], magnetic_field = [5.0, 5.0])
     fp = fokker_planck_operator(g, plasma)
-    layout = UnknownLayout(rad, [KineticUnknown(:hot_tail_distribution, g; scale=1e16),
-                                 RadialUnknown(:hot_electron_density; scale=1e16)])
-    density_equation = Equation(:hot_electron_density, Algebraic(), DensityMomentTerm(:hot_tail_distribution),
-                                LinearTerm(:hot_electron_density; coefficient=-1))
-    sparse_only = EquationSystem(layout, [Equation(:hot_tail_distribution, TimeDerivative(),
-                                                   FokkerPlanckTerm(:hot_tail_distribution, fp)),
-                                          density_equation])
+    layout = UnknownLayout(rad,
+        [KineticUnknown(:hot_tail_distribution, g; scale = 1e16),
+            RadialUnknown(:hot_electron_density; scale = 1e16)])
+    density_equation = Equation(
+        :hot_electron_density, Algebraic(), DensityMomentTerm(:hot_tail_distribution),
+        LinearTerm(:hot_electron_density; coefficient = -1))
+    sparse_only = EquationSystem(layout,
+        [
+            Equation(:hot_tail_distribution, TimeDerivative(),
+                FokkerPlanckTerm(:hot_tail_distribution, fp)),
+            density_equation])
     knockon = KnockOnOperator(g, g, 0.3)
-    with_knockon = EquationSystem(layout, [Equation(:hot_tail_distribution, TimeDerivative(),
-                                                    FokkerPlanckTerm(:hot_tail_distribution, fp),
-                                                    KnockOnTerm(:hot_tail_distribution, knockon;
-                                                                target_density=[1e20, 1e20], treatment=:implicit)),
-                                           density_equation])
+    with_knockon = EquationSystem(layout,
+        [
+            Equation(:hot_tail_distribution, TimeDerivative(),
+                FokkerPlanckTerm(:hot_tail_distribution, fp),
+                KnockOnTerm(:hot_tail_distribution, knockon;
+                    target_density = [1e20, 1e20], treatment = :implicit)),
+            density_equation])
     u = [1e16 * (1 + 0.1 * sin(k)) for k in 1:length(layout)]
     v = [cos(0.3k) for k in 1:length(layout)] .* unknown_scales(layout)
     t = 0.0
@@ -54,10 +61,12 @@ using SciMLBase: SciMLBase
 
     # a stored block of another scheme is not ∂f/∂u, so only the Jacobian-vector product,
     # which adds the correction, is offered
-    approximate = EquationSystem(layout, [Equation(:hot_tail_distribution, TimeDerivative(),
-                                                   FokkerPlanckTerm(:hot_tail_distribution, with_scheme(fp, :central);
-                                                                    jacobian=:upwind)),
-                                          density_equation])
+    approximate = EquationSystem(layout,
+        [
+            Equation(:hot_tail_distribution, TimeDerivative(),
+                FokkerPlanckTerm(:hot_tail_distribution, with_scheme(fp, :central);
+                    jacobian = :upwind)),
+            density_equation])
     @test !approximate.stored_jacobian_exact
     H = ode_function(approximate)
     @test !SciMLBase.has_jac(H) && SciMLBase.has_jvp(H)

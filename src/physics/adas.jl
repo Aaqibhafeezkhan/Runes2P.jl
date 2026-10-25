@@ -30,8 +30,8 @@ struct ADF11Table
     nuclear_charge::Int
     log_density::Vector{Float64}
     log_temperature::Vector{Float64}
-    log_coefficient::Array{Float64,3}
-    derivatives::NTuple{3,Array{Float64,3}}
+    log_coefficient::Array{Float64, 3}
+    derivatives::NTuple{3, Array{Float64, 3}}
     source::String
 end
 
@@ -48,7 +48,7 @@ file name (`acd96_ne.dat` is `:acd`) unless given.
 Throws an `ArgumentError` for a file whose blocks do not match its header, and for a
 metastable-resolved file (`IGRD` or `IPRT` above 1), which DREAM does not read either.
 """
-function read_adf11(path::AbstractString; class::Union{Nothing,Symbol}=nothing)
+function read_adf11(path::AbstractString; class::Union{Nothing, Symbol} = nothing)
     class = class === nothing ? Symbol(lowercase(basename(path)[1:3])) : class
     class in ADF11_CLASSES || throw(ArgumentError("unknown ADF11 class $class of $path"))
     lines = readlines(path)
@@ -85,7 +85,8 @@ function read_adf11(path::AbstractString; class::Union{Nothing,Symbol}=nothing)
         end
         (k > length(lines) || startswith(lines[k], "C")) && break
         values = Float64[]
-        while k <= length(lines) && !startswith(strip(lines[k], [' ', 'C']), "--") && !startswith(lines[k], "C") &&
+        while k <= length(lines) && !startswith(strip(lines[k], [' ', 'C']), "--") &&
+              !startswith(lines[k], "C") &&
               !isempty(strip(lines[k]))
             append!(values, numbers(lines[k]) .- 6)
             k += 1
@@ -94,11 +95,12 @@ function read_adf11(path::AbstractString; class::Union{Nothing,Symbol}=nothing)
             throw(ArgumentError("block $(length(blocks) + 1) of $path has $(length(values)) values, not $(nn * nT)"))
         push!(blocks, values)
     end
-    length(blocks) == Z || throw(ArgumentError("$path has $(length(blocks)) blocks for nuclear charge $Z"))
+    length(blocks) == Z ||
+        throw(ArgumentError("$path has $(length(blocks)) blocks for nuclear charge $Z"))
     # the density varies fastest within a block
     log_coefficient = reshape(reduce(vcat, blocks), nn, nT, Z)
     return ADF11Table(class, Z, log_density, log_temperature, log_coefficient,
-                      _bicubic_derivatives(log_density, log_temperature, log_coefficient), String(path))
+        _bicubic_derivatives(log_density, log_temperature, log_coefficient), String(path))
 end
 
 """
@@ -116,8 +118,8 @@ function _natural_spline_slopes(x::AbstractVector, y::AbstractVector)
     # derivative at the interior nodes and a zero second derivative at both ends give
     # a tridiagonal system for s (the natural cubic spline in its slope form,
     # de Boor, A Practical Guide to Splines, rev. ed. 2001, ch. IV).
-    h = [Float64(x[k+1] - x[k]) for k in 1:n-1]           # interval widths
-    d = [Float64(y[k+1] - y[k]) / h[k] for k in 1:n-1]    # chord slopes
+    h = [Float64(x[k + 1] - x[k]) for k in 1:(n - 1)]           # interval widths
+    d = [Float64(y[k + 1] - y[k]) / h[k] for k in 1:(n - 1)]    # chord slopes
     lower = zeros(n - 1)
     main = zeros(n)
     upper = zeros(n - 1)
@@ -127,16 +129,16 @@ function _natural_spline_slopes(x::AbstractVector, y::AbstractVector)
     upper[1] = 1.0
     rhs[1] = 3.0 * d[1]
     # Interior node i joins the pieces of widths h[i-1] and h[i].
-    for i in 2:n-1
-        lower[i-1] = h[i]
-        main[i] = 2.0 * (h[i-1] + h[i])
-        upper[i] = h[i-1]
-        rhs[i] = 3.0 * (h[i] * d[i-1] + h[i-1] * d[i])
+    for i in 2:(n - 1)
+        lower[i - 1] = h[i]
+        main[i] = 2.0 * (h[i - 1] + h[i])
+        upper[i] = h[i - 1]
+        rhs[i] = 3.0 * (h[i] * d[i - 1] + h[i - 1] * d[i])
     end
     # Right end: zero second derivative of the last piece at x[n].
-    lower[n-1] = 1.0
+    lower[n - 1] = 1.0
     main[n] = 2.0
-    rhs[n] = 3.0 * d[n-1]
+    rhs[n] = 3.0 * d[n - 1]
     return Tridiagonal(lower, main, upper) \ rhs
 end
 
@@ -147,7 +149,7 @@ Node derivatives of tabulated values `z[i, j, b]` at `(x[i], y[j])` for independ
 blocks `b`: `zx` and `zy` are natural-spline slopes along `x` and `y`, and `zxy` is the
 natural-spline slope along `x` of `zy`.
 """
-function _bicubic_derivatives(x, y, z::Array{Float64,3})
+function _bicubic_derivatives(x, y, z::Array{Float64, 3})
     nx, ny, nb = size(z)
     (length(x) == nx && length(y) == ny) ||
         throw(DimensionMismatch("grid lengths do not match the size of z"))
@@ -182,6 +184,7 @@ _hermite_basis(s) = ((1 + 2s) * (1 - s)^2, s^2 * (3 - 2s), s * (1 - s)^2, s^2 * 
 function _bicubic(table::ADF11Table, b, i, j, t, u)
     z = table.log_coefficient
     zx, zy, zxy = table.derivatives
+    #! format: off
     dx = table.log_density[i+1] - table.log_density[i]
     dy = table.log_temperature[j+1] - table.log_temperature[j]
     z00, z01, z10, z11 = z[i, j, b], z[i, j+1, b], z[i+1, j, b], z[i+1, j+1, b]
@@ -189,6 +192,7 @@ function _bicubic(table::ADF11Table, b, i, j, t, u)
     y00, y01, y10, y11 = zy[i, j, b] * dy, zy[i, j+1, b] * dy, zy[i+1, j, b] * dy, zy[i+1, j+1, b] * dy
     s = dx * dy
     c00, c01, c10, c11 = zxy[i, j, b] * s, zxy[i, j+1, b] * s, zxy[i+1, j, b] * s, zxy[i+1, j+1, b] * s
+    #! format: on
     ht0, ht1, gt0, gt1 = _hermite_basis(t)
     hu0, hu1, gu0, gu1 = _hermite_basis(u)
     return ht0 * (hu0 * z00 + hu1 * z01 + gu0 * y00 + gu1 * y01) +
@@ -199,15 +203,18 @@ end
 
 function _bilinear(table::ADF11Table, b, i, j, t, u)
     z = table.log_coefficient
-    return (1 - t) * (1 - u) * z[i, j, b] + t * (1 - u) * z[i+1, j, b] + (1 - t) * u * z[i, j+1, b] +
-           t * u * z[i+1, j+1, b]
+    return (1 - t) * (1 - u) * z[i, j, b] + t * (1 - u) * z[i + 1, j, b] +
+           (1 - t) * u * z[i, j + 1, b] +
+           t * u * z[i + 1, j + 1, b]
 end
 
 # the block of charge state Z0, or 0 where the class has none: recombination (acd) and its
 # radiation (prb) belong to the recombining ion Z0 ≥ 1, the others to Z0 ≤ Z − 1 (DREAM's
 # shiftZ0, ADAS.cpp)
-_adf11_block(table::ADF11Table, Z0) =
-    table.class in (:acd, :prb) ? (Z0 == 0 ? 0 : Z0) : (Z0 == table.nuclear_charge ? 0 : Z0 + 1)
+function _adf11_block(table::ADF11Table, Z0)
+    table.class in (:acd, :prb) ? (Z0 == 0 ? 0 : Z0) :
+    (Z0 == table.nuclear_charge ? 0 : Z0 + 1)
+end
 
 """
     adas_coefficient(table, Z0, n, T; extrapolation=:dream)
@@ -223,13 +230,14 @@ log₁₀ of the coefficient in log₁₀ n and log₁₀ T inside the table, an
 bilinear interpolation of the edge cell, continued linearly (`extrapolation = :dream`).
 `extrapolation = :clamp_density` takes the density at the nearest edge of the table and
 extrapolates in the temperature alone: at low densities the coefficients tend to their
-coronal limit, which does not depend on the density. Below the tables `:dream` stays the
-default (decision of the author, 2026-10-04).
+coronal limit, which does not depend on the density. The default is `:dream` (a choice of
+this package; see the docs page *Choices of this package*).
 
 Derivatives with respect to `n` and `T` are exact through ForwardDiff, in place of DREAM's
 one-sided differences.
 """
-function adas_coefficient(table::ADF11Table, Z0::Integer, n, T; extrapolation::Symbol=:dream)
+function adas_coefficient(
+        table::ADF11Table, Z0::Integer, n, T; extrapolation::Symbol = :dream)
     extrapolation in (:dream, :clamp_density) ||
         throw(ArgumentError("extrapolation must be :dream or :clamp_density, not $extrapolation"))
     b = _adf11_block(table, Z0)
@@ -244,8 +252,8 @@ function _adf11_log_value(table::ADF11Table, b, x, y, extrapolation::Symbol)
     xs, ys = table.log_density, table.log_temperature
     extrapolation === :clamp_density && (x = clamp(x, xs[1], xs[end]))
     i, j = _cell(xs, _value(x)), _cell(ys, _value(y))
-    t = (x - xs[i]) / (xs[i+1] - xs[i])
-    u = (y - ys[j]) / (ys[j+1] - ys[j])
+    t = (x - xs[i]) / (xs[i + 1] - xs[i])
+    u = (y - ys[j]) / (ys[j + 1] - ys[j])
     inside = xs[1] <= x <= xs[end] && ys[1] <= y <= ys[end]
     return inside ? _bicubic(table, b, i, j, t, u) : _bilinear(table, b, i, j, t, u)
 end
@@ -255,21 +263,15 @@ end
 
 The ADF11 file of each element and class (DREAM's `tools/elements.json`): a year, which
 names the file `<class><yy>_<element>.dat` of OpenADAS, or a file name. The data are those
-of ADAS: H. P. Summers, The ADAS User Manual, version 2.6 (2004), http://www.adas.ac.uk, with the data of OpenADAS, https://open.adas.ac.uk. Deuterium and
-tritium take the files of hydrogen, except charge exchange. The high-density files of
-hydrogen are not served by OpenADAS; DREAM's cache carries them.
+of ADAS: H. P. Summers, The ADAS User Manual, version 2.6 (2004), http://www.adas.ac.uk,
+with the data of OpenADAS, https://open.adas.ac.uk. Deuterium and tritium take the files of
+hydrogen, except charge exchange. The high-density files of hydrogen are not served by
+OpenADAS; DREAM's cache carries them. The table is read from `data/adas_files.toml`.
 """
-const ADAS_FILES = let
-    hydrogen = (acd="acd12_h.high_dens.dat", scd="scd12_h.high_dens.dat", plt="plt12_h.high_dens.dat",
-                prb="prb12_h.high_dens.dat")
-    every(year) = (acd=year, scd=year, ccd=year, plt=year, prb=year)
-    Dict("H" => (; hydrogen..., ccd="96"), "D" => (; hydrogen..., ccd="96"), "T" => (; hydrogen..., ccd="96"),
-         "He" => every("96"), "Li" => (acd="96", scd="96", ccd="89", plt="96", prb="96"),
-         "Be" => (acd="96", scd="96", ccd="89", plt="96", prb="96"), "B" => every("89"), "C" => every("96"),
-         "O" => (acd="96", scd="96", ccd="89", plt="96", prb="96"),
-         "Ne" => (acd="96", scd="96", ccd="89", plt="96", prb="96"), "Ar" => every("89"),
-         "Fe" => (acd="85", scd="85", ccd="89", plt="89", prb="89"),
-         "W" => (acd="50", scd="50", ccd="89", plt="42", prb="50"))
+const ADAS_FILES = let data = read_data_file("adas_files")["data"]
+    entry(files) = NamedTuple{ADF11_CLASSES}(map(class -> files[String(class)]::String,
+        ADF11_CLASSES))
+    Dict(element => entry(files) for (element, files) in data)
 end
 
 """
@@ -279,7 +281,8 @@ The name of the ADF11 file of `element` and `class` in the cache ([`ADAS_FILES`]
 """
 function adf11_file_name(element::AbstractString, class::Symbol)
     element = atomic_element(element)
-    haskey(ADAS_FILES, element) || throw(ArgumentError("no ADF11 files listed for the element $element"))
+    haskey(ADAS_FILES, element) ||
+        throw(ArgumentError("no ADF11 files listed for the element $element"))
     entry = getproperty(ADAS_FILES[element], class)
     endswith(entry, ".dat") && return entry
     file_element = class !== :ccd && element in ("D", "T") ? "h" : lowercase(element)
@@ -293,7 +296,9 @@ The directory of the ADF11 files: `ENV["RUNES2P_ADAS_CACHE"]`, or `~/.cache/Rune
 filled by `scripts/fetch_adas.py` on a machine with internet access (the compute nodes of
 clusters often have none) and is never part of the repository.
 """
-adas_cache_directory() = get(ENV, "RUNES2P_ADAS_CACHE", joinpath(homedir(), ".cache", "Runes2P", "adas"))
+function adas_cache_directory()
+    get(ENV, "RUNES2P_ADAS_CACHE", joinpath(homedir(), ".cache", "Runes2P", "adas"))
+end
 
 """
     read_adas(element; directory=adas_cache_directory())
@@ -302,11 +307,12 @@ The five [`ADF11Table`](@ref)s of `element` as a named tuple `(acd, scd, ccd, pl
 read from the cache. Throws an `ArgumentError` naming the missing file and the script that
 fetches it.
 """
-function read_adas(element::AbstractString; directory::AbstractString=adas_cache_directory())
+function read_adas(element::AbstractString; directory::AbstractString = adas_cache_directory())
     tables = map(ADF11_CLASSES) do class
         path = joinpath(directory, adf11_file_name(element, class))
-        isfile(path) || throw(ArgumentError("the ADF11 file $path is missing: run scripts/fetch_adas.py on a " *
-                                            "machine with internet access (see its header)"))
+        isfile(path) ||
+            throw(ArgumentError("the ADF11 file $path is missing: run scripts/fetch_adas.py on a " *
+                                "machine with internet access (see its header)"))
         read_adf11(path; class)
     end
     return NamedTuple{ADF11_CLASSES}(tables)

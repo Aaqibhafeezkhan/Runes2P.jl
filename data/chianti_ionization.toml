@@ -1,0 +1,780 @@
+[metadata]
+source = "the files <ion>.diparams and <ion>.easplom of the CHIANTI atomic database, SolarSoft mirror, https://soho.nascom.nasa.gov/solarsoft/packages/chianti/dbase/; the ionization data of K. P. Dere, Astron. Astrophys. 466, 771 (2007), doi:10.1051/0004-6361:20066728"
+version_or_date = "CHIANTI 11.0.2 (the VERSION file of the SolarSoft mirror), read on 2026-10-13"
+licence = "CHIANTI database: work that uses these data should cite Dere et al., Astron. Astrophys. Suppl. Ser. 125, 149 (1997), Dufresne et al., Astrophys. J. 974, 71 (2024), and Dere, Astron. Astrophys. 466, 771 (2007); see THIRD_PARTY_NOTICES.md"
+generator = "scripts/generate_chianti_ionization.jl"
+description = "per element, one ion per charge state Z0 = 0, ..., Z - 1 in the order of Z0: the shells of the direct ionization (scale f, threshold [eV], scaled energies U, scaled cross sections [1e-14 cm² eV²]) and the transitions of the excitation-autoionization (Burgess-Tully type, weighted oscillator strength, excitation energy [Ry], scale C, five scaled collision strengths)"
+
+[[data.H]]
+ion = "h_1"
+autoionization_scale = 1.0
+autoionization = []
+
+[[data.H.direct]]
+scale = 3.8
+threshold = 13.598
+knots = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+values = [0.0, 1.355, 2.386, 3.015, 2.598, 1.85]
+
+[[data.Ne]]
+ion = "ne_1"
+autoionization_scale = 1.0
+autoionization = []
+
+[[data.Ne.direct]]
+scale = 2.4
+threshold = 21.565
+knots = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+values = [0.0, 0.758, 2.878, 8.083, 13.89, 17.6]
+
+[[data.Ne]]
+ion = "ne_2"
+autoionization_scale = 1.0
+autoionization = []
+
+[[data.Ne.direct]]
+scale = 2.4
+threshold = 40.963
+knots = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+values = [0.0, 2.419, 6.885, 13.34, 19.44, 19.09]
+
+[[data.Ne]]
+ion = "ne_3"
+autoionization_scale = 1.0
+autoionization = []
+
+[[data.Ne.direct]]
+scale = 1.8
+threshold = 63.455
+knots = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+values = [0.0, 3.072, 6.642, 11.36, 17.73, 15.73]
+
+[[data.Ne]]
+ion = "ne_4"
+autoionization_scale = 1.0
+autoionization = []
+
+[[data.Ne.direct]]
+scale = 2.4
+threshold = 97.117
+knots = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+values = [0.0, 6.308, 10.3, 14.14, 13.58, 10.57]
+
+[[data.Ne]]
+ion = "ne_5"
+autoionization_scale = 1.0
+autoionization = []
+
+[[data.Ne.direct]]
+scale = 2.2
+threshold = 126.216
+knots = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+values = [0.0, 5.168, 8.264, 11.1, 11.44, 7.357]
+
+[[data.Ne]]
+ion = "ne_6"
+autoionization_scale = 1.0
+autoionization = []
+
+[[data.Ne.direct]]
+scale = 2.0
+threshold = 157.931
+knots = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+values = [0.0, 3.039, 5.435, 7.093, 8.632, 5.092]
+
+[[data.Ne]]
+ion = "ne_7"
+autoionization_scale = 1.0
+
+[[data.Ne.direct]]
+scale = 2.0
+threshold = 207.276
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 1.279, 2.403, 3.443, 4.366, 5.023, 5.182, 4.572, 2.92]
+
+[[data.Ne.direct]]
+scale = 2.0
+threshold = 1097.962
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 1.136, 2.359, 3.724, 5.139, 6.342, 6.962, 6.601, 4.858]
+
+[[data.Ne.autoionization]]
+kind = 1
+oscillator_strength = 0.5548
+energy = 65.69
+scale = 1.9
+values = [0.02242, 0.02202, 0.02257, 0.02518, 0.03367]
+
+[[data.Ne.autoionization]]
+kind = 1
+oscillator_strength = 0.1207
+energy = 74.65
+scale = 1.7
+values = [0.006646, 0.006247, 0.00631, 0.006674, 0.006481]
+
+[[data.Ne]]
+ion = "ne_8"
+autoionization_scale = 1.0
+
+[[data.Ne.direct]]
+scale = 2.0
+threshold = 239.099
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 0.642, 1.18, 1.662, 2.074, 2.355, 2.405, 2.114, 1.364]
+
+[[data.Ne.direct]]
+scale = 2.0
+threshold = 1142.979
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 1.142, 2.346, 3.675, 5.047, 6.179, 6.699, 6.242, 4.455]
+
+[[data.Ne.autoionization]]
+kind = 1
+oscillator_strength = 0.6768
+energy = 66.55
+scale = 1.7
+values = [0.01527, 0.01552, 0.01646, 0.01849, 0.02039]
+
+[[data.Ne.autoionization]]
+kind = 1
+oscillator_strength = 0.1073
+energy = 76.68
+scale = 1.7
+values = [0.003245, 0.003251, 0.003402, 0.003462, 0.002803]
+
+[[data.Ne]]
+ion = "ne_9"
+autoionization_scale = 1.0
+autoionization = []
+
+[[data.Ne.direct]]
+scale = 2.0
+threshold = 1195.822
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 1.175, 2.302, 3.661, 5.22, 6.63, 7.345, 6.698, 4.019]
+
+[[data.Ne]]
+ion = "ne_10"
+autoionization_scale = 1.0
+autoionization = []
+
+[[data.Ne.direct]]
+scale = 2.0
+threshold = 1362.199
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 0.6079, 1.175, 1.854, 2.633, 3.332, 3.667, 3.286, 1.837]
+
+[[data.Ar]]
+ion = "ar_1"
+autoionization_scale = 1.0
+autoionization = []
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 15.76
+knots = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+values = [0.0, 2.047, 6.364, 12.12, 22.38, 31.54]
+
+[[data.Ar]]
+ion = "ar_2"
+autoionization_scale = 1.0
+autoionization = []
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 27.63
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 3.853, 8.088, 10.09, 12.65, 16.01, 19.01, 19.19, 7.691]
+
+[[data.Ar]]
+ion = "ar_3"
+autoionization_scale = 1.0
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 40.741
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 2.2273, 4.0375, 6.0036, 8.141, 9.9484, 10.4916, 8.6093, 3.1371]
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 59.64
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 0.9663, 1.7573, 2.5392, 3.3131, 3.9242, 4.0809, 3.424, 1.5932]
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 280.1
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 0.1664, 0.3276, 0.509, 0.7044, 0.8826, 0.9699, 0.8815, 0.5328]
+
+[[data.Ar.autoionization]]
+kind = 4
+oscillator_strength = 0.2632
+energy = 3.343
+scale = 1.3
+values = [0.4708, 0.3584, 0.257, 0.1521, 0.06056]
+
+[[data.Ar.autoionization]]
+kind = 4
+oscillator_strength = 0.06815
+energy = 4.015
+scale = 1.5
+values = [0.0938, 0.07456, 0.06246, 0.04666, 0.0146]
+
+[[data.Ar.autoionization]]
+kind = 4
+oscillator_strength = 0.1414
+energy = 3.487
+scale = 1.4
+values = [0.151, 0.1099, 0.0783, 0.0477, 0.03204]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.1724
+energy = 4.321
+scale = 1.5
+values = [0.03816, 0.03246, 0.02926, 0.02672, 0.0318]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 1.133
+energy = 19.78
+scale = 1.3
+values = [0.05242, 0.04262, 0.04056, 0.0376, 0.04534]
+
+[[data.Ar.autoionization]]
+kind = 4
+oscillator_strength = 0.1581
+energy = 25.42
+scale = 1.2
+values = [0.02598, 0.01798, 0.01287, 0.00807, 0.00486]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.5007
+energy = 20.17
+scale = 1.3
+values = [0.02252, 0.01812, 0.01725, 0.0161, 0.01966]
+
+[[data.Ar.autoionization]]
+kind = 4
+oscillator_strength = 0.06349
+energy = 25.91
+scale = 1.2
+values = [0.01366, 0.009432, 0.006474, 0.003774, 0.001864]
+
+[[data.Ar.autoionization]]
+kind = 2
+oscillator_strength = 0.0
+energy = 3.011
+scale = 1.5
+values = [0.005416, 0.009332, 0.01246, 0.01552, 0.0209]
+
+[[data.Ar.autoionization]]
+kind = 2
+oscillator_strength = 0.0
+energy = 3.166
+scale = 1.5
+values = [0.06806, 0.1375, 0.1956, 0.2524, 0.3472]
+
+[[data.Ar.autoionization]]
+kind = 2
+oscillator_strength = 2.427e-6
+energy = 3.421
+scale = 1.5
+values = [0.1231, 0.1732, 0.2242, 0.2748, 0.3652]
+
+[[data.Ar]]
+ion = "ar_4"
+autoionization_scale = 1.0
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 59.81
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 1.7397, 3.2276, 4.8539, 6.6134, 8.0978, 8.6267, 7.3525, 3.4244]
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 76.72
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 1.0038, 1.8328, 2.6818, 3.5484, 4.2537, 4.4497, 3.7144, 1.6251]
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 298.7
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 0.4667, 0.9314, 1.4766, 2.0796, 2.6332, 2.9002, 2.6069, 1.4796]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 3.89
+energy = 18.72
+scale = 1.3
+values = [0.1953, 0.1696, 0.1681, 0.1664, 0.207]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.511
+energy = 22.94
+scale = 1.4
+values = [0.00945, 0.008233, 0.01001, 0.01335, 0.02221]
+
+[[data.Ar.autoionization]]
+kind = 4
+oscillator_strength = 0.01681
+energy = 25.16
+scale = 1.5
+values = [0.03717, 0.02753, 0.02084, 0.01333, 0.000968]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 1.288
+energy = 20.64
+scale = 1.3
+values = [0.0689, 0.05825, 0.056, 0.05293, 0.0622]
+
+[[data.Ar.autoionization]]
+kind = 4
+oscillator_strength = 0.1761
+energy = 26.25
+scale = 1.3
+values = [0.031, 0.02294, 0.01699, 0.01119, 0.006547]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.5701
+energy = 21.25
+scale = 1.3
+values = [0.03042, 0.0253, 0.02417, 0.02276, 0.02675]
+
+[[data.Ar.autoionization]]
+kind = 4
+oscillator_strength = 0.07431
+energy = 26.98
+scale = 1.3
+values = [0.01305, 0.009595, 0.00709, 0.004663, 0.002692]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.00866
+energy = 4.924
+scale = 1.7
+values = [0.01105, 0.00878, 0.006793, 0.004625, 0.001796]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.02001
+energy = 5.574
+scale = 1.8
+values = [0.00517, 0.005493, 0.005788, 0.005302, 0.003547]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.01381
+energy = 6.543
+scale = 1.8
+values = [0.001928, 0.002244, 0.00253, 0.002538, 0.002111]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.01065
+energy = 7.36
+scale = 1.8
+values = [0.001314, 0.001553, 0.001799, 0.001871, 0.001455]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.01527
+energy = 8.236
+scale = 1.8
+values = [0.000537, 0.000736, 0.000936, 0.001201, 0.001851]
+
+[[data.Ar]]
+ion = "ar_5"
+autoionization_scale = 1.0
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 75.023
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 1.2591, 2.2886, 3.3553, 4.4743, 5.4046, 5.7335, 4.9422, 2.5097]
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 91.48
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 1.0568, 1.8933, 2.7051, 3.5056, 4.1373, 4.2984, 3.6114, 1.6982]
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 320.0
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 0.0052, 0.0104, 0.0166, 0.0236, 0.0301, 0.0332, 0.0296, 0.016]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.03033
+energy = 6.168
+scale = 1.8
+values = [0.01254, 0.01444, 0.01672, 0.01796, 0.01955]
+
+[[data.Ar.autoionization]]
+kind = 4
+oscillator_strength = 0.00855
+energy = 7.233
+scale = 1.6
+values = [0.01039, 0.01061, 0.01022, 0.008737, 0.004805]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.01871
+energy = 8.267
+scale = 1.6
+values = [0.002464, 0.003431, 0.004468, 0.005846, 0.009039]
+
+[[data.Ar.autoionization]]
+kind = 4
+oscillator_strength = 0.00151
+energy = 9.468
+scale = 1.6
+values = [0.001126, 0.001383, 0.001443, 0.001229, 0.0006428]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.02402
+energy = 6.11
+scale = 1.7
+values = [0.01639, 0.01616, 0.01622, 0.01502, 0.01567]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.01195
+energy = 7.083
+scale = 1.6
+values = [0.002613, 0.00336, 0.004048, 0.004781, 0.006737]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.008696
+energy = 8.307
+scale = 1.5
+values = [0.001758, 0.002353, 0.002899, 0.003246, 0.004174]
+
+[[data.Ar.autoionization]]
+kind = 4
+oscillator_strength = 0.01396
+energy = 5.877
+scale = 1.6
+values = [0.06964, 0.05619, 0.04269, 0.02727, 0.009004]
+
+[[data.Ar.autoionization]]
+kind = 4
+oscillator_strength = 0.02727
+energy = 6.153
+scale = 1.6
+values = [0.03668, 0.03201, 0.02671, 0.01992, 0.01761]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 1.43
+energy = 19.6
+scale = 1.8
+values = [0.2933, 0.2643, 0.2638, 0.2666, 0.2916]
+
+[[data.Ar]]
+ion = "ar_6"
+autoionization_scale = 1.0
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 91.009
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 1.7833, 3.1402, 4.2839, 5.3017, 6.0319, 6.1484, 5.2084, 2.7567]
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 339.143
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 0.069, 0.1324, 0.2023, 0.2788, 0.3494, 0.3938, 0.3872, 0.3046]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 9.404e-6
+energy = 7.094
+scale = 1.8
+values = [4.063e-5, 4.184e-5, 3.823e-5, 2.721e-5, 2.793e-6]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.01201
+energy = 7.17
+scale = 1.8
+values = [0.005775, 0.006375, 0.006675, 0.00575, 0.003363]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.01592
+energy = 7.031
+scale = 1.7
+values = [0.01861, 0.01653, 0.01475, 0.0116, 0.004619]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 3.435
+energy = 19.97
+scale = 1.7
+values = [0.3559, 0.3284, 0.3225, 0.318, 0.3427]
+
+[[data.Ar.autoionization]]
+kind = 4
+oscillator_strength = 1.013
+energy = 24.39
+scale = 1.4
+values = [0.2218, 0.1664, 0.1309, 0.0993, 0.0827]
+
+[[data.Ar.autoionization]]
+kind = 4
+oscillator_strength = 0.001321
+energy = 30.18
+scale = 1.3
+values = [0.008295, 0.00612, 0.004337, 0.002493, 0.000126]
+
+[[data.Ar]]
+ion = "ar_7"
+autoionization_scale = 1.0
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 124.323
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 1.0446, 1.825, 2.5575, 3.2806, 3.8542, 4.0157, 3.4266, 1.7466]
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 367.391
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 0.0806, 0.1528, 0.2321, 0.3188, 0.3966, 0.4399, 0.4168, 0.2956]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 2.03
+energy = 20.42
+scale = 1.8
+values = [0.4217, 0.3936, 0.3849, 0.374, 0.396]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.618
+energy = 24.23
+scale = 1.8
+values = [0.1227, 0.1129, 0.11, 0.1055, 0.1018]
+
+[[data.Ar]]
+ion = "ar_8"
+autoionization_scale = 1.0
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 143.457
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 0.5053, 0.8876, 1.256, 1.626, 1.925, 2.016, 1.725, 0.877]
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 392.736
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 4.726, 9.786, 15.22, 21.29, 26.83, 29.79, 27.68, 18.76]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 4.787
+energy = 21.18
+scale = 1.7
+values = [0.4207, 0.4153, 0.4241, 0.4238, 0.45]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 1.245
+energy = 25.43
+scale = 1.7
+values = [0.1217, 0.1147, 0.1124, 0.1072, 0.0976]
+
+[[data.Ar]]
+ion = "ar_9"
+autoionization_scale = 1.0
+autoionization = []
+
+[[data.Ar.direct]]
+scale = 2.4
+threshold = 422.451
+knots = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+values = [0.0, 11.0626, 19.989, 25.11, 22.746, 17.0842]
+
+[[data.Ar]]
+ion = "ar_10"
+autoionization_scale = 1.0
+autoionization = []
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 478.691
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 4.4237, 9.1963, 13.5416, 17.3996, 20.2206, 21.0521, 18.9005, 13.3063]
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 3467.992
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 1.0892, 2.313, 3.6862, 5.0973, 6.2529, 6.8452, 6.6029, 5.2476]
+
+[[data.Ar]]
+ion = "ar_11"
+autoionization_scale = 1.0
+autoionization = []
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 538.959
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 3.4496, 7.4447, 11.1605, 14.4979, 16.9038, 17.5278, 15.4535, 10.2626]
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 3549.5
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 1.0952, 2.3146, 3.6956, 5.1406, 6.3165, 6.8835, 6.5591, 5.0547]
+
+[[data.Ar]]
+ion = "ar_12"
+autoionization_scale = 1.0
+autoionization = []
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 618.26
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 3.432, 6.8251, 9.7069, 12.0361, 13.4845, 13.5724, 11.7851, 7.8124]
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 3635.373
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 1.1056, 2.3128, 3.6911, 5.1602, 6.3582, 6.8978, 6.4942, 4.8584]
+
+[[data.Ar]]
+ion = "ar_13"
+autoionization_scale = 1.0
+autoionization = []
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 686.104
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 2.5648, 5.1113, 7.422, 9.4735, 10.9004, 11.1421, 9.5844, 5.7791]
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 3730.659
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 1.1314, 2.3403, 3.7115, 5.1688, 6.3469, 6.8515, 6.3893, 4.6569]
+
+[[data.Ar]]
+ion = "ar_14"
+autoionization_scale = 1.0
+autoionization = []
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 755.746
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 1.7976, 3.6121, 5.2516, 6.7027, 7.7173, 7.8939, 6.7947, 4.1361]
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 3829.97
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 1.1524, 2.3602, 3.725, 5.1678, 6.3331, 6.8044, 6.2765, 4.456]
+
+[[data.Ar]]
+ion = "ar_15"
+autoionization_scale = 1.0
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 854.772
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 1.2768, 2.3948, 3.4136, 4.3068, 4.9213, 5.0316, 4.4008, 2.7961]
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 3933.801
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 1.1747, 2.3835, 3.7408, 5.17, 6.3134, 6.749, 6.1652, 4.2579]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.3767
+energy = 226.6
+scale = 1.9
+values = [0.006135, 0.005693, 0.005514, 0.005841, 0.006652]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.111
+energy = 262.7
+scale = 1.7
+values = [0.002163, 0.002005, 0.001935, 0.001936, 0.001691]
+
+[[data.Ar]]
+ion = "ar_16"
+autoionization_scale = 1.0
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 918.385
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 0.6463, 1.196, 1.6873, 2.109, 2.3912, 2.4315, 2.1228, 1.358]
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 4021.211
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 1.1764, 2.3762, 3.7149, 5.1219, 6.2398, 6.6426, 6.014, 4.0509]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.1994
+energy = 228.3
+scale = 1.9
+values = [0.00285, 0.002612, 0.002387, 0.002161, 0.001748]
+
+[[data.Ar.autoionization]]
+kind = 1
+oscillator_strength = 0.02014
+energy = 266.5
+scale = 1.7
+values = [0.0005095, 0.0004903, 0.0004749, 0.0003999, 0.0001511]
+
+[[data.Ar]]
+ion = "ar_17"
+autoionization_scale = 1.0
+autoionization = []
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 4120.841
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 1.195, 2.335, 3.734, 5.365, 6.847, 7.577, 6.816, 3.824]
+
+[[data.Ar]]
+ion = "ar_18"
+autoionization_scale = 1.0
+autoionization = []
+
+[[data.Ar.direct]]
+scale = 2.0
+threshold = 4426.208
+knots = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0]
+values = [0.0, 0.6085, 1.18, 1.881, 2.7, 3.441, 3.796, 3.382, 1.818]

@@ -31,7 +31,7 @@ using Random: MersenneTwister
         @test overlap.right_fractions ≈ ones(12) rtol = 1e-14
         f_coarse = [1.0, -2.0, 3.0, 0.5]
         f_fine = remap_to_right!(zeros(12), overlap, f_coarse)
-        @test f_fine ≈ repeat(f_coarse; inner=3) rtol = 1e-14
+        @test f_fine ≈ repeat(f_coarse; inner = 3) rtol = 1e-14
         # the mean over the fine cells of each coarse cell
         values = collect(1.0:12.0)
         @test remap_to_left!(zeros(4), overlap, values) ≈ [2.0, 5.0, 8.0, 11.0] rtol = 1e-14
@@ -43,13 +43,14 @@ using Random: MersenneTwister
         overlap = PitchOverlap(left, right)
         # cos(π/2) of the right grid and the face 0 of the left grid are one face
         @test count(x -> abs(x) < 1e-10, overlap.xi_faces) == 1
-        count_expected = length(unique(x -> round(x; digits=10), vcat(left, right))) - 1
+        count_expected = length(unique(x -> round(x; digits = 10), vcat(left, right))) - 1
         @test overlap_cell_count(overlap) == count_expected
         @test sum(overlap.xi_widths) ≈ 2 rtol = 1e-15
         @test all(>(0), overlap.xi_widths)
         @test issorted(overlap.left_cells) && issorted(overlap.right_cells)
-        for (ranges, fractions, cells) in ((overlap.left_ranges, overlap.left_fractions, overlap.left_cells),
-                                           (overlap.right_ranges, overlap.right_fractions, overlap.right_cells))
+        for (ranges, fractions, cells) in ((
+            overlap.left_ranges, overlap.left_fractions, overlap.left_cells),
+            (overlap.right_ranges, overlap.right_fractions, overlap.right_cells))
             @test vcat(collect.(ranges)...) == 1:overlap_cell_count(overlap)
             for (j, range) in enumerate(ranges)
                 @test !isempty(range)
@@ -60,20 +61,24 @@ using Random: MersenneTwister
         # every overlap cell lies inside its two cells
         for s in 1:overlap_cell_count(overlap)
             jl, jr = overlap.left_cells[s], overlap.right_cells[s]
-            @test left[jl] - 1e-12 <= overlap.xi_faces[s] && overlap.xi_faces[s+1] <= left[jl+1] + 1e-12
-            @test right[jr] - 1e-12 <= overlap.xi_faces[s] && overlap.xi_faces[s+1] <= right[jr+1] + 1e-12
+            @test left[jl] - 1e-12 <= overlap.xi_faces[s] &&
+                  overlap.xi_faces[s + 1] <= left[jl + 1] + 1e-12
+            @test right[jr] - 1e-12 <= overlap.xi_faces[s] &&
+                  overlap.xi_faces[s + 1] <= right[jr + 1] + 1e-12
         end
 
         rng = MersenneTwister(5)
         for _ in 1:20
             f_left = randn(rng, 10)
             f_right = remap_to_right!(zeros(20), overlap, f_left)
-            @test content(right, f_right) ≈ content(left, f_left) rtol = 1e-13 atol = 1e-14
-            @test minimum(f_left) - 1e-14 <= minimum(f_right) && maximum(f_right) <= maximum(f_left) + 1e-14
+            @test content(right, f_right)≈content(left, f_left) rtol=1e-13 atol=1e-14
+            @test minimum(f_left) - 1e-14 <= minimum(f_right) &&
+                  maximum(f_right) <= maximum(f_left) + 1e-14
             g_right = randn(rng, 20)
             g_left = remap_to_left!(zeros(10), overlap, g_right)
-            @test content(left, g_left) ≈ content(right, g_right) rtol = 1e-13 atol = 1e-14
-            @test minimum(g_right) - 1e-14 <= minimum(g_left) && maximum(g_left) <= maximum(g_right) + 1e-14
+            @test content(left, g_left)≈content(right, g_right) rtol=1e-13 atol=1e-14
+            @test minimum(g_right) - 1e-14 <= minimum(g_left) &&
+                  maximum(g_left) <= maximum(g_right) + 1e-14
         end
         # constants and signs are kept
         @test remap_to_right!(zeros(20), overlap, fill(3.5, 10)) ≈ fill(3.5, 20) rtol = 1e-12
@@ -116,30 +121,32 @@ using Random: MersenneTwister
         measure(a, b) = (b - a) + (b^3 - a^3) / 3
         left, right = uniform_xi_faces(7), biuniform_theta_xi_faces(15, 10, 0.5)
         overlap = PitchOverlap(left, right; measure)
-        weighted(faces, f) = sum(measure(faces[j], faces[j+1]) * f[j] for j in eachindex(f))
+        weighted(faces, f) = sum(measure(faces[j], faces[j + 1]) * f[j]
+        for j in eachindex(f))
         rng = MersenneTwister(7)
         f_left = rand(rng, 7)
         f_right = remap_to_right!(zeros(15), overlap, f_left)
         @test weighted(right, f_right) ≈ weighted(left, f_left) rtol = 1e-13
         @test remap_to_left!(zeros(7), overlap, fill(2.0, 15)) ≈ fill(2.0, 7) rtol = 1e-12
-        @test_throws ArgumentError PitchOverlap(left, right; measure=(a, b) -> a - b)
+        @test_throws ArgumentError PitchOverlap(left, right; measure = (a, b) -> a - b)
     end
 
     @testset "order of the remap" begin
         # remap of the cell averages of a smooth function to a shifted grid: first order
         shape(x) = exp(2x)
-        average(faces, j) = (shape(faces[j+1]) - shape(faces[j])) / (2 * (faces[j+1] - faces[j]))
+        average(faces, j) = (shape(faces[j + 1]) - shape(faces[j])) /
+                            (2 * (faces[j + 1] - faces[j]))
         errors = map((16, 32, 64, 128)) do cells
             left = uniform_xi_faces(cells)
             # the interior faces moved by 0.4 cell widths
-            right = vcat(-1.0, left[2:end-1] .+ 0.4 * 2 / cells, 1.0)
+            right = vcat(-1.0, left[2:(end - 1)] .+ 0.4 * 2 / cells, 1.0)
             overlap = PitchOverlap(left, right)
             f_left = [average(left, j) for j in 1:cells]
             f_right = remap_to_right!(zeros(cells), overlap, f_left)
             exact = [average(right, j) for j in 1:cells]
             maximum(abs.(f_right .- exact) ./ exact)
         end
-        orders = log2.(errors[1:end-1] ./ errors[2:end])
+        orders = log2.(errors[1:(end - 1)] ./ errors[2:end])
         @test all(order -> 0.9 < order < 1.1, orders)
         @test errors[end] < 0.01
     end

@@ -11,13 +11,16 @@
 # targets, without the bound electrons and the ions, which take the momentum they receive
 function _electron_electron_slowing_down_frequency(model::CollisionModel, ir, p)
     p == 0 && return zero(p * model.scaled_bessel_k0[ir])
-    return COLLISION_PREFACTOR * (1 + p^2) / p^3 * _coulomb_logarithm(model, :electron_electron, p, ir) *
-           _thermal_slowing_down_factor(model, ir, p) * model.plasma.cold_electron_density[ir]
+    return COLLISION_PREFACTOR * (1 + p^2) / p^3 *
+           _coulomb_logarithm(model, :electron_electron, p, ir) *
+           _thermal_slowing_down_factor(model, ir, p) *
+           model.plasma.cold_electron_density[ir]
 end
 
 function _electron_electron_deflection_frequency(model::CollisionModel, ir, p)
     p == 0 && return zero(p * model.scaled_bessel_k0[ir])
-    return COLLISION_PREFACTOR * sqrt(1 + p^2) / p^3 * _coulomb_logarithm(model, :electron_electron, p, ir) *
+    return COLLISION_PREFACTOR * sqrt(1 + p^2) / p^3 *
+           _coulomb_logarithm(model, :electron_electron, p, ir) *
            _thermal_deflection_factor(model, ir, p) * model.plasma.cold_electron_density[ir]
 end
 
@@ -33,9 +36,10 @@ friction points inwards at `p_max`, and the slowing down vanishes at `p = 0`), s
 operator conserves particles. The coefficients take the number type of the plasma, so a
 plasma with derivative parts gives the derivatives of the operator.
 """
-function electron_electron_operator(grid::KineticGrid, plasma::PlasmaState, settings::CollisionSettings;
-                                    scheme::Symbol=:exponential_fitting, p_lower_boundary::Symbol=:zero_flux,
-                                    p_upper_boundary::Symbol=:outflow)
+function electron_electron_operator(
+        grid::KineticGrid, plasma::PlasmaState, settings::CollisionSettings;
+        scheme::Symbol = :exponential_fitting, p_lower_boundary::Symbol = :zero_flux,
+        p_upper_boundary::Symbol = :outflow)
     settings.mode in (:full, :superthermal) ||
         throw(ArgumentError("the electron-electron operator takes collision mode :full or :superthermal"))
     op = AdvectionDiffusion(grid; scheme, p_lower_boundary, p_upper_boundary)
@@ -47,7 +51,7 @@ function electron_electron_operator(grid::KineticGrid, plasma::PlasmaState, sett
     for ir in 1:nr
         m = momentum_grid(grid, ir)
         theta = _normalized_temperature(model, ir)
-        for k in 1:np+1
+        for k in 1:(np + 1)
             p = m.p_faces[k]
             nu = _electron_electron_slowing_down_frequency(model, ir, p)
             for j in 1:nxi
@@ -58,7 +62,7 @@ function electron_electron_operator(grid::KineticGrid, plasma::PlasmaState, sett
         nxi == 1 && continue
         for i in 1:np
             nu = _electron_electron_deflection_frequency(model, ir, m.p_centers[i])
-            for k in 1:nxi+1
+            for k in 1:(nxi + 1)
                 op.diffusion_xi_xi[i, k, ir] += nu * (1 - m.xi_faces[k]^2) / 2
             end
         end
@@ -138,8 +142,8 @@ struct FieldParticleOperator{T}
 end
 
 function FieldParticleOperator(grid::KineticGrid{T}, plasma::PlasmaState,
-                               settings::CollisionSettings=CollisionSettings(); modes::Integer=3,
-                               scheme::Symbol=:exponential_fitting, pitch_rule::Symbol=:cell_center) where {T}
+        settings::CollisionSettings = CollisionSettings(); modes::Integer = 3,
+        scheme::Symbol = :exponential_fitting, pitch_rule::Symbol = :cell_center) where {T}
     settings.mode === :full ||
         throw(ArgumentError("the field-particle term needs collision mode :full (a Maxwellian bulk in f)"))
     has_same_cell_counts(grid) ||
@@ -152,11 +156,12 @@ function FieldParticleOperator(grid::KineticGrid{T}, plasma::PlasmaState,
         m = momentum_grid(grid, ir)
         w = pitch_moment_weights(m; pitch_rule)
         V = phase_space_jacobian(grid, ir)
-        push!(weights, [V[i, j] * m.p_widths[i] * m.p_centers[i] * w[j] for i in 1:np, j in 1:nxi])
+        push!(weights, [V[i, j] * m.p_widths[i] * m.p_centers[i] * w[j]
+                        for i in 1:np, j in 1:nxi])
     end
     op = FieldParticleOperator(grid, Int(modes), scheme, pitch_rule, weights,
-                               [zeros(T, np * nxi, modes) for _ in 1:nr], [zeros(T, np * nxi, modes) for _ in 1:nr],
-                               Ref{Any}(nothing))
+        [zeros(T, np * nxi, modes) for _ in 1:nr], [zeros(T, np * nxi, modes) for _ in 1:nr],
+        Ref{Any}(nothing))
     return set_field_particle_coefficients!(op, plasma, settings)
 end
 
@@ -166,8 +171,9 @@ end
 Rebuild the functionals and the restoring shapes of `op` from `plasma` (the cold-electron
 temperature and density, the Coulomb logarithm) for a plasma that changes with time.
 """
-function set_field_particle_coefficients!(op::FieldParticleOperator{T}, plasma::PlasmaState,
-                                          settings::CollisionSettings=CollisionSettings()) where {T}
+function set_field_particle_coefficients!(
+        op::FieldParticleOperator{T}, plasma::PlasmaState,
+        settings::CollisionSettings = CollisionSettings()) where {T}
     grid = op.grid
     radial_cell_count(plasma) == radial_cell_count(grid) ||
         throw(DimensionMismatch("plasma and grid radii differ"))
@@ -177,11 +183,11 @@ function set_field_particle_coefficients!(op::FieldParticleOperator{T}, plasma::
     for ir in 1:nr
         plasma.cold_electron_density[ir] > 0 ||
             throw(DomainError(plasma.cold_electron_density[ir],
-                              "no cold electrons at radius $ir: the field-particle term needs collision mode " *
-                              ":full with a thermal bulk at every radius (check the input data and the settings)"))
+                "no cold electrons at radius $ir: the field-particle term needs collision mode " *
+                ":full with a thermal bulk at every radius (check the input data and the settings)"))
     end
     K = op.modes
-    collisions = operator_matrix(electron_electron_operator(grid, plasma, settings; scheme=op.scheme))
+    collisions = operator_matrix(electron_electron_operator(grid, plasma, settings; scheme = op.scheme))
     ratios = LIKE_SPECIES_FIELD_TO_TEST_RATIOS[1:K, 1:K]
     # the moments m ∘ L_b of all radii, and the functionals ℓ_b = C_eeᵀ (m ∘ L_b)
     moments = zeros(T, np, nxi, nr, K)
@@ -199,7 +205,8 @@ function set_field_particle_coefficients!(op::FieldParticleOperator{T}, plasma::
         V = phase_space_jacobian(grid, ir)
         theta = plasma.cold_electron_temperature[ir] / Constants.ELECTRON_REST_ENERGY
         volume = vec([V[i, j] * m.p_widths[i] * m.xi_widths[j] for i in 1:np, j in 1:nxi])
-        x2 = vec([m.p_centers[i]^2 / (1 + sqrt(1 + m.p_centers[i]^2)) / theta for i in 1:np, j in 1:nxi])
+        x2 = vec([m.p_centers[i]^2 / (1 + sqrt(1 + m.p_centers[i]^2)) / theta
+                  for i in 1:np, j in 1:nxi])
         maxwellian = exp.(-x2)
         ell = reshape(view(functionals, :, :, ir, :), np * nxi, K)
         W = reshape(view(moments, :, :, ir, :), np * nxi, K)
@@ -208,7 +215,8 @@ function set_field_particle_coefficients!(op::FieldParticleOperator{T}, plasma::
         phi = hcat((pxi .* _laguerre.(d - 1, x2) .* maxwellian for d in 1:K)...)
         shapes = maxwellian .* ell ./ volume
         for a in 1:K
-            shapes[:, a] .-= (sum(volume .* shapes[:, a]) / sum(volume .* maxwellian)) .* maxwellian
+            shapes[:, a] .-= (sum(volume .* shapes[:, a]) / sum(volume .* maxwellian)) .*
+                             maxwellian
         end
         test_elements = transpose(ell) * phi            # T_bd
         shape_elements = transpose(W) * shapes          # G_ca
@@ -217,7 +225,7 @@ function set_field_particle_coefficients!(op::FieldParticleOperator{T}, plasma::
         # take that as a failed solve
         all(isfinite, A) ||
             throw(DomainError(plasma.cold_electron_temperature[ir],
-                              "the restoring shapes are degenerate at radius $ir at this cold-electron temperature"))
+                "the restoring shapes are degenerate at radius $ir at this cold-electron temperature"))
         op.loss_functionals[ir] .= ell
         op.restoring_shapes[ir] .= shapes * A
     end
@@ -226,7 +234,8 @@ function set_field_particle_coefficients!(op::FieldParticleOperator{T}, plasma::
 end
 
 # df += scale Σ_b s_b (ℓ_b · f) at radius ir, for matrices f and df of that radius
-function _add_field_particle!(df::AbstractMatrix, op::FieldParticleOperator, f::AbstractMatrix, ir; scale=1)
+function _add_field_particle!(
+        df::AbstractMatrix, op::FieldParticleOperator, f::AbstractMatrix, ir; scale = 1)
     ell, shapes = op.loss_functionals[ir], op.restoring_shapes[ir]
     for b in 1:op.modes
         rate = zero(promote_type(eltype(f), eltype(ell)))
@@ -245,8 +254,11 @@ end
 
 Add `scale` times the field-particle term of `f` (3D array on the operator's grid) to `df`.
 """
-function apply!(df::AbstractArray{<:Any,3}, op::FieldParticleOperator, f::AbstractArray{<:Any,3}; scale=1)
-    size(f) == size(df) == size(op.grid) || throw(DimensionMismatch("f and df must have the grid size"))
+function apply!(
+        df::AbstractArray{<:Any, 3}, op::FieldParticleOperator, f::AbstractArray{
+            <:Any, 3}; scale = 1)
+    size(f) == size(df) == size(op.grid) ||
+        throw(DimensionMismatch("f and df must have the grid size"))
     for ir in 1:radial_cell_count(op.grid)
         _add_field_particle!(view(df, :, :, ir), op, view(f, :, :, ir), ir; scale)
     end
@@ -259,8 +271,10 @@ end
 Parallel momentum `Σ m_ij f_ij` of `f` per radius, in units of `mₑc` times the density
 unit of `f` times the radial volume element (the moment the operator conserves).
 """
-parallel_momentum(op::FieldParticleOperator, f::AbstractArray{<:Any,3}) =
-    [sum(op.momentum_weights[ir] .* view(f, :, :, ir)) for ir in 1:radial_cell_count(op.grid)]
+function parallel_momentum(op::FieldParticleOperator, f::AbstractArray{<:Any, 3})
+    [sum(op.momentum_weights[ir] .* view(f, :, :, ir))
+     for ir in 1:radial_cell_count(op.grid)]
+end
 
 """
     FieldParticleTerm(unknown, operator::FieldParticleOperator; plasma=nothing, settings=nothing)
@@ -284,7 +298,7 @@ the [`FokkerPlanckTerm`](@ref). The derivative of the term with respect to the t
 and the density at a radius is a dense column of all cells of that radius, which has no
 place in the low-rank Jacobian of the term.
 """
-struct FieldParticleTerm{T,P} <: EquationTerm
+struct FieldParticleTerm{T, P} <: EquationTerm
     unknown::Symbol
     operator::FieldParticleOperator{T}
     plasma::P                     # nothing, or the PlasmaSource of the coefficients
@@ -292,8 +306,9 @@ struct FieldParticleTerm{T,P} <: EquationTerm
     plasma_key::PlasmaKey         # the plasma values of the last rebuild
 end
 
-function FieldParticleTerm(unknown::Symbol, operator::FieldParticleOperator; plasma=nothing,
-                           settings::Union{Nothing,CollisionSettings}=nothing)
+function FieldParticleTerm(
+        unknown::Symbol, operator::FieldParticleOperator; plasma = nothing,
+        settings::Union{Nothing, CollisionSettings} = nothing)
     if settings === nothing
         built = operator.coefficient_source[]
         settings = built === nothing ? CollisionSettings() : built.settings
@@ -305,8 +320,10 @@ end
 has_plasma_source(term::FieldParticleTerm) = term.plasma !== nothing
 
 # a plasma from the unknowns is lagged: prepare_step! rebuilds the term
-refresh_coefficients!(term::FieldParticleTerm, u, layout, t) =
-    is_state_dependent(term.plasma) ? term.operator : _rebuild_coefficients!(term, u, layout, t)
+function refresh_coefficients!(term::FieldParticleTerm, u, layout, t)
+    is_state_dependent(term.plasma) ? term.operator :
+    _rebuild_coefficients!(term, u, layout, t)
+end
 
 function prepare_step!(term::FieldParticleTerm, u_old, layout, row, t)
     is_state_dependent(term.plasma) && _rebuild_coefficients!(term, u_old, layout, t)
@@ -315,7 +332,8 @@ end
 
 function _rebuild_coefficients!(term::FieldParticleTerm, u, layout, t)
     term.plasma === nothing && return term.operator
-    plasma = changed_plasma!(term.plasma_key, term.plasma, u, layout, t; electric_field=false)
+    plasma = changed_plasma!(
+        term.plasma_key, term.plasma, u, layout, t; electric_field = false)
     plasma === nothing && return term.operator
     try
         set_field_particle_coefficients!(term.operator, plasma, term.settings)
@@ -326,7 +344,9 @@ function _rebuild_coefficients!(term::FieldParticleTerm, u, layout, t)
     return term.operator
 end
 
-dependencies(term::FieldParticleTerm) = [term.unknown; collect(Symbol, source_dependencies(term.plasma))]
+function dependencies(term::FieldParticleTerm)
+    [term.unknown; collect(Symbol, source_dependencies(term.plasma))]
+end
 coupling(::FieldParticleTerm) = :matrix_free
 has_low_rank_jacobian(::FieldParticleTerm) = true
 is_linear(term::FieldParticleTerm) = !is_state_dependent(term.plasma)
@@ -346,7 +366,8 @@ end
 function _add_field_particle_term!(out, term::FieldParticleTerm, x, layout, row)
     id = unknown_id(layout, term.unknown)
     for ir in 1:radial_cell_count(layout)
-        _add_field_particle!(kinetic_view(out, layout, row, ir), term.operator, kinetic_view(x, layout, id, ir), ir)
+        _add_field_particle!(kinetic_view(out, layout, row, ir), term.operator,
+            kinetic_view(x, layout, id, ir), ir)
     end
     return out
 end
@@ -367,6 +388,6 @@ function low_rank_jacobian(term::FieldParticleTerm, u, layout, row, t)
     id = unknown_id(layout, term.unknown)
     op = term.operator
     return [LowRankBlock(unknown_range(layout, row, ir), unknown_range(layout, id, ir),
-                         op.restoring_shapes[ir], op.loss_functionals[ir])
+                op.restoring_shapes[ir], op.loss_functionals[ir])
             for ir in 1:radial_cell_count(layout)]
 end

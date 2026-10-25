@@ -1,5 +1,5 @@
-# The knock-on term of a kinetic unknown: the matrix-free source of
-# secondary electrons by large-angle collisions. Moved out of terms.jl.
+# The knock-on term of a kinetic unknown: the matrix-free source of secondary electrons by
+# large-angle collisions.
 
 """
     KnockOnTerm(primary, operator::KnockOnOperator; target_density, treatment=:explicit_primary)
@@ -23,16 +23,10 @@ momentum grids at different radii.
   of a radius. Every Krylov iteration of [`GMRES`](@ref) applies the operator once, and the
   direct solver does not take it.
 
-The explicit forms are the cheaper step. The implicit form is the more accurate one per
-step: on DREAM's avalanche example the implicit term reaches the accuracy of
-the explicit one at about four times the step (+8.6 % at 8 ms against −8.7 % at 2 ms in the
-density at 0.2 s). Then its step cost 3.6 times the explicit one, which cancelled the gain.
-With [`FluidSchurLU`](@ref) it costs 1.86 times (production grid, 20 radii), so
-where the avalanche growth limits the time step, the implicit term with a longer step can
-reach the same accuracy at a lower cost. The time-step control
-is the place to choose between them. The explicit default follows DREAM.
+The explicit forms are the cheaper step; the implicit form is the more accurate one per
+step. The explicit default follows DREAM.
 """
-struct KnockOnTerm{T,D} <: EquationTerm
+struct KnockOnTerm{T, D} <: EquationTerm
     primary::Symbol
     operator::KnockOnOperator{T}
     target_density::D
@@ -44,32 +38,40 @@ struct KnockOnTerm{T,D} <: EquationTerm
 end
 
 function KnockOnTerm(primary::Symbol, operator::KnockOnOperator{T}; target_density,
-                     treatment::Symbol=:explicit_primary) where {T}
-    treatment in (:implicit, :explicit, :explicit_primary) || throw(ArgumentError("unknown treatment $treatment"))
-    target_density isa Union{Symbol,AbstractVector} ||
+        treatment::Symbol = :explicit_primary) where {T}
+    treatment in (:implicit, :explicit, :explicit_primary) ||
+        throw(ArgumentError("unknown treatment $treatment"))
+    target_density isa Union{Symbol, AbstractVector} ||
         throw(ArgumentError("target_density must be an unknown name or a vector"))
     grid = operator.knockon
     lagged = treatment === :explicit_primary && target_density isa Symbol ?
-             [zeros(T, momentum_cell_count(grid, ir), pitch_cell_count(grid, ir)) for ir in 1:radial_cell_count(grid)] :
+             [zeros(T, momentum_cell_count(grid, ir), pitch_cell_count(grid, ir))
+              for ir in 1:radial_cell_count(grid)] :
              Matrix{T}[]
     prepared_from = [similar(source) for source in lagged]
-    return KnockOnTerm(primary, operator, target_density, treatment, lagged, Ref(false), prepared_from, Ref(0))
+    return KnockOnTerm(primary, operator, target_density, treatment,
+        lagged, Ref(false), prepared_from, Ref(0))
 end
 
 # the primary lagged and the target density an unknown: the term is the target density
 # times a source fixed for the step
-_lagged_primary(term::KnockOnTerm) = term.treatment === :explicit_primary && term.target_density isa Symbol
+function _lagged_primary(term::KnockOnTerm)
+    term.treatment === :explicit_primary && term.target_density isa Symbol
+end
 lags_in_ode_form(term::KnockOnTerm) = _lagged_primary(term)
 
 # linear in the primary with a prescribed target density; bilinear when it is an unknown
 is_linear(term::KnockOnTerm) = _lagged_primary(term) || !(term.target_density isa Symbol)
-dependencies(term::KnockOnTerm) =
+function dependencies(term::KnockOnTerm)
     _lagged_primary(term) ? [term.target_density] :
     term.target_density isa Symbol ? [term.primary, term.target_density] : [term.primary]
+end
 coupling(term::KnockOnTerm) = _lagged_primary(term) ? :sparse : :matrix_free
 jacobian_assembly(term::KnockOnTerm) = _lagged_primary(term) ? :direct : :automatic
-treatment(term::KnockOnTerm) =
-    term.treatment === :explicit_primary ? (term.target_density isa Symbol ? :implicit : :explicit) : term.treatment
+function treatment(term::KnockOnTerm)
+    term.treatment === :explicit_primary ?
+    (term.target_density isa Symbol ? :implicit : :explicit) : term.treatment
+end
 
 function validate(term::KnockOnTerm, layout, row)
     primary = unknown_id(layout, term.primary)
@@ -77,8 +79,10 @@ function validate(term::KnockOnTerm, layout, row)
         throw(ArgumentError("KnockOnTerm acts on and adds to kinetic unknowns"))
     op = term.operator
     for ir in 1:radial_cell_count(layout)
-        knockon_shape = (momentum_cell_count(op.knockon, ir), pitch_cell_count(op.knockon, ir))
-        primary_shape = (momentum_cell_count(op.primary, ir), pitch_cell_count(op.primary, ir))
+        knockon_shape = (
+            momentum_cell_count(op.knockon, ir), pitch_cell_count(op.knockon, ir))
+        primary_shape = (
+            momentum_cell_count(op.primary, ir), pitch_cell_count(op.primary, ir))
         layout.shapes[row, ir] == knockon_shape ||
             throw(DimensionMismatch("the knock-on grid does not match $(layout.unknowns[row].name)"))
         layout.shapes[primary, ir] == primary_shape ||
@@ -95,8 +99,9 @@ function validate(term::KnockOnTerm, layout, row)
     return nothing
 end
 
-_target_density(term::KnockOnTerm{T,Symbol}, u, layout, ir) where {T} =
+function _target_density(term::KnockOnTerm{T, Symbol}, u, layout, ir) where {T}
     radial_view(u, layout, unknown_id(layout, term.target_density), ir)[1]
+end
 _target_density(term::KnockOnTerm, u, layout, ir) = term.target_density[ir]
 
 # The kernel is O(N_p²) per radius: it is applied once per start state, not at every
@@ -108,7 +113,8 @@ function prepare_step!(term::KnockOnTerm, u_old, layout, row, t)
     if term.prepared[]
         same = true
         for ir in 1:radial_cell_count(layout)
-            _same_primary(term.prepared_from[ir], kinetic_view(u_old, layout, primary, ir)) || (same = false; break)
+            _same_primary(term.prepared_from[ir], kinetic_view(u_old, layout, primary, ir)) ||
+                (same = false; break)
         end
         same && return nothing
     end
@@ -150,7 +156,7 @@ function rhs!(out, term::KnockOnTerm, u, layout, row, t)
     primary = unknown_id(layout, term.primary)
     for ir in 1:radial_cell_count(layout)
         apply_at_radius!(kinetic_view(out, layout, row, ir), term.operator,
-                         kinetic_view(u, layout, primary, ir), _target_density(term, u, layout, ir), ir)
+            kinetic_view(u, layout, primary, ir), _target_density(term, u, layout, ir), ir)
     end
     return out
 end
@@ -184,10 +190,10 @@ function jacobian_vector_product!(out, term::KnockOnTerm, u, v, layout, row, t)
     for ir in 1:radial_cell_count(layout)
         df = kinetic_view(out, layout, row, ir)
         apply_at_radius!(df, term.operator, kinetic_view(v, layout, primary, ir),
-                         _target_density(term, u, layout, ir), ir)
+            _target_density(term, u, layout, ir), ir)
         if term.target_density isa Symbol
             apply_at_radius!(df, term.operator, kinetic_view(u, layout, primary, ir),
-                             _target_density(term, v, layout, ir), ir)
+                _target_density(term, v, layout, ir), ir)
         end
     end
     return out

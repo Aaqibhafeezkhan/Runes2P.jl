@@ -1,6 +1,5 @@
-# The energy of the cold electrons: the unknown W_cold = 3/2 e n_cold T_cold
-# of DREAM, whose time derivative is held by the row of T_cold, and the product term of its
-# algebraic row. The heating and loss terms of the energy row are separate terms.
+# The energy of the cold electrons: the unknown W_cold = 3/2 e n_cold T_cold of DREAM, whose
+# time derivative is held by the row of T_cold, and the product term of its algebraic row.
 
 """
     ProductTerm(first, second; coefficient=1)
@@ -14,7 +13,9 @@ struct ProductTerm <: EquationTerm
     second::Symbol
     coefficient::Float64
 end
-ProductTerm(first::Symbol, second::Symbol; coefficient::Real=1.0) = ProductTerm(first, second, Float64(coefficient))
+function ProductTerm(first::Symbol, second::Symbol; coefficient::Real = 1.0)
+    ProductTerm(first, second, Float64(coefficient))
+end
 
 dependencies(term::ProductTerm) = unique([term.first, term.second])
 
@@ -68,10 +69,13 @@ The energy takes its initial value from the row (`initial_value = :from_equation
 [`integrate`](@ref) sets it from the temperature and the density of the initial
 state, and the value of the energy in that state is not read.
 """
-thermal_energy_equation(; energy::Symbol=:cold_thermal_energy, temperature::Symbol=:cold_electron_temperature,
-                        density::Symbol=:cold_electron_density) =
-    Equation(energy, Algebraic(), ProductTerm(density, temperature; coefficient=THERMAL_ENERGY_FACTOR),
-             LinearTerm(energy; coefficient=-1); initial_value=:from_equation)
+function thermal_energy_equation(; energy::Symbol = :cold_thermal_energy,
+        temperature::Symbol = :cold_electron_temperature,
+        density::Symbol = :cold_electron_density)
+    Equation(energy, Algebraic(),
+        ProductTerm(density, temperature; coefficient = THERMAL_ENERGY_FACTOR),
+        LinearTerm(energy; coefficient = -1); initial_value = :from_equation)
+end
 
 """
     set_thermal_energy!(u, layout; energy=:cold_thermal_energy,
@@ -82,8 +86,9 @@ Set the energy of the cold electrons in the state `u` from its temperature and d
 the input, the density from its row, and then the energy (`T_cold.cpp`, `n_cold.cpp`). The
 density must already hold its value.
 """
-function set_thermal_energy!(u::AbstractVector, layout::UnknownLayout; energy::Symbol=:cold_thermal_energy,
-                             temperature::Symbol=:cold_electron_temperature, density::Symbol=:cold_electron_density)
+function set_thermal_energy!(
+        u::AbstractVector, layout::UnknownLayout; energy::Symbol = :cold_thermal_energy,
+        temperature::Symbol = :cold_electron_temperature, density::Symbol = :cold_electron_density)
     W = radial_values(u, layout, unknown_id(layout, energy))
     T = radial_values(u, layout, unknown_id(layout, temperature))
     n = radial_values(u, layout, unknown_id(layout, density))
@@ -109,16 +114,20 @@ struct EnergyMomentTerm{E} <: EquationTerm
     coefficient::Float64
     envelopes::E    # nothing, or the envelopes of the region per radius
 end
-EnergyMomentTerm(kinetic::Symbol, grid::KineticGrid; coefficient::Real=1.0,
-                 region::Union{Nothing,MomentumRegion}=nothing) =
+function EnergyMomentTerm(kinetic::Symbol, grid::KineticGrid; coefficient::Real = 1.0,
+        region::Union{Nothing, MomentumRegion} = nothing)
     EnergyMomentTerm(kinetic, Float64(coefficient), RegionEnvelopes(region, grid))
+end
 
-dependencies(term::EnergyMomentTerm) = [term.kinetic; collect(Symbol, _region_unknowns(term.envelopes))]
+function dependencies(term::EnergyMomentTerm)
+    [term.kinetic; collect(Symbol, _region_unknowns(term.envelopes))]
+end
 is_linear(term::EnergyMomentTerm) = isempty(_region_unknowns(term.envelopes))
 
 function validate(term::EnergyMomentTerm, layout, row)
     id = unknown_id(layout, term.kinetic)
-    layout.kinds[id] === :kinetic || throw(ArgumentError("EnergyMomentTerm needs a kinetic unknown"))
+    layout.kinds[id] === :kinetic ||
+        throw(ArgumentError("EnergyMomentTerm needs a kinetic unknown"))
     layout.kinds[row] === :radial && layout.sizes[row, 1] == 1 ||
         throw(ArgumentError("EnergyMomentTerm adds to a radial unknown with one component"))
     _check_envelopes(term.envelopes, kinetic_grid(layout, id))
@@ -126,15 +135,18 @@ function validate(term::EnergyMomentTerm, layout, row)
 end
 
 # mₑc²(γ − 1) [J] at the momentum cell centres, in the form without cancellation at small p
-_kinetic_energies(m::MomentumGrid) =
-    [Constants.ELECTRON_REST_ENERGY * Constants.ELEMENTARY_CHARGE * p^2 / (1 + sqrt(1 + p^2)) for p in m.p_centers]
+function _kinetic_energies(m::MomentumGrid)
+    [Constants.ELECTRON_REST_ENERGY * Constants.ELEMENTARY_CHARGE * p^2 /
+     (1 + sqrt(1 + p^2)) for p in m.p_centers]
+end
 
 # the weight of cell (i, j) at radius ir without the envelope
 function _energy_weight(grid, ir)
     m = momentum_grid(grid, ir)
     jacobian = phase_space_jacobian(grid, ir)
     energies = _kinetic_energies(m)
-    return (i, j) -> energies[i] * jacobian[i, j] * m.p_widths[i] * m.xi_widths[j] / grid.radial_grid.spatial_jacobian[ir]
+    return (i, j) -> energies[i] * jacobian[i, j] * m.p_widths[i] * m.xi_widths[j] /
+                     grid.radial_grid.spatial_jacobian[ir]
 end
 
 function rhs!(out, term::EnergyMomentTerm, u, layout, row, t)
@@ -147,6 +159,7 @@ function rhs!(out, term::EnergyMomentTerm, u, layout, row, t)
         f = kinetic_view(u, layout, id, ir)
         W = zero(eltype(out))
         @inbounds for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
+
             W += _envelope_value(envelope, i) * weight(i, j) * f[i, j]
         end
         out[first(unknown_range(layout, row, ir))] += term.coefficient * W
@@ -165,8 +178,9 @@ function add_jacobian!(J, term::EnergyMomentTerm, u, layout, row, t)
         envelope = _envelope_at(term.envelopes, grid, ir, u, layout, t)
         r = first(unknown_range(layout, row, ir))
         @inbounds for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
+
             _add_entry!(J, r, _kinetic_index(layout, id, ir, i, j),
-                        term.coefficient * _envelope_value(envelope, i) * weights[ir](i, j))
+                term.coefficient * _envelope_value(envelope, i) * weights[ir](i, j))
         end
     end
     _add_threshold_column!(J, term.envelopes, grid, u, layout, row, id) do ir, i, j
@@ -175,8 +189,9 @@ function add_jacobian!(J, term::EnergyMomentTerm, u, layout, row, t)
     return J
 end
 
-sparsity!(entries, term::EnergyMomentTerm, layout, row) =
+function sparsity!(entries, term::EnergyMomentTerm, layout, row)
     _moment_sparsity!(entries, term.kinetic, layout, row, term.envelopes)
+end
 
 """
     total_energy_equation(distribution, grid; region, total=:total_electron_energy,
@@ -207,22 +222,21 @@ Every other change of the energy of the hot region is charged to the cold electr
 electrons, `MomentumBoundaryFluxTerm(...; weight = :energy)` for an outflow at `p_max`, and
 [`InterfaceEnergyFluxTerm`](@ref) for the runaway grid. The system refuses a row that misses
 one of them, and it refuses radial transport of `distribution` and knock-on secondaries on
-its grid, which have no such term yet: their energy would come out of the cold electrons of
-the radius where it is moved. The sinks take no flux through
-`p_max`, whose energy is the boundary term's alone. The sinks
-term is required by the settings of the collisions (synchrotron, bremsstrahlung, partial or no
-screening on), not by its value: at `B = 0` a synchrotron loss of zero still needs the term,
-so that the row stays closed when the field of the plasma changes.
+its grid, which have no such term: their energy would come out of the cold electrons of
+the radius where it is moved. The sinks take no flux through `p_max`, whose energy is the
+boundary term's alone. The sinks term is required by the settings of the collisions
+(synchrotron, bremsstrahlung, partial or no screening on), not by its value: at `B = 0` a
+synchrotron loss of zero still needs the term, so that the row stays closed when the field
+of the plasma changes.
 
-`total` takes its initial value from the row, after the energy of the cold electrons. The
-keyword `cold` is the deprecated name of `energy`.
+`total` takes its initial value from the row, after the energy of the cold electrons.
 """
-function total_energy_equation(distribution::Symbol, grid::KineticGrid; region::MomentumRegion,
-                               total::Symbol=:total_electron_energy, energy::Symbol=:cold_thermal_energy,
-                               cold::Union{Nothing,Symbol}=nothing)
-    energy = renamed_keyword(:total_energy_equation, :energy => energy, :cold => cold, :cold_thermal_energy)
-    return Equation(total, Algebraic(), LinearTerm(energy), EnergyMomentTerm(distribution, grid; region),
-                    LinearTerm(total; coefficient=-1); initial_value=:from_equation)
+function total_energy_equation(
+        distribution::Symbol, grid::KineticGrid; region::MomentumRegion,
+        total::Symbol = :total_electron_energy, energy::Symbol = :cold_thermal_energy)
+    return Equation(total, Algebraic(), LinearTerm(energy),
+        EnergyMomentTerm(distribution, grid; region),
+        LinearTerm(total; coefficient = -1); initial_value = :from_equation)
 end
 
 """
@@ -247,50 +261,61 @@ radial unknown of the charge states; `coulomb_logarithm` is the model of
 [`coulomb_logarithm`](@ref). DREAM evaluates the logarithm with the model of its collision
 settings, whose code default is the thermal one, independent of `p`; the default
 `:energy_dependent` here is the setting of DREAM's disruption example
-(`examples/Disruptions/generate.py:145`). The DREAM-compatible mode of the energy
-equation.
+(`examples/Disruptions/generate.py:145`). The term is the DREAM-compatible mode of the
+energy equation.
 """
-struct RunawayFluidEnergyTransferTerm{S<:PrescribedPlasma} <: EquationTerm
+struct RunawayFluidEnergyTransferTerm{S <: PrescribedPlasma} <: EquationTerm
     plasma::S
     runaway_density::Symbol
     temperature::Symbol
     density::Symbol
     coulomb_logarithm::Symbol
-    ions::Union{Nothing,Symbol}
+    ions::Union{Nothing, Symbol}
 end
-function RunawayFluidEnergyTransferTerm(plasma; runaway_density::Symbol=:runaway_density,
-                                        temperature::Symbol=:cold_electron_temperature,
-                                        density::Symbol=:cold_electron_density,
-                                        coulomb_logarithm::Symbol=:energy_dependent, ions::Union{Nothing,Symbol}=nothing)
+function RunawayFluidEnergyTransferTerm(plasma; runaway_density::Symbol = :runaway_density,
+        temperature::Symbol = :cold_electron_temperature,
+        density::Symbol = :cold_electron_density,
+        coulomb_logarithm::Symbol = :energy_dependent, ions::Union{Nothing, Symbol} = nothing)
     coulomb_logarithm in (:energy_dependent, :thermal, :relativistic) ||
         throw(ArgumentError("coulomb_logarithm must be :energy_dependent, :thermal or :relativistic"))
     plasma isa PlasmaSource && !(plasma isa PrescribedPlasma) &&
         throw(ArgumentError("RunawayFluidEnergyTransferTerm takes a prescribed plasma and reads the temperature, the density " *
                             "and the ion densities from unknowns of its own: give it the prescribed part and " *
-                            "the keywords temperature, density and ions (issue #182, item 9)"))
+                            "the keywords temperature, density and ions"))
     source = plasma isa PrescribedPlasma ? plasma : PrescribedPlasma(plasma)
-    return RunawayFluidEnergyTransferTerm(source, runaway_density, temperature, density, coulomb_logarithm, ions)
+    return RunawayFluidEnergyTransferTerm(
+        source, runaway_density, temperature, density, coulomb_logarithm, ions)
 end
 
-dependencies(term::RunawayFluidEnergyTransferTerm) =
-    [term.runaway_density; term.temperature; term.density; term.ions === nothing ? Symbol[] : [term.ions]]
-jacobian_assembly(term::RunawayFluidEnergyTransferTerm) = term.ions === nothing ? :automatic : :direct
-add_jacobian!(J, term::RunawayFluidEnergyTransferTerm, u, layout, row, t) = add_local_jacobian!(J, term, u, layout, row, t)
+function dependencies(term::RunawayFluidEnergyTransferTerm)
+    [term.runaway_density; term.temperature; term.density;
+     term.ions === nothing ? Symbol[] : [term.ions]]
+end
+function jacobian_assembly(term::RunawayFluidEnergyTransferTerm)
+    term.ions === nothing ? :automatic : :direct
+end
+function add_jacobian!(J, term::RunawayFluidEnergyTransferTerm, u, layout, row, t)
+    add_local_jacobian!(J, term, u, layout, row, t)
+end
 
 function validate(term::RunawayFluidEnergyTransferTerm, layout, row, t)
     for id in (unknown_id(layout, term.runaway_density), unknown_id(layout, term.temperature),
-               unknown_id(layout, term.density), row)
+        unknown_id(layout, term.density), row)
         layout.kinds[id] === :radial && layout.sizes[id, 1] == 1 ||
             throw(ArgumentError("RunawayFluidEnergyTransferTerm takes and adds to radial unknowns with one " *
                                 "component, not $(layout.unknowns[id].name)"))
     end
     term.ions === nothing ||
-        _check_ion_unknown(layout, unknown_id(layout, term.ions), IonComposition(plasma_values(term.plasma, nothing, nothing, t)))
+        _check_ion_unknown(layout, unknown_id(layout, term.ions),
+            IonComposition(plasma_values(term.plasma, nothing, nothing, t)))
     return nothing
 end
-validate(term::RunawayFluidEnergyTransferTerm, layout, row) = validate(term, layout, row, 0.0)
+function validate(term::RunawayFluidEnergyTransferTerm, layout, row)
+    validate(term, layout, row, 0.0)
+end
 
-const RUNAWAY_FLUID_ENERGY_PREFACTOR = 4π * Constants.CLASSICAL_ELECTRON_RADIUS^2 * Constants.ELECTRON_MASS *
+const RUNAWAY_FLUID_ENERGY_PREFACTOR = 4π * Constants.CLASSICAL_ELECTRON_RADIUS^2 *
+                                       Constants.ELECTRON_MASS *
                                        Constants.SPEED_OF_LIGHT^3
 
 function rhs!(out, term::RunawayFluidEnergyTransferTerm, u, layout, row, t)
@@ -299,16 +324,20 @@ function rhs!(out, term::RunawayFluidEnergyTransferTerm, u, layout, row, t)
     T = radial_values(u, layout, unknown_id(layout, term.temperature))
     n = radial_values(u, layout, unknown_id(layout, term.density))
     for ir in 1:radial_cell_count(layout)
-        lnL = coulomb_logarithm(:electron_electron, term.coulomb_logarithm, 20.0, T[ir], free_electron_density(plasma, ir))
-        out[first(unknown_range(layout, row, ir))] += RUNAWAY_FLUID_ENERGY_PREFACTOR * lnL * n[ir] * n_re[ir]
+        lnL = coulomb_logarithm(:electron_electron, term.coulomb_logarithm,
+            20.0, T[ir], free_electron_density(plasma, ir))
+        out[first(unknown_range(layout, row, ir))] += RUNAWAY_FLUID_ENERGY_PREFACTOR * lnL *
+                                                      n[ir] * n_re[ir]
     end
     return out
 end
 
 function sparsity!(entries, term::RunawayFluidEnergyTransferTerm, layout, row)
     for ir in 1:radial_cell_count(layout), name in dependencies(term)
+
         r = first(unknown_range(layout, row, ir))
-        append!(entries, ((r, c) for c in unknown_range(layout, unknown_id(layout, name), ir)))
+        append!(entries, ((r, c)
+        for c in unknown_range(layout, unknown_id(layout, name), ir)))
     end
     return entries
 end

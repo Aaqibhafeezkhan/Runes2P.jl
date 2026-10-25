@@ -11,14 +11,17 @@ function knockon_dense(op::KnockOnOperator, n_tot)
     LK, LP = LinearIndices(size(gK)), LinearIndices(size(gP))
     A = zeros(cell_count(gK), cell_count(gP))
     D = zeros(pitch_cell_count(gK), pitch_cell_count(gP))
-    for ir in 1:radial_cell_count(gK), i in 1:momentum_cell_count(gK), k in 1:momentum_cell_count(gP)
+    for ir in 1:radial_cell_count(gK), i in 1:momentum_cell_count(gK),
+        k in 1:momentum_cell_count(gP)
         s = energy_kernel(op, ir).rates[i, k]
         s == 0 && continue
         pitch_kernel_matrix!(D, knockon_kernels(op, ir), i, k)
         for j in 1:pitch_cell_count(gK), l in 1:pitch_cell_count(gP)
+
             W = momentum_grid(gP).p_widths[k] * momentum_grid(gP).xi_widths[l] *
                 phase_space_jacobian(gP, ir)[k, l]
-            A[LK[i, j, ir], LP[k, l, ir]] += n_tot[ir] * s * W * D[j, l] / phase_space_jacobian(gK, ir)[i, j]
+            A[LK[i, j, ir], LP[k, l, ir]] += n_tot[ir] * s * W * D[j, l] /
+                                             phase_space_jacobian(gK, ir)[i, j]
         end
     end
     return A
@@ -48,7 +51,7 @@ end
         @test maximum(abs, res2) < 1e-13 * maximum(abs, res)
         # n_tot is referenced: updating it in place rescales the operator
         nt = copy(n_tot)
-        Lr = knockon_linear_operator(op, nt; scale=-1)
+        Lr = knockon_linear_operator(op, nt; scale = -1)
         nt .*= 3
         @test Lr * v ≈ -3 .* (A * v) rtol = 1e-13
     end
@@ -64,7 +67,7 @@ end
     @testset "backward-Euler step with a sparse operator, GMRES" begin
         # (I - Δt (M + K)) f1 = f0 with M a sparse advection-diffusion operator and K the
         # matrix-free knock-on term, against a dense direct solve
-        ad = AdvectionDiffusion(g; scheme=:central)
+        ad = AdvectionDiffusion(g; scheme = :central)
         ad.diffusion_p_p .= 0.3
         ad.diffusion_xi_xi .= 0.2
         ad.advection_p .= -0.5
@@ -73,13 +76,14 @@ end
         K = knockon_linear_operator(op, n_tot)
         A = knockon_dense(op, n_tot)
         f0 = [exp(-p / 0.8) * (1.1 + ξ)
-              for p in momentum_grid(g).p_centers, ξ in momentum_grid(g).xi_centers, _ in 1:2]
+              for p in momentum_grid(g).p_centers, ξ in momentum_grid(g).xi_centers,
+        _ in 1:2]
         # scale the knock-on term to O(1) against the unit identity
         Δt = 0.5 / maximum(abs, A)
         n = cell_count(g)
         B = LinearOperator(Matrix{Float64}(I, n, n)) - Δt * (LinearOperator(M) + K)
         @test B * vec(f0) ≈ vec(f0) - Δt * (M * vec(f0) + A * vec(f0)) rtol = 1e-13
-        f1, stats = gmres(B, vec(f0); rtol=1e-12, atol=0.0)
+        f1, stats = gmres(B, vec(f0); rtol = 1e-12, atol = 0.0)
         @test stats.solved
         @test f1 ≈ (I - Δt * (Matrix(M) + A)) \ vec(f0) rtol = 1e-10
     end

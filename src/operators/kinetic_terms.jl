@@ -15,10 +15,12 @@ function add_electric_field!(op::AdvectionDiffusion, plasma::PlasmaState)
         m = momentum_grid(g, ir)
         a = Constants.ELEMENTARY_CHARGE * plasma.electric_field[ir] /
             (Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT)
-        for j in 1:nxi, k in 1:np+1
+        for j in 1:nxi, k in 1:(np + 1)
+
             op.advection_p[k, j, ir] += a * m.xi_centers[j]
         end
-        for k in 1:nxi+1, i in 1:np
+        for k in 1:(nxi + 1), i in 1:np
+
             op.advection_xi[i, k, ir] += a * (1 - m.xi_faces[k]^2) / m.p_centers[i]
         end
     end
@@ -41,11 +43,14 @@ function set_unit_field_coefficients!(op::AdvectionDiffusion)
     a = Constants.ELEMENTARY_CHARGE / (Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT)
     for ir in 1:nr
         m = momentum_grid(g, ir)
-        for j in 1:nxi, k in 1:np+1
+        for j in 1:nxi, k in 1:(np + 1)
+
             op.unit_field_advection_p[k, j, ir] = a * m.xi_centers[j]
         end
-        for k in 1:nxi+1, i in 1:np
-            op.unit_field_advection_xi[i, k, ir] = a * (1 - m.xi_faces[k]^2) / m.p_centers[i]
+        for k in 1:(nxi + 1), i in 1:np
+
+            op.unit_field_advection_xi[i, k, ir] = a * (1 - m.xi_faces[k]^2) /
+                                                   m.p_centers[i]
         end
     end
     return op
@@ -62,7 +67,7 @@ function add_slowing_down!(op::AdvectionDiffusion, collisions::CollisionModel)
     np, nxi, nr = size(g)
     for ir in 1:nr
         m = momentum_grid(g, ir)
-        for k in 1:np+1
+        for k in 1:(np + 1)
             p = m.p_faces[k]
             A = -p * slowing_down_frequency(collisions, ir, p)
             for j in 1:nxi
@@ -86,9 +91,10 @@ function add_pitch_scattering!(op::AdvectionDiffusion, collisions::CollisionMode
     np, nxi, nr = size(g)
     nxi == 1 && return op
     for ir in 1:nr, i in 1:np
+
         m = momentum_grid(g, ir)
         nu = deflection_frequency(collisions, ir, m.p_centers[i])
-        for k in 1:nxi+1
+        for k in 1:(nxi + 1)
             op.diffusion_xi_xi[i, k, ir] += nu * (1 - m.xi_faces[k]^2) / 2
         end
     end
@@ -104,7 +110,8 @@ function add_energy_diffusion!(op::AdvectionDiffusion, collisions::CollisionMode
     collisions.settings.mode === :full || return op
     g = op.grid
     np, nxi, nr = size(g)
-    for ir in 1:nr, k in 1:np+1
+    for ir in 1:nr, k in 1:(np + 1)
+
         m = momentum_grid(g, ir)
         D = parallel_diffusion_frequency(collisions, ir, m.p_faces[k])
         for j in 1:nxi
@@ -124,17 +131,22 @@ function add_synchrotron!(op::AdvectionDiffusion, plasma::PlasmaState)
     g = op.grid
     np, nxi, nr = size(g)
     C = Constants.ELEMENTARY_CHARGE^4 /
-        (6pi * Constants.VACUUM_PERMITTIVITY * Constants.ELECTRON_MASS^3 * Constants.SPEED_OF_LIGHT^3)
+        (6pi * Constants.VACUUM_PERMITTIVITY * Constants.ELECTRON_MASS^3 *
+         Constants.SPEED_OF_LIGHT^3)
     for ir in 1:nr
         m = momentum_grid(g, ir)
         prefactor = C * plasma.magnetic_field[ir]^2
-        for j in 1:nxi, k in 1:np+1
+        for j in 1:nxi, k in 1:(np + 1)
+
             p = m.p_faces[k]
-            op.advection_p[k, j, ir] -= prefactor * p * sqrt(1 + p^2) * (1 - m.xi_centers[j]^2)
+            op.advection_p[k, j, ir] -= prefactor * p * sqrt(1 + p^2) *
+                                        (1 - m.xi_centers[j]^2)
         end
-        for k in 1:nxi+1, i in 1:np
+        for k in 1:(nxi + 1), i in 1:np
+
             xi = m.xi_faces[k]
-            op.advection_xi[i, k, ir] += prefactor * (1 - xi^2) * xi / sqrt(1 + m.p_centers[i]^2)
+            op.advection_xi[i, k, ir] += prefactor * (1 - xi^2) * xi /
+                                         sqrt(1 + m.p_centers[i]^2)
         end
     end
     return op
@@ -147,24 +159,20 @@ end
                            r_boundary=:zero_flux, electric_field=true)
 
 Kinetic operator for the hot electrons: electric field, slowing down, pitch-angle
-scattering, energy diffusion (`:full` mode) and synchrotron losses, with
-`f = 0` beyond `p_max` as in DREAM's hot-tail equation. The synchrotron loss
-([`add_synchrotron!`](@ref)) is on by default (decision of the author, 2026-10-04), and
-`synchrotron = false` leaves it out, as DREAM does by default. `scheme` is one of the schemes
-of [`AdvectionDiffusion`](@ref). The default, exponential fitting (decision of the
-author, 2026-09-25, replacing van Albada), keeps f non-negative at every resolution,
-holds the collisional Maxwellian's tail to second order where every limiter
-overpopulates it (f/f_MJ of 1 800 for van Albada at 6 p_th
-on the production grid at 1 keV, and a Dreicer rate 3.5 times the converged one), is
-linear in f (two Newton iterations per step, an exact stored Jacobian, about half the
-cost of the limiters). Its price is first-order accuracy where a smooth
-tail is driven by the field: the slide-away loss through `p_max` on the production grid
-is 0.87%, 0.58% and 0.46% at 1×, 2× and 4× the momentum cells against 0.34% converged,
-the hot-tail seed of a fast quench 4% high at 1×, so field-driven tails need more
-momentum cells than a limiter, with the error roughly halving per doubling (README, DREAM
-compatibility and departures). `:van_albada` (Runes2P) and DREAM's limiters stay available;
-`scheme = :central` is DREAM's default (centred interpolation) and the setting of the
-DREAM comparisons.
+scattering, energy diffusion (`:full` mode) and synchrotron losses. The default boundary
+at `p_max`, `p_upper_boundary = :f_zero`, is an outflow into a ghost cell with `f = 0`,
+DREAM's `BC_F_0` (a choice of this package; see the docs page *Choices of this package*);
+DREAM's default for the hot-tail grid is `BC_PHI_CONST`, `p_upper_boundary =
+:constant_flux` here ([`AdvectionDiffusion`](@ref)). The synchrotron loss
+([`add_synchrotron!`](@ref)) is on by default (a choice of this package; see the docs page
+*Choices of this package*), and `synchrotron = false` leaves it out, as DREAM does by
+default. `scheme` is one of the schemes of [`AdvectionDiffusion`](@ref). The default,
+exponential fitting, is a choice of this package (see the docs page *Choices of this
+package*). It is first order where a smooth tail is driven by the field, such as the
+slide-away loss through `p_max` or the hot-tail seed of a fast quench: such tails need
+more momentum cells than with a limiter, the error roughly halving per doubling. `:van_albada` (Runes2P) and
+DREAM's limiters stay available; `scheme = :central` is DREAM's default (centred
+interpolation) and the setting of the DREAM comparisons.
 `p_scheme` and `xi_scheme` set the directions separately (DREAM's `adv_interp/p1` and
 `p2`), e.g. `p_scheme = :tcdf` for DREAM's TCDF limiter.
 
@@ -179,18 +187,19 @@ and the coefficients of a unit field, and the term passes the field
 ([`FokkerPlanckTerm`](@ref)`(...; electric_field = :electric_field)`).
 """
 function fokker_planck_operator(grid::KineticGrid, plasma::PlasmaState,
-                                settings::CollisionSettings=CollisionSettings();
-                                synchrotron::Bool=true, scheme::Symbol=:exponential_fitting,
-                                p_scheme::Symbol=scheme, xi_scheme::Symbol=scheme,
-                                p_lower_boundary::Symbol=:zero_flux,
-                                p_upper_boundary::Symbol=:f_zero, r_boundary::Symbol=:zero_flux,
-                                electric_field::Bool=true)
+        settings::CollisionSettings = CollisionSettings();
+        synchrotron::Bool = true, scheme::Symbol = :exponential_fitting,
+        p_scheme::Symbol = scheme, xi_scheme::Symbol = scheme,
+        p_lower_boundary::Symbol = :zero_flux,
+        p_upper_boundary::Symbol = :f_zero, r_boundary::Symbol = :zero_flux,
+        electric_field::Bool = true)
     # DREAM replaces the electric-field advection by a diffusion term in the reduced
     # (pitch-averaged) equation; that form is not implemented. A grid with different cell
     # counts or p faces at different radii is refused by AdvectionDiffusion below.
     has_same_cell_counts(grid) && pitch_cell_count(grid) == 1 &&
         throw(ArgumentError("the reduced equation (one pitch cell) is not implemented"))
-    op = AdvectionDiffusion(grid; scheme, p_scheme, xi_scheme, p_lower_boundary, p_upper_boundary, r_boundary)
+    op = AdvectionDiffusion(
+        grid; scheme, p_scheme, xi_scheme, p_lower_boundary, p_upper_boundary, r_boundary)
     set_unit_field_coefficients!(op)
     set_fokker_planck_coefficients!(op, plasma, settings; synchrotron, electric_field)
     return op
@@ -205,8 +214,9 @@ coefficients from a new plasma state: the `add_*!` functions accumulate
 into the arrays, so a rebuild needs them cleared first.
 """
 function zero_coefficients!(op::AdvectionDiffusion)
-    for A in (op.advection_p, op.diffusion_p_p, op.diffusion_p_xi, op.advection_xi, op.diffusion_xi_xi,
-             op.diffusion_xi_p, op.advection_r, op.diffusion_r_r, op.advection_p_times_p2_at_zero)
+    for A in (op.advection_p, op.diffusion_p_p, op.diffusion_p_xi,
+        op.advection_xi, op.diffusion_xi_xi,
+        op.diffusion_xi_p, op.advection_r, op.diffusion_r_r, op.advection_p_times_p2_at_zero)
         fill!(A, zero(eltype(A)))
     end
     op.coefficient_source[] = nothing
@@ -223,16 +233,16 @@ Rebuild `op`'s coefficients in place from `plasma` and `settings`
 with time ([`PrescribedFokkerPlanckTerm`](@ref)). `op`'s scheme and
 boundary conditions are unchanged. `electric_field = false` leaves the field of the plasma
 out, for a field that is an unknown of the system. The synchrotron loss is on by default, as
-in [`fokker_planck_operator`](@ref) (decision of the author, 2026-10-04).
+in [`fokker_planck_operator`](@ref).
 """
 function set_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaState,
-                                         settings::CollisionSettings=CollisionSettings();
-                                         synchrotron::Bool=true, electric_field::Bool=true)
+        settings::CollisionSettings = CollisionSettings();
+        synchrotron::Bool = true, electric_field::Bool = true)
     radial_cell_count(plasma) == radial_cell_count(op.grid) ||
         throw(DimensionMismatch("plasma and grid radii differ"))
     zero_coefficients!(op)
     collisions = CollisionModel(plasma, settings;
-                                faces=[momentum_grid(op.grid, ir).p_faces for ir in 1:radial_cell_count(op.grid)])
+        faces = [momentum_grid(op.grid, ir).p_faces for ir in 1:radial_cell_count(op.grid)])
     electric_field && add_electric_field!(op, plasma)
     add_slowing_down!(op, collisions)
     add_pitch_scattering!(op, collisions)

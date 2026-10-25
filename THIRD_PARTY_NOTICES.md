@@ -33,7 +33,7 @@ SOFTWARE.
 
 ## CHIANTI
 
-The fit parameters of the electron-impact ionization cross sections for H, Ne and Ar (`src/physics/ionization_chianti_fits.jl`) are copied unchanged from the `<ion>.diparams` and `<ion>.easplom` files (direct ionization and excitation-autoionization) of the CHIANTI atomic database, version 11.0.2.
+The fit parameters of the electron-impact ionization cross sections for H, Ne and Ar (`data/chianti_ionization.toml`) are copied unchanged from the `<ion>.diparams` and `<ion>.easplom` files (direct ionization and excitation-autoionization) of the CHIANTI atomic database, version 11.0.2.
 CHIANTI is a collaborative project involving George Mason University, the University of Michigan (USA), the University of Cambridge (UK) and NASA Goddard Space Flight Center (USA).
 Work that uses these data should cite Dere et al., Astron. Astrophys. Suppl. Ser. 125, 149 (1997), Dufresne et al., Astrophys. J. 974, 71 (2024), and for the ionization data Dere, Astron. Astrophys. 466, 771 (2007).
 
@@ -41,9 +41,15 @@ Work that uses these data should cite Dere et al., Astron. Astrophys. Suppl. Ser
 
 No ADAS data file is distributed with this package.
 The rate coefficients of the ADF11 class are read at run time from a cache that the user fills: from OPEN-ADAS (https://open.adas.ac.uk) under its terms and conditions, and for H, D and T, except charge exchange, from the high-density hydrogen files that DREAM's repository provides.
-The fit parameters in `src/physics/ionization_bethe_fits.jl`, and DREAM's fits in `src/physics/ionization_cross_sections.jl`, are derived by least-squares fits to ADAS SCD coefficients; no tabulated ADAS value is reproduced.
+The fit parameters in `data/kinetic_ionization_bethe_fits.toml`, and DREAM's fits in `data/kinetic_ionization_fits.toml`, are derived by least-squares fits to ADAS SCD coefficients; no tabulated ADAS value is reproduced.
 ADAS: H. P. Summers, The ADAS User Manual, version 2.6 (2004), https://www.adas.ac.uk.
 
 ## NIST
 
 Ionization energies are taken from the NIST Atomic Spectra Database (Kramida, Ralchenko, Reader and the NIST ASD Team, https://doi.org/10.18434/T4W30F), through the table that DREAM generates from it (`src/Atomics/nistdata_ionization.cpp`, retrieved on 2023-04-28 by DREAM's `tools/get_nist.py`).
+The NIST Atomic Spectra Database is NIST Standard Reference Database 78, copyright by the U.S. Secretary of Commerce on behalf of the United States of America.
+The package holds a small extract of its ionization energies in `data/ionization_energies.toml`, as DREAM does.
+
+## GSL
+
+`reference/gsl/bicubic_reference.c` is a separate generator of reference values, not part of the package; it links the GNU Scientific Library 2.8 (GPL-3.0), and its output, a table of numbers, is the reference set `gsl-2.8`.

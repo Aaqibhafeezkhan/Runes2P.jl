@@ -1,7 +1,7 @@
-# Newton-Krylov linear solves: GMRES (Krylov.jl) on the scaled Newton
-# operator, which includes the implicit matrix-free terms (the knock-on term), right
-# preconditioned by a factorization of the stored matrix in blocks, one per radius and one
-# for the scalar unknowns.
+# Newton-Krylov linear solves: GMRES (Krylov.jl) on the scaled Newton operator, which
+# includes the implicit matrix-free terms (the knock-on term), right preconditioned by a
+# factorization of the stored matrix in blocks, one per radius and one for the scalar
+# unknowns.
 
 using Krylov: GmresWorkspace, gmres!
 using LinearAlgebra: LinearAlgebra, mul!
@@ -14,11 +14,11 @@ using LinearAlgebra: LinearAlgebra, mul!
 Newton-Krylov linear solver: restarted GMRES (Krylov.jl) on the scaled Newton operator
 `W (M/dt - J) S`, where `J` is the stored Jacobian plus the implicit matrix-free terms,
 right preconditioned by `preconditioner`: [`FluidSchurLU`](@ref) by default, which holds the
-couplings between the radii, or a [`RadiusBlockLU`](@ref) or
-[`RadiusBlockILU`](@ref) of the stored matrix. With right preconditioning the residual
-GMRES minimizes is the true residual of the scaled system; a solve succeeds when
-`‖b - A x‖ ≤ relative_tolerance ‖b‖` within `max_iterations` iterations, and otherwise
-the Newton iteration fails with `:linear_solve_failed`.
+couplings between the radii, or a [`RadiusBlockLU`](@ref) or [`RadiusBlockILU`](@ref) of the
+stored matrix. With right preconditioning the residual GMRES minimizes is the true residual
+of the scaled system; a solve succeeds when `‖b - A x‖ ≤ relative_tolerance ‖b‖` within
+`max_iterations` iterations, and otherwise the Newton iteration fails with
+`:linear_solve_failed`.
 
 `operator` sets what `J` is for terms whose stored block is an approximation of their
 Jacobian ([`jacobian_kind`](@ref)): `:exact` adds their
@@ -34,51 +34,44 @@ terms the two are the same.
   first, and its factors are kept, so the preconditioner is factorized once per step
   ([`NewtonSolver`](@ref), `reuse_linear_matrix`);
 - `:every_step`: in the first Newton iteration of each time step;
-- `:on_demand`: when the time step differs from that of the factorization by more than
-  the relative `refresh_step_change`, or when the last solve needed more than
+- `:on_demand`: when the time step differs from that of the factorization by more than the
+  relative `refresh_step_change`, or when the last solve needed more than
   `refresh_count_growth` times the Krylov iterations of the first solve after the
-  factorization. The Newton matrix `W (M/dt - J) S`
-  changes with the step through the mass term alone, and the factors of a nearby step
-  precondition it well; the count rule catches coefficients that drift in time and the
-  factors of a longer step applied at a shorter one. A halved step is a change of
-  exactly 0.5 and keeps the factors with the default; a doubled step refreshes. The
-  stored matrix of a system with prescribed coefficients and a constant time step is
-  the same in every step, so one factorization then serves the whole run. Under a step
-  controller that grows the step at its cap of 2 per step, the default
-  `refresh_step_change` factorizes at every such step, and `:on_demand` pays off where
-  the step changes by less.
+  factorization. The Newton matrix `W (M/dt - J) S` changes with the step through the mass
+  term alone, and the factors of a nearby step precondition it well; the count rule catches
+  coefficients that drift in time and the factors of a longer step applied at a shorter one.
+  A halved step is a change of exactly 0.5 and keeps the factors with the default; a doubled
+  step refreshes. The stored matrix of a system with prescribed coefficients and a constant
+  time step is the same in every step, so one factorization then serves the whole run. Under
+  a step controller that grows the step at its cap of 2 per step, the default
+  `refresh_step_change` factorizes at every such step, and `:on_demand` pays off where the
+  step changes by less.
 
 A solve that fails with a preconditioner from an earlier iteration is repeated once with
 a fresh one.
 
 `low_rank_update` adds the low-rank Jacobians of implicit matrix-free terms
-([`low_rank_jacobian`](@ref), the field-particle term) to the blocks
-they lie in by a Woodbury update: `k` block solves per factorization and O(n k) work per
-application for rank `k`. Without it the preconditioner leaves those terms out, as it
-leaves out the knock-on term.
+([`low_rank_jacobian`](@ref), the field-particle term) to the blocks they lie in by a
+Woodbury update: `k` block solves per factorization and O(n k) work per application for rank
+`k`. Without it the preconditioner leaves those terms out, as it leaves out the knock-on
+term.
 
-At production sizes with radially coupled radii:
+On hot-tail grids of 270 × 15 cells (fully kinetic) and of 125 × 15 cells
+(superthermal), with radii coupled by radial transport:
 
-- `RadiusBlockLU` leaves out the radial coupling, and the Krylov count grows with it: about
-  29 per Newton iteration at 20 radii and 59 at 40 under Rechester-Rosenbluth diffusion
-  with `δB/B = 1e-3`, the largest of a step 1.4 times that. `restart_length` has to exceed
-  the count. With a restart length of 30 the iteration stagnates and the step ends with
-  `:linear_solve_failed` (600 000 and 1 200 000 unknowns, 20 radii), with 200 it converges.
+- `RadiusBlockLU` leaves out the radial coupling, and the Krylov count grows with the
+  number of radii. `restart_length` has to exceed the count: below it the iteration
+  stagnates and the step ends with `:linear_solve_failed`.
 - [`FluidSchurLU`](@ref) holds the radial coupling by line solves and the fluid unknowns
-  exactly: 8.4, 12.1 and 18.5 per Newton iteration at 11, 20 and 40 radii on the
-  production grid, the largest of a step 12, 18 and 28. On the superthermal production
-  grid 13.9, 20.4 and 31.3, the largest of a step 14, 21 and 33. The default
-  restart length of 50 holds all of them (decision of the author; the count still grows
-  slowly with the number of radii).
+  exactly. Its count grows more slowly with the number of radii. The default restart length
+  is 50 (a choice of this package; see the docs page *Choices of this package*).
 - `relative_tolerance` stays at or below the `floor_linear_tolerance` of the
-  [`NewtonSolver`](@ref) (1e-8). With 1e-6 the Newton iteration cannot accept a residual
-  at its round-off floor and ends with `:max_iterations`. 1e-8 takes about 19 Krylov
-  iterations per Newton iteration at 20 radii and three Newton iterations per step, 1e-10
-  about 33 and two.
-- The memory is that of the block factors and of the Krylov basis, `restart_length`
-  vectors: 5.7 GB at 1 200 000 unknowns with a restart length of 200.
+  [`NewtonSolver`](@ref) (1e-8). With 1e-6 the Newton iteration cannot accept a residual at
+  its round-off floor and ends with `:max_iterations`. A tolerance of 1e-8 takes fewer
+  Krylov iterations per Newton iteration than 1e-10, and more Newton iterations per step.
+- The memory is that of the block factors and of the Krylov basis, `restart_length` vectors.
 """
-Base.@kwdef struct GMRES{P<:BlockPreconditioner} <: LinearSolver
+Base.@kwdef struct GMRES{P <: BlockPreconditioner} <: LinearSolver
     preconditioner::P = FluidSchurLU()
     relative_tolerance::Float64 = 1e-10
     max_iterations::Int = 200
@@ -96,8 +89,8 @@ requires_stored_jacobian(::GMRES) = false
 # stored part W (M/dt - J) S and J_mf the products of the implicit matrix-free terms at
 # the current iterate, plus, with `exact`, the corrections of the terms whose stored
 # block is approximate.
-mutable struct NewtonOperator{T,S<:EquationSystem}
-    const matrix::SparseMatrixCSC{T,Int}
+mutable struct NewtonOperator{T, S <: EquationSystem}
+    const matrix::SparseMatrixCSC{T, Int}
     const system::S
     const row_weights::Vector{T}
     const scales::Vector{T}
@@ -119,14 +112,16 @@ function LinearAlgebra.mul!(y::AbstractVector, op::NewtonOperator, v::AbstractVe
     isempty(system.matrix_free_terms) && !corrections && return y
     @. op.scaled_input = op.scales * v
     fill!(op.product, zero(eltype(op.product)))
-    _add_products!(op.product, system.matrix_free_terms, op.state, op.scaled_input, system.layout, op.time)
-    corrections && _add_corrections!(op.product, system.correction_terms, op.state, op.scaled_input, system.layout,
-                                     op.time)
+    _add_products!(op.product, system.matrix_free_terms, op.state,
+        op.scaled_input, system.layout, op.time)
+    corrections && _add_corrections!(
+        op.product, system.correction_terms, op.state, op.scaled_input, system.layout,
+        op.time)
     @. y -= op.row_weights * op.product
     return y
 end
 
-mutable struct GMRESCache{T,O<:NewtonOperator{T},F,W,P}
+mutable struct GMRESCache{T, O <: NewtonOperator{T}, F, W, P}
     const solver::GMRES{P}
     const operator::O
     const factors::F
@@ -141,7 +136,9 @@ mutable struct GMRESCache{T,O<:NewtonOperator{T},F,W,P}
     matrix_unchanged::Bool           # the stored matrix of the next solve is that of the last one
 end
 
-matrix_unchanged!(cache::GMRESCache, unchanged::Bool) = (cache.matrix_unchanged = unchanged; nothing)
+function matrix_unchanged!(cache::GMRESCache, unchanged::Bool)
+    (cache.matrix_unchanged = unchanged; nothing)
+end
 
 krylov_iterations(cache::GMRESCache) = cache.iterations
 preconditioner_updates(cache::GMRESCache) = cache.updates
@@ -149,24 +146,31 @@ factorization_time(cache::GMRESCache) = cache.factorization_seconds
 linear_tolerance(cache::GMRESCache) = cache.solver.relative_tolerance
 newton_operator_exact(cache::GMRESCache) = cache.solver.operator === :exact
 
-function linear_solver_cache(solver::GMRES, matrix::SparseMatrixCSC{T}, system::EquationSystem,
-                             row_weights, scales) where {T}
+function linear_solver_cache(
+        solver::GMRES, matrix::SparseMatrixCSC{T}, system::EquationSystem,
+        row_weights, scales) where {T}
     solver.preconditioner_refresh in (:every_iteration, :every_step, :on_demand) ||
         throw(ArgumentError("unknown preconditioner_refresh $(solver.preconditioner_refresh)"))
-    solver.refresh_step_change >= 0 || throw(ArgumentError("refresh_step_change must not be negative"))
-    solver.refresh_count_growth >= 1 || throw(ArgumentError("refresh_count_growth must be at least 1"))
-    solver.operator in (:exact, :stored) || throw(ArgumentError("operator must be :exact or :stored"))
+    solver.refresh_step_change >= 0 ||
+        throw(ArgumentError("refresh_step_change must not be negative"))
+    solver.refresh_count_growth >= 1 ||
+        throw(ArgumentError("refresh_count_growth must be at least 1"))
+    solver.operator in (:exact, :stored) ||
+        throw(ArgumentError("operator must be :exact or :stored"))
     # the row of a constraint has no entry in the column of its unknown, and in the radius
     # block the incomplete factorization meets that zero pivot before any row fills it
-    solver.preconditioner isa RadiusBlockILU && any(eq -> eq.kind isa Constraint, system.equations) &&
+    solver.preconditioner isa RadiusBlockILU &&
+        any(eq -> eq.kind isa Constraint, system.equations) &&
         throw(ArgumentError("RadiusBlockILU cannot factorize the radius blocks of a system with a Constraint " *
-                            "equation (issue #103). Take FluidSchurLU or RadiusBlockLU."))
+                            "equation. Take FluidSchurLU or RadiusBlockLU."))
     n = size(matrix, 1)
-    operator = NewtonOperator(matrix, system, row_weights, scales, zeros(T, n), zeros(T, n), zeros(T, n),
-                              solver.operator === :exact, zero(T))
+    operator = NewtonOperator(
+        matrix, system, row_weights, scales, zeros(T, n), zeros(T, n), zeros(T, n),
+        solver.operator === :exact, zero(T))
     factors = preconditioner_factors(solver.preconditioner, matrix, system.layout)
-    workspace = GmresWorkspace(n, n, Vector{T}; memory=solver.restart_length)
-    return GMRESCache(solver, operator, factors, workspace, 0, 0, false, NaN, 0, 0, 0.0, false)
+    workspace = GmresWorkspace(n, n, Vector{T}; memory = solver.restart_length)
+    return GMRESCache(
+        solver, operator, factors, workspace, 0, 0, false, NaN, 0, 0, 0.0, false)
 end
 
 function _needs_factorization(cache::GMRESCache, dt, iteration)
@@ -181,7 +185,8 @@ function _needs_factorization(cache::GMRESCache, dt, iteration)
     # solve with these factors
     # a solve with a zero right-hand side counts no iteration, which is no reference
     return abs(dt / cache.factorized_dt - 1) > cache.solver.refresh_step_change ||
-           cache.last_iterations > cache.solver.refresh_count_growth * max(cache.fresh_iterations, 1)
+           cache.last_iterations >
+           cache.solver.refresh_count_growth * max(cache.fresh_iterations, 1)
 end
 
 function _factorize!(cache::GMRESCache, matrix, dt)
@@ -189,7 +194,8 @@ function _factorize!(cache::GMRESCache, matrix, dt)
     started = time_ns()
     op = cache.operator
     low_rank = cache.solver.low_rank_update && !isempty(op.system.matrix_free_terms) ?
-               (; blocks=_low_rank_blocks(op.system, op.state, op.time), op.row_weights, op.scales) : nothing
+               (; blocks = _low_rank_blocks(op.system, op.state, op.time),
+        op.row_weights, op.scales) : nothing
     cache.factorized = factorize!(cache.factors, cache.solver.preconditioner, matrix, low_rank)
     cache.factorization_seconds += (time_ns() - started) / 1e9
     cache.factorized_dt = dt
@@ -198,16 +204,18 @@ end
 
 function _gmres!(cache::GMRESCache, b)
     solver = cache.solver
-    gmres!(cache.workspace, cache.operator, b; N=cache.factors, ldiv=true, restart=true, atol=0.0,
-           rtol=solver.relative_tolerance, itmax=solver.max_iterations)
+    gmres!(cache.workspace, cache.operator, b; N = cache.factors,
+        ldiv = true, restart = true, atol = 0.0,
+        rtol = solver.relative_tolerance, itmax = solver.max_iterations)
     stats = cache.workspace.stats
     cache.iterations += stats.niter
     cache.last_iterations = stats.niter
     return stats.solved
 end
 
-function solve!(x::AbstractVector, cache::GMRESCache, matrix::SparseMatrixCSC, b::AbstractVector,
-                u, t, dt, iteration)
+function solve!(
+        x::AbstractVector, cache::GMRESCache, matrix::SparseMatrixCSC, b::AbstractVector,
+        u, t, dt, iteration)
     operator = cache.operator
     copyto!(operator.state, u)
     operator.time = t

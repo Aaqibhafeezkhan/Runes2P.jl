@@ -1,4 +1,4 @@
-# The include order of src/Runes2P.jl (decision of the author, 2026-10-06): no source file
+# The include order of src/Runes2P.jl: no source file
 # uses a name whose first definition is in a later file of the order. Julia resolves the
 # names in the body of a function when it runs, so the package loads either way, and this
 # test keeps the layers readable from the top down. A name counts as defined by a method,
@@ -20,8 +20,8 @@ relative to `src/`.
 function included_files(path)
     files = String[]
     walk(ex) = ex isa Expr && (ex.head === :call && ex.args[1] === :include ?
-                                   push!(files, ex.args[2]) : foreach(walk, ex.args))
-    walk(Meta.parseall(read(path, String); filename=path))
+                push!(files, ex.args[2]) : foreach(walk, ex.args))
+    walk(Meta.parseall(read(path, String); filename = path))
     return files
 end
 
@@ -38,7 +38,7 @@ end
 function signature_call(sig)
     parameters = Any[]
     while sig isa Expr && (sig.head === :where ||
-                           sig.head === :(::) && length(sig.args) == 2 && sig.args[1] isa Expr)
+           sig.head === :(::) && length(sig.args) == 2 && sig.args[1] isa Expr)
         sig.head === :where && append!(parameters, sig.args[2:end])
         sig = sig.args[1]
     end
@@ -61,8 +61,10 @@ function type_name(head)
     return head isa Symbol ? head : nothing
 end
 
-is_method(ex) = ex isa Expr && (ex.head === :function && ex.args[1] isa Expr ||
-                                ex.head === :(=) && first(signature_call(ex.args[1])) !== nothing)
+function is_method(ex)
+    ex isa Expr && (ex.head === :function && ex.args[1] isa Expr ||
+     ex.head === :(=) && first(signature_call(ex.args[1])) !== nothing)
+end
 
 """
     defined_names(ex)
@@ -103,7 +105,7 @@ function defined_names(ex)
         return names
     elseif ex.head in (:block, :if, :elseif, :let)
         # the definitions of `@static if` and of blocks at the top level
-        return reduce(vcat, (defined_names(arg) for arg in ex.args); init=Symbol[])
+        return reduce(vcat, (defined_names(arg) for arg in ex.args); init = Symbol[])
     end
     return Symbol[]
 end
@@ -200,7 +202,9 @@ function free_names!(names, ex, bound)
     end
     ex isa Expr || return names
     head = ex.head
-    head in (:quote, :inert, :meta, :line, :export, :public, :using, :import, :local, :global) && return names
+    head in
+    (:quote, :inert, :meta, :line, :export, :public, :using, :import, :local, :global) &&
+        return names
     if is_method(ex) || head === :->
         head === :function && ex.args[1] isa Symbol && return names   # `function f end`
         call, parameters = head === :-> ? (ex.args[1], Any[]) : signature_call(ex.args[1])
@@ -222,7 +226,8 @@ function free_names!(names, ex, bound)
         length(ex.args) > 1 && free_names!(names, ex.args[2], inner)
     elseif head === :for || head === :let
         spec = ex.args[1]
-        loop_names, read = iteration_bindings(spec isa Expr && spec.head === :block ? spec.args : [spec])
+        loop_names, read = iteration_bindings(spec isa Expr && spec.head === :block ?
+                                              spec.args : [spec])
         foreach(arg -> free_names!(names, arg, bound), read)
         inner = union(bound, loop_names)
         head === :let && assigned!(inner, ex.args[2])
@@ -233,7 +238,8 @@ function free_names!(names, ex, bound)
         inner = union(bound, loop_names)
         free_names!(names, ex.args[1], inner)
         for spec in ex.args[2:end]
-            spec isa Expr && spec.head === :filter && free_names!(names, spec.args[1], inner)
+            spec isa Expr && spec.head === :filter &&
+                free_names!(names, spec.args[1], inner)
         end
     elseif head === :try
         free_names!(names, ex.args[1], bound)
@@ -244,7 +250,8 @@ function free_names!(names, ex, bound)
         free_names!(names, ex.args[1], bound)
         member = ex.args[2]
         # a name of the package itself, `Runes2P.name`
-        ex.args[1] === :Runes2P && member isa QuoteNode && member.value isa Symbol && push!(names, member.value)
+        ex.args[1] === :Runes2P && member isa QuoteNode && member.value isa Symbol &&
+            push!(names, member.value)
         member isa Expr && member.head === :tuple && free_names!(names, member, bound)   # broadcast
     elseif head === :macrocall
         ex.args[1] isa Symbol && push!(names, ex.args[1])
@@ -259,7 +266,8 @@ function free_names!(names, ex, bound)
         end
         free_names!(names, ex.args[2], bound)
     elseif head === :struct
-        type_head = ex.args[2] isa Expr && ex.args[2].head === :(<:) ? ex.args[2].args[1] : ex.args[2]
+        type_head = ex.args[2] isa Expr && ex.args[2].head === :(<:) ? ex.args[2].args[1] :
+                    ex.args[2]
         type_parameters = type_head isa Expr && type_head.head === :curly ?
                           first(static_parameters(type_head.args[2:end])) : Set{Symbol}()
         inner = union(bound, type_parameters)
@@ -289,14 +297,16 @@ The uses of a name before the file of its first definition, as tuples
 """
 function include_order_violations(source)
     files = included_files(joinpath(source, "Runes2P.jl"))
-    parsed = [Meta.parseall(read(joinpath(source, file), String); filename=file) for file in files]
-    first_file = Dict{Symbol,Int}()
+    parsed = [Meta.parseall(read(joinpath(source, file), String); filename = file)
+              for file in files]
+    first_file = Dict{Symbol, Int}()
     for (index, tree) in enumerate(parsed), ex in tree.args
+
         for name in defined_names(ex)
             get!(first_file, name, index)
         end
     end
-    violations = Tuple{String,Int,Symbol,String}[]
+    violations = Tuple{String, Int, Symbol, String}[]
     for (index, tree) in enumerate(parsed)
         line = 0
         for ex in tree.args
@@ -364,8 +374,9 @@ declared(x) = x
         write(joinpath(source, "b.jl"), LATER_FILE)
         violations = include_order_violations(source)
         @test Set(name for (_, _, name, _) in violations) ==
-              Set([:later_call, :LaterType, :LaterSuper, :LaterDefault, :LaterKwdef, :later_const,
-                   :later_documented, :later_loop, :later_qualified, :LaterModule])
+              Set([
+            :later_call, :LaterType, :LaterSuper, :LaterDefault, :LaterKwdef, :later_const,
+            :later_documented, :later_loop, :later_qualified, :LaterModule])
         @test all(v -> v[1] == "a.jl" && v[4] == "b.jl", violations)
         @test ("a.jl", 1, :later_call, "b.jl") in violations
     end

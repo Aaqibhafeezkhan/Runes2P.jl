@@ -10,7 +10,8 @@ julia --project=examples examples/cooling.jl scheme=van_albada solver=gmres
 julia --project=examples examples/avalanche.jl treatment=implicit solver=gmres
 ```
 
-Each script prints the solver statistics (steps, Newton and Krylov iterations, factorizations, steps accepted at the residual floor or as a linear system), the negative entries of the saved states and the density at every save.
+Each script prints the solver statistics, the negative entries of the saved states and the density at every save.
+The statistics are the steps, the Newton and Krylov iterations, the factorizations, and the steps accepted at the residual floor or as a linear system.
 `output=run.h5` writes the solution with `write_output` (layout, saved states per unknown, solver statistics, and the settings of the run with the commit of Runes2P).
 
 | Script | Run |
@@ -23,7 +24,7 @@ The switches, shared through `common.jl` (a script's own defaults are in its hea
 
 | Switch | Values | What it sets |
 |---|---|---|
-| `grid=` | `uniform` (default), `biuniform`, `tanh`, `production` | momentum grid type; `production` is a fully kinetic hot-tail grid at production resolution (270 cells to 2.5, 15 pitch cells) |
+| `grid=` | `uniform` (default), `biuniform`, `tanh`, `biuniform_270` | momentum grid type; `biuniform_270` is a fully kinetic hot-tail grid of 270 cells to 2.5 with 70 below 0.07 and 15 pitch cells with 10 within 0.5 rad of ξ = 1 (a choice of this package; see the docs page *Choices of this package*) |
 | `np=`, `p_max=` | integer, number | momentum cells and extent |
 | `np_low=`, `p_sep=` | integer, number | cells below and position of the split of the biuniform and tanh grids |
 | `pitch=`, `nxi=` | `uniform` (default) or `theta`; integer | pitch grid type and cells; `theta` is biuniform in the pitch angle with `nxi_low=` cells within `theta_sep=` radians of ξ = 1 |
@@ -37,7 +38,7 @@ The switches, shared through `common.jl` (a script's own defaults are in its hea
 | `E=` or `e_over_ec=` | V/m, or multiples of the critical field | electric field |
 | `n_ar=` | m⁻³ | neutral argon added to the deuterium plasma |
 | `synchrotron=` | `true`, `false` (default) | synchrotron losses (`relaxation.jl`) |
-| `nonnegative=` | `true`, `false` (default) | lower limit f ≥ 0 declared on the unknown (DREAM's rule: a Newton step may remove at most 90% of an entry's distance to zero, and a step that would push an entry already at zero below it fails and is retried with half the time step). A Maxwellian tail underflows to exact zeros, so with this switch a run rejects and halves many steps (334 accepted of 355 attempted for 10 nominal steps in a test run); it is the rule at work, not a fault |
+| `nonnegative=` | `true`, `false` (default) | lower limit f ≥ 0 declared on the unknown (DREAM's rule: a Newton step may remove at most 90% of an entry's distance to zero, and a step that would push an entry already at zero below it fails and is retried with half the time step). A Maxwellian tail underflows to exact zeros, so with this switch a run rejects and halves many steps; it is the rule at work, not a fault |
 | `solver=` | `lu` (default), `gmres` | monolithic sparse LU, or GMRES on the Newton operator |
 | `preconditioner=`, `ilu_drop=` | `lu` (default), `ilu`; number | block factorization per radius of the stored matrix for GMRES, exact or incomplete |
 | `refresh=` | `every_step` (default here), `every_iteration`, `on_demand` | when the preconditioner is factorized again |
@@ -47,10 +48,11 @@ The switches, shared through `common.jl` (a script's own defaults are in its hea
 | `output=` | file name | HDF5 output of the solution |
 | `checkpoint=`, `checkpoint_dir=`, `checkpoint_interval=` | name, directory, s | checkpoints and segment outputs of a run of that name (`relaxation.jl`, `cooling.jl`); 1800 s between checkpoints by default |
 | `resume=`, `overwrite=` | `true`, `false` (default) | continue from the last checkpoint when there is one; let a run replace the segment files of an earlier one |
-| `stop_file=`, `wall_budget=`, `slack=` | file name, s, s | stop the segment at a time point when the file appears or the budget runs out; in a Slurm job with checkpoints the end of the job is the budget |
+| `stop_file=`, `wall_budget=`, `slack=` | file name, s, s | stop the segment at a time point when the file appears or the budget runs out; in a Slurm job with checkpoints the end of the job (`SLURM_JOB_END_TIME`) is the budget |
 | `log=`, `request_file=` | `stdout` or a file name; file name | progress log of the run (`relaxation.jl`, `cooling.jl`), appended to a file; the file whose appearance asks for an entry |
 
-Parameter values come from DREAM's examples or, for the cooling plasma, a generic test case; each script names its source.
+Parameter values come from DREAM's examples or are choices of this package (see the docs page *Choices of this package*), cited in each script.
 The default scheme, exponential fitting, keeps f non-negative at every resolution and is first order where a smooth tail is driven by the field.
 So field-driven quantities need a check against a finer `np=`: the runaway fraction of `relaxation.jl` at large `e_over_ec`, and the loss through `p_max` in `cooling.jl`.
-The limiters converge faster there and cost about twice per step.
+The limiters converge faster there and cost more per step.
+DREAM's default is the central value (`AD_INTERP_CENTRED` in DREAM's `py/DREAM/Settings/Equations/DistributionFunction.py`), and its other choices include the flux limiters.

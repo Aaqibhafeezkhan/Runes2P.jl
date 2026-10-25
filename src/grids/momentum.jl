@@ -5,7 +5,7 @@ Momentum grid in spherical coordinates `(p, ξ)`, with `p` the momentum normaliz
 `mₑc` and `ξ = cos θ` the pitch. Cells are defined by their faces; cell centres are
 face midpoints.
 """
-struct MomentumGrid{T<:AbstractFloat}
+struct MomentumGrid{T <: AbstractFloat}
     p_centers::Vector{T}   # length momentum_cell_count
     p_faces::Vector{T}     # length momentum_cell_count + 1
     p_widths::Vector{T}    # length momentum_cell_count
@@ -14,22 +14,27 @@ struct MomentumGrid{T<:AbstractFloat}
     xi_widths::Vector{T}   # length pitch_cell_count
 end
 
-function MomentumGrid(p_faces::AbstractVector{T}, xi_faces::AbstractVector{T}) where {T<:AbstractFloat}
+function MomentumGrid(p_faces::AbstractVector{T}, xi_faces::AbstractVector{T}) where {T <:
+                                                                                      AbstractFloat}
     length(p_faces) >= 2 || throw(ArgumentError("p grid needs at least one cell"))
     length(xi_faces) >= 2 || throw(ArgumentError("ξ grid needs at least one cell"))
-    issorted(p_faces; lt=<=) || throw(ArgumentError("p faces must be strictly increasing"))
-    issorted(xi_faces; lt=<=) || throw(ArgumentError("ξ faces must be strictly increasing"))
+    issorted(p_faces; lt = <=) ||
+        throw(ArgumentError("p faces must be strictly increasing"))
+    issorted(xi_faces; lt = <=) ||
+        throw(ArgumentError("ξ faces must be strictly increasing"))
     first(p_faces) >= 0 || throw(ArgumentError("p faces must be non-negative"))
-    (first(xi_faces) >= -1 && last(xi_faces) <= 1) || throw(ArgumentError("ξ faces must lie in [-1, 1]"))
+    (first(xi_faces) >= -1 && last(xi_faces) <= 1) ||
+        throw(ArgumentError("ξ faces must lie in [-1, 1]"))
     p_faces = collect(p_faces)
     xi_faces = collect(xi_faces)
     minimum(diff(p_faces)) > 1e-10 * (last(p_faces) - first(p_faces)) ||
         throw(ArgumentError("p grid has a degenerate cell"))
     minimum(diff(xi_faces)) > 1e-10 * (last(xi_faces) - first(xi_faces)) ||
         throw(ArgumentError("ξ grid has a degenerate cell"))
-    p_centers = (p_faces[1:end-1] .+ p_faces[2:end]) ./ 2
-    xi_centers = (xi_faces[1:end-1] .+ xi_faces[2:end]) ./ 2
-    return MomentumGrid{T}(p_centers, p_faces, diff(p_faces), xi_centers, xi_faces, diff(xi_faces))
+    p_centers = (p_faces[1:(end - 1)] .+ p_faces[2:end]) ./ 2
+    xi_centers = (xi_faces[1:(end - 1)] .+ xi_faces[2:end]) ./ 2
+    return MomentumGrid{T}(
+        p_centers, p_faces, diff(p_faces), xi_centers, xi_faces, diff(xi_faces))
 end
 
 """
@@ -70,8 +75,9 @@ cell_count(grid::MomentumGrid) = momentum_cell_count(grid) * pitch_cell_count(gr
 
 Faces of a uniform momentum grid with `cell_count` cells.
 """
-uniform_p_faces(cell_count::Integer, p_min::Real, p_max::Real) =
-    collect(range(float(p_min), float(p_max); length=cell_count + 1))
+function uniform_p_faces(cell_count::Integer, p_min::Real, p_max::Real)
+    collect(range(float(p_min), float(p_max); length = cell_count + 1))
+end
 
 """
     biuniform_p_faces(cell_count, lower_cell_count, p_min, p_separation, p_max)
@@ -81,11 +87,15 @@ Faces of a two-region uniform momentum grid: `lower_cell_count` cells on
 (DREAM `PBiUniformGridGenerator`).
 """
 function biuniform_p_faces(cell_count::Integer, lower_cell_count::Integer, p_min::Real,
-                           p_separation::Real, p_max::Real)
-    (1 <= lower_cell_count < cell_count) || throw(ArgumentError("each region needs at least one cell"))
-    (p_min < p_separation < p_max) || throw(ArgumentError("require p_min < p_separation < p_max"))
-    lower = range(float(p_min), float(p_separation); length=lower_cell_count + 1)
+        p_separation::Real, p_max::Real)
+    (1 <= lower_cell_count < cell_count) ||
+        throw(ArgumentError("each region needs at least one cell"))
+    (p_min < p_separation < p_max) ||
+        throw(ArgumentError("require p_min < p_separation < p_max"))
+    lower = range(float(p_min), float(p_separation); length = lower_cell_count + 1)
+    #! format: off
     upper = range(float(p_separation), float(p_max); length=cell_count - lower_cell_count + 1)
+    #! format: on
     return vcat(collect(lower), collect(upper)[2:end])
 end
 
@@ -117,15 +127,19 @@ error is O(1) at the jump cell only, and the global error stays second order
 everywhere when `transition_cells` grows with the cell count. Where the solution still
 varies above `p_separation`, its transition cells, finer than the biuniform grid's upper
 cells, make it more accurate at equal cell count: 3.5 times on the manufactured solution,
-2 times on the avalanche example with upwind, and no gain on DREAM's `runaway/basic.py`
-split at p = 0.1 with the central scheme.
+2 times on DREAM's `avalanche/generateCylindrical.py` with upwind, and no gain on DREAM's
+`runaway/basic.py` split at p = 0.1 with the central scheme.
 """
-function tanh_p_faces(cell_count::Integer, lower_cell_count::Integer, p_min::Real, p_separation::Real,
-                      p_max::Real; transition_cells::Real=cell_count / 20)
-    (1 <= lower_cell_count < cell_count) || throw(ArgumentError("each region needs at least one cell"))
-    (p_min < p_separation < p_max) || throw(ArgumentError("require p_min < p_separation < p_max"))
+function tanh_p_faces(
+        cell_count::Integer, lower_cell_count::Integer, p_min::Real, p_separation::Real,
+        p_max::Real; transition_cells::Real = cell_count / 20)
+    (1 <= lower_cell_count < cell_count) ||
+        throw(ArgumentError("each region needs at least one cell"))
+    (p_min < p_separation < p_max) ||
+        throw(ArgumentError("require p_min < p_separation < p_max"))
     transition_cells >= 0 || throw(ArgumentError("transition_cells must be nonnegative"))
-    transition_cells == 0 && return biuniform_p_faces(cell_count, lower_cell_count, p_min, p_separation, p_max)
+    transition_cells == 0 &&
+        return biuniform_p_faces(cell_count, lower_cell_count, p_min, p_separation, p_max)
     n1, w = float(lower_cell_count), float(transition_cells)
     center = n1 + 3w
     center + 2w <= cell_count ||
@@ -143,9 +157,10 @@ function tanh_p_faces(cell_count::Integer, lower_cell_count::Integer, p_min::Rea
     h2 = ((n1 - s1) * total_span - (cell_count - sN) * lower_span) / determinant
     (h1 > 0 && h2 > 0) ||
         throw(ArgumentError("transition_cells = $transition_cells is too wide for this grid; the spacings are not positive"))
-    faces = [p_min + h1 * (k - upper_share(float(k))) + h2 * upper_share(float(k)) for k in 0:cell_count]
+    faces = [p_min + h1 * (k - upper_share(float(k))) + h2 * upper_share(float(k))
+             for k in 0:cell_count]
     # land exactly on the prescribed separation and ends
-    faces[1], faces[lower_cell_count+1], faces[end] = p_min, p_separation, p_max
+    faces[1], faces[lower_cell_count + 1], faces[end] = p_min, p_separation, p_max
     return faces
 end
 
@@ -154,7 +169,7 @@ end
 
 Faces of a uniform pitch grid on `[-1, 1]` with `cell_count` cells.
 """
-uniform_xi_faces(cell_count::Integer) = collect(range(-1.0, 1.0; length=cell_count + 1))
+uniform_xi_faces(cell_count::Integer) = collect(range(-1.0, 1.0; length = cell_count + 1))
 
 """
     biuniform_theta_xi_faces(cell_count, lower_cell_count, theta_separation)
@@ -162,14 +177,17 @@ uniform_xi_faces(cell_count::Integer) = collect(range(-1.0, 1.0; length=cell_cou
 Faces of a two-region pitch grid, uniform in `θ = acos(ξ)`: `lower_cell_count` cells on
 `θ ∈ [0, theta_separation]` (near `ξ = 1`) and `cell_count - lower_cell_count` cells on
 `[theta_separation, π]`, returned as `ξ = cos θ` faces (DREAM `TYPE_BIUNIFORM_THETA`,
-`XiBiUniformThetaGridGenerator`). Refines towards
-`ξ = 1`, where runaway electrons concentrate.
+`XiBiUniformThetaGridGenerator`). Refines towards `ξ = 1`, where runaway electrons
+concentrate.
 """
 function biuniform_theta_xi_faces(cell_count::Integer, lower_cell_count::Integer, theta_separation::Real)
-    (1 <= lower_cell_count < cell_count) || throw(ArgumentError("each region needs at least one cell"))
+    (1 <= lower_cell_count < cell_count) ||
+        throw(ArgumentError("each region needs at least one cell"))
     0 < theta_separation < pi || throw(ArgumentError("require 0 < theta_separation < π"))
-    lower = range(0.0, float(theta_separation); length=lower_cell_count + 1)
+    lower = range(0.0, float(theta_separation); length = lower_cell_count + 1)
+    #! format: off
     upper = range(float(theta_separation), oftype(0.0, pi); length=cell_count - lower_cell_count + 1)
+    #! format: on
     theta_faces = vcat(collect(lower), collect(upper)[2:end])
     return reverse(cos.(theta_faces))
 end

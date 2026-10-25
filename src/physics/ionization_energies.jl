@@ -11,21 +11,15 @@ the ion of charge `Z0 = 0, …, Z − 1`: A. Kramida, Yu. Ralchenko, J. Reader a
 Team, NIST Atomic Spectra Database, https://physics.nist.gov/asd, doi:10.18434/T4W30F, as
 retrieved on 2023-04-28 by DREAM's `tools/get_nist.py` into its
 `src/Atomics/nistdata_ionization.cpp`. Deuterium and tritium take the energy of hydrogen.
+The values are read from `data/ionization_energies.toml`.
 """
-const IONIZATION_ENERGIES = Dict{String,Vector{Float64}}(
-    "H" => [13.5984345997],
-    "He" => [24.5873890110, 54.4177655282],
-    "Li" => [5.3917149960, 75.6400970000, 122.4543591300],
-    "Be" => [9.3226990000, 18.2111500000, 153.8962050000, 217.7185845900],
-    "B" => [8.2980190000, 25.1548300000, 37.9305900000, 259.3715000000, 340.2260225000],
-    "C" => [11.2602880000, 24.3831430000, 47.8877800000, 64.4935200000, 392.0905180000, 489.9932077900],
-    "O" => [13.6180550000, 35.1211200000, 54.9355400000, 77.4135000000, 113.8990000000, 138.1189000000, 739.3268300000, 871.4099138000],
-    "Ne" => [21.5645410000, 40.9629700000, 63.4233000000, 97.1900000000, 126.2470000000, 157.9340000000, 207.2710000000, 239.0970000000, 1195.8078400000, 1362.1992560000],
-    "Ar" => [15.7596119000, 27.6296700000, 40.7350000000, 59.5800000000, 74.8400000000, 91.2900000000, 124.4100000000, 143.4567000000, 422.6000000000, 479.7600000000, 540.4000000000, 619.0000000000, 685.5000000000, 755.1300000000, 855.5000000000, 918.3750000000, 4120.6657000000, 4426.2240700000],
-    "Fe" => [7.9024681000, 16.1992100000, 30.6510000000, 54.9100000000, 75.0000000000, 98.9850000000, 124.9671000000, 151.0600000000, 233.6000000000, 262.1000000000, 290.9000000000, 330.8000000000, 361.0000000000, 392.2000000000, 456.2000000000, 489.3120000000, 1262.7000000000, 1357.8000000000, 1460.0000000000, 1575.6000000000, 1687.0000000000, 1798.4000000000, 1950.4000000000, 2045.7590000000, 8828.1879000000, 9277.6886000000],
-    "W" => [7.8640300000, 16.3700000000, 26.0000000000, 38.2000000000, 51.6000000000, 64.7700000000, 122.0100000000, 141.2000000000, 160.2000000000, 179.0000000000, 208.9000000000, 231.6000000000, 258.3000000000, 290.7000000000, 325.3000000000, 361.9000000000, 387.9000000000, 420.7000000000, 462.1000000000, 502.6000000000, 543.4000000000, 594.5000000000, 640.6000000000, 685.6000000000, 734.1000000000, 784.4000000000, 833.4000000000, 881.4000000000, 1132.2000000000, 1180.0000000000, 1230.4000000000, 1283.4000000000, 1335.1000000000, 1386.8000000000, 1459.9000000000, 1512.4000000000, 1569.1000000000, 1621.7000000000, 1829.8000000000, 1882.9000000000, 1940.6000000000, 1994.8000000000, 2149.1000000000, 2210.0000000000, 2354.5000000000, 2414.1000000000, 4057.0000000000, 4180.0000000000, 4309.0000000000, 4446.0000000000, 4578.0000000000, 4709.0000000000, 4927.0000000000, 5063.0000000000, 5209.0000000000, 5348.0000000000, 5719.0000000000, 5840.0000000000, 5970.0000000000, 6093.0000000000, 6596.0000000000, 6735.0000000000, 7000.0000000000, 7130.0000000000, 15566.0000000000, 15896.0000000000, 16252.0000000000, 16588.0000000000, 18476.0000000000, 18872.0000000000, 19362.0000000000, 19686.7400000000, 79181.9400000000, 80755.9100000000],
-    "D" => [13.5984345997],
-    "T" => [13.5984345997])
+const IONIZATION_ENERGIES = let data = read_data_file("ionization_energies")["data"]
+    energies = Dict{String, Vector{Float64}}(element => float_vector(values)
+    for (element, values) in data)
+    energies["D"] = copy(energies["H"])
+    energies["T"] = copy(energies["H"])
+    energies
+end
 
 """
     ionization_energy(element, Z0)
@@ -34,9 +28,11 @@ The energy [eV] to ionize the ion of `element` with charge `Z0` ([`IONIZATION_EN
 """
 function ionization_energy(element::AbstractString, Z0::Integer)
     energies = get(IONIZATION_ENERGIES, atomic_element(element), nothing)
-    energies === nothing && throw(ArgumentError("no ionization energies for the element $element"))
-    0 <= Z0 < length(energies) || throw(ArgumentError("$element has no ion of charge $Z0 to ionize"))
-    return energies[Z0+1]
+    energies === nothing &&
+        throw(ArgumentError("no ionization energies for the element $element"))
+    0 <= Z0 < length(energies) ||
+        throw(ArgumentError("$element has no ion of charge $Z0 to ionize"))
+    return energies[Z0 + 1]
 end
 
 """
@@ -60,17 +56,10 @@ one (technetium, promethium, polonium to actinium).
   Atomic Weights of IUPAC (CIAAW, https://www.ciaaw.org/atomic-weights.htm, read
   2026-10-12), and for thallium and lead, which have an interval, its conventional values
   204.38 and 207.2.
+
+The values are read from `data/atomic_masses.toml`.
 """
-const ATOMIC_MASSES = [1.008, 4.0026, 6.94, 9.0122, 10.81, 12.011, 14.007, 15.999, 18.998, 20.180,
-                       22.990, 24.305, 26.982, 28.085, 30.974, 32.06, 35.45, 39.95, 39.098, 40.078,
-                       44.956, 47.867, 50.942, 51.996, 54.938, 55.845, 58.933, 58.693, 63.546, 65.38,
-                       69.723, 72.63, 74.922, 78.971, 79.904, 83.798, 85.468, 87.62, 88.906, 91.224,
-                       92.90637, 95.95, NaN, 101.07, 102.90549, 106.42, 107.8682, 112.414, 114.818, 118.710,
-                       121.760, 127.60, 126.90447, 131.293, 132.90545196, 137.327, 138.90547, 140.116,
-                       140.90766, 144.242, NaN, 150.36, 151.964, 157.249, 158.925354, 162.500, 164.930329,
-                       167.259, 168.934219, 173.045, 174.96669, 178.486, 180.94788, 183.84, 186.207, 190.23,
-                       192.217, 195.084, 196.966570, 200.592, 204.38, 207.2, 208.98040, NaN, NaN, NaN, NaN,
-                       NaN, NaN, 232.0377, 231.03588, 238.02891]
+const ATOMIC_MASSES = float_vector(read_data_file("atomic_masses")["data"]["masses"])
 
 """
     HYDROGEN_ISOTOPE_MASSES
@@ -82,7 +71,8 @@ and `mD` (`src/Constants.cpp`) are the first two; its `mT` is the atomic mass of
 (3.01604928 u, 5.00826765e-27 kg), which exceeds the triton by one electron mass
 ([`DREAM_HYDROGEN_ISOTOPE_MASSES`](@ref)).
 """
-const HYDROGEN_ISOTOPE_MASSES = Dict("H" => 1.67262192369e-27, "D" => 3.3435837724e-27, "T" => 5.0073567446e-27)
+const HYDROGEN_ISOTOPE_MASSES = Dict(
+    "H" => 1.67262192369e-27, "D" => 3.3435837724e-27, "T" => 5.0073567446e-27)
 
 """
     DREAM_HYDROGEN_ISOTOPE_MASSES
@@ -90,7 +80,8 @@ const HYDROGEN_ISOTOPE_MASSES = Dict("H" => 1.67262192369e-27, "D" => 3.34358377
 DREAM's masses [kg] of the hydrogen isotopes, `mH`, `mD` and `mT` of `src/Constants.cpp`:
 the proton and the deuteron of CODATA 2018 and the atomic mass of ³H (3.01604928 u).
 """
-const DREAM_HYDROGEN_ISOTOPE_MASSES = Dict("H" => 1.67262192369e-27, "D" => 3.3435837724e-27, "T" => 5.00826765e-27)
+const DREAM_HYDROGEN_ISOTOPE_MASSES = Dict(
+    "H" => 1.67262192369e-27, "D" => 3.3435837724e-27, "T" => 5.00826765e-27)
 
 """
     ion_mass(species; table=:standard)
@@ -110,11 +101,13 @@ The mass [kg] of an ion species. For nuclear charge 1 it is the mass of hydrogen
   `2.3 Z` atomic mass units beyond, which puts tungsten at 170 u against 183.84 u and xenon
   at 124 u against 131.3 u.
 """
-function ion_mass(species::IonSpecies; table::Symbol=:standard)
-    table in (:standard, :dream) || throw(ArgumentError("table must be :standard or :dream, not $table"))
+function ion_mass(species::IonSpecies; table::Symbol = :standard)
+    table in (:standard, :dream) ||
+        throw(ArgumentError("table must be :standard or :dream, not $table"))
     Z = species.nuclear_charge
     if Z == 1
-        isotopes = table === :standard ? HYDROGEN_ISOTOPE_MASSES : DREAM_HYDROGEN_ISOTOPE_MASSES
+        isotopes = table === :standard ? HYDROGEN_ISOTOPE_MASSES :
+                   DREAM_HYDROGEN_ISOTOPE_MASSES
         return get(isotopes, atomic_element(species.name), isotopes["D"])
     end
     table === :dream && Z > 40 && return 2.3 * Z * ATOMIC_MASS_UNIT

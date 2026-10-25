@@ -10,7 +10,8 @@
 
 @inline _gamma_minus_one(p) = p^2 / (sqrt(1 + p^2) + 1)
 
-const _MOLLER_PREFACTOR = 2pi * Constants.CLASSICAL_ELECTRON_RADIUS^2 * Constants.SPEED_OF_LIGHT
+const _MOLLER_PREFACTOR = 2pi * Constants.CLASSICAL_ELECTRON_RADIUS^2 *
+                          Constants.SPEED_OF_LIGHT
 
 """
     xi_star(p, p1)
@@ -25,7 +26,8 @@ function xi_star(p, p1)
     knockon_energy = _gamma_minus_one(p)
     isinf(p1) && return sqrt(knockon_energy / (knockon_energy + 2))
     incident_energy = _gamma_minus_one(p1)
-    return sqrt((incident_energy + 2) * knockon_energy / (incident_energy * (knockon_energy + 2)))
+    return sqrt((incident_energy + 2) * knockon_energy /
+                (incident_energy * (knockon_energy + 2)))
 end
 
 """
@@ -41,7 +43,7 @@ p = \\sqrt{(\\gamma - 1)(\\gamma + 1)}.
 ```
 
 Used to split the receiving momentum interval of a pair at the `ξ*` values of the pitch
-table.
+table ([`KnockOnKernels`](@ref)).
 """
 function momentum_at_xi_star(xi_s, p1)
     x2 = xi_s^2
@@ -68,8 +70,9 @@ function moller_cross_section(p, p1)
     gamma = knockon_energy + 1
     gamma1 = _gamma_minus_one(p1) + 1
     difference = gamma1 - gamma
-    term = (gamma1 - 1)^2 - knockon_energy * difference / gamma1^2 *
-                            (2gamma1^2 + 2gamma1 - 1 - knockon_energy * difference)
+    term = (gamma1 - 1)^2 -
+           knockon_energy * difference / gamma1^2 *
+           (2gamma1^2 + 2gamma1 - 1 - knockon_energy * difference)
     return _MOLLER_PREFACTOR * term * gamma1^2 / (p1^2 * knockon_energy^2 * difference^2)
 end
 

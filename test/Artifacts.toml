@@ -1,0 +1,23 @@
+["dream-v26.5"]
+git-tree-sha1 = "004e66319a69261f4c5f753b10cfd223cd58ae2b"
+lazy = true
+
+    [["dream-v26.5".download]]
+    url = "https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5/dream-v26.5.tar.gz"
+    sha256 = "9a58580042eebe34250b864cb6f2d1bae7993ae174220813c556ab03d921f340"
+
+["dream-boltzmann-eqterm-93d27e17"]
+git-tree-sha1 = "77d8da5460738ec8a58e7c82ea9903be2842fab4"
+lazy = true
+
+    [["dream-boltzmann-eqterm-93d27e17".download]]
+    url = "https://deep.reak.bme.hu/~data/runes2p/reference/dream-boltzmann-eqterm-93d27e17/dream-boltzmann-eqterm-93d27e17.tar.gz"
+    sha256 = "417311d165366e8a4cfe3d0586e49bf9aab6a029b09730cfb48ac1c536643a2b"
+
+["gsl-2.8"]
+git-tree-sha1 = "5df07b9a119dde28969f1f4915593523187b26fd"
+lazy = true
+
+    [["gsl-2.8".download]]
+    url = "https://deep.reak.bme.hu/~data/runes2p/reference/gsl-2.8/gsl-2.8.tar.gz"
+    sha256 = "7f66e850f160a10d8d211a042ceb09083ec2846455e4e450fdf81ac04fa05371"

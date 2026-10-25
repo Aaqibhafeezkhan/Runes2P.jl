@@ -1,13 +1,13 @@
-# Moments of a distribution as terms of the equations: the
-# density and the current of a kinetic unknown, over a momentum region, with the envelopes
-# of the region kept per term. Moved out of terms.jl and momentum_region.jl.
+# Moments of a distribution as terms of the equations: the density and the current of a
+# kinetic unknown, over a momentum region, with the envelopes of the region kept per term.
 
 # the limits per radius of a region that follows the temperature unknown, in the number type
 # of the state
 function _state_limits(region::MomentumRegion, u, layout)
     limit = region.limit
     temperature = radial_values(u, layout, unknown_id(layout, limit.temperature))
-    return [limit.factor * sqrt(2 * temperature[ir] / Constants.ELECTRON_REST_ENERGY) for ir in eachindex(temperature)]
+    return [limit.factor * sqrt(2 * temperature[ir] / Constants.ELECTRON_REST_ENERGY)
+            for ir in eachindex(temperature)]
 end
 
 """
@@ -18,7 +18,7 @@ depends on time is evaluated once per time, and the envelopes are rebuilt when t
 a radius changes. The evaluations of a term share them, so a term with a
 region allocates nothing between the changes.
 """
-struct RegionEnvelopes{R<:MomentumRegion}
+struct RegionEnvelopes{R <: MomentumRegion}
     region::R
     values::Vector{Vector{Float64}}   # per radius, per momentum cell
     limits::Vector{Float64}           # the limits of the values per radius, empty before the first evaluation
@@ -34,10 +34,14 @@ function RegionEnvelopes(region::MomentumRegion, grid::KineticGrid)
         throw(ArgumentError("the :smooth envelope of a region that follows the temperature unknown " *
                             "$(only(region_temperature(region))) jumps in the temperature on a momentum grid with " *
                             "cells of different widths: use envelope = :interpolated or :cell_fraction"))
-    return RegionEnvelopes(region, [zeros(momentum_cell_count(grid, ir)) for ir in 1:radial_cell_count(grid)], Float64[],
-                           Ref(NaN))
+    return RegionEnvelopes(
+        region, [zeros(momentum_cell_count(grid, ir)) for ir in 1:radial_cell_count(grid)],
+        Float64[],
+        Ref(NaN))
 end
-_uniform_widths(m::MomentumGrid) = all(w -> isapprox(w, first(m.p_widths); rtol=1e-10), m.p_widths)
+function _uniform_widths(m::MomentumGrid)
+    all(w -> isapprox(w, first(m.p_widths); rtol = 1e-10), m.p_widths)
+end
 RegionEnvelopes(::Nothing, grid::KineticGrid) = nothing
 
 # the envelope of the radius at the state u and the time t; nothing without a region
@@ -53,10 +57,12 @@ function _refresh!(envelopes::RegionEnvelopes, grid::KineticGrid, u, layout, t)
     radii = radial_cell_count(grid)
     if !isempty(region_temperature(envelopes.region))
         # a limit that follows the state is compared at every evaluation
-        u === nothing && throw(ArgumentError("a region that follows the temperature unknown needs the state"))
+        u === nothing &&
+            throw(ArgumentError("a region that follows the temperature unknown needs the state"))
         values = [_value(x) for x in _state_limits(envelopes.region, u, layout)]
     else
-        built && (!is_time_dependent(envelopes.region) || envelopes.time[] == time) && return envelopes
+        built && (!is_time_dependent(envelopes.region) || envelopes.time[] == time) &&
+            return envelopes
         values = _limit_values(envelopes.region.limit, time)
     end
     limits = values isa Real ? Iterators.repeated(values, radii) : values
@@ -66,7 +72,8 @@ function _refresh!(envelopes::RegionEnvelopes, grid::KineticGrid, u, layout, t)
     update_key!(envelopes.limits, limits) || return envelopes
     try
         for ir in 1:radii
-            momentum_envelope!(envelopes.values[ir], envelopes.region, momentum_grid(grid, ir), envelopes.limits[ir])
+            momentum_envelope!(envelopes.values[ir], envelopes.region,
+                momentum_grid(grid, ir), envelopes.limits[ir])
         end
     catch
         reset_key!(envelopes.limits)
@@ -84,30 +91,41 @@ end
 defined by an algebraic equation). Works with different momentum grids at different radii.
 
 With `region`, a [`MomentumRegion`](@ref), the moment covers that part of the momentum
-grid: the hot electrons above the threshold of the hot region. The limit
-of the region at the time of the evaluation counts, and `grid` is the grid of the unknown.
-The limit is prescribed data: the term is linear in the distribution.
+grid: the hot electrons above the threshold of the hot region. The limit of the region at
+the time of the evaluation counts, and `grid` is the grid of the unknown. A prescribed limit
+makes the term linear in the distribution. A limit that follows the temperature unknown
+([`ThermalMomentum`](@ref) with the unknown's name) makes it nonlinear, and its Jacobian holds
+the column of the temperature through the threshold.
 """
 struct DensityMomentTerm{E} <: EquationTerm
     kinetic::Symbol
     coefficient::Float64
     envelopes::E    # nothing, or the envelopes of the region per radius
 end
-DensityMomentTerm(kinetic::Symbol; coefficient::Real=1.0) = DensityMomentTerm(kinetic, Float64(coefficient), nothing)
-DensityMomentTerm(kinetic::Symbol, grid::KineticGrid; coefficient::Real=1.0,
-                  region::Union{Nothing,MomentumRegion}=nothing) =
+function DensityMomentTerm(kinetic::Symbol; coefficient::Real = 1.0)
+    DensityMomentTerm(kinetic, Float64(coefficient), nothing)
+end
+function DensityMomentTerm(kinetic::Symbol, grid::KineticGrid; coefficient::Real = 1.0,
+        region::Union{Nothing, MomentumRegion} = nothing)
     DensityMomentTerm(kinetic, Float64(coefficient), RegionEnvelopes(region, grid))
+end
 
-_region_unknowns(envelopes) = envelopes === nothing ? () : region_temperature(envelopes.region)
-dependencies(term::DensityMomentTerm) = [term.kinetic; collect(Symbol, _region_unknowns(term.envelopes))]
+function _region_unknowns(envelopes)
+    envelopes === nothing ? () : region_temperature(envelopes.region)
+end
+function dependencies(term::DensityMomentTerm)
+    [term.kinetic; collect(Symbol, _region_unknowns(term.envelopes))]
+end
 is_linear(term::DensityMomentTerm) = isempty(_region_unknowns(term.envelopes))
 
 # the envelopes of a term fit the grid of its unknown
 _check_envelopes(::Nothing, grid) = nothing
 function _check_envelopes(envelopes::RegionEnvelopes, grid::KineticGrid)
+    #! format: off
     length(envelopes.values) == radial_cell_count(grid) &&
         all(ir -> length(envelopes.values[ir]) == momentum_cell_count(grid, ir), 1:radial_cell_count(grid)) ||
         throw(DimensionMismatch("the momentum region of the term was built for another grid"))
+    #! format: on
     return nothing
 end
 
@@ -121,10 +139,13 @@ function validate(term::DensityMomentTerm, layout, row)
     return nothing
 end
 
-rhs!(out, term::DensityMomentTerm, u, layout, row, t) =
-    _add_density_moment!(out, term, kinetic_grid(layout, unknown_id(layout, term.kinetic)), u, layout, row, t)
+function rhs!(out, term::DensityMomentTerm, u, layout, row, t)
+    _add_density_moment!(out, term, kinetic_grid(layout, unknown_id(layout, term.kinetic)),
+        u, layout, row, t)
+end
 
-function _add_density_moment!(out, term::DensityMomentTerm, grid::KineticGrid, u, layout, row, t)
+function _add_density_moment!(
+        out, term::DensityMomentTerm, grid::KineticGrid, u, layout, row, t)
     id = unknown_id(layout, term.kinetic)
     for ir in 1:radial_cell_count(layout)
         m = momentum_grid(grid, ir)
@@ -133,10 +154,12 @@ function _add_density_moment!(out, term::DensityMomentTerm, grid::KineticGrid, u
         f = kinetic_view(u, layout, id, ir)
         n = zero(eltype(out))
         @inbounds for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
-            n += _envelope_value(envelope, i) * jacobian[i, j] * m.p_widths[i] * m.xi_widths[j] * f[i, j]
+
+            n += _envelope_value(envelope, i) * jacobian[i, j] * m.p_widths[i] *
+                 m.xi_widths[j] * f[i, j]
         end
-        out[first(unknown_range(layout, row, ir))] +=
-            term.coefficient * n / grid.radial_grid.spatial_jacobian[ir]
+        out[first(unknown_range(layout, row, ir))] += term.coefficient * n /
+                                                      grid.radial_grid.spatial_jacobian[ir]
     end
     return out
 end
@@ -153,24 +176,29 @@ function add_jacobian!(J, term::DensityMomentTerm, u, layout, row, t)
         r = first(unknown_range(layout, row, ir))
         factor = term.coefficient / grid.radial_grid.spatial_jacobian[ir]
         @inbounds for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
+
             _add_entry!(J, r, _kinetic_index(layout, id, ir, i, j),
-                        factor * _envelope_value(envelope, i) * jacobian[i, j] * m.p_widths[i] * m.xi_widths[j])
+                factor * _envelope_value(envelope, i) * jacobian[i, j] * m.p_widths[i] *
+                m.xi_widths[j])
         end
     end
     _add_threshold_column!(J, term.envelopes, grid, u, layout, row, id) do ir, i, j
+        #! format: off
         m = momentum_grid(grid, ir)
         term.coefficient / grid.radial_grid.spatial_jacobian[ir] * phase_space_jacobian(grid, ir)[i, j] *
             m.p_widths[i] * m.xi_widths[j]
+        #! format: on
     end
     return J
 end
 
-sparsity!(entries, term::DensityMomentTerm, layout, row) =
+function sparsity!(entries, term::DensityMomentTerm, layout, row)
     _moment_sparsity!(entries, term.kinetic, layout, row, term.envelopes)
+end
 
 # the row of a moment holds every cell of its radius, and the temperature of the radius when
 # the limit of its region follows that unknown
-function _moment_sparsity!(entries, kinetic::Symbol, layout, row, envelopes=nothing)
+function _moment_sparsity!(entries, kinetic::Symbol, layout, row, envelopes = nothing)
     id = unknown_id(layout, kinetic)
     temperature = envelopes === nothing ? () : region_temperature(envelopes.region)
     for ir in 1:radial_cell_count(layout)
@@ -188,10 +216,12 @@ end
 # the envelope for the residual of a moment: in the number type of a state with derivative
 # parts when the limit follows the temperature, so that the AD of rhs! holds its column
 function _moment_envelope(envelopes, grid, ir, u, layout, t)
-    if envelopes !== nothing && !isempty(region_temperature(envelopes.region)) && eltype(u) <: ForwardDiff.Dual
+    if envelopes !== nothing && !isempty(region_temperature(envelopes.region)) &&
+       eltype(u) <: ForwardDiff.Dual
         limit = _state_limits(envelopes.region, u, layout)[ir]
-        return momentum_envelope!(zeros(typeof(limit), momentum_cell_count(grid, ir)), envelopes.region,
-                                  momentum_grid(grid, ir), limit)
+        return momentum_envelope!(
+            zeros(typeof(limit), momentum_cell_count(grid, ir)), envelopes.region,
+            momentum_grid(grid, ir), limit)
     end
     return _envelope_at(envelopes, grid, ir, u, layout, t)
 end
@@ -204,16 +234,18 @@ function _add_threshold_column!(weight, J, envelopes, grid, u, layout, row, id)
     temperature = region_temperature(envelopes.region)
     isempty(temperature) && return J
     T_id = unknown_id(layout, only(temperature))
-    D = ForwardDiff.Dual{PlasmaColumnTag,Float64,1}
+    D = ForwardDiff.Dual{PlasmaColumnTag, Float64, 1}
     T = radial_values(u, layout, T_id)
     limit = envelopes.region.limit
     for ir in 1:radial_cell_count(layout)
         m = momentum_grid(grid, ir)
-        p0 = limit.factor * sqrt(2 * D(T[ir], ForwardDiff.Partials((1.0,))) / Constants.ELECTRON_REST_ENERGY)
+        p0 = limit.factor * sqrt(2 * D(T[ir], ForwardDiff.Partials((1.0,))) /
+                  Constants.ELECTRON_REST_ENERGY)
         envelope = momentum_envelope!(zeros(D, momentum_cell_count(m)), envelopes.region, m, p0)
         f = kinetic_view(u, layout, id, ir)
         value = 0.0
         for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
+
             value += ForwardDiff.partials(envelope[i], 1) * weight(ir, i, j) * f[i, j]
         end
         _add_entry!(J, first(unknown_range(layout, row, ir)), first(unknown_range(layout, T_id, ir)), value)
@@ -235,7 +267,7 @@ With `region`, a [`MomentumRegion`](@ref), the moment covers that part of the mo
 grid, with the limit of the region at the time of the evaluation: the
 current of the hot electrons above the threshold of the hot region.
 """
-struct CurrentMomentTerm{G<:KineticGrid,E} <: EquationTerm
+struct CurrentMomentTerm{G <: KineticGrid, E} <: EquationTerm
     kinetic::Symbol
     grid::G
     coefficient::Float64
@@ -243,13 +275,18 @@ struct CurrentMomentTerm{G<:KineticGrid,E} <: EquationTerm
     pitch_weights::Vector{Vector{Float64}}   # per radius
     envelopes::E                             # nothing, or the envelopes of the region per radius
 end
-function CurrentMomentTerm(kinetic::Symbol, grid::KineticGrid; coefficient::Real=1.0, pitch_rule::Symbol=:linear,
-                           region::Union{Nothing,MomentumRegion}=nothing)
-    weights = [pitch_moment_weights(momentum_grid(grid, ir); pitch_rule) for ir in 1:radial_cell_count(grid)]
-    return CurrentMomentTerm(kinetic, grid, Float64(coefficient), pitch_rule, weights, RegionEnvelopes(region, grid))
+function CurrentMomentTerm(kinetic::Symbol, grid::KineticGrid;
+        coefficient::Real = 1.0, pitch_rule::Symbol = :linear,
+        region::Union{Nothing, MomentumRegion} = nothing)
+    weights = [pitch_moment_weights(momentum_grid(grid, ir); pitch_rule)
+               for ir in 1:radial_cell_count(grid)]
+    return CurrentMomentTerm(kinetic, grid, Float64(coefficient), pitch_rule,
+        weights, RegionEnvelopes(region, grid))
 end
 
-dependencies(term::CurrentMomentTerm) = [term.kinetic; collect(Symbol, _region_unknowns(term.envelopes))]
+function dependencies(term::CurrentMomentTerm)
+    [term.kinetic; collect(Symbol, _region_unknowns(term.envelopes))]
+end
 is_linear(term::CurrentMomentTerm) = isempty(_region_unknowns(term.envelopes))
 
 function validate(term::CurrentMomentTerm, layout, row)
@@ -268,9 +305,12 @@ function rhs!(out, term::CurrentMomentTerm, u, layout, row, t)
     id = unknown_id(layout, term.kinetic)
     grid = kinetic_grid(layout, id)
     for ir in 1:radial_cell_count(layout)
+        #! format: off
         j = _current_moment(momentum_grid(grid, ir), term.pitch_weights[ir], phase_space_jacobian(grid, ir),
                             kinetic_view(u, layout, id, ir), _moment_envelope(term.envelopes, grid, ir, u, layout, t))
-        out[first(unknown_range(layout, row, ir))] += term.coefficient * j / grid.radial_grid.spatial_jacobian[ir]
+        #! format: on
+        out[first(unknown_range(layout, row, ir))] += term.coefficient * j /
+                                                      grid.radial_grid.spatial_jacobian[ir]
     end
     return out
 end
@@ -289,20 +329,25 @@ function add_jacobian!(J, term::CurrentMomentTerm, u, layout, row, t)
         r = first(unknown_range(layout, row, ir))
         factor = term.coefficient * charge / grid.radial_grid.spatial_jacobian[ir]
         @inbounds for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
+
             p = m.p_centers[i]
             _add_entry!(J, r, _kinetic_index(layout, id, ir, i, j),
-                        factor * _envelope_value(envelope, i) * weights[j] * jacobian[i, j] * m.p_widths[i] * p /
-                        sqrt(1 + p^2))
+                factor * _envelope_value(envelope, i) * weights[j] * jacobian[i, j] *
+                m.p_widths[i] * p /
+                sqrt(1 + p^2))
         end
     end
     _add_threshold_column!(J, term.envelopes, grid, u, layout, row, id) do ir, i, j
+        #! format: off
         m = momentum_grid(grid, ir)
         p = m.p_centers[i]
         term.coefficient * charge / grid.radial_grid.spatial_jacobian[ir] * term.pitch_weights[ir][j] *
             phase_space_jacobian(grid, ir)[i, j] * m.p_widths[i] * p / sqrt(1 + p^2)
+        #! format: on
     end
     return J
 end
 
-sparsity!(entries, term::CurrentMomentTerm, layout, row) =
+function sparsity!(entries, term::CurrentMomentTerm, layout, row)
     _moment_sparsity!(entries, term.kinetic, layout, row, term.envelopes)
+end

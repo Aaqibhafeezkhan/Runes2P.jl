@@ -20,19 +20,23 @@ struct ThermalMomentum{S}
     temperature::S
     factor::Float64
 end
-function ThermalMomentum(temperature; factor::Real=7.0)
-    factor > 0 || throw(ArgumentError("the factor of a thermal momentum limit must be positive"))
+function ThermalMomentum(temperature; factor::Real = 7.0)
+    factor > 0 ||
+        throw(ArgumentError("the factor of a thermal momentum limit must be positive"))
     return ThermalMomentum(temperature, Float64(factor))
 end
 
 _temperatures(temperature::AbstractVector, t) = temperature
-_temperatures(name::Symbol, t) =
+function _temperatures(name::Symbol, t)
     throw(ArgumentError("a limit that follows the temperature unknown $name needs the state of the system"))
+end
 _temperatures(plasma::PlasmaState, t) = plasma.cold_electron_temperature
 _temperatures(temperature_at, t) = _temperatures(temperature_at(t), t)
 
-(limit::ThermalMomentum)(t) =
-    [limit.factor * sqrt(2 * T / Constants.ELECTRON_REST_ENERGY) for T in _temperatures(limit.temperature, t)]
+function (limit::ThermalMomentum)(t)
+    [limit.factor * sqrt(2 * T / Constants.ELECTRON_REST_ENERGY)
+     for T in _temperatures(limit.temperature, t)]
+end
 
 """
     MomentumRegion(limit; side=:above, envelope=:interpolated, smooth_width=2)
@@ -69,12 +73,15 @@ struct MomentumRegion{L}
     envelope::Symbol
     smooth_width::Float64
 end
-function MomentumRegion(limit; side::Symbol=:above, envelope::Symbol=:interpolated, smooth_width::Real=2.0)
-    side in (:above, :below) || throw(ArgumentError("side must be :above or :below, not $side"))
+function MomentumRegion(limit; side::Symbol = :above,
+        envelope::Symbol = :interpolated, smooth_width::Real = 2.0)
+    side in (:above, :below) ||
+        throw(ArgumentError("side must be :above or :below, not $side"))
     envelope in (:interpolated, :cell_fraction, :smooth) ||
         throw(ArgumentError("envelope must be :interpolated, :cell_fraction or :smooth, not $envelope"))
     smooth_width > 0 || throw(ArgumentError("smooth_width must be positive"))
-    limit isa Real && (limit >= 0 || throw(ArgumentError("the limit of a momentum region must not be negative")))
+    limit isa Real && (limit >= 0 ||
+     throw(ArgumentError("the limit of a momentum region must not be negative")))
     return MomentumRegion(limit, side, envelope, Float64(smooth_width))
 end
 
@@ -84,7 +91,9 @@ end
 The name of the temperature unknown that the limit of a region follows, as a tuple of one
 name, or an empty tuple (also for `nothing`).
 """
-region_temperature(region::MomentumRegion) = region.limit isa ThermalMomentum{Symbol} ? (region.limit.temperature,) : ()
+function region_temperature(region::MomentumRegion)
+    region.limit isa ThermalMomentum{Symbol} ? (region.limit.temperature,) : ()
+end
 region_temperature(::Nothing) = ()
 
 """
@@ -92,9 +101,11 @@ region_temperature(::Nothing) = ()
 
 Whether the limit of the region is a function of time.
 """
-is_time_dependent(region::MomentumRegion) = !(region.limit isa Union{Real,AbstractVector{<:Real}})
+function is_time_dependent(region::MomentumRegion)
+    !(region.limit isa Union{Real, AbstractVector{<:Real}})
+end
 
-_limit_values(limit::Union{Real,AbstractVector{<:Real}}, t) = limit
+_limit_values(limit::Union{Real, AbstractVector{<:Real}}, t) = limit
 _limit_values(limit, t) = limit(t)
 
 """
@@ -103,7 +114,8 @@ _limit_values(limit, t) = limit(t)
 Limit of the region in units of `mₑc` at the radius index `ir` and the time `t`. With
 `radii`, the number of radii of the grid, the length of a limit per radius is checked.
 """
-function momentum_limit(region::MomentumRegion, ir::Integer, t=0.0; radii::Union{Nothing,Integer}=nothing)
+function momentum_limit(region::MomentumRegion, ir::Integer, t = 0.0; radii::Union{
+        Nothing, Integer} = nothing)
     values = _limit_values(region.limit, t)
     values isa Real && return Float64(values)
     radii === nothing || length(values) == radii ||
@@ -112,8 +124,9 @@ function momentum_limit(region::MomentumRegion, ir::Integer, t=0.0; radii::Union
 end
 
 # the envelope of the momenta above p0 in the cell i
-function _envelope_above(envelope::Symbol, smooth_width, m::MomentumGrid, i::Integer, p0::Real)
-    p, p_lower, p_upper, dp = m.p_centers[i], m.p_faces[i], m.p_faces[i+1], m.p_widths[i]
+function _envelope_above(
+        envelope::Symbol, smooth_width, m::MomentumGrid, i::Integer, p0::Real)
+    p, p_lower, p_upper, dp = m.p_centers[i], m.p_faces[i], m.p_faces[i + 1], m.p_widths[i]
     np = momentum_cell_count(m)
     if envelope === :cell_fraction
         p_lower >= p0 && return 1.0
@@ -128,14 +141,14 @@ function _envelope_above(envelope::Symbol, smooth_width, m::MomentumGrid, i::Int
     if p_lower < p0 < p_upper
         # the part (p0, p_upper) of this cell: the share of this cell in the integrand at
         # the midpoint q, between this centre and the next one
-        p_next = i < np ? m.p_centers[i+1] : p_upper
+        p_next = i < np ? m.p_centers[i + 1] : p_upper
         q = (p0 + p_upper) / 2
         value += (p_upper - p0) / dp * (p_next - q) / (p_next - p)
-    elseif i > 1 && m.p_faces[i-1] < p0 < p_lower
+    elseif i > 1 && m.p_faces[i - 1] < p0 < p_lower
         # the part (p0, p_lower) of the cell below: the share of this cell in the integrand
         # at its midpoint. DREAM reads the centre of a cell below the first one for a limit
         # between 0 and the p_min of a grid that starts above 0; such a limit adds nothing here.
-        p_previous = m.p_centers[i-1]
+        p_previous = m.p_centers[i - 1]
         q = (p0 + p_lower) / 2
         value += (p_lower - p0) / dp * (q - p_previous) / (p - p_previous)
     end
@@ -153,15 +166,17 @@ in units of `mₑc`: the factor of the contribution of each momentum cell to a m
 function momentum_envelope!(values::AbstractVector, region::MomentumRegion, m::MomentumGrid, limit::Real)
     length(values) == momentum_cell_count(m) ||
         throw(DimensionMismatch("the envelope has one value per momentum cell"))
-    limit >= 0 || throw(ArgumentError("the limit of a momentum region must not be negative, it is $limit"))
+    limit >= 0 ||
+        throw(ArgumentError("the limit of a momentum region must not be negative, it is $limit"))
     for i in eachindex(values)
         above = _envelope_above(region.envelope, region.smooth_width, m, i, limit)
         values[i] = region.side === :above ? above : 1 - above
     end
     return values
 end
-momentum_envelope(region::MomentumRegion, m::MomentumGrid, limit::Real) =
+function momentum_envelope(region::MomentumRegion, m::MomentumGrid, limit::Real)
     momentum_envelope!(zeros(momentum_cell_count(m)), region, m, limit)
+end
 
 @inline _envelope_value(::Nothing, i) = true
 Base.@propagate_inbounds _envelope_value(envelope::AbstractVector, i) = envelope[i]

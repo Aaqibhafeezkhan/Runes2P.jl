@@ -1,12 +1,13 @@
 # Multi-step backward Euler compared with a DREAM run (reference/dream/cases/time_stepping.py):
 # Fokker-Planck operator with prescribed, constant plasma plus DREAM's explicit knock-on
 # term, advanced over DREAM's time points by Newton with the sparse direct solver and with
-# GMRES preconditioned by the per-radius LU. With the knock-on term explicit, the
+# GMRES with its default preconditioner FluidSchurLU, which here (one kinetic unknown, no
+# radial coupling) is the LU of each radius. With the knock-on term explicit, the
 # preconditioner is the whole Newton matrix, so GMRES must take one iteration per Newton
 # iteration and reproduce the direct solve.
 using HDF5
 
-const DREAM_TIME_STEPPING_DATA = joinpath(@__DIR__, "data", "dream_time_stepping.h5")
+const DREAM_TIME_STEPPING_DATA = reference_file("dream_time_stepping.h5")
 
 @testset "time stepping vs DREAM" begin
     h5open(DREAM_TIME_STEPPING_DATA) do h5
@@ -22,10 +23,15 @@ const DREAM_TIME_STEPPING_DATA = joinpath(@__DIR__, "data", "dream_time_stepping
         variants = (
             # observed largest differences over the 20 steps: 2.0e-14 and 3.8e-13, at
             # round-off level from the first step on
-            "superthermal" => (CollisionSettings(mode=:superthermal, screening=:partial,
-                                                 coulomb_logarithm=:energy_dependent, ion_size_table=:dream,
-                                                 screening_window=:dream, bremsstrahlung=:neglect), 1e-13),
-            "full" => (CollisionSettings(ion_size_table=:dream, screening_window=:dream, bremsstrahlung=:neglect), 1e-11),
+            "superthermal" => (
+                CollisionSettings(mode = :superthermal, screening = :partial,
+                    coulomb_logarithm = :energy_dependent, ion_size_table = :dream,
+                    screening_window = :dream, bremsstrahlung = :neglect),
+                1e-13),
+            "full" => (
+                CollisionSettings(ion_size_table = :dream, screening_window = :dream,
+                    bremsstrahlung = :neglect),
+                1e-11)
         )
         for (variant, (settings, rtol)) in variants
             @testset "$variant" begin
@@ -38,28 +44,32 @@ const DREAM_TIME_STEPPING_DATA = joinpath(@__DIR__, "data", "dream_time_stepping
                 @test n_tot == repeat(n_tot[:, 1], 1, size(n_tot, 2))
                 # DREAM's Rosenbluth-Putvinski source from n_re (hot-tail grid only, not
                 # modelled here) must be negligible: n_re stays near 1e-21 of the hot density
-                @test maximum(read(grp["n_re"])) < 1e-18 * minimum(density(g, f_dream[:, :, :, 1]))
+                @test maximum(read(grp["n_re"])) <
+                      1e-18 * minimum(density(g, f_dream[:, :, :, 1]))
 
-                plasma = PlasmaState(cold_electron_temperature=read(grp["T_cold"])[:, 1],
-                                     cold_electron_density=read(grp["n_cold"])[:, 1], ions=ions,
-                                     electric_field=read(h5["E"]),
-                                     magnetic_field=fill(read(h5["B"]), nr))
-                fokker_planck = fokker_planck_operator(g, plasma, settings; synchrotron=true,
-                                                       scheme=:central)  # DREAM's default
-                knockon = KnockOnOperator(g, g, p_cut; dream_compatible=true, primary_pitch_points=1,
-                                          table_size=80)
-                layout = UnknownLayout(g.radial_grid, [KineticUnknown(:hot_tail_distribution, g; scale=1e16)])
+                plasma = PlasmaState(cold_electron_temperature = read(grp["T_cold"])[:, 1],
+                    cold_electron_density = read(grp["n_cold"])[:, 1], ions = ions,
+                    electric_field = read(h5["E"]),
+                    magnetic_field = fill(read(h5["B"]), nr))
+                fokker_planck = fokker_planck_operator(
+                    g, plasma, settings; synchrotron = true,
+                    scheme = :central)  # DREAM's default
+                knockon = KnockOnOperator(
+                    g, g, p_cut; dream_compatible = true, primary_pitch_points = 1,
+                    table_size = 80)
+                layout = UnknownLayout(g.radial_grid, [KineticUnknown(:hot_tail_distribution, g; scale = 1e16)])
                 equation = Equation(:hot_tail_distribution, TimeDerivative(),
-                                    FokkerPlanckTerm(:hot_tail_distribution, fokker_planck),
-                                    KnockOnTerm(:hot_tail_distribution, knockon; target_density=n_tot[:, 1],
-                                                treatment=:explicit))
+                    FokkerPlanckTerm(:hot_tail_distribution, fokker_planck),
+                    KnockOnTerm(
+                        :hot_tail_distribution, knockon; target_density = n_tot[:, 1],
+                        treatment = :explicit))
                 system = EquationSystem(layout, [equation])
                 u0 = zeros(length(layout))
                 for ir in 1:nr
                     kinetic_view(u0, layout, 1, ir) .= f_dream[:, :, ir, 1]
                 end
                 for (solver_name, solver) in ("direct" => NewtonSolver(),
-                                              "GMRES" => NewtonSolver(linear_solver=GMRES()))
+                    "GMRES" => NewtonSolver(linear_solver = GMRES()))
                     @testset "$solver_name" begin
                         solution = integrate(system, u0, times; solver)
 
@@ -79,8 +89,10 @@ const DREAM_TIME_STEPPING_DATA = joinpath(@__DIR__, "data", "dream_time_stepping
                                 a = f_dream[:, :, ir, m]
                                 b = kinetic_view(solution.states[:, m], layout, 1, ir)
                                 cut = 1e-12 * maximum(abs, a)
-                                worst = max(worst, maximum(abs(a[k] - b[k]) / abs(a[k]) for k in eachindex(a)
-                                                           if abs(a[k]) > cut))
+                                worst = max(worst,
+                                    maximum(abs(a[k] - b[k]) / abs(a[k])
+                                    for k in eachindex(a)
+                                    if abs(a[k]) > cut))
                             end
                             worst
                         end
@@ -102,10 +114,10 @@ end
 # same steps and reject the same attempts. DREAM logs every check with its error, which
 # the file keeps (`stepper_log`). The comparison covers the first 23 checks, where f_hot
 # binds in both codes: from check 24 on DREAM's step follows the tolerances of the wrong
-# unknowns (its GetErrorScale reads them by the position in the non-trivial list, its
-# acceptance by the unknown ID), which accepts steps with a reported error above 1 and no
-# single set of tolerances reproduces.
-const DREAM_ADAPTIVE_DATA = joinpath(@__DIR__, "data", "dream_time_stepping_adaptive.h5")
+# unknowns (its GetErrorScale in `src/ConvergenceChecker.cpp` reads them by the position in
+# the non-trivial list, its acceptance by the unknown ID), which accepts steps with a
+# reported error above 1 and no single set of tolerances reproduces.
+const DREAM_ADAPTIVE_DATA = reference_file("dream_time_stepping_adaptive.h5")
 
 # the errors DREAM logged, one per check, in order
 function _dream_logged_errors(log::AbstractString)
@@ -125,9 +137,11 @@ end
         names = read(h5["ions/name"])
         ions = [IonSpecies(names[k], read(h5["ions/Z"])[k], read(h5["ions/Z0"])[k], read(h5["ions/n"])[:, k])
                 for k in eachindex(names)]
-        dt0, t_max, reltol_step = read(h5["dt0"]), read(h5["t_max"]), read(h5["reltol_step"])
-        settings = CollisionSettings(mode=:superthermal, screening=:partial, coulomb_logarithm=:energy_dependent,
-                                     ion_size_table=:dream, screening_window=:dream, bremsstrahlung=:neglect)
+        dt0, t_max, reltol_step = read(h5["dt0"]), read(h5["t_max"]),
+        read(h5["reltol_step"])
+        settings = CollisionSettings(mode = :superthermal, screening = :partial,
+            coulomb_logarithm = :energy_dependent,
+            ion_size_table = :dream, screening_window = :dream, bremsstrahlung = :neglect)
         for variant in ("check_every_step",)
             @testset "$variant" begin
                 grp = h5[variant]
@@ -137,34 +151,41 @@ end
                 n_hot_dream, j_hot_dream = read(grp["n_hot"]), read(grp["j_hot"])
                 n_tot = read(grp["n_tot"])
                 logged = _dream_logged_errors(read(grp["stepper_log"]))
-                plasma = PlasmaState(cold_electron_temperature=read(grp["T_cold"])[:, 1],
-                                     cold_electron_density=read(grp["n_cold"])[:, 1], ions=ions,
-                                     electric_field=read(h5["E"]), magnetic_field=fill(read(h5["B"]), nr))
-                fokker_planck = fokker_planck_operator(g, plasma, settings; synchrotron=true, scheme=:central)
-                knockon = KnockOnOperator(g, g, read(h5["p_cut"]); dream_compatible=true, primary_pitch_points=1,
-                                          table_size=80)
+                plasma = PlasmaState(cold_electron_temperature = read(grp["T_cold"])[:, 1],
+                    cold_electron_density = read(grp["n_cold"])[:, 1], ions = ions,
+                    electric_field = read(h5["E"]), magnetic_field = fill(read(h5["B"]), nr))
+                fokker_planck = fokker_planck_operator(
+                    g, plasma, settings; synchrotron = true, scheme = :central)
+                knockon = KnockOnOperator(g, g, read(h5["p_cut"]); dream_compatible = true,
+                    primary_pitch_points = 1,
+                    table_size = 80)
                 # DREAM checks the error of every non-trivial unknown. The moments n_hot
                 # and j_hot follow f_hot; the runaway density n_re, fed by the flux
-                # through p_max, gets DREAM's intended tolerance (1e-10 absolute);
-                # j_re = e c n_re has the same error and is left out.
-                unknowns = [KineticUnknown(:hot_tail_distribution, g; scale=1e16),
-                            RadialUnknown(:hot_electron_density; scale=1e14),
-                            RadialUnknown(:hot_electron_current_density; scale=1e3),
-                            RadialUnknown(:runaway_density; scale=1e-10)]
+                # through p_max, gets DREAM's intended tolerance (1e-10 absolute,
+                # `ConvergenceChecker::GetDefaultAbsTol`); j_re = e c n_re has the same error
+                # and is left out.
+                unknowns = [KineticUnknown(:hot_tail_distribution, g; scale = 1e16),
+                    RadialUnknown(:hot_electron_density; scale = 1e14),
+                    RadialUnknown(:hot_electron_current_density; scale = 1e3),
+                    RadialUnknown(:runaway_density; scale = 1e-10)]
                 layout = UnknownLayout(g.radial_grid, unknowns)
                 hot_term = FokkerPlanckTerm(:hot_tail_distribution, fokker_planck)
-                equations = [Equation(:hot_tail_distribution, TimeDerivative(), hot_term,
-                                      KnockOnTerm(:hot_tail_distribution, knockon; target_density=n_tot[:, 1],
-                                                  treatment=:explicit)),
-                             Equation(:hot_electron_density, Algebraic(), DensityMomentTerm(:hot_tail_distribution),
-                                      LinearTerm(:hot_electron_density; coefficient=-1.0)),
-                             Equation(:hot_electron_current_density, Algebraic(),
-                                      CurrentMomentTerm(:hot_tail_distribution, g; pitch_rule=:cell_center),
-                                      LinearTerm(:hot_electron_current_density; coefficient=-1.0)),
-                             Equation(:runaway_density, TimeDerivative(),
-                                      MomentumBoundaryFluxTerm(:hot_tail_distribution, hot_term))]
+                equations = [
+                    Equation(:hot_tail_distribution, TimeDerivative(), hot_term,
+                        KnockOnTerm(
+                            :hot_tail_distribution, knockon; target_density = n_tot[:, 1],
+                            treatment = :explicit)),
+                    Equation(:hot_electron_density, Algebraic(),
+                        DensityMomentTerm(:hot_tail_distribution),
+                        LinearTerm(:hot_electron_density; coefficient = -1.0)),
+                    Equation(:hot_electron_current_density, Algebraic(),
+                        CurrentMomentTerm(:hot_tail_distribution, g; pitch_rule = :cell_center),
+                        LinearTerm(:hot_electron_current_density; coefficient = -1.0)),
+                    Equation(:runaway_density, TimeDerivative(),
+                        MomentumBoundaryFluxTerm(:hot_tail_distribution, hot_term))]
                 system = EquationSystem(layout, equations;
-                                        time_step_tolerances=Dict(:runaway_density => Tolerance(1e-10, reltol_step)))
+                    time_step_tolerances = Dict(:runaway_density =>
+                        Tolerance(1e-10, reltol_step)))
                 u0 = zeros(length(layout))
                 f0 = f_initial
                 n_re_dream = read(grp["n_re"])
@@ -180,16 +201,18 @@ end
                 # the next, and the accepted times drift to 1e-6 by then. The run ends
                 # beyond the stretch, so that no ceiling cuts a step inside it.
                 common = 23
-                stepper = StepDoubling(initial_step=dt0, relative_tolerance=reltol_step, check_every=check_every)
+                stepper = StepDoubling(
+                    initial_step = dt0, relative_tolerance = reltol_step,
+                    check_every = check_every)
                 # the run is free of ceilings inside the stretch (every saved state is a computed
                 # one, so the states at DREAM's times come from the second run below)
                 solution = integrate(system, u0, [0.0, 1.5 * t_dream[common]]; stepper,
-                                     save_times=[1.5 * t_dream[common]])
+                    save_times = [1.5 * t_dream[common]])
                 stats = solution.statistics
                 accepted = stats.time[stats.accepted]
                 # the same accepted steps, the same rejections with the same errors
                 @test length(accepted) >= common - 1
-                @test accepted[1:common-1] ≈ t_dream[2:common] rtol = 1e-5
+                @test accepted[1:(common - 1)] ≈ t_dream[2:common] rtol = 1e-5
                 checked = findall(k -> stats.kind[k] === :step && !isnan(stats.error[k]), eachindex(stats.kind))
                 @test length(checked) >= common
                 @test stats.error[checked[1:common]] ≈ logged[1:common] rtol = 1e-4
@@ -217,8 +240,8 @@ end
                 @test n_re ≈ n_re_dream[:, 2:common] rtol = 1e-6
                 # beyond the common stretch DREAM's own log binds on j_re with an error
                 # Runes2P's n_re at its intended tolerance does not reach
-                @test count(e -> e > 1, logged[common+1:end]) > 50
-                # a differential run: with the checks of n_re and j_re
+                @test count(e -> e > 1, logged[(common + 1):end]) > 50
+                # a second DREAM run: with the checks of n_re and j_re
                 # disabled, DREAM's step update still binds on unknown 7 (j_re) with the
                 # same errors, and DREAM accepts steps whose reported error is above 1,
                 # since its acceptance reads the tolerances by the unknown ID and its
@@ -226,15 +249,17 @@ end
                 other = h5["no_runaway_check"]
                 other_log = read(other["stepper_log"])
                 @test read(attributes(other)["runaway_check"]) == 0
-                binding = [parse(Int, m.captures[1]) for m in eachmatch(r"for unknown #(\d+)", other_log)]
+                binding = [parse(Int, m.captures[1])
+                           for m in eachmatch(r"for unknown #(\d+)", other_log)]
                 other_errors = _dream_logged_errors(other_log)
                 @test other_errors[1:common] ≈ logged[1:common]
                 @test count(==(7), binding) > 50
                 rejected = length(other_errors) - (length(read(other["t"])) - 1)
                 @test rejected == 3
                 @test count(e -> e > 1, other_errors) > rejected
-                @test read(other["j_re"])[:, 2:end] ≈ Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT *
-                                                    read(other["n_re"])[:, 2:end] rtol = 1e-6
+                @test read(other["j_re"])[:, 2:end] ≈
+                      Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT *
+                      read(other["n_re"])[:, 2:end] rtol = 1e-6
             end
         end
     end

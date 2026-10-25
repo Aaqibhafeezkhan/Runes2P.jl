@@ -28,6 +28,7 @@ function Runes2P.rhs!(out, term::TailDecayTerm, u, layout, row, t)
         p = momentum_grid(grid, ir).p_centers
         f, r = kinetic_view(u, layout, id, ir), kinetic_view(out, layout, row, ir)
         for j in axes(f, 2), i in axes(f, 1)
+
             r[i, j] -= _tail_decay_rate(term, p[i]) * f[i, j]
         end
     end
@@ -48,8 +49,9 @@ mutable struct ChangeOnce <: IntervalUpdate
     fired::Bool
 end
 Runes2P.update_name(::ChangeOnce) = "change_once"
-Runes2P.apply_update!(update::ChangeOnce, u, layout, t) =
+function Runes2P.apply_update!(update::ChangeOnce, u, layout, t)
     (t >= update.time && !update.fired) ? (update.fired = true; true) : false
+end
 Runes2P.update_state(update::ChangeOnce) = [Float64(update.fired)]
 Runes2P.restore_update!(update::ChangeOnce, state) = (update.fired = state[1] == 1; update)
 
@@ -63,28 +65,30 @@ Runes2P.rhs!(out, ::ExplicitZero, u, layout, row, t) = out
     @testset "settings" begin
         stepper = StepController()
         @test isnan(stepper.initial_step)
-        @test (stepper.relative_tolerance, stepper.max_growth, stepper.min_shrink, stepper.safety) == (1e-3, 2.0, 0.2, 0.9)
+        @test (stepper.relative_tolerance, stepper.max_growth,
+            stepper.min_shrink, stepper.safety) == (1e-3, 2.0, 0.2, 0.9)
         @test (stepper.gain_error, stepper.gain_memory) == (0.35, 0.2)
-        @test (stepper.max_failures, stepper.failure_factor, stepper.max_rejections) == (5, 0.2, 20)
-        @test_throws ArgumentError StepController(initial_step=0)
-        @test_throws ArgumentError StepController(max_rejections=0)
-        @test_throws ArgumentError StepController(relative_tolerance=0)
-        @test_throws ArgumentError StepController(max_growth=1)
-        @test_throws ArgumentError StepController(min_shrink=1)
-        @test_throws ArgumentError StepController(safety=0)
-        @test_throws ArgumentError StepController(gains=(0, 0.2))
-        @test_throws ArgumentError StepController(gains=(0.5,))
-        @test_throws ArgumentError StepController(max_failures=-1)
-        @test_throws ArgumentError StepController(failure_factor=1)
-        record = describe(StepController(initial_step=1e-3, gains=(0.5, 0.1)))
+        @test (stepper.max_failures, stepper.failure_factor, stepper.max_rejections) ==
+              (5, 0.2, 20)
+        @test_throws ArgumentError StepController(initial_step = 0)
+        @test_throws ArgumentError StepController(max_rejections = 0)
+        @test_throws ArgumentError StepController(relative_tolerance = 0)
+        @test_throws ArgumentError StepController(max_growth = 1)
+        @test_throws ArgumentError StepController(min_shrink = 1)
+        @test_throws ArgumentError StepController(safety = 0)
+        @test_throws ArgumentError StepController(gains = (0, 0.2))
+        @test_throws ArgumentError StepController(gains = (0.5,))
+        @test_throws ArgumentError StepController(max_failures = -1)
+        @test_throws ArgumentError StepController(failure_factor = 1)
+        record = describe(StepController(initial_step = 1e-3, gains = (0.5, 0.1)))
         @test record["type"] == "StepController"
         @test record["initial_step"] == 1e-3
         @test (record["gain_error"], record["gain_memory"]) == (0.5, 0.1)
         @test record["max_growth"] == 2.0
         @test (record["tail_cut"], record["tail_floor"]) == (1.0, 1e-12)
-        @test isnan(describe(StepController(tail_cut=nothing))["tail_cut"])
-        @test_throws ArgumentError StepController(tail_cut=-1.0)
-        @test_throws ArgumentError StepController(tail_floor=-1e-3)
+        @test isnan(describe(StepController(tail_cut = nothing))["tail_cut"])
+        @test_throws ArgumentError StepController(tail_cut = -1.0)
+        @test_throws ArgumentError StepController(tail_floor = -1e-3)
     end
 
     @testset "the estimate is the local error of backward Euler" begin
@@ -92,14 +96,15 @@ Runes2P.rhs!(out, ::ExplicitZero, u, layout, row, t) = out
         # by the predictor. Both estimates converge to the exact local error of their
         # step as the step shrinks, with a misfit of first order in the step.
         k, rel = 3.0, 1e-3
-        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k))
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = -k))
         function estimates(h)
             # two steps of the length h, then the run ends: the second step is estimated
             # by the predictor through the first
             # the second step keeps the length of the first: the factor of the filter is
             # pinned to 1 (within the tolerance of the landing on the end of the run)
-            stepper = StepController(initial_step=h, relative_tolerance=rel, max_growth=1 + 1e-12,
-                                     min_shrink=1 - 1e-12)
+            stepper = StepController(
+                initial_step = h, relative_tolerance = rel, max_growth = 1 + 1e-12,
+                min_shrink = 1 - 1e-12)
             solution = integrate(system, [1.0], [0.0, 2h]; stepper)
             stats = solution.statistics
             steps = findall(==(:step), stats.kind)
@@ -135,16 +140,17 @@ Runes2P.rhs!(out, ::ExplicitZero, u, layout, row, t) = out
         # du/dt = -k (u - 1) from u = 0 with k = 1e4: the layer is resolved with short
         # steps, then the step grows by the cap of 2 per step to the end
         k = 1e4
-        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k), ConstantSourceTerm(k))
-        stepper = StepController(initial_step=1e-5, relative_tolerance=1e-2)
-        solution = integrate(system, [0.0], [0.0, 1.0]; stepper, save_times=[0.0, 1.0])
+        system = single_unknown_system(
+            TimeDerivative(), LinearTerm(:x; coefficient = -k), ConstantSourceTerm(k))
+        stepper = StepController(initial_step = 1e-5, relative_tolerance = 1e-2)
+        solution = integrate(system, [0.0], [0.0, 1.0]; stepper, save_times = [0.0, 1.0])
         stats = solution.statistics
         accepted = findall(stats.accepted)
         steps = stats.time_step[accepted]
         @test 10 <= length(accepted) <= 40
         @test all(stats.error[accepted] .<= 1)
         # the growth is capped at the factor 2 and reaches it in the plateau
-        growth = steps[2:end] ./ steps[1:end-1]
+        growth = steps[2:end] ./ steps[1:(end - 1)]
         @test all(growth .<= 2 * (1 + 1e-12))
         @test count(g -> g > 1.9, growth) >= 5
         @test last(stats.time) == 1.0
@@ -160,8 +166,8 @@ Runes2P.rhs!(out, ::ExplicitZero, u, layout, row, t) = out
         # a large first step is rejected, the retry shrinks it by the elementary rule
         # with the floor min_shrink
         k = 3.0
-        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k))
-        stepper = StepController(initial_step=2.0, relative_tolerance=1e-4)
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = -k))
+        stepper = StepController(initial_step = 2.0, relative_tolerance = 1e-4)
         solution = integrate(system, [1.0], [0.0, 3.0]; stepper)
         stats = solution.statistics
         @test stats.kind[1:3] == [:half_step, :half_step, :step]
@@ -173,37 +179,39 @@ Runes2P.rhs!(out, ::ExplicitZero, u, layout, row, t) = out
         @test stats.time_step[4:6] ≈ [shrink, shrink, 2 * shrink]
         accepted = findall(stats.accepted)
         steps = stats.time_step[accepted]
-        growth = steps[2:end-1] ./ steps[1:end-2]                  # the last step is cut by the end of the run
+        growth = steps[2:(end - 1)] ./ steps[1:(end - 2)]                  # the last step is cut by the end of the run
         @test all(growth .<= 2 * (1 + 1e-12))
         @test all(growth .>= 0.2 * (1 - 1e-12))
-        @test solution.states[1, end] ≈ foldl((u, h) -> u / (1 + k * h), steps; init=1.0) rtol = 1e-12
+        @test solution.states[1, end] ≈ foldl((u, h) -> u / (1 + k * h), steps; init = 1.0) rtol = 1e-12
     end
 
     @testset "tail moments of a kinetic unknown" begin
         # f = 1 on a small grid, the bulk decays with k, the tail above p = 1 with 11 k: the
         # cells of the tail fall below the absolute floor of the cell measure (relative ×
         # scale) at once, so without the moments the step follows the bulk and grows past
-        # 1 / k_tail, while with them the tail density holds the step. Measured values in
-        # the comments.
+        # 1 / k_tail, while with them the tail density holds the step.
         k, k_tail, t_end = 1.0, 11.0, 1.0
         mom = MomentumGrid(uniform_p_faces(8, 0.0, 2.0), uniform_xi_faces(2))
         grid = cylindrical_grid(mom, RadialGrid(uniform_r_faces(1, 1.0)))
-        layout = UnknownLayout(grid.radial_grid, [KineticUnknown(:f, grid; scale=1.0)])
+        layout = UnknownLayout(grid.radial_grid, [KineticUnknown(:f, grid; scale = 1.0)])
         system = EquationSystem(layout, [Equation(:f, TimeDerivative(), TailDecayTerm(:f, k, k_tail, 1.0))])
         u0 = ones(length(layout))
         region = MomentumRegion(1.0)
         tail(u) = density(grid, reshape(u, size(grid)); region)[1]
         exact_tail = tail(u0) * exp(-k_tail * t_end)
-        runs = Dict{String,Any}()
+        runs = Dict{String, Any}()
         for (name, cut) in (("with" => 1.0), ("without" => nothing))
-            stepper = StepController(initial_step=1e-3, relative_tolerance=1e-2, tail_cut=cut)
+            stepper = StepController(initial_step = 1e-3, relative_tolerance = 1e-2, tail_cut = cut)
             solution = integrate(system, u0, [0.0, t_end]; stepper)
             stats = solution.statistics
-            accepted = [k for k in eachindex(stats.kind) if stats.kind[k] === :step && stats.accepted[k]]
-            runs[name] = (; h=stats.time_step[accepted], errors=stats.error[accepted],
-                          ratio=tail(solution.states[:, end]) / exact_tail, record=solution.settings["time"]["stepper"])
+            accepted = [k
+                        for k in eachindex(stats.kind)
+                        if stats.kind[k] === :step && stats.accepted[k]]
+            runs[name] = (; h = stats.time_step[accepted], errors = stats.error[accepted],
+                ratio = tail(solution.states[:, end]) / exact_tail, record = solution.settings["time"]["stepper"])
         end
-        @test runs["with"].record["tail_cut"] == 1.0 && runs["with"].record["tail_floor"] == 1e-12
+        @test runs["with"].record["tail_cut"] == 1.0 &&
+              runs["with"].record["tail_floor"] == 1e-12
         @test isnan(runs["without"].record["tail_cut"])
         @test all(runs["with"].errors .<= 1) && all(runs["without"].errors .<= 1)
         # without the moments the step grows past 1 / k_tail, with them it stays below
@@ -215,49 +223,63 @@ Runes2P.rhs!(out, ::ExplicitZero, u, layout, row, t) = out
         @test 1 / 3 < runs["with"].ratio < 3
         @test runs["without"].ratio > 10
 
-        # pitch grids whose cell counts differ between the radii: the moments
-        # are taken per radius, where they needed one shape of the grid before
-        ragged = cylindrical_grid([mom, MomentumGrid(uniform_p_faces(8, 0.0, 2.0), uniform_xi_faces(3))],
-                                  RadialGrid(uniform_r_faces(2, 1.0)))
-        ragged_layout = UnknownLayout(ragged.radial_grid, [KineticUnknown(:f, ragged; scale=1.0)])
-        ragged_system = EquationSystem(ragged_layout, [Equation(:f, TimeDerivative(), TailDecayTerm(:f, k, k_tail, 1.0))])
+        # pitch grids whose cell counts differ between the radii: the moments are taken per
+        # radius
+        ragged = cylindrical_grid(
+            [mom, MomentumGrid(uniform_p_faces(8, 0.0, 2.0), uniform_xi_faces(3))],
+            RadialGrid(uniform_r_faces(2, 1.0)))
+        ragged_layout = UnknownLayout(ragged.radial_grid, [KineticUnknown(:f, ragged; scale = 1.0)])
+        ragged_system = EquationSystem(ragged_layout,
+            [Equation(:f, TimeDerivative(), TailDecayTerm(:f, k, k_tail, 1.0))])
         solution = integrate(ragged_system, ones(length(ragged_layout)), [0.0, t_end];
-                             stepper=StepController(initial_step=1e-3, relative_tolerance=1e-2))
+            stepper = StepController(initial_step = 1e-3, relative_tolerance = 1e-2))
         stats = solution.statistics
-        @test maximum(stats.time_step[[k for k in eachindex(stats.kind) if stats.kind[k] === :step && stats.accepted[k]]]) <
+        @test maximum(stats.time_step[[k
+                                       for k in eachindex(stats.kind)
+                                       if stats.kind[k] === :step && stats.accepted[k]]]) <
               1 / k_tail
         # the weights give the moments of `density` and `current_density` at every radius
-        same = cylindrical_grid(MomentumGrid(uniform_p_faces(8, 0.0, 2.0), uniform_xi_faces(3)),
-                                RadialGrid(uniform_r_faces(2, 1.0)))
+        same = cylindrical_grid(
+            MomentumGrid(uniform_p_faces(8, 0.0, 2.0), uniform_xi_faces(3)),
+            RadialGrid(uniform_r_faces(2, 1.0)))
         f = rand(Xoshiro(146), size(same)...)
         weights = Runes2P._tail_moment_weights(same, region)
         @test [sum(weights[ir][1] .* f[:, :, ir]) for ir in 1:2] ≈ density(same, f; region) rtol = 1e-13
-        @test [sum(weights[ir][2] .* f[:, :, ir]) for ir in 1:2] ≈ current_density(same, f; region) rtol = 1e-13
+        @test [sum(weights[ir][2] .* f[:, :, ir]) for ir in 1:2] ≈
+              current_density(same, f; region) rtol = 1e-13
         @test [sum(weights[ir][3] .* f[:, :, ir]) for ir in 1:2] ≈ density(same, f) rtol = 1e-13
         # the floor of the tail moments is relative to the density of the unknown, so the
         # tail error does not depend on the scale of the unknown
         tail_errors = map((1.0, 1e25)) do scale
             scaled = UnknownLayout(same.radial_grid, [KineticUnknown(:f, same; scale)])
-            scaled_system = EquationSystem(scaled, [Equation(:f, TimeDerivative(), TailDecayTerm(:f, k, k_tail, 1.0))])
-            state = Runes2P.stepper_state(StepController(), scaled_system, [0.0, 1.0], 0.0, Dict{String,Any}())
+            scaled_system = EquationSystem(
+                scaled, [Equation(:f, TimeDerivative(), TailDecayTerm(:f, k, k_tail, 1.0))])
+            state = Runes2P.stepper_state(
+                StepController(), scaled_system, [0.0, 1.0], 0.0, Dict{String, Any}())
             u = 1e20 .* vec(f)
             Runes2P._grid_density!(state, scaled, u)
             Runes2P._tail_moment_error!(state, scaled, 1, u, u .* (1 + 1e-6), u, 1.0, 1e-3)
         end
         @test tail_errors[1] == tail_errors[2] > 0
         # a runaway grid above the cut as a whole: its floor is relative to the electrons of
-        # both grids, so a runaway density near zero does not hold the step (a floor
-        # relative to its own density would be pure relative control, which lets a
-        # negligible runaway density bind DREAM's adaptive stepper)
-        hot_grid = cylindrical_grid(MomentumGrid(uniform_p_faces(8, 0.0, 1.0), uniform_xi_faces(2)),
-                                    RadialGrid(uniform_r_faces(2, 1.0)))
-        runaway_grid = cylindrical_grid(MomentumGrid(uniform_p_faces(8, 1.0, 3.0), uniform_xi_faces(2)),
-                                        RadialGrid(uniform_r_faces(2, 1.0)))
-        two = UnknownLayout(hot_grid.radial_grid, [KineticUnknown(:hot, hot_grid; scale=1e20),
-                                                    KineticUnknown(:runaway, runaway_grid; scale=1e20)])
-        two_system = EquationSystem(two, [Equation(:hot, TimeDerivative(), TailDecayTerm(:hot, k, k_tail, 1.0)),
-                                          Equation(:runaway, TimeDerivative(), TailDecayTerm(:runaway, k, k_tail, 1.0))])
-        state = Runes2P.stepper_state(StepController(), two_system, [0.0, 1.0], 0.0, Dict{String,Any}())
+        # both grids, so a runaway density near zero does not hold the step (a floor relative
+        # to its own density would be pure relative control, which DREAM's step update applies
+        # to n_re in effect when it reads n_re's tolerances by position, `GetErrorScale` in
+        # `src/ConvergenceChecker.cpp`, and so misses its absolute floor)
+        hot_grid = cylindrical_grid(
+            MomentumGrid(uniform_p_faces(8, 0.0, 1.0), uniform_xi_faces(2)),
+            RadialGrid(uniform_r_faces(2, 1.0)))
+        runaway_grid = cylindrical_grid(
+            MomentumGrid(uniform_p_faces(8, 1.0, 3.0), uniform_xi_faces(2)),
+            RadialGrid(uniform_r_faces(2, 1.0)))
+        two = UnknownLayout(hot_grid.radial_grid,
+            [KineticUnknown(:hot, hot_grid; scale = 1e20),
+                KineticUnknown(:runaway, runaway_grid; scale = 1e20)])
+        two_system = EquationSystem(two,
+            [Equation(:hot, TimeDerivative(), TailDecayTerm(:hot, k, k_tail, 1.0)),
+                Equation(:runaway, TimeDerivative(), TailDecayTerm(:runaway, k, k_tail, 1.0))])
+        state = Runes2P.stepper_state(
+            StepController(), two_system, [0.0, 1.0], 0.0, Dict{String, Any}())
         u = zeros(length(two))
         kinetic_array(u, two, 1) .= 1e20
         kinetic_array(u, two, 2) .= 1e-6
@@ -265,20 +287,21 @@ Runes2P.rhs!(out, ::ExplicitZero, u, layout, row, t) = out
         kinetic_array(doubled, two, 2) .*= 2                 # the runaway density off by 100 %
         Runes2P._controller_errors!(state, two, u, doubled, u, 1.0)
         @test state.tail_errors[2] < 1e-3
-        @test state.grid_density ≈ density(hot_grid, kinetic_array(u, two, 1)) .+
-                                   density(runaway_grid, kinetic_array(u, two, 2)) rtol = 1e-12
+        @test state.grid_density ≈
+              density(hot_grid, kinetic_array(u, two, 1)) .+
+              density(runaway_grid, kinetic_array(u, two, 2)) rtol = 1e-12
     end
 
     @testset "tolerances and the floor" begin
         k, h0 = 3.0, 0.02
         rad = RadialGrid(uniform_r_faces(1, 0.5))
-        layout = UnknownLayout(rad, [RadialUnknown(:x; scale=100.0), RadialUnknown(:y)])
-        equations = [Equation(:x, TimeDerivative(), LinearTerm(:x; coefficient=-k)),
-                     Equation(:y, TimeDerivative(), LinearTerm(:y; coefficient=-k))]
+        layout = UnknownLayout(rad, [RadialUnknown(:x; scale = 100.0), RadialUnknown(:y)])
+        equations = [Equation(:x, TimeDerivative(), LinearTerm(:x; coefficient = -k)),
+            Equation(:y, TimeDerivative(), LinearTerm(:y; coefficient = -k))]
         # the default floor is relative × scale (the default relative tolerance 1e-3): x at 1e-3
         # of its scale lies under the floor and does not hold the step, y at its scale does
         system = EquationSystem(layout, equations)
-        solution = integrate(system, [0.1, 1.0], [0.0, 0.1]; stepper=StepController(initial_step=h0))
+        solution = integrate(system, [0.1, 1.0], [0.0, 0.1]; stepper = StepController(initial_step = h0))
         stats = solution.statistics
         first = findfirst(==(:step), stats.kind)
         u_full, u_half = 0.1 / (1 + k * h0), 0.1 / (1 + k * h0 / 2)^2
@@ -289,9 +312,11 @@ Runes2P.rhs!(out, ::ExplicitZero, u, layout, row, t) = out
         @test stats.error[first] ≈ error_y
         # a tolerance of the system replaces the default, and zero tolerances leave an
         # unknown out
-        system = EquationSystem(layout, equations; time_step_tolerances=Dict(:x => Tolerance(0.0, 1e-2),
-                                                                             :y => Tolerance(0.0, 0.0)))
-        solution = integrate(system, [0.1, 1.0], [0.0, 0.1]; stepper=StepController(initial_step=h0))
+        system = EquationSystem(layout,
+            equations;
+            time_step_tolerances = Dict(:x => Tolerance(0.0, 1e-2),
+                :y => Tolerance(0.0, 0.0)))
+        solution = integrate(system, [0.1, 1.0], [0.0, 0.1]; stepper = StepController(initial_step = h0))
         stats = solution.statistics
         first = findfirst(==(:step), stats.kind)
         @test stats.error[first] ≈ 2 * abs(u_full - u_half) / (1e-2 * u_full)
@@ -302,7 +327,7 @@ Runes2P.rhs!(out, ::ExplicitZero, u, layout, row, t) = out
         # full step overshoots the bound and fails, the retry has 0.2 times the length
         k = 1.0
         system = single_unknown_system(TimeDerivative(), BoundedGrowthTerm(:x, k, 10.0))
-        solution = integrate(system, [1.0], [0.0, 1.0]; stepper=StepController(initial_step=0.95))
+        solution = integrate(system, [1.0], [0.0, 1.0]; stepper = StepController(initial_step = 0.95))
         stats = solution.statistics
         @test stats.kind[1:3] == [:half_step, :half_step, :step]
         @test stats.status[1:3] == [:converged, :converged, :domain_error]
@@ -312,18 +337,20 @@ Runes2P.rhs!(out, ::ExplicitZero, u, layout, row, t) = out
         @test stats.time_step[4:6] ≈ [0.095, 0.095, 0.19]
         @test all(==(:converged), stats.status[4:6])
         @test stats.accepted[6] == (stats.error[6] <= 1)
-        @test solution.states[1, end] ≈ foldl((u, h) -> _growth_step(u, k, h), stats.time_step[stats.accepted];
-                                              init=1.0) rtol = 1e-12
+        @test solution.states[1, end] ≈
+              foldl((u, h) -> _growth_step(u, k, h), stats.time_step[stats.accepted];
+            init = 1.0) rtol = 1e-12
         @test_throws TimeStepFailure integrate(system, [1.0], [0.0, 1.0];
-                                               stepper=StepController(initial_step=0.95, max_failures=0))
+            stepper = StepController(initial_step = 0.95, max_failures = 0))
         # rejections in a row beyond the cap end the run: a shrink factor pinned to 1
         # repeats a rejected step
         k = 3.0
-        decay = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k))
-        pinned = StepController(initial_step=0.5, relative_tolerance=1e-4, min_shrink=1 - 1e-12, max_rejections=3)
-        @test_throws TimeStepFailure integrate(decay, [1.0], [0.0, 1.0]; stepper=pinned)
+        decay = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = -k))
+        pinned = StepController(initial_step = 0.5, relative_tolerance = 1e-4,
+            min_shrink = 1 - 1e-12, max_rejections = 3)
+        @test_throws TimeStepFailure integrate(decay, [1.0], [0.0, 1.0]; stepper = pinned)
         failure = try
-            integrate(decay, [1.0], [0.0, 1.0]; stepper=pinned)
+            integrate(decay, [1.0], [0.0, 1.0]; stepper = pinned)
         catch err
             err
         end
@@ -332,12 +359,13 @@ Runes2P.rhs!(out, ::ExplicitZero, u, layout, row, t) = out
     end
 
     @testset "a failed step cut by a ceiling shrinks from its own length" begin
-        # the planned length (100) lies far beyond the ceiling at t = 2, so
-        # the step tried is 2. Growth k = 0.25 from 9 with the bound 15.5: the half steps of 1
-        # give 12 and 16, the second fails. The retry takes 0.2 times the step tried, 0.4,
-        # where 0.2 times the planned length (20) cut to the ceiling repeated the failed step.
+        # the planned length (100) lies far beyond the ceiling at t = 2, so the step tried is
+        # 2. Growth k = 0.25 from 9 with the bound 15.5: the half steps of 1 give 12 and 16,
+        # the second fails. The retry takes 0.2 times the step tried, 0.4; 0.2 times the
+        # planned length (20), cut to the ceiling, would repeat the failed step.
         system = single_unknown_system(TimeDerivative(), BoundedGrowthTerm(:x, 0.25, 15.5))
-        solution = integrate(system, [9.0], [0.0, 2.0]; stepper=StepController(initial_step=100.0, max_failures=2))
+        solution = integrate(system, [9.0], [0.0, 2.0];
+            stepper = StepController(initial_step = 100.0, max_failures = 2))
         stats = solution.statistics
         @test stats.kind[1:2] == [:half_step, :half_step]
         @test stats.status[1:2] == [:converged, :domain_error]
@@ -347,13 +375,14 @@ Runes2P.rhs!(out, ::ExplicitZero, u, layout, row, t) = out
     end
 
     @testset "save times within rounding of the time points" begin
-        # save times built by another arithmetic than the time points lie an
-        # ulp off them. They are taken as the time points, so no step of the rounding length
-        # follows the time point.
-        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-3.0))
-        times = collect(range(0.0, 1.0; length=11))
+        # save times built by another arithmetic than the time points lie an ulp off them.
+        # They are taken as the time points, so no step of the rounding length follows the
+        # time point.
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = -3.0))
+        times = collect(range(0.0, 1.0; length = 11))
         save_times = [t * (1 + 1e-15) for t in times]
-        solution = integrate(system, [1.0], times; save_times, stepper=StepController(initial_step=0.05))
+        solution = integrate(
+            system, [1.0], times; save_times, stepper = StepController(initial_step = 0.05))
         @test solution.times == times
         @test minimum(solution.statistics.time_step) > 1e-6
         # with the time points of FixedSteps as well
@@ -361,61 +390,66 @@ Runes2P.rhs!(out, ::ExplicitZero, u, layout, row, t) = out
         @test fixed.times == times
     end
 
-    @testset "an update that changes the setup restarts the estimate (#148)" begin
+    @testset "an update that changes the setup restarts the estimate" begin
         # the extrapolation through the states before a change of the setup would hold its
         # jump: the step after it takes its estimate from a doubling, as the first one
-        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-3.0))
-        solution = integrate(system, [1.0], [0.0, 1.0]; stepper=StepController(initial_step=0.01),
-                             updates=(ChangeOnce(0.3, false),))
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = -3.0))
+        solution = integrate(
+            system, [1.0], [0.0, 1.0]; stepper = StepController(initial_step = 0.01),
+            updates = (ChangeOnce(0.3, false),))
         stats = solution.statistics
         halves = findall(==(:half_step), stats.kind)
         @test length(halves) == 4
         @test stats.time[halves[3]] > 0.3                   # the second doubling follows the change
-        unchanged = integrate(system, [1.0], [0.0, 1.0]; stepper=StepController(initial_step=0.01))
+        unchanged = integrate(system, [1.0], [0.0, 1.0]; stepper = StepController(initial_step = 0.01))
         @test count(==(:half_step), unchanged.statistics.kind) == 2
     end
 
     @testset "record and resume" begin
         k = 3.0
-        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k); nr=2)
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = -k); nr = 2)
         times = [0.0, 1.0]
         save_times = [0.0, 0.4, 1.0]
-        stepper = StepController(initial_step=0.01, relative_tolerance=1e-3)
+        stepper = StepController(initial_step = 0.01, relative_tolerance = 1e-3)
         whole = integrate(system, [1.0, 2.0], times; save_times, stepper)
         @test count(whole.statistics.accepted) > 8
         @test whole.settings["time"]["stepper"]["type"] == "StepController"
         # a segment stopped after its second accepted step (the first is the doubling),
         # resumed from the checkpoint: the predictor has its history back
-        checkpoint = CheckpointSettings("controller"; directory=mktempdir(), interval=0)
-        first_segment = integrate(system, [1.0, 2.0], times; save_times, stepper, checkpoint,
-                                  stop=StopCondition(wall_budget=1e-9, slack=0))
+        checkpoint = CheckpointSettings("controller"; directory = mktempdir(), interval = 0)
+        first_segment = integrate(
+            system, [1.0, 2.0], times; save_times, stepper, checkpoint,
+            stop = StopCondition(wall_budget = 1e-9, slack = 0))
         @test first_segment.settings["segment"]["steps"] == 1
         stored = read_checkpoint(checkpoint)
         @test stored.stepper["type"] == "StepController"
         @test stored.stepper["previous_step"] == whole.statistics.time_step[3]
         @test stored.stepper["previous_state"] == [1.0, 2.0]
         @test stored.stepper["failures"] == 0
-        second_segment = @test_logs integrate(system, [1.0, 2.0], times; save_times, stepper, checkpoint, resume=true)
+        second_segment = @test_logs integrate(
+            system, [1.0, 2.0], times; save_times, stepper, checkpoint, resume = true)
         @test run_status(second_segment) === :finished
         @test second_segment.states == whole.states[:, 2:end]
         rows = length(first_segment.statistics.time)
-        @test second_segment.statistics.time == whole.statistics.time[rows+1:end]
-        @test second_segment.statistics.time_step == whole.statistics.time_step[rows+1:end]
-        @test isequal(second_segment.statistics.error, whole.statistics.error[rows+1:end])
+        @test second_segment.statistics.time == whole.statistics.time[(rows + 1):end]
+        @test second_segment.statistics.time_step ==
+              whole.statistics.time_step[(rows + 1):end]
+        @test isequal(second_segment.statistics.error, whole.statistics.error[(rows + 1):end])
         # no doubling in the resumed segment: the history came from the checkpoint
         @test all(==(:step), second_segment.statistics.kind)
         joined = read_output(checkpoint)
         @test joined.states == whole.states
         @test isequal(joined.statistics.error, whole.statistics.error)
         # a stored state of another layout is refused
-        other = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k); nr=3)
-        @test_throws DimensionMismatch integrate(other, [1.0, 2.0, 3.0], times; save_times, stepper, resume=stored)
+        other = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = -k); nr = 3)
+        @test_throws DimensionMismatch integrate(
+            other, [1.0, 2.0, 3.0], times; save_times, stepper, resume = stored)
     end
 
-    @testset "BDF2: settings, order and record (#147)" begin
-        @test_throws ArgumentError StepController(order=3)
-        @test_throws ArgumentError StepController(order=2, max_growth=3.0)   # zero-stable below 1 + √2
-        bdf2 = StepController(order=2)
+    @testset "BDF2: settings, order and record" begin
+        @test_throws ArgumentError StepController(order = 3)
+        @test_throws ArgumentError StepController(order = 2, max_growth = 3.0)   # zero-stable below 1 + √2
+        bdf2 = StepController(order = 2)
         @test bdf2.order == 2
         @test (bdf2.gain_error, bdf2.gain_memory) == (0.7 / 3, 0.4 / 3)
         @test describe(bdf2)["order"] == 2
@@ -425,22 +459,24 @@ Runes2P.rhs!(out, ::ExplicitZero, u, layout, row, t) = out
         @test Runes2P._gains(bdf2, 2) == (bdf2.gain_error, bdf2.gain_memory)
     end
 
-    @testset "BDF2: second order at constant steps (#147)" begin
+    @testset "BDF2: second order at constant steps" begin
         # the time points cap every step, so after the first one the steps are constant;
         # the first two are backward-Euler steps, whose local errors of second order leave
         # the global order 2 of BDF2 intact
         k = 3.0
-        decay = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k))
-        # the same decay through a paired derivative: the row of x holds dw/dt with w = 2x,
+        decay = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = -k))
+        # the same decay through a paired unknown: the row of x holds dw/dt with w = 2x,
         # so x' = -k x / 2 and the reference of BDF2 enters through the mass columns
-        paired = single_unknown_system(TimeDerivative(:w), LinearTerm(:x; coefficient=-k);
-                                       extra=((RadialUnknown(:w), Equation(:w, Algebraic(), LinearTerm(:x; coefficient=2),
-                                                                           LinearTerm(:w; coefficient=-1))),))
+        paired = single_unknown_system(
+            TimeDerivative(:w), LinearTerm(:x; coefficient = -k);
+            extra = ((RadialUnknown(:w),
+                Equation(:w, Algebraic(), LinearTerm(:x; coefficient = 2),
+                    LinearTerm(:w; coefficient = -1))),))
         for (system, u0, rate) in ((decay, [1.0], k), (paired, [1.0, 2.0], k / 2))
-            errors = Dict{Int,Any}()
+            errors = Dict{Int, Any}()
             for order in (1, 2)
                 errors[order] = map((0.02, 0.01)) do h
-                    stepper = StepController(initial_step=h, relative_tolerance=1e3, order=order)
+                    stepper = StepController(initial_step = h, relative_tolerance = 1e3, order = order)
                     solution = integrate(system, u0, collect(0.0:h:1.0); stepper)
                     abs(solution.states[1, end] - exp(-rate))
                 end
@@ -451,49 +487,56 @@ Runes2P.rhs!(out, ::ExplicitZero, u, layout, row, t) = out
         end
     end
 
-    @testset "BDF2: the adaptive run, a step cut by a ceiling, the warning (#147)" begin
+    @testset "BDF2: the adaptive run, a step cut by a ceiling, the warning" begin
         k = 3.0
-        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k))
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = -k))
         # close save times cut a step to a ratio ω far below 1, where BDF2 tends to backward
         # Euler; the run stays accurate and takes fewer steps than backward Euler
         save_times = [0.0, 0.3, 0.3 + 1e-9, 0.6, 1.0]
         runs = map((1, 2)) do order
             solution = integrate(system, [1.0], [0.0, 1.0]; save_times,
-                                 stepper=StepController(initial_step=1e-3, relative_tolerance=1e-5, order=order))
+                stepper = StepController(initial_step = 1e-3, relative_tolerance = 1e-5, order = order))
             stats = solution.statistics
-            (; error=abs(solution.states[1, end] - exp(-k)), steps=count(stats.accepted))
+            (; error = abs(solution.states[1, end] - exp(-k)),
+                steps = count(stats.accepted))
         end
         @test runs[2].error < 1e-3
         @test runs[2].steps < runs[1].steps
         # an explicit term stays of first order: the controller of order 2 says so
-        explicit = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k), ExplicitZero())
-        @test_logs (:warn, r"explicit or lagged") match_mode=:any integrate(explicit, [1.0], [0.0, 0.1];
-                                                             stepper=StepController(order=2))
+        explicit = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = -k), ExplicitZero())
+        @test_logs (:warn, r"explicit or lagged") match_mode=:any integrate(
+            explicit, [1.0], [0.0, 0.1];
+            stepper = StepController(order = 2))
     end
 
-    @testset "BDF2: resume after BDF2 steps (#147)" begin
+    @testset "BDF2: resume after BDF2 steps" begin
         k = 3.0
-        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k); nr=2)
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = -k); nr = 2)
         times = [0.0, 1.0]
         save_times = [0.0, 0.4, 1.0]
-        stepper = StepController(initial_step=0.01, relative_tolerance=1e-4, order=2)
+        stepper = StepController(initial_step = 0.01, relative_tolerance = 1e-4, order = 2)
         directory = mktempdir()
         stop_file = joinpath(directory, "file.stop")
-        stop = StopCondition(end_time=Inf, stop_file=stop_file)
-        whole = integrate(system, [1.0, 2.0], times; save_times, stepper, updates=(RequestStop(stop_file, Inf),))
+        stop = StopCondition(end_time = Inf, stop_file = stop_file)
+        whole = integrate(system, [1.0, 2.0], times; save_times, stepper,
+            updates = (RequestStop(stop_file, Inf),))
         # a segment stopped after the step that passes t = 0.2, well past the two
         # backward-Euler steps, and resumed from its checkpoint: both history states return
-        checkpoint = CheckpointSettings("bdf2"; directory, interval=0)
-        first_segment = integrate(system, [1.0, 2.0], times; save_times, stepper, checkpoint, stop,
-                                  updates=(RequestStop(stop_file, 0.2),))
+        checkpoint = CheckpointSettings("bdf2"; directory, interval = 0)
+        first_segment = integrate(
+            system, [1.0, 2.0], times; save_times, stepper, checkpoint, stop,
+            updates = (RequestStop(stop_file, 0.2),))
         @test run_status(first_segment) === :stopped
         stored = read_checkpoint(checkpoint)
-        @test haskey(stored.stepper, "previous_state_2") && haskey(stored.stepper, "previous_step_2")
-        second_segment = integrate(system, [1.0, 2.0], times; save_times, stepper, checkpoint, stop, resume=true,
-                                   updates=(RequestStop(stop_file, Inf),))
+        @test haskey(stored.stepper, "previous_state_2") &&
+              haskey(stored.stepper, "previous_step_2")
+        second_segment = integrate(
+            system, [1.0, 2.0], times; save_times, stepper, checkpoint, stop, resume = true,
+            updates = (RequestStop(stop_file, Inf),))
         @test run_status(second_segment) === :finished
         rows = length(first_segment.statistics.time)
-        @test second_segment.statistics.time_step == whole.statistics.time_step[rows+1:end]
+        @test second_segment.statistics.time_step ==
+              whole.statistics.time_step[(rows + 1):end]
         @test all(==(:step), second_segment.statistics.kind)
         joined = read_output(checkpoint)
         @test joined.states == whole.states
@@ -501,10 +544,11 @@ Runes2P.rhs!(out, ::ExplicitZero, u, layout, row, t) = out
 
     @testset "the errors per unknown in the log" begin
         k = 3.0
-        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k); nr=2)
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = -k); nr = 2)
         io = IOBuffer()
-        log = ProgressLog(io=io, on_signal=false)
-        integrate(system, [1.0, 2.0], [0.0, 0.5]; stepper=StepController(initial_step=0.01), log)
+        log = ProgressLog(io = io, on_signal = false)
+        integrate(system, [1.0, 2.0], [0.0, 0.5];
+            stepper = StepController(initial_step = 0.01), log)
         text = String(take!(io))
         @test occursin(r"x: .*error estimate [0-9.e+-]+ of the tolerance", text)
     end

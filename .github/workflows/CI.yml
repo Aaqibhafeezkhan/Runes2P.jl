@@ -1,0 +1,123 @@
+# The checks of every push and every pull request, drafts included: the markdown lint, the
+# format check, the component tests and the strict documentation build. The full suite is in
+# FullSuite.yml.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# a newer commit of a pull request cancels the older run; pushes to a branch each finish
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  RUNES2P_JACOBIAN_CHUNK_SIZE: "8"
+
+jobs:
+  # the markdown rules of CONTRIBUTING.md: the lines a pull request changes, or every tracked
+  # markdown file on a push
+  lint:
+    name: Markdown lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Lint the changed lines of the pull request
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/lint_markdown.py --base "origin/${{ github.base_ref }}"
+      - name: Lint every tracked markdown file
+        if: github.event_name != 'pull_request'
+        run: git ls-files -z -- '*.md' | xargs -0 python3 scripts/lint_markdown.py
+
+  # the format check: JuliaFormatter 2.14.0 with the .JuliaFormatter.toml of the root changes
+  # nothing; format(".") of that version formats a checkout
+  format:
+    name: Format check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.13.1"
+      - name: Check the format
+        run: |
+          julia -e 'using Pkg; Pkg.add(name="JuliaFormatter", version="2.14.0"); using JuliaFormatter; format("."; overwrite=false) || (println("run JuliaFormatter 2.14.0: format(\".\")"); exit(1))'
+
+  # the group `component` of test/groups.toml at -O0, which compiles faster
+  component:
+    name: Component tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # actions: write lets julia-actions/cache delete the depot caches of earlier runs
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.13.1"
+      - uses: julia-actions/cache@v2
+      # the OpenADAS ADF11 files, which the repository does not carry: the high-density hydrogen
+      # files from the cache of DREAM's repository at the commit that the code cites, the other
+      # files from OpenADAS; a fresh fill is saved at once, so that a failing test keeps it
+      - name: Set the ADAS cache directory
+        run: echo "RUNES2P_ADAS_CACHE=$HOME/.cache/Runes2P/adas" >> "$GITHUB_ENV"
+      - name: Restore the ADAS cache
+        id: adas
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/Runes2P/adas
+          key: adas-${{ hashFiles('scripts/fetch_adas.py') }}
+      - name: Check out the ADAS cache of DREAM
+        if: steps.adas.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: chalmersplasmatheory/DREAM
+          ref: 93d27e1763827e19dafb1fe790e99c2688ad6d62
+          path: dream-adas
+          sparse-checkout: tools/cache
+      - name: Fill the ADAS cache
+        if: steps.adas.outputs.cache-hit != 'true'
+        run: python3 scripts/fetch_adas.py --cache "$RUNES2P_ADAS_CACHE" --dream-cache dream-adas/tools/cache
+      - name: Save the ADAS cache
+        if: steps.adas.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/Runes2P/adas
+          key: adas-${{ hashFiles('scripts/fetch_adas.py') }}
+      # installed at the optimisation level of the run, so that the precompiled files serve it
+      - name: Install the test environment
+        run: julia -O0 --project=test -e 'using Pkg; Pkg.instantiate()'
+      - name: Run the component tests
+        run: julia -O0 --project=test test/runtests.jl component
+
+  # the strict build of the documentation; it deploys nothing, and it does not run where
+  # DocsDeploy.yml builds the same commit (pushes to dev and tags)
+  docs:
+    name: Documentation build
+    if: ${{ !(github.event_name == 'push' && (github.ref == 'refs/heads/dev' || startsWith(github.ref, 'refs/tags/'))) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # actions: write lets julia-actions/cache delete the depot caches of earlier runs
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.13.1"
+      - uses: julia-actions/cache@v2
+      - name: Install the documentation environment
+        run: julia --project=docs -e 'using Pkg; Pkg.instantiate()'
+      - name: Build the documentation
+        run: julia --project=docs docs/make.jl

@@ -1,5 +1,5 @@
-# Unknown layout: radius-by-radius order, views, ranges, the description
-# written to files, and independence of the code from the order.
+# Unknown layout: radius-by-radius order, views, ranges, the description written to files,
+# and independence of the code from the order.
 using ForwardDiff: Dual
 
 @testset "unknown layout" begin
@@ -8,15 +8,15 @@ using ForwardDiff: Dual
     m2 = MomentumGrid(uniform_p_faces(5, 0.0, 2.0), uniform_xi_faces(2))
     hot = cylindrical_grid([m1, m2, m1], rad)
     runaway = cylindrical_grid(MomentumGrid(uniform_p_faces(2, 2.0, 10.0), uniform_xi_faces(2)), rad)
-    unknowns = [ScalarUnknown(:plasma_current; scale=1e6),
-                RadialUnknown(:electric_field; scale=10.0),
-                KineticUnknown(:hot_tail_distribution, hot; scale=1e18),
-                RadialUnknown(:ion_densities; components=3, scale=1e20),
-                KineticUnknown(:runaway_distribution, runaway),
-                ScalarUnknown(:wall_current)]
+    unknowns = [ScalarUnknown(:plasma_current; scale = 1e6),
+        RadialUnknown(:electric_field; scale = 10.0),
+        KineticUnknown(:hot_tail_distribution, hot; scale = 1e18),
+        RadialUnknown(:ion_densities; components = 3, scale = 1e20),
+        KineticUnknown(:runaway_distribution, runaway),
+        ScalarUnknown(:wall_current)]
     layout = UnknownLayout(rad, unknowns)
-    E, f_hot, ions, f_re = (unknown_id(layout, n) for n in
-                            (:electric_field, :hot_tail_distribution, :ion_densities, :runaway_distribution))
+    E, f_hot, ions, f_re = (unknown_id(layout, n)
+    for n in (:electric_field, :hot_tail_distribution, :ion_densities, :runaway_distribution))
     Ip, Iw = unknown_id(layout, :plasma_current), unknown_id(layout, :wall_current)
 
     @testset "order: radial, then kinetic unknowns per radius, scalars last" begin
@@ -33,13 +33,15 @@ using ForwardDiff: Dual
         @test scalar_block_range(layout) == 59:60
         @test unknown_range(layout, Ip) == 59:59 && unknown_range(layout, Iw) == 60:60
         @test length(layout) == 60
-        @test unknown_names(layout) == [:plasma_current, :electric_field, :hot_tail_distribution,
-                                        :ion_densities, :runaway_distribution, :wall_current]
+        @test unknown_names(layout) ==
+              [:plasma_current, :electric_field, :hot_tail_distribution,
+            :ion_densities, :runaway_distribution, :wall_current]
         @test unknown(layout, :ion_densities).components == 3
         @test_throws ArgumentError unknown_id(layout, :temperature)
         @test_throws ArgumentError unknown_range(layout, Ip, 1)
         @test_throws ArgumentError unknown_range(layout, E)
-        @test_throws ArgumentError UnknownLayout(rad, [ScalarUnknown(:a), ScalarUnknown(:a)])
+        @test_throws ArgumentError UnknownLayout(rad, [
+            ScalarUnknown(:a), ScalarUnknown(:a)])
         other_radii = cylindrical_grid(m1, RadialGrid(uniform_r_faces(3, 0.7)))
         @test_throws ArgumentError UnknownLayout(rad, [KineticUnknown(:f, other_radii)])
     end
@@ -51,7 +53,8 @@ using ForwardDiff: Dual
         scalar_view(u, layout, unknown_id(layout, :wall_current))[] = -2.0
         for ir in 1:3
             radial_view(u, layout, unknown_id(layout, :electric_field), ir) .= 10ir
-            radial_view(u, layout, unknown_id(layout, :ion_densities), ir) .= [1, 2, 3] .* 1e19 .+ ir
+            radial_view(u, layout, unknown_id(layout, :ion_densities), ir) .= [1, 2, 3] .*
+                                                                              1e19 .+ ir
             f = kinetic_view(u, layout, unknown_id(layout, :hot_tail_distribution), ir)
             f .= [100ir + 10i + j for i in axes(f, 1), j in axes(f, 2)]
             kinetic_view(u, layout, unknown_id(layout, :runaway_distribution), ir) .= -ir
@@ -67,7 +70,8 @@ using ForwardDiff: Dual
         # p fastest within a kinetic block
         @test u[unknown_range(layout, f_hot, 2)] == vec(f2)
         @test u[unknown_range(layout, ions, 3)] == [1e19, 2e19, 3e19] .+ 3
-        @test unknown_view(u, layout, :hot_tail_distribution, 1) == kinetic_view(u, layout, f_hot, 1)
+        @test unknown_view(u, layout, :hot_tail_distribution, 1) ==
+              kinetic_view(u, layout, f_hot, 1)
         @test unknown_view(u, layout, :electric_field, 3) == [30.0]
         @test unknown_view(u, layout, :plasma_current)[] == 1.5e6
         @test_throws ArgumentError kinetic_view(u, layout, E, 1)
@@ -86,7 +90,8 @@ using ForwardDiff: Dual
         d = Dual.(u, 1.0)
         @test kinetic_view(d, layout, f_hot, 2)[3, 2] == Dual(232.0, 1.0)
         @inferred kinetic_view(d, layout, f_hot, 2)
-        total(u) = sum(kinetic_view(u, layout, f_hot, 2)) + radial_view(u, layout, ions, 1)[2] +
+        total(u) = sum(kinetic_view(u, layout, f_hot, 2)) +
+                   radial_view(u, layout, ions, 1)[2] +
                    scalar_view(u, layout, Ip)[]
         total(u)
         @test (@allocated total(u)) == 0
@@ -118,26 +123,32 @@ using ForwardDiff: Dual
     @testset "code does not depend on the order" begin
         # the same checks through the interface with the scalars placed first, and a state
         # carried between the two orders by name
-        first = UnknownLayout(rad, unknowns; scalars=:first)
+        first = UnknownLayout(rad, unknowns; scalars = :first)
         @test scalar_block_range(first) == 1:2
         @test radius_block_range(first, 1) == 3:22
         u_first = fill_state(first)
         u_last = fill_state(layout)
         @test u_first != u_last
-        radius_unknowns = (:electric_field, :ion_densities, :hot_tail_distribution, :runaway_distribution)
+        radius_unknowns = (
+            :electric_field, :ion_densities, :hot_tail_distribution, :runaway_distribution)
         for ir in 1:3, name in radius_unknowns
-            @test unknown_view(u_first, first, name, ir) == unknown_view(u_last, layout, name, ir)
+
+            @test unknown_view(u_first, first, name, ir) ==
+                  unknown_view(u_last, layout, name, ir)
         end
         carried = zeros(length(first))
         @test copy_unknowns!(carried, first, u_last, layout) == sort(unknown_names(layout))
         @test carried == u_first
         # a layout with an unknown removed and one added takes the common ones
-        smaller = UnknownLayout(rad, [RadialUnknown(:electric_field),
-                                      KineticUnknown(:hot_tail_distribution, hot),
-                                      RadialUnknown(:cold_electron_temperature)])
+        smaller = UnknownLayout(rad,
+            [RadialUnknown(:electric_field),
+                KineticUnknown(:hot_tail_distribution, hot),
+                RadialUnknown(:cold_electron_temperature)])
         v = fill(NaN, length(smaller))
-        @test copy_unknowns!(v, smaller, u_last, layout) == [:electric_field, :hot_tail_distribution]
-        @test unknown_view(v, smaller, :hot_tail_distribution, 2) == kinetic_view(u_last, layout, f_hot, 2)
+        @test copy_unknowns!(v, smaller, u_last, layout) ==
+              [:electric_field, :hot_tail_distribution]
+        @test unknown_view(v, smaller, :hot_tail_distribution, 2) ==
+              kinetic_view(u_last, layout, f_hot, 2)
         @test all(isnan, unknown_view(v, smaller, :cold_electron_temperature, 1))
         # a kinetic unknown on other momentum grids with the same sizes is refused
         other_grid = cylindrical_grid(MomentumGrid(uniform_p_faces(2, 0.0, 1.0), uniform_xi_faces(2)), rad)
@@ -147,11 +158,16 @@ using ForwardDiff: Dual
         # component groups (ion species in another order), are refused
         wider = RadialGrid(uniform_r_faces(3, 0.7))
         from = UnknownLayout(rad, [RadialUnknown(:electric_field)])
-        @test_throws ArgumentError copy_unknowns!(zeros(3), UnknownLayout(wider, [RadialUnknown(:electric_field)]),
-                                                  zeros(3), from)
-        ions_from = UnknownLayout(rad, [RadialUnknown(:ion_densities; components=13, groups=[1:2, 3:13])])
-        ions_to = UnknownLayout(rad, [RadialUnknown(:ion_densities; components=13, groups=[1:11, 12:13])])
-        @test_throws ArgumentError copy_unknowns!(zeros(length(ions_to)), ions_to, zeros(length(ions_from)), ions_from)
-        @test copy_unknowns!(zeros(length(ions_from)), ions_from, ones(length(ions_from)), ions_from) == [:ion_densities]
+        @test_throws ArgumentError copy_unknowns!(
+            zeros(3), UnknownLayout(wider, [RadialUnknown(:electric_field)]),
+            zeros(3), from)
+        ions_from = UnknownLayout(rad, [RadialUnknown(:ion_densities; components = 13, groups = [
+            1:2, 3:13])])
+        ions_to = UnknownLayout(rad, [RadialUnknown(:ion_densities; components = 13, groups = [
+            1:11, 12:13])])
+        @test_throws ArgumentError copy_unknowns!(
+            zeros(length(ions_to)), ions_to, zeros(length(ions_from)), ions_from)
+        @test copy_unknowns!(zeros(length(ions_from)), ions_from, ones(length(ions_from)), ions_from) ==
+              [:ion_densities]
     end
 end

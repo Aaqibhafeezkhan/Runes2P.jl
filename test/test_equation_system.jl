@@ -21,6 +21,7 @@ function Runes2P.rhs!(out, term::QuadraticDecayTerm, u, layout, row, t)
     id = unknown_id(layout, term.unknown)
     for ir in 1:radial_cell_count(layout),
         (a, b) in zip(unknown_range(layout, row, ir), unknown_range(layout, id, ir))
+
         out[a] -= term.rate * u[b]^2
     end
     return out
@@ -42,7 +43,8 @@ function Runes2P.rhs!(out, term::RadialSumTerm, u, layout, row, t)
     rad = layout.radial_grid
     total = zero(eltype(out))
     for ir in 1:radial_cell_count(layout)
-        total += rad.spatial_jacobian[ir] * rad.r_widths[ir] * radial_view(u, layout, id, ir)[1]
+        total += rad.spatial_jacobian[ir] * rad.r_widths[ir] *
+                 radial_view(u, layout, id, ir)[1]
     end
     out[first(unknown_range(layout, row))] += total
     return out
@@ -78,35 +80,40 @@ end
     rad = RadialGrid(uniform_r_faces(2, 0.5))
     mom = MomentumGrid(biuniform_p_faces(10, 4, 0.0, 0.5, 3.0), uniform_xi_faces(6))
     g = cylindrical_grid(mom, rad)
-    plasma = PlasmaState(cold_electron_temperature=[100.0, 300.0],
-                         ions=[IonSpecies("D", 1, 1, [1e20, 5e19])],
-                         electric_field=[5.0, 2.0], magnetic_field=[5.0, 5.0])
+    plasma = PlasmaState(cold_electron_temperature = [100.0, 300.0],
+        ions = [IonSpecies("D", 1, 1, [1e20, 5e19])],
+        electric_field = [5.0, 2.0], magnetic_field = [5.0, 5.0])
     # a scheme linear in f: the finite-difference Jacobian reference below is exact only
     # where the operator is smooth, which a limiter is not at random states
-    fp = fokker_planck_operator(g, plasma; synchrotron=true, scheme=:exponential_fitting)
+    fp = fokker_planck_operator(g, plasma; synchrotron = true, scheme = :exponential_fitting)
     knockon = KnockOnOperator(g, g, 0.2)
-    layout = UnknownLayout(rad, [KineticUnknown(:hot_tail_distribution, g; scale=1e16),
-                                 RadialUnknown(:total_electron_density; scale=1e20),
-                                 RadialUnknown(:hot_electron_density; scale=1e16),
-                                 RadialUnknown(:temperature; scale=100.0),
-                                 ScalarUnknown(:hot_electron_content; scale=1e15)])
+    layout = UnknownLayout(rad,
+        [KineticUnknown(:hot_tail_distribution, g; scale = 1e16),
+            RadialUnknown(:total_electron_density; scale = 1e20),
+            RadialUnknown(:hot_electron_density; scale = 1e16),
+            RadialUnknown(:temperature; scale = 100.0),
+            ScalarUnknown(:hot_electron_content; scale = 1e15)])
     equations(knockon_treatment) = [
-        Equation(:hot_tail_distribution, TimeDerivative(), FokkerPlanckTerm(:hot_tail_distribution, fp),
-                 KnockOnTerm(:hot_tail_distribution, knockon; target_density=:total_electron_density,
-                             treatment=knockon_treatment)),
+        Equation(:hot_tail_distribution, TimeDerivative(),
+            FokkerPlanckTerm(:hot_tail_distribution, fp),
+            KnockOnTerm(
+                :hot_tail_distribution, knockon; target_density = :total_electron_density,
+                treatment = knockon_treatment)),
         Equation(:total_electron_density, TimeDerivative(),
-                 LinearTerm(:total_electron_density; coefficient=-0.1)),
-        Equation(:hot_electron_density, Algebraic(), DensityMomentTerm(:hot_tail_distribution),
-                 LinearTerm(:hot_electron_density; coefficient=-1)),
+            LinearTerm(:total_electron_density; coefficient = -0.1)),
+        Equation(
+            :hot_electron_density, Algebraic(), DensityMomentTerm(:hot_tail_distribution),
+            LinearTerm(:hot_electron_density; coefficient = -1)),
         Equation(:temperature, TimeDerivative(), QuadraticDecayTerm(:temperature, 1e-3)),
         Equation(:hot_electron_content, Algebraic(), RadialSumTerm(:hot_electron_density),
-                 LinearTerm(:hot_electron_content; coefficient=-1))]
-    system = EquationSystem(layout, equations(:implicit); time_scale=1e-3)
+            LinearTerm(:hot_electron_content; coefficient = -1))]
+    system = EquationSystem(layout, equations(:implicit); time_scale = 1e-3)
 
     # a state with a smooth distribution and distinct values elsewhere
-    f_id, ntot_id, nhot_id, T_id, content_id = (unknown_id(layout, name) for name in
-        (:hot_tail_distribution, :total_electron_density, :hot_electron_density, :temperature,
-         :hot_electron_content))
+    f_id, ntot_id, nhot_id, T_id, content_id = (unknown_id(layout, name)
+    for name in (:hot_tail_distribution, :total_electron_density,
+        :hot_electron_density, :temperature,
+        :hot_electron_content))
     f3 = [1e16 * exp(-p / 0.4) * (1.2 + ξ) * (1 + 0.3ir)
           for p in mom.p_centers, ξ in mom.xi_centers, ir in 1:2]
     u = zeros(length(layout))
@@ -166,9 +173,10 @@ end
         @test Matrix(J) ≈ dense rtol = 1e-13
         @test all(jacobian_sparsity(system)[findall(!iszero, dense)])
         # the same stored Jacobian without the knock-on term
-        without = EquationSystem(layout, [Equation(:hot_tail_distribution, TimeDerivative(),
-                                                   FokkerPlanckTerm(:hot_tail_distribution, fp));
-                                          equations(:implicit)[2:end]])
+        without = EquationSystem(layout,
+            [Equation(:hot_tail_distribution, TimeDerivative(),
+                 FokkerPlanckTerm(:hot_tail_distribution, fp));
+             equations(:implicit)[2:end]])
         J2 = jacobian_prototype(without)
         jacobian!(J2, without, u, 0.0)
         @test J2 == J
@@ -205,11 +213,13 @@ end
         # fokker-planck at u, knock-on at u_old
         knock_old = zeros(size(g))
         f_old = stack(kinetic_view(u_old, layout, f_id, ir) for ir in 1:2)
-        apply!(knock_old, knockon, f_old, [radial_view(u_old, layout, ntot_id, ir)[1] for ir in 1:2])
+        apply!(knock_old, knockon, f_old, [radial_view(u_old, layout, ntot_id, ir)[1]
+                                           for ir in 1:2])
         fp_new = zeros(size(g))
         apply!(fp_new, fp, f3)
         for ir in 1:2
-            expected = (kinetic_view(u, layout, f_id, ir) .- kinetic_view(u_old, layout, f_id, ir)) ./ dt .-
+            expected = (kinetic_view(u, layout, f_id, ir) .-
+                        kinetic_view(u_old, layout, f_id, ir)) ./ dt .-
                        fp_new[:, :, ir] .- knock_old[:, :, ir]
             @test kinetic_view(Fe, layout, f_id, ir) ≈ expected rtol = 1e-12
         end
@@ -224,9 +234,11 @@ end
         Fl = zeros(length(u))
         residual!(Fl, u, u_old, lagged, 0.0, dt)
         knock_mixed = zeros(size(g))
-        apply!(knock_mixed, knockon, f_old, [radial_view(u, layout, ntot_id, ir)[1] for ir in 1:2])
+        apply!(knock_mixed, knockon, f_old, [radial_view(u, layout, ntot_id, ir)[1]
+                                             for ir in 1:2])
         for ir in 1:2
-            expected = (kinetic_view(u, layout, f_id, ir) .- kinetic_view(u_old, layout, f_id, ir)) ./ dt .-
+            expected = (kinetic_view(u, layout, f_id, ir) .-
+                        kinetic_view(u_old, layout, f_id, ir)) ./ dt .-
                        fp_new[:, :, ir] .- knock_mixed[:, :, ir]
             @test kinetic_view(Fl, layout, f_id, ir) ≈ expected rtol = 1e-12
         end
@@ -246,17 +258,20 @@ end
         end
         @test Jl[f_rows, f_rows] == Je[f_rows, f_rows]
         @test Matrix(jacobian_operator(Jl, lagged, u, 0.0)) == Matrix(Jl)
-        @test is_linear(KnockOnTerm(:hot_tail_distribution, knockon; target_density=:total_electron_density))
+        @test is_linear(KnockOnTerm(:hot_tail_distribution, knockon; target_density = :total_electron_density))
         # with a prescribed target density it is the explicit form
-        prescribed = KnockOnTerm(:hot_tail_distribution, knockon; target_density=[1e20, 2e20])
-        @test Runes2P.treatment(prescribed) === :explicit && coupling(prescribed) === :matrix_free
+        prescribed = KnockOnTerm(:hot_tail_distribution, knockon; target_density = [
+            1e20, 2e20])
+        @test Runes2P.treatment(prescribed) === :explicit &&
+              coupling(prescribed) === :matrix_free
         # the source is set by the residual and by the right-hand side of the system
-        @test_throws "not set" rhs!(zeros(length(u)), KnockOnTerm(:hot_tail_distribution, knockon;
-                                                                  target_density=:total_electron_density),
-                                    u, layout, f_id, 0.0)
+        @test_throws "not set" rhs!(zeros(length(u)),
+            KnockOnTerm(:hot_tail_distribution, knockon;
+                target_density = :total_electron_density),
+            u, layout, f_id, 0.0)
         # the direct solver takes it: one step against GMRES
         steps = [integrate(lagged, u_old, [0.0, dt]; solver).states[:, end]
-                 for solver in (NewtonSolver(), NewtonSolver(linear_solver=GMRES()))]
+                 for solver in (NewtonSolver(), NewtonSolver(linear_solver = GMRES()))]
         @test steps[1] ≈ steps[2] rtol = 1e-8
         residual!(Fl, u, u_old, lagged, 0.0, dt)
         @test (@allocated residual!(Fl, u, u_old, lagged, 0.0, dt)) == 0 skip = !OPTIMIZED
@@ -271,62 +286,73 @@ end
         eqs = equations(:implicit)
         # an algebraic unknown missing from its own equation cannot be determined
         undetermined = Equation(:hot_electron_density, Algebraic(), DensityMomentTerm(:hot_tail_distribution))
-        @test_throws ArgumentError EquationSystem(layout, [eqs[1:2]; undetermined; eqs[4:5]])
+        @test_throws ArgumentError EquationSystem(layout, [eqs[1:2]; undetermined;
+                                                           eqs[4:5]])
         # an explicit term is evaluated at the previous time level and determines nothing
         kinetic_only = UnknownLayout(layout.radial_grid, [KineticUnknown(:hot_tail_distribution, g)])
-        explicit_source = MaxwellianSourceTerm(:hot_tail_distribution, g, 500.0; target_density=1e20, rate=1.0)
+        explicit_source = MaxwellianSourceTerm(
+            :hot_tail_distribution, g, 500.0; target_density = 1e20, rate = 1.0)
         @test_throws "no implicit term" EquationSystem(kinetic_only,
             [Equation(:hot_tail_distribution, Algebraic(), explicit_source)])
-        @test EquationSystem(kinetic_only, [Equation(:hot_tail_distribution, Algebraic(), explicit_source,
-                                                     LinearTerm(:hot_tail_distribution; coefficient=-1.0))]) isa
+        @test EquationSystem(kinetic_only,
+            [Equation(:hot_tail_distribution, Algebraic(), explicit_source,
+                LinearTerm(:hot_tail_distribution; coefficient = -1.0))]) isa
               EquationSystem
         @test_throws ArgumentError EquationSystem(layout, eqs[1:4])
         @test_throws ArgumentError EquationSystem(layout, [eqs; eqs[2]])
         undeclared = Equation(:temperature, TimeDerivative(), LinearTerm(:pressure))
         @test_throws ArgumentError EquationSystem(layout, [eqs[1:3]; undeclared; eqs[5]])
         # terms check themselves against the layout
-        wrong_kind = Equation(:hot_electron_density, Algebraic(), LinearTerm(:hot_electron_density),
-                              DensityMomentTerm(:temperature))
+        wrong_kind = Equation(
+            :hot_electron_density, Algebraic(), LinearTerm(:hot_electron_density),
+            DensityMomentTerm(:temperature))
         @test_throws ArgumentError EquationSystem(layout, [eqs[1:2]; wrong_kind; eqs[4:5]])
         wrong_size = Equation(:temperature, TimeDerivative(), LinearTerm(:hot_electron_content))
-        @test_throws DimensionMismatch EquationSystem(layout, [eqs[1:3]; wrong_size; eqs[5]])
-        # non-local operators still refuse assembly with the stencil pattern
+        @test_throws DimensionMismatch EquationSystem(layout, [eqs[1:3]; wrong_size;
+                                                               eqs[5]])
+        # non-local operators refuse assembly with the stencil pattern
         @test_throws ArgumentError operator_matrix(knockon)
     end
 
     @testset "scales and tolerances" begin
         @test tolerance(system, :hot_tail_distribution) == Tolerance(1e-10 * 1e16, 1e-10)
         custom = EquationSystem(layout, equations(:implicit);
-                                newton_tolerances=Dict(:temperature => Tolerance(1e-3, 1e-8)))
+            newton_tolerances = Dict(:temperature => Tolerance(1e-3, 1e-8)))
         @test tolerance(custom, :temperature) == Tolerance(1e-3, 1e-8)
-        @test tolerance(custom, :temperature; kind=:time_step) == Tolerance(1e-10 * 100, 1e-10)
-        @test_throws ArgumentError tolerance(custom, :temperature; kind=:other)
+        @test tolerance(custom, :temperature; kind = :time_step) ==
+              Tolerance(1e-10 * 100, 1e-10)
+        @test_throws ArgumentError tolerance(custom, :temperature; kind = :other)
         # a group part on a kinetic unknown is refused
-        grouped = Dict(:hot_tail_distribution => Tolerance(0, 1e-3; group=1e-3))
-        @test_throws ArgumentError EquationSystem(layout, equations(:implicit); newton_tolerances=grouped)
-        @test_throws ArgumentError EquationSystem(layout, equations(:implicit); time_step_tolerances=grouped)
+        grouped = Dict(:hot_tail_distribution => Tolerance(0, 1e-3; group = 1e-3))
+        @test_throws ArgumentError EquationSystem(layout, equations(:implicit); newton_tolerances = grouped)
+        @test_throws ArgumentError EquationSystem(layout, equations(:implicit); time_step_tolerances = grouped)
     end
 
     @testset "system on different momentum grids at different radii" begin
         # knock-on and density moment work per radius; the result equals the per-radius
         # operator applied to the same values
-        m2 = MomentumGrid(uniform_p_faces(7, 0.0, 3.0), -cos.(range(0, π; length=9)))
+        m2 = MomentumGrid(uniform_p_faces(7, 0.0, 3.0), -cos.(range(0, π; length = 9)))
         ragged = cylindrical_grid([mom, m2], rad)
         op = KnockOnOperator(ragged, ragged, 0.2)
-        layout2 = UnknownLayout(rad, [KineticUnknown(:hot_tail_distribution, ragged; scale=1e16),
-                                      RadialUnknown(:hot_electron_density; scale=1e16)])
-        system2 = EquationSystem(layout2, [
-            Equation(:hot_tail_distribution, TimeDerivative(),
-                     KnockOnTerm(:hot_tail_distribution, op; target_density=[1e20, 2e20], treatment=:implicit),
-                     LinearTerm(:hot_tail_distribution; coefficient=-10.0)),
-            Equation(:hot_electron_density, Algebraic(), DensityMomentTerm(:hot_tail_distribution),
-                     LinearTerm(:hot_electron_density; coefficient=-1))])
+        layout2 = UnknownLayout(rad,
+            [KineticUnknown(:hot_tail_distribution, ragged; scale = 1e16),
+                RadialUnknown(:hot_electron_density; scale = 1e16)])
+        system2 = EquationSystem(layout2,
+            [
+                Equation(:hot_tail_distribution, TimeDerivative(),
+                    KnockOnTerm(:hot_tail_distribution, op;
+                        target_density = [1e20, 2e20], treatment = :implicit),
+                    LinearTerm(:hot_tail_distribution; coefficient = -10.0)),
+                Equation(:hot_electron_density, Algebraic(),
+                    DensityMomentTerm(:hot_tail_distribution),
+                    LinearTerm(:hot_electron_density; coefficient = -1))])
         id = unknown_id(layout2, :hot_tail_distribution)
         u2 = zeros(length(layout2))
         for ir in 1:2
             m = momentum_grid(ragged, ir)
-            kinetic_view(u2, layout2, id, ir) .= [1e16 * exp(-p / 0.5) * (1 + ξ / 2) for p in m.p_centers,
-                                                                                          ξ in m.xi_centers]
+            kinetic_view(u2, layout2, id, ir) .= [1e16 * exp(-p / 0.5) * (1 + ξ / 2)
+                                                  for p in m.p_centers,
+            ξ in m.xi_centers]
         end
         du2 = zeros(length(layout2))
         rhs!(du2, u2, system2, 0.0)
@@ -352,12 +378,14 @@ end
     rad = RadialGrid(uniform_r_faces(1, 0.5))
     mom = MomentumGrid(uniform_p_faces(6, 0.0, 2.0), uniform_xi_faces(4))
     g = cylindrical_grid(mom, rad)
-    plasma = PlasmaState(cold_electron_temperature=[200.0], ions=[IonSpecies("D", 1, 1, [1e20])],
-                         electric_field=[4.0], magnetic_field=[5.0])
+    plasma = PlasmaState(
+        cold_electron_temperature = [200.0], ions = [IonSpecies("D", 1, 1, [1e20])],
+        electric_field = [4.0], magnetic_field = [5.0])
     op = fokker_planck_operator(g, plasma)
-    layout = UnknownLayout(rad, [KineticUnknown(:hot_tail_distribution, g; scale=1e18)])
-    system = EquationSystem(layout, [Equation(:hot_tail_distribution, TimeDerivative(),
-                                              FokkerPlanckTerm(:hot_tail_distribution, op))])
+    layout = UnknownLayout(rad, [KineticUnknown(:hot_tail_distribution, g; scale = 1e18)])
+    system = EquationSystem(layout,
+        [Equation(:hot_tail_distribution, TimeDerivative(),
+            FokkerPlanckTerm(:hot_tail_distribution, op))])
     u = vec([exp(-p) * (1 + 0.3ξ) for p in mom.p_centers, ξ in mom.xi_centers])
     du = zeros(length(layout))
     rhs!(du, u, system, 0.0)
@@ -372,10 +400,11 @@ end
     rad = RadialGrid(uniform_r_faces(2, 0.5))
     mom = MomentumGrid(biuniform_p_faces(30, 20, 0.0, 0.3, 2.0), uniform_xi_faces(6))
     g = cylindrical_grid(mom, rad)
-    layout = UnknownLayout(rad, [KineticUnknown(:hot_tail_distribution, g; scale=1e20)])
+    layout = UnknownLayout(rad, [KineticUnknown(:hot_tail_distribution, g; scale = 1e20)])
     temperature, target, rate, bound = 500.0, 1e20, 250.0, 0.1
-    term = MaxwellianSourceTerm(:hot_tail_distribution, g, temperature; target_density=target,
-                                rate, bulk_momentum=bound)
+    term = MaxwellianSourceTerm(
+        :hot_tail_distribution, g, temperature; target_density = target,
+        rate, bulk_momentum = bound)
     system = EquationSystem(layout, [Equation(:hot_tail_distribution, TimeDerivative(), term)])
     @test Runes2P.treatment(term) === :explicit
     # an empty distribution: the source adds rate × target particles per second
@@ -390,11 +419,13 @@ end
     u = zeros(length(layout))
     f = kinetic_view(u, layout, 1, 1)
     f .= shape
-    bulk = sum(phase_space_jacobian(g, 1)[i, j] * mom.p_widths[i] * mom.xi_widths[j] * f[i, j]
-               for i in 1:momentum_cell_count(mom), j in 1:pitch_cell_count(mom)
-               if mom.p_centers[i] <= bound) / rad.spatial_jacobian[1]
-    at_target = MaxwellianSourceTerm(:hot_tail_distribution, g, temperature; target_density=bulk,
-                                     rate, bulk_momentum=bound)
+    bulk = sum(phase_space_jacobian(g, 1)[i, j] * mom.p_widths[i] * mom.xi_widths[j] *
+               f[i, j]
+    for i in 1:momentum_cell_count(mom), j in 1:pitch_cell_count(mom)
+    if mom.p_centers[i] <= bound) / rad.spatial_jacobian[1]
+    at_target = MaxwellianSourceTerm(
+        :hot_tail_distribution, g, temperature; target_density = bulk,
+        rate, bulk_momentum = bound)
     system_at_target = EquationSystem(layout, [Equation(:hot_tail_distribution, TimeDerivative(), at_target)])
     fill!(du, 0)
     rhs!(du, u, system_at_target, 0.0)
@@ -405,28 +436,35 @@ end
     rhs!(du, u, system_at_target, 0.0)
     @test maximum(abs, kinetic_view(du, layout, 1, 1)) < 1e-6 * maximum(shape) * rate
     @test_throws ArgumentError MaxwellianSourceTerm(:hot_tail_distribution, g, -1.0;
-                                                    target_density=target, rate)
+        target_density = target, rate)
     @test_throws ArgumentError MaxwellianSourceTerm(:hot_tail_distribution, g, temperature;
-                                                    target_density=target, rate, bulk_momentum=1e-9)
+        target_density = target, rate, bulk_momentum = 1e-9)
     # the unknown the term reads and the row it adds to both live on the term's grid
     other = cylindrical_grid(MomentumGrid(uniform_p_faces(12, 0.0, 2.0), uniform_xi_faces(4)), rad)
-    two = UnknownLayout(rad, [KineticUnknown(:hot_tail_distribution, g; scale=1e20),
-                              KineticUnknown(:runaway_distribution, other; scale=1e20)])
+    two = UnknownLayout(rad,
+        [KineticUnknown(:hot_tail_distribution, g; scale = 1e20),
+            KineticUnknown(:runaway_distribution, other; scale = 1e20)])
     source(row, source_term) = Equation(row, TimeDerivative(), source_term)
-    decay(row) = Equation(row, TimeDerivative(), LinearTerm(row; coefficient=-1.0))
-    @test EquationSystem(two, [source(:hot_tail_distribution, term), decay(:runaway_distribution)]) isa
+    decay(row) = Equation(row, TimeDerivative(), LinearTerm(row; coefficient = -1.0))
+    @test EquationSystem(two, [
+        source(:hot_tail_distribution, term), decay(:runaway_distribution)]) isa
           EquationSystem
-    @test_throws DimensionMismatch EquationSystem(two, [decay(:hot_tail_distribution),
-                                                        source(:runaway_distribution, term)])
-    reads_other = MaxwellianSourceTerm(:runaway_distribution, g, temperature; target_density=target, rate,
-                                       bulk_momentum=bound)
-    @test_throws DimensionMismatch EquationSystem(two, [source(:hot_tail_distribution, reads_other),
-                                                        decay(:runaway_distribution)])
+    @test_throws DimensionMismatch EquationSystem(
+        two, [decay(:hot_tail_distribution),
+            source(:runaway_distribution, term)])
+    reads_other = MaxwellianSourceTerm(
+        :runaway_distribution, g, temperature; target_density = target, rate,
+        bulk_momentum = bound)
+    @test_throws DimensionMismatch EquationSystem(
+        two, [source(:hot_tail_distribution, reads_other),
+            decay(:runaway_distribution)])
     # a grid with the same faces built separately is accepted
     same_faces = cylindrical_grid(MomentumGrid(copy(mom.p_faces), copy(mom.xi_faces)), rad)
-    on_copy = MaxwellianSourceTerm(:hot_tail_distribution, same_faces, temperature; target_density=target, rate,
-                                   bulk_momentum=bound)
-    @test EquationSystem(layout, [source(:hot_tail_distribution, on_copy)]) isa EquationSystem
+    on_copy = MaxwellianSourceTerm(
+        :hot_tail_distribution, same_faces, temperature; target_density = target, rate,
+        bulk_momentum = bound)
+    @test EquationSystem(layout, [source(:hot_tail_distribution, on_copy)]) isa
+          EquationSystem
 end
 
 @testset "time derivative of another unknown in a row" begin
@@ -435,21 +473,26 @@ end
     # derivative of a and the row of a the constraint (as Faraday's law in the row of the
     # field). The systems are the same and give the same states.
     rad = RadialGrid(uniform_r_faces(3, 1.0))
-    layout = UnknownLayout(rad, [RadialUnknown(:a; scale=2.0), RadialUnknown(:b; scale=5.0),
-                                 ScalarUnknown(:c; scale=3.0), ScalarUnknown(:d; scale=7.0)])
-    own = EquationSystem(layout, [
-        Equation(:a, TimeDerivative(), LinearTerm(:b; coefficient=-2)),
-        Equation(:b, Algebraic(), LinearTerm(:a), LinearTerm(:b; coefficient=-1)),
-        Equation(:c, TimeDerivative(), LinearTerm(:d; coefficient=-3)),
-        Equation(:d, Algebraic(), LinearTerm(:c), LinearTerm(:d; coefficient=-1))])
-    other = EquationSystem(layout, [
-        Equation(:a, Algebraic(), LinearTerm(:b), LinearTerm(:a; coefficient=-1)),
-        Equation(:b, TimeDerivative(:a), LinearTerm(:b; coefficient=-2)),
-        Equation(:c, Algebraic(), LinearTerm(:d), LinearTerm(:c; coefficient=-1); scale=11.0),
-        Equation(:d, TimeDerivative(:c), LinearTerm(:d; coefficient=-3))])
+    layout = UnknownLayout(rad,
+        [RadialUnknown(:a; scale = 2.0), RadialUnknown(:b; scale = 5.0),
+            ScalarUnknown(:c; scale = 3.0), ScalarUnknown(:d; scale = 7.0)])
+    own = EquationSystem(layout,
+        [
+            Equation(:a, TimeDerivative(), LinearTerm(:b; coefficient = -2)),
+            Equation(:b, Algebraic(), LinearTerm(:a), LinearTerm(:b; coefficient = -1)),
+            Equation(:c, TimeDerivative(), LinearTerm(:d; coefficient = -3)),
+            Equation(:d, Algebraic(), LinearTerm(:c), LinearTerm(:d; coefficient = -1))])
+    other = EquationSystem(layout,
+        [
+            Equation(:a, Algebraic(), LinearTerm(:b), LinearTerm(:a; coefficient = -1)),
+            Equation(:b, TimeDerivative(:a), LinearTerm(:b; coefficient = -2)),
+            Equation(:c, Algebraic(), LinearTerm(:d),
+                LinearTerm(:c; coefficient = -1); scale = 11.0),
+            Equation(:d, TimeDerivative(:c), LinearTerm(:d; coefficient = -3))])
     @test TimeDerivative() === TimeDerivative(nothing)
     a, b = unknown_id(layout, :a), unknown_id(layout, :b)
-    c, d = only(unknown_range(layout, unknown_id(layout, :c))), only(unknown_range(layout, unknown_id(layout, :d)))
+    c, d = only(unknown_range(layout, unknown_id(layout, :c))),
+    only(unknown_range(layout, unknown_id(layout, :d)))
 
     # mass matrix: diagonal, or one entry per row off the diagonal
     @test mass_matrix(own) isa Diagonal
@@ -480,25 +523,28 @@ end
     residual!(F_own, u, u0, own, 0.0, 0.1)
     residual!(F_other, u, u0, other, 0.0, 0.1)
     for ir in 1:3
-        row_a, row_b = only(unknown_range(layout, a, ir)), only(unknown_range(layout, b, ir))
+        row_a, row_b = only(unknown_range(layout, a, ir)),
+        only(unknown_range(layout, b, ir))
         @test F_other[row_b] == F_own[row_a]
         @test F_other[row_a] == -F_own[row_b]
     end
     @test F_other[d] == F_own[c] && F_other[c] == -F_own[d]
 
-    times = collect(range(0, 0.5; length=11))
-    for solver in (NewtonSolver(), NewtonSolver(linear_solver=GMRES()))
+    times = collect(range(0, 0.5; length = 11))
+    for solver in (NewtonSolver(), NewtonSolver(linear_solver = GMRES()))
         first_pairing = integrate(own, u0, times; solver)
         second_pairing = integrate(other, u0, times; solver)
         @test second_pairing.states ≈ first_pairing.states rtol = 1e-13
         # backward Euler of da/dt = -2a and dc/dt = -3c
-        @test first_pairing.states[only(unknown_range(layout, a, 2)), end] ≈ 2 / (1 + 2 * 0.05)^10 rtol = 1e-12
+        @test first_pairing.states[only(unknown_range(layout, a, 2)), end] ≈
+              2 / (1 + 2 * 0.05)^10 rtol = 1e-12
         @test second_pairing.states[c, end] ≈ 4 / (1 + 3 * 0.05)^10 rtol = 1e-12
         @test second_pairing.states[d, end] ≈ second_pairing.states[c, end] rtol = 1e-13
     end
 
     record = describe(other)["equations"]
-    @test record["b"]["kind"] == "time_derivative" && record["b"]["time_derivative_of"] == "a"
+    @test record["b"]["kind"] == "time_derivative" &&
+          record["b"]["time_derivative_of"] == "a"
     @test record["c"]["scale"] == 11.0
     @test !haskey(describe(own)["equations"]["a"], "time_derivative_of")
     @test !haskey(describe(own)["equations"]["a"], "scale")
@@ -506,25 +552,30 @@ end
     # the unknown of the row must be in its terms or in those of the equation of the unknown
     # it differentiates (DREAM's pairing of T_cold and W_cold), the sizes must
     # agree, and the derivative of an unknown belongs to one row
-    @test EquationSystem(layout, [
-        Equation(:a, Algebraic(), LinearTerm(:b), LinearTerm(:a; coefficient=-1)),
-        Equation(:b, TimeDerivative(:a), LinearTerm(:a; coefficient=-2)),
-        Equation(:c, TimeDerivative(), LinearTerm(:d; coefficient=-3)),
-        Equation(:d, Algebraic(), LinearTerm(:c), LinearTerm(:d; coefficient=-1))]) isa EquationSystem
-    @test_throws "nothing determines it" EquationSystem(layout, [
-        Equation(:a, Algebraic(), PrescribedValueTerm(1.0), LinearTerm(:a; coefficient=-1)),
-        Equation(:b, TimeDerivative(:a), LinearTerm(:a; coefficient=-2)),
-        Equation(:c, TimeDerivative(), LinearTerm(:d; coefficient=-3)),
-        Equation(:d, Algebraic(), LinearTerm(:c), LinearTerm(:d; coefficient=-1))])
-    @test_throws "the same kind and sizes" EquationSystem(layout, [
-        Equation(:a, Algebraic(), LinearTerm(:b), LinearTerm(:a; coefficient=-1)),
-        Equation(:b, TimeDerivative(:c), LinearTerm(:b; coefficient=-2)),
-        Equation(:c, TimeDerivative(), LinearTerm(:d; coefficient=-3)),
-        Equation(:d, Algebraic(), LinearTerm(:c), LinearTerm(:d; coefficient=-1))])
-    @test_throws "is in the equations of" EquationSystem(layout, [
-        Equation(:a, TimeDerivative(), LinearTerm(:b; coefficient=-1)),
-        Equation(:b, TimeDerivative(:a), LinearTerm(:b; coefficient=-2)),
-        Equation(:c, TimeDerivative(), LinearTerm(:d; coefficient=-3)),
-        Equation(:d, Algebraic(), LinearTerm(:c), LinearTerm(:d; coefficient=-1))])
-    @test_throws ArgumentError Equation(:a, Algebraic(), LinearTerm(:a); scale=0)
+    @test EquationSystem(layout,
+        [
+            Equation(:a, Algebraic(), LinearTerm(:b), LinearTerm(:a; coefficient = -1)),
+            Equation(:b, TimeDerivative(:a), LinearTerm(:a; coefficient = -2)),
+            Equation(:c, TimeDerivative(), LinearTerm(:d; coefficient = -3)),
+            Equation(:d, Algebraic(), LinearTerm(:c), LinearTerm(:d; coefficient = -1))]) isa
+          EquationSystem
+    @test_throws "nothing determines it" EquationSystem(layout,
+        [
+            Equation(:a, Algebraic(), PrescribedValueTerm(1.0), LinearTerm(:a; coefficient = -1)),
+            Equation(:b, TimeDerivative(:a), LinearTerm(:a; coefficient = -2)),
+            Equation(:c, TimeDerivative(), LinearTerm(:d; coefficient = -3)),
+            Equation(:d, Algebraic(), LinearTerm(:c), LinearTerm(:d; coefficient = -1))])
+    @test_throws "the same kind and sizes" EquationSystem(layout,
+        [
+            Equation(:a, Algebraic(), LinearTerm(:b), LinearTerm(:a; coefficient = -1)),
+            Equation(:b, TimeDerivative(:c), LinearTerm(:b; coefficient = -2)),
+            Equation(:c, TimeDerivative(), LinearTerm(:d; coefficient = -3)),
+            Equation(:d, Algebraic(), LinearTerm(:c), LinearTerm(:d; coefficient = -1))])
+    @test_throws "is in the equations of" EquationSystem(layout,
+        [
+            Equation(:a, TimeDerivative(), LinearTerm(:b; coefficient = -1)),
+            Equation(:b, TimeDerivative(:a), LinearTerm(:b; coefficient = -2)),
+            Equation(:c, TimeDerivative(), LinearTerm(:d; coefficient = -3)),
+            Equation(:d, Algebraic(), LinearTerm(:c), LinearTerm(:d; coefficient = -1))])
+    @test_throws ArgumentError Equation(:a, Algebraic(), LinearTerm(:a); scale = 0)
 end

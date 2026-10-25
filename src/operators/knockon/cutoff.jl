@@ -29,9 +29,11 @@ free electrons, and without screening the free plus the bound electrons (Hesslow
 Nucl. Fusion 59, 084004 (2019), doi:10.1088/1741-4326/ab26c2; DREAM's `Ec_free` and
 `Ec_tot`, `src/Equations/RunawayFluid.cpp:208-209`).
 """
-critical_field(density, coulomb_log) =
+function critical_field(density, coulomb_log)
     density * coulomb_log * Constants.ELEMENTARY_CHARGE^3 /
-    (4pi * Constants.VACUUM_PERMITTIVITY^2 * Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT^2)
+    (4pi * Constants.VACUUM_PERMITTIVITY^2 * Constants.ELECTRON_MASS *
+     Constants.SPEED_OF_LIGHT^2)
+end
 
 """
     critical_momentum(electric_field, critical_electric_field)
@@ -41,9 +43,11 @@ scattering or radiation), `Inf` for `E ≤ E_c`. DREAM's effective critical mome
 (`fluid.pCrit`) includes screening and pitch-angle scattering and is larger; a caller with
 a better estimate passes it to [`cutoff_window`](@ref) directly.
 """
-critical_momentum(electric_field, critical_electric_field) =
-    electric_field > critical_electric_field ? 1 / sqrt(electric_field / critical_electric_field - 1) :
+function critical_momentum(electric_field, critical_electric_field)
+    electric_field > critical_electric_field ?
+    1 / sqrt(electric_field / critical_electric_field - 1) :
     oftype(float(electric_field / critical_electric_field), Inf)
+end
 
 """
     cutoff_window(thermal_p, critical_p; thermal_factor=4)
@@ -52,8 +56,9 @@ Admissible range `(lower, upper) = (thermal_factor · thermal_p, critical_p)` of
 knock-on cutoff momentum: above the thermal momentum by a safety factor, below the
 critical momentum. The window is empty when `lower ≥ upper`.
 """
-cutoff_window(thermal_p, critical_p; thermal_factor=4) =
-    (lower=thermal_factor * thermal_p, upper=critical_p)
+function cutoff_window(thermal_p, critical_p; thermal_factor = 4)
+    (lower = thermal_factor * thermal_p, upper = critical_p)
+end
 
 """
     choose_cutoff(p_faces, lower, upper; current_cutoff=nothing)
@@ -74,21 +79,24 @@ Snapping to faces also keeps the cutoff off the interior of a cell, so the energ
 has no partial cell at the cutoff.
 """
 function choose_cutoff(p_faces::AbstractVector{T}, lower::Real, upper::Real;
-                       current_cutoff=nothing) where {T}
-    if current_cutoff !== nothing && lower <= current_cutoff < upper && current_cutoff > 0 &&
+        current_cutoff = nothing) where {T}
+    if current_cutoff !== nothing && lower <= current_cutoff < upper &&
+       current_cutoff > 0 &&
        any(==(current_cutoff), p_faces)
-        return (p_cutoff=T(current_cutoff), inside_window=true)
+        return (p_cutoff = T(current_cutoff), inside_window = true)
     end
     faces = filter(>(0), p_faces)
     isempty(faces) && throw(ArgumentError("the momentum grid has no positive face"))
     candidates = filter(p -> lower <= p < upper, faces)
     if isempty(candidates)
         below = filter(<(upper), faces)
-        return (p_cutoff=isempty(below) ? first(faces) : last(below), inside_window=false)
+        return (
+            p_cutoff = isempty(below) ? first(faces) : last(below), inside_window = false)
     end
-    isinf(upper) && return (p_cutoff=first(candidates), inside_window=true)
+    isinf(upper) && return (p_cutoff = first(candidates), inside_window = true)
     target = log(sqrt(max(lower, first(faces)) * upper))
-    return (p_cutoff=candidates[argmin(abs.(log.(candidates) .- target))], inside_window=true)
+    return (p_cutoff = candidates[argmin(abs.(log.(candidates) .- target))],
+        inside_window = true)
 end
 
 # The cutoff rule of `cutoff_target`:
@@ -119,8 +127,8 @@ end
 """
     cutoff_target(temperature, critical_p; no_ceiling_factor=10)
 
-Knock-on cutoff by the following rule (a choice of this package), returned as
-`(p_cutoff, energy, policy)`:
+Knock-on cutoff by the following rule (a choice of this package; see the docs page *Choices
+of this package*), returned as `(p_cutoff, energy, policy)`:
 
 - with a runaway threshold (`critical_p` finite), the logarithmic midpoint in energy
   between the thermal energy, which is the temperature [eV], and the kinetic energy at
@@ -132,16 +140,17 @@ Knock-on cutoff by the following rule (a choice of this package), returned as
   bulk when the cutoff comes near the thermal momentum: `no_ceiling_factor` times the
   temperature again (`:closed`).
 
-`no_ceiling_factor = 10` is a choice of this package.
+`no_ceiling_factor = 10` is a choice of this package (see the docs page
+*Choices of this package*).
 """
-function cutoff_target(temperature::Real, critical_p::Real; no_ceiling_factor::Real=10)
+function cutoff_target(temperature::Real, critical_p::Real; no_ceiling_factor::Real = 10)
     temperature > 0 || throw(ArgumentError("the temperature must be positive"))
     no_ceiling_factor > 1 || throw(ArgumentError("no_ceiling_factor must be above 1"))
     policy = isinf(critical_p) ? :no_ceiling :
              kinetic_energy(critical_p) > temperature ? :log_midpoint : :closed
     energy = policy === :log_midpoint ? sqrt(temperature * kinetic_energy(critical_p)) :
              no_ceiling_factor * temperature
-    return (p_cutoff=momentum_at_energy(energy), energy=energy, policy=policy)
+    return (p_cutoff = momentum_at_energy(energy), energy = energy, policy = policy)
 end
 
 """
@@ -155,20 +164,23 @@ hovers between two faces does not rebuild the kernels at every time point; the c
 is then at most one cell from the target. Without a face inside the window, the face
 nearest to the target is taken and `inside_window` is false.
 """
-function choose_cutoff_face(p_faces::AbstractVector{T}, target::Real, lower::Real, upper::Real;
-                            current_cutoff=nothing) where {T}
+function choose_cutoff_face(
+        p_faces::AbstractVector{T}, target::Real, lower::Real, upper::Real;
+        current_cutoff = nothing) where {T}
     faces = filter(>(0), p_faces)
     isempty(faces) && throw(ArgumentError("the momentum grid has no positive face"))
     distance(p) = abs(log(kinetic_energy(p) / kinetic_energy(target)))
     inside = filter(p -> lower < p < upper, faces)
-    isempty(inside) && return (p_cutoff=T(faces[argmin(distance.(faces))]), inside_window=false)
+    isempty(inside) &&
+        return (p_cutoff = T(faces[argmin(distance.(faces))]), inside_window = false)
     if current_cutoff !== nothing
         k = findfirst(==(current_cutoff), faces)
         if k !== nothing && lower < current_cutoff < upper
-            below = k > 1 ? faces[k-1] : zero(T)
-            above = k < length(faces) ? faces[k+1] : T(Inf)
-            below < target < above && return (p_cutoff=T(current_cutoff), inside_window=true)
+            below = k > 1 ? faces[k - 1] : zero(T)
+            above = k < length(faces) ? faces[k + 1] : T(Inf)
+            below < target < above &&
+                return (p_cutoff = T(current_cutoff), inside_window = true)
         end
     end
-    return (p_cutoff=T(inside[argmin(distance.(inside))]), inside_window=true)
+    return (p_cutoff = T(inside[argmin(distance.(inside))]), inside_window = true)
 end

@@ -1,26 +1,26 @@
-# Layout of the unknowns in the state vector. Unknowns are stored radius by radius: at
-# each radius the radial unknowns
-# (components contiguous) and then the kinetic unknowns (p fastest, then ξ), followed by
-# the scalar unknowns. Code outside this file reaches the unknowns through the views and
-# ranges below and never computes offsets itself, so the order can change.
+# Layout of the unknowns in the state vector. Unknowns are stored radius by radius: at each
+# radius the radial unknowns (components contiguous) and then the kinetic unknowns (p
+# fastest, then ξ), followed by the scalar unknowns. Code outside this file reaches the
+# unknowns through the views and ranges below and never computes offsets itself, so the
+# order can change.
 
 """
     LowerLimit(; value=0, tolerance=0, reference=nothing)
 
-Lower limit of an unknown, enforced on Newton steps (DREAM #25, #91):
+Lower limit of an unknown, enforced on Newton steps (DREAM damps the Newton update to keep
+selected unknowns above a tenth of their value, `MaximalPhysicalStepLength` in
+`src/Solver/SolverNonLinear.cpp:441-524`):
 every entry stays at or above `value - tolerance * reference value`, where the reference
-value is the radial unknown `reference` (one component) at the same radius, or the
-unknown's own scale when `reference` is `nothing`, or the sum of the magnitudes of the
-components of the entry's group at the same radius when `reference` is `:group` (the
-charge states of one ion species, [`RadialUnknown`](@ref) with `groups`).
-Declared on the unknown with
+value is the radial unknown `reference` (one component) at the same radius, or the unknown's
+own scale when `reference` is `nothing`, or the sum of the magnitudes of the components of
+the entry's group at the same radius when `reference` is `:group` (the charge states of one
+ion species, [`RadialUnknown`](@ref) with `groups`). Declared on the unknown with
 `nonnegative = true` (value 0, tolerance 0) or `nonnegative = LowerLimit(...)`, e.g.
-`RadialUnknown(:ion_densities; components=3,
-nonnegative=LowerLimit(tolerance=1e-12, reference=:total_electron_density))`. Scalar
-unknowns take no reference. An unknown that can sit at exactly 0 (an empty charge state)
-needs a positive tolerance: with tolerance 0 a round-off negative update of an entry at
-its limit fails the Newton step (`:below_lower_limit`), and shorter time steps do not
-help.
+`RadialUnknown(:ion_densities; components=3, nonnegative=LowerLimit(tolerance=1e-12,
+reference=:total_electron_density))`. Scalar unknowns take no reference. An unknown that
+can sit at exactly 0 (an empty charge state) needs a positive tolerance: with tolerance 0 a
+round-off negative update of an entry at its limit fails the Newton step
+(`:below_lower_limit`), and shorter time steps do not help.
 
 `value` is an absolute limit in the units of the unknown, such as the floor of a
 temperature: `RadialUnknown(:cold_electron_temperature; nonnegative=LowerLimit(value=0.5))`.
@@ -29,16 +29,18 @@ to the limit, so an iterate approaches the floor and does not cross it, and a st
 solution lies below it does not converge and is refused. The temperature unknown of a
 [`PlasmaFromUnknowns`](@ref) takes the floor of that source as its limit without a
 declaration, and the larger of the two values where both exist. A temperature that only
-fluid terms read takes the default floor of 0.5 eV without a declaration
-([`fluid_temperature_floors`](@ref)); a declared limit is kept as it is.
+fluid terms read takes the default floor [`DEFAULT_TEMPERATURE_FLOOR`](@ref) without a
+declaration ([`fluid_temperature_floors`](@ref)); a declared limit is kept as it is.
 """
 struct LowerLimit
     value::Float64
     tolerance::Float64
-    reference::Union{Nothing,Symbol}
+    reference::Union{Nothing, Symbol}
 end
-function LowerLimit(; value::Real=0.0, tolerance::Real=0.0, reference::Union{Nothing,Symbol}=nothing)
-    tolerance >= 0 || throw(ArgumentError("the tolerance of a lower limit must be nonnegative"))
+function LowerLimit(; value::Real = 0.0, tolerance::Real = 0.0, reference::Union{
+        Nothing, Symbol} = nothing)
+    tolerance >= 0 ||
+        throw(ArgumentError("the tolerance of a lower limit must be nonnegative"))
     isfinite(value) || throw(ArgumentError("the value of a lower limit must be finite"))
     return LowerLimit(Float64(value), Float64(tolerance), reference)
 end
@@ -55,10 +57,12 @@ reference magnitude; `nonnegative` declares a [`LowerLimit`](@ref).
 struct ScalarUnknown
     name::Symbol
     scale::Float64
-    lower_limit::Union{Nothing,LowerLimit}
+    lower_limit::Union{Nothing, LowerLimit}
 end
-ScalarUnknown(name::Symbol; scale::Real=1.0, nonnegative::Union{Bool,LowerLimit}=false) =
+function ScalarUnknown(name::Symbol; scale::Real = 1.0, nonnegative::Union{
+        Bool, LowerLimit} = false)
     ScalarUnknown(name, Float64(scale), _lower_limit(nonnegative))
+end
 
 """
     RadialUnknown(name; components=1, scale=1, nonnegative=false, groups=nothing)
@@ -72,16 +76,17 @@ struct RadialUnknown
     name::Symbol
     components::Int
     scale::Float64
-    lower_limit::Union{Nothing,LowerLimit}
+    lower_limit::Union{Nothing, LowerLimit}
     groups::Vector{UnitRange{Int}}
 end
-function RadialUnknown(name::Symbol; components::Integer=1, scale::Real=1.0,
-                       nonnegative::Union{Bool,LowerLimit}=false, groups=nothing)
+function RadialUnknown(name::Symbol; components::Integer = 1, scale::Real = 1.0,
+        nonnegative::Union{Bool, LowerLimit} = false, groups = nothing)
     components >= 1 || throw(ArgumentError("a radial unknown needs at least one component"))
     groups = groups === nothing ? [1:Int(components)] : UnitRange{Int}[g for g in groups]
     _splits(groups, components) ||
         throw(ArgumentError("the groups of $name must split its components 1:$components into consecutive ranges"))
-    return RadialUnknown(name, Int(components), Float64(scale), _lower_limit(nonnegative), groups)
+    return RadialUnknown(
+        name, Int(components), Float64(scale), _lower_limit(nonnegative), groups)
 end
 
 # whether the ranges split 1:n into consecutive nonempty ranges
@@ -117,13 +122,14 @@ struct KineticUnknown{T}
     name::Symbol
     grid::KineticGrid{T}
     scale::Float64
-    lower_limit::Union{Nothing,LowerLimit}
+    lower_limit::Union{Nothing, LowerLimit}
 end
-KineticUnknown(name::Symbol, grid::KineticGrid; scale::Real=1.0,
-               nonnegative::Union{Bool,LowerLimit}=false) =
+function KineticUnknown(name::Symbol, grid::KineticGrid; scale::Real = 1.0,
+        nonnegative::Union{Bool, LowerLimit} = false)
     KineticUnknown(name, grid, Float64(scale), _lower_limit(nonnegative))
+end
 
-const Unknown = Union{ScalarUnknown,RadialUnknown,KineticUnknown}
+const Unknown = Union{ScalarUnknown, RadialUnknown, KineticUnknown}
 
 """
     UnknownLayout(radial_grid, unknowns; scalars=:last)
@@ -135,16 +141,16 @@ one block after the radius blocks (`scalars = :first` places it before them, whi
 serves to check that no code depends on the order). Kinetic unknowns must live on
 `radial_grid`. The layout is immutable; adding an unknown builds a new layout.
 """
-struct UnknownLayout{T<:AbstractFloat}
+struct UnknownLayout{T <: AbstractFloat}
     radial_grid::RadialGrid{T}
     unknowns::Vector{Unknown}
-    ids::Dict{Symbol,Int}
+    ids::Dict{Symbol, Int}
     kinds::Vector{Symbol}         # :scalar, :radial or :kinetic, per unknown
     offsets::Matrix{Int}          # (unknown, radius): index before the first entry; 0 for scalars
     radius_offsets::Vector{Vector{Int}}  # per unknown, the offsets over the radii (a row of `offsets`)
     sizes::Matrix{Int}            # (unknown, radius): number of entries
-    shapes::Matrix{Tuple{Int,Int}}  # (unknown, radius): (p cells, ξ cells) of kinetic unknowns
-    kinetic_grids::Vector{Union{Nothing,KineticGrid{T}}}  # per unknown: its grid, or nothing
+    shapes::Matrix{Tuple{Int, Int}}  # (unknown, radius): (p cells, ξ cells) of kinetic unknowns
+    kinetic_grids::Vector{Union{Nothing, KineticGrid{T}}}  # per unknown: its grid, or nothing
     scalar_offsets::Vector{Int}   # per unknown: index of the value for scalars, 0 otherwise
     radius_blocks::Vector{UnitRange{Int}}
     scalar_block::UnitRange{Int}
@@ -153,10 +159,10 @@ struct UnknownLayout{T<:AbstractFloat}
 end
 
 function UnknownLayout(radial_grid::RadialGrid{T}, unknowns::AbstractVector;
-                       scalars::Symbol=:last) where {T}
+        scalars::Symbol = :last) where {T}
     scalars in (:last, :first) || throw(ArgumentError("scalars must be :last or :first"))
     list = Unknown[u for u in unknowns]
-    ids = Dict{Symbol,Int}()
+    ids = Dict{Symbol, Int}()
     for (id, u) in enumerate(list)
         haskey(ids, u.name) && throw(ArgumentError("unknown $(u.name) declared twice"))
         ids[u.name] = id
@@ -183,10 +189,12 @@ function UnknownLayout(radial_grid::RadialGrid{T}, unknowns::AbstractVector;
     end
     nr = radial_cell_count(radial_grid)
     count = length(list)
-    kinds = [u isa ScalarUnknown ? :scalar : u isa RadialUnknown ? :radial : :kinetic for u in list]
+    kinds = [u isa ScalarUnknown ? :scalar : u isa RadialUnknown ? :radial : :kinetic
+             for u in list]
     sizes = zeros(Int, count, nr)
     shapes = fill((0, 0), count, nr)
     for (id, u) in enumerate(list), ir in 1:nr
+
         if u isa RadialUnknown
             sizes[id, ir] = u.components
         elseif u isa KineticUnknown
@@ -214,12 +222,14 @@ function UnknownLayout(radial_grid::RadialGrid{T}, unknowns::AbstractVector;
     for (n, id) in enumerate(scalar_ids)
         scalar_offsets[id] = scalar_start + n
     end
-    scalar_block = scalar_start+1:scalar_start+scalar_count
+    scalar_block = (scalar_start + 1):(scalar_start + scalar_count)
     total = position + (scalars === :first ? 0 : scalar_count)
     radius_offsets = [offsets[id, :] for id in 1:count]
-    kinetic_grids = Union{Nothing,KineticGrid{T}}[u isa KineticUnknown ? u.grid : nothing for u in list]
-    return UnknownLayout{T}(radial_grid, list, ids, kinds, offsets, radius_offsets, sizes, shapes,
-                            kinetic_grids, scalar_offsets, radius_blocks, scalar_block, total, scalars)
+    kinetic_grids = Union{Nothing, KineticGrid{T}}[u isa KineticUnknown ? u.grid : nothing
+                                                   for u in list]
+    return UnknownLayout{T}(
+        radial_grid, list, ids, kinds, offsets, radius_offsets, sizes, shapes,
+        kinetic_grids, scalar_offsets, radius_blocks, scalar_block, total, scalars)
 end
 
 Base.length(layout::UnknownLayout) = layout.length
@@ -259,7 +269,8 @@ Kinetic grid of the kinetic unknown `id`.
 """
 function kinetic_grid(layout::UnknownLayout, id::Integer)
     grid = layout.kinetic_grids[id]
-    grid === nothing && throw(ArgumentError("$(layout.unknowns[id].name) is not a kinetic unknown"))
+    grid === nothing &&
+        throw(ArgumentError("$(layout.unknowns[id].name) is not a kinetic unknown"))
     return grid
 end
 
@@ -274,7 +285,7 @@ function unknown_range(layout::UnknownLayout, id::Integer, ir::Integer)
     layout.kinds[id] === :scalar &&
         throw(ArgumentError("$(layout.unknowns[id].name) is a scalar unknown; omit the radius"))
     offset = layout.offsets[id, ir]
-    return offset+1:offset+layout.sizes[id, ir]
+    return (offset + 1):(offset + layout.sizes[id, ir])
 end
 function unknown_range(layout::UnknownLayout, id::Integer)
     layout.kinds[id] === :scalar ||
@@ -311,7 +322,7 @@ function radial_view(u::AbstractVector, layout::UnknownLayout, id::Integer, ir::
     layout.kinds[id] === :radial ||
         throw(ArgumentError("$(layout.unknowns[id].name) is not a radial unknown"))
     offset = layout.offsets[id, ir]
-    return view(u, offset+1:offset+layout.sizes[id, ir])
+    return view(u, (offset + 1):(offset + layout.sizes[id, ir]))
 end
 
 """
@@ -325,7 +336,7 @@ function kinetic_view(u::AbstractVector, layout::UnknownLayout, id::Integer, ir:
     layout.kinds[id] === :kinetic ||
         throw(ArgumentError("$(layout.unknowns[id].name) is not a kinetic unknown"))
     offset = layout.offsets[id, ir]
-    return reshape(view(u, offset+1:offset+layout.sizes[id, ir]), layout.shapes[id, ir])
+    return reshape(view(u, (offset + 1):(offset + layout.sizes[id, ir])), layout.shapes[id, ir])
 end
 
 """
@@ -352,8 +363,9 @@ function unknown_view(u::AbstractVector, layout::UnknownLayout, name::Symbol, ir
     return layout.kinds[id] === :kinetic ? kinetic_view(u, layout, id, ir) :
            radial_view(u, layout, id, ir)
 end
-unknown_view(u::AbstractVector, layout::UnknownLayout, name::Symbol) =
+function unknown_view(u::AbstractVector, layout::UnknownLayout, name::Symbol)
     scalar_view(u, layout, unknown_id(layout, name))
+end
 
 """
     unknown_scales(layout)
@@ -384,9 +396,11 @@ that trade places are not detected. Returns the names copied. This is how a stat
 order or with unknowns added or removed (restarts).
 """
 function copy_unknowns!(u_to::AbstractVector, layout_to::UnknownLayout,
-                        u_from::AbstractVector, layout_from::UnknownLayout)
-    length(u_to) == length(layout_to) || throw(DimensionMismatch("u_to does not match layout_to"))
-    length(u_from) == length(layout_from) || throw(DimensionMismatch("u_from does not match layout_from"))
+        u_from::AbstractVector, layout_from::UnknownLayout)
+    length(u_to) == length(layout_to) ||
+        throw(DimensionMismatch("u_to does not match layout_to"))
+    length(u_from) == length(layout_from) ||
+        throw(DimensionMismatch("u_from does not match layout_from"))
     copied = Symbol[]
     for (name, id_from) in layout_from.ids
         id_to = get(layout_to.ids, name, 0)
@@ -401,14 +415,18 @@ function copy_unknowns!(u_to::AbstractVector, layout_to::UnknownLayout,
             layout_from.radial_grid.r_faces == layout_to.radial_grid.r_faces ||
                 throw(ArgumentError("$name lives on different radial grids in the two layouts"))
             if layout_from.kinds[id_from] === :radial
-                component_groups(layout_from.unknowns[id_from]) == component_groups(layout_to.unknowns[id_to]) ||
+                component_groups(layout_from.unknowns[id_from]) ==
+                component_groups(layout_to.unknowns[id_to]) ||
                     throw(ArgumentError("$name has other component groups in the two layouts"))
             end
             if layout_from.kinds[id_from] === :kinetic
                 grid_from = layout_from.unknowns[id_from].grid
                 grid_to = layout_to.unknowns[id_to].grid
-                all(ir -> momentum_grid(grid_from, ir).p_faces == momentum_grid(grid_to, ir).p_faces &&
-                          momentum_grid(grid_from, ir).xi_faces == momentum_grid(grid_to, ir).xi_faces,
+                all(
+                    ir -> momentum_grid(grid_from, ir).p_faces ==
+                          momentum_grid(grid_to, ir).p_faces &&
+                          momentum_grid(grid_from, ir).xi_faces ==
+                          momentum_grid(grid_to, ir).xi_faces,
                     1:radial_cell_count(layout_from)) ||
                     throw(ArgumentError("$name lives on different momentum grids in the two layouts"))
             end

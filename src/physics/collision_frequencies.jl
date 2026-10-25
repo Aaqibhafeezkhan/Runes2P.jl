@@ -15,7 +15,8 @@ using QuadGK: quadgk
 
 The defaults of `mode`, `screening`, `coulomb_logarithm`, `screened_diffusion` and `bound_friction` are
 those of DREAM's `CollisionHandler`. The defaults of `ion_size_table`, `screening_window`, `bremsstrahlung`,
-`bremsstrahlung_diffusion` and `bremsstrahlung_constant` depart from DREAM.
+`bremsstrahlung_diffusion` and `bremsstrahlung_constant` depart from DREAM (see the docs page
+*Comparison with DREAM*).
 The remaining options have no counterpart in DREAM.
 
 - `mode`: `:full` (relativistic Maxwellian targets, adds energy diffusion),
@@ -34,39 +35,40 @@ The remaining options have no counterpart in DREAM.
   `ν_s`, the `g_j(p)` of `ν_D`) are weighted by a smooth step in the kinetic energy
   `(γ - 1) mₑc²`, 0 below `screening_window_start · I_j` and 1 above
   `screening_window_end · I_j`, with `I_j` the mean excitation energy. Below the window
-  the frequencies are those of complete screening. The Born basis of Hesslow et al. holds
-  only for fast electrons, and the default factors 1 and 4 place the window of Ar⁺ and
-  Ar²⁺ at p ≈ 0.03 to 0.06 (Hesslow et al. PRL 2017 and JPP 2019). `:dream` applies
-  partial screening at all momenta, as DREAM does. The weight depends only on `p` and
-  `I_j`, so it holds unchanged when the densities become unknowns.
+  the frequencies are those of complete screening. The default factors 1 and 4
+  (a choice of this package; see the docs page *Choices of this package*) place the
+  window of Ar⁺ and Ar²⁺ at p ≈ 0.03 to 0.06 (Hesslow et al. PRL 2017 and JPP 2019).
+  `:dream` applies partial screening at all momenta, as DREAM does. The weight depends only
+  on `p` and `I_j`, so it holds unchanged when the densities become unknowns.
 - `bremsstrahlung`: `:stopping_power`, the radiative energy loss of an electron on the
   nuclei of all charge states as a slowing down (DREAM's
   `BREMSSTRAHLUNG_MODE_STOPPING_POWER`): the non-screened formula 4BN of
   Koch and Motz (Rev. Mod. Phys. 31, 920, 1959), `ν_s = n Z² α r₀² c φ_rad(p)/β` per
-  charge state ([`bremsstrahlung_cross_section`](@ref)), on the nuclei only, as in DREAM: there is no
-  electron-electron bremsstrahlung, so the stopping lies below ESTAR for hydrogen by 1.21 at 212 keV and
-  1.55 at 1.11 MeV, tending to `Z(Z + 1)/Z²`. It is the default (decision of the author, 2026-10-04). `:neglect` leaves the loss out, as DREAM does by default.
+  charge state ([`bremsstrahlung_cross_section`](@ref)), on the nuclei only, as in DREAM:
+  there is no electron-electron bremsstrahlung, so the stopping lies below ESTAR for hydrogen
+  by 1.21 at 212 keV and 1.55 at 1.11 MeV, tending to `Z(Z + 1)/Z²`. It is the default (a
+  choice of this package; see the docs page *Choices of this package*). `:neglect` leaves the
+  loss out, as DREAM does by default.
 - `bremsstrahlung_diffusion`: whether the energy diffusion `ν_∥ = Θγν_s` of `mode = :full`
   with `screened_diffusion = :maxwellian` takes the radiative stopping of `bremsstrahlung`.
-  `:none` (the default, decision of the author, 2026-10-06): the radiative stopping is a pure
-  drag, as in the model of M. Hoppe et al., Comput. Phys. Commun. 268, 108098 (2021),
-  doi:10.1016/j.cpc.2021.108098, eqs. 8, 9, 14 and 15, so a Maxwellian at the temperature of
-  the bulk loses its bremsstrahlung power, which tends to that of Gould's formula at low
-  temperature ([`GOULD_BREMSSTRAHLUNG_PREFACTOR`](@ref)). `:dream`: the code of DREAM
-  (`src/Equations/ParallelDiffusionFrequency.cpp:59-66`), whose `ν_∥` rescales the whole
-  `ν_s`, so the radiative drag gets a thermal energy diffusion, a Maxwellian at the
-  temperature of the bulk radiates nothing, and a tail at `Θ_eff` loses `1 − Θ/Θ_eff` of its
-  bremsstrahlung. The DREAM comparisons with the stopping power on take `:dream`.
+  `:none` (the default, a choice of this package; see the docs page *Choices of this package*):
+  the radiative stopping is a pure drag, as in the model of M. Hoppe et al., Comput. Phys.
+  Commun. 268, 108098 (2021), doi:10.1016/j.cpc.2021.108098, eqs. 8, 9, 14 and 15, so a
+  Maxwellian at the temperature of the bulk loses its bremsstrahlung power, which tends to that
+  of Gould's formula at low temperature ([`GOULD_BREMSSTRAHLUNG_PREFACTOR`](@ref)). `:dream`:
+  the code of DREAM (`src/Equations/ParallelDiffusionFrequency.cpp:59-66`), whose `ν_∥`
+  rescales the whole `ν_s`, so the radiative drag gets a thermal energy diffusion, a Maxwellian
+  at the temperature of the bulk radiates nothing, and a tail at `Θ_eff` loses `1 − Θ/Θ_eff` of
+  its bremsstrahlung. The DREAM comparisons with the stopping power on take `:dream`.
 - `bremsstrahlung_constant`: the constant term of the formula 4BN in the stopping power,
   `:koch_motz` (the default), `4/3` as in Koch and Motz, or `:dream`, `1` as DREAM's integer
   division writes it (`src/Equations/SlowingDownFrequency.cpp:234`), for the comparisons with
   DREAM that run with the stopping power on ([`bremsstrahlung_cross_section`](@ref)).
 - `bound_friction`: the slowing down on the bound electrons of each charge state with
   partial screening. `:bethe` (the default, DREAM's model) is the Bethe term of Hesslow et al.
-  with the weight of `screening_window`. `:ionization_split`
-  splits it into the energy loss of the ionization of the charge state, from the
-  cross section of the kinetic ionization ([`ionization_cross_section`](@ref)), and the rest,
-  the excitation, floored at zero:
+  with the weight of `screening_window`. `:ionization_split` splits it into the energy loss of
+  the ionization of the charge state, from the cross section of the kinetic ionization
+  ([`ionization_cross_section`](@ref)), and the rest, the excitation, floored at zero:
 
   ```math
   ν_j = e(p)\\, ν_{\\mathrm{ion},j} + \\max\\left(w_j(p)\\, ν_{\\mathrm{Bethe},j} − e(p)\\, ν_{\\mathrm{ion},j},\\, 0\\right),
@@ -74,13 +76,13 @@ The remaining options have no counterpart in DREAM.
   ```
 
   with the ionization energy `I_j` of NIST ([`ionization_energy`](@ref)), the mean energy of
-  every secondary `⟨E_s⟩_j` up to `(E − I_j)/2` in the spectrum `secondary_spectrum`
-  (no cut) and the envelope `e(p)` of the
-  hot region of the kinetic ionization. `f` then pays `I_j + ⟨E_s⟩_j` for each ionization it
-  causes, also from the ionization potential up to the mean excitation energy, where the
-  default `screening_window` gives no Bethe friction. Elements need a fit of the cross
-  section, and with `secondary_spectrum = :opal` a width of the secondary spectrum ([`SECONDARY_SPECTRUM_WIDTHS`](@ref),
-  `secondary_widths`). With the momentum faces of each radius given to the model
+  every secondary `⟨E_s⟩_j` up to `(E − I_j)/2` in the spectrum `secondary_spectrum` (no cut:
+  every secondary joins the cold electrons) and the envelope `e(p)` of the hot region of the
+  kinetic ionization. `f` then pays `I_j + ⟨E_s⟩_j` for each ionization it causes, also from
+  the ionization potential up to the mean excitation energy, where the default
+  `screening_window` gives no Bethe friction. Elements need a fit of the cross section, and
+  with `secondary_spectrum = :opal` a width of the secondary spectrum
+  ([`SECONDARY_SPECTRUM_WIDTHS`](@ref), `secondary_widths`). With the momentum faces of each radius given to the model
   (`CollisionModel(plasma, settings; faces)`, as `set_fokker_planck_coefficients!` does), the
   ionization part is tabulated once per momentum grid and charge state at the faces.
 - `ionization_threshold`: the factor of the thermal momentum `p₀ = factor √(2T/mₑc²)` at
@@ -91,16 +93,18 @@ The remaining options have no counterpart in DREAM.
   `kinetic`), so `f` pays none there. The envelope `e(p)` of the faces is a cubic smooth step
   from `(1 − ionization_threshold_width) p₀` to `(1 + ionization_threshold_width) p₀`, a
   numerical width that keeps the coefficients smooth when the threshold crosses a face. The
-  default 0.1 is a choice without a counterpart in DREAM.
+  default is 0.1 (a choice of this package; see the docs page *Choices of this package*); DREAM
+  has no counterpart.
   With `screened_diffusion = :maxwellian` the energy diffusion `Θγν_s` takes the split as well,
   as it takes the Bethe term.
 - `secondary_widths`: widths `Ē` [eV] of the secondary spectrum per element, added to
   [`SECONDARY_SPECTRUM_WIDTHS`](@ref) for `:ionization_split`.
-- `secondary_spectrum`: the spectrum of the secondaries of `⟨E_s⟩_j`: `:beb` (the default,
-  decision of the author, 2026-10-10), the binary-encounter-Bethe spectrum of Kim and Rudd with the
-  ionization energy of each charge state as its binding energy
-  ([`beb_mean_secondary_energy`](@ref)), which needs no width; `:opal`, Opal et al. with the
-  width of the neutral element for every charge state ([`mean_secondary_energy`](@ref)).
+- `secondary_spectrum`: the spectrum of the secondaries of `⟨E_s⟩_j`: `:beb` (the default, a
+  choice of this package; see the docs page *Choices of this package*), the
+  binary-encounter-Bethe spectrum of Kim and Rudd with the ionization energy of each charge
+  state as its binding energy ([`beb_mean_secondary_energy`](@ref)), which needs no width;
+  `:opal`, Opal et al. with the width of the neutral element for every charge state
+  ([`mean_secondary_energy`](@ref)).
 - `ionization_cross_section_form`: the `form` of [`ionization_cross_section`](@ref) in the
   friction of `bound_friction = :ionization_split`: `:chianti` (the default),
   `:dream` or `:bethe`. A system pairs it with the `cross_section_form` of its
@@ -121,14 +125,15 @@ Base.@kwdef struct CollisionSettings
     bound_friction::Symbol = :bethe
     ionization_threshold::Float64 = 0.0
     ionization_threshold_width::Float64 = 0.1
-    secondary_widths::Dict{String,Float64} = Dict{String,Float64}()
+    secondary_widths::Dict{String, Float64} = Dict{String, Float64}()
     secondary_spectrum::Symbol = :beb
     ionization_cross_section_form::Symbol = :chianti
-    function CollisionSettings(mode, screening, coulomb_logarithm, screened_diffusion, ion_size_table,
-                               screening_window, screening_window_start, screening_window_end, bremsstrahlung,
-                               bremsstrahlung_diffusion, bremsstrahlung_constant, bound_friction, ionization_threshold,
-                               ionization_threshold_width, secondary_widths, secondary_spectrum,
-                               ionization_cross_section_form)
+    function CollisionSettings(
+            mode, screening, coulomb_logarithm, screened_diffusion, ion_size_table,
+            screening_window, screening_window_start, screening_window_end, bremsstrahlung,
+            bremsstrahlung_diffusion, bremsstrahlung_constant, bound_friction, ionization_threshold,
+            ionization_threshold_width, secondary_widths, secondary_spectrum,
+            ionization_cross_section_form)
         mode in (:superthermal, :full, :ultra_relativistic) ||
             throw(ArgumentError("unknown collision frequency mode $mode"))
         screening in (:complete, :none, :partial) ||
@@ -159,37 +164,46 @@ Base.@kwdef struct CollisionSettings
             throw(ArgumentError("the ionization threshold is a nonnegative factor of the thermal momentum"))
         0 < ionization_threshold_width < 1 ||
             throw(ArgumentError("the width of the ionization threshold must lie between 0 and 1"))
+        #! format: off
         widths = Dict{String,Float64}(String(k) => Float64(v) for (k, v) in secondary_widths)
-        all(>(0), values(widths)) || throw(ArgumentError("the widths of the secondary spectrum must be positive"))
+        #! format: on
+        all(>(0), values(widths)) ||
+            throw(ArgumentError("the widths of the secondary spectrum must be positive"))
         secondary_spectrum in SECONDARY_SPECTRA ||
             throw(ArgumentError("unknown secondary spectrum $secondary_spectrum (:opal or :beb)"))
         ionization_cross_section_form in IONIZATION_CROSS_SECTION_FORMS ||
             throw(ArgumentError("unknown form of the ionization cross section $ionization_cross_section_form " *
                                 "(:chianti, :dream or :bethe)"))
         return new(mode, screening, coulomb_logarithm, screened_diffusion, ion_size_table,
-                   screening_window, screening_window_start, screening_window_end, bremsstrahlung,
-                   bremsstrahlung_diffusion, bremsstrahlung_constant, bound_friction, Float64(ionization_threshold), Float64(ionization_threshold_width), widths,
-                   secondary_spectrum, ionization_cross_section_form)
+            screening_window, screening_window_start, screening_window_end, bremsstrahlung,
+            bremsstrahlung_diffusion, bremsstrahlung_constant, bound_friction, Float64(ionization_threshold),
+            Float64(ionization_threshold_width), widths,
+            secondary_spectrum, ionization_cross_section_form)
     end
 end
 
 # equality by the values of the fields: `secondary_widths` is a Dict, which the default
 # comparison of an immutable struct would compare by identity
-Base.:(==)(a::CollisionSettings, b::CollisionSettings) =
+function Base.:(==)(a::CollisionSettings, b::CollisionSettings)
     all(name -> getfield(a, name) == getfield(b, name), fieldnames(CollisionSettings))
-Base.isequal(a::CollisionSettings, b::CollisionSettings) =
+end
+function Base.isequal(a::CollisionSettings, b::CollisionSettings)
     all(name -> isequal(getfield(a, name), getfield(b, name)), fieldnames(CollisionSettings))
-Base.hash(s::CollisionSettings, h::UInt) =
-    foldl((h, name) -> hash(getfield(s, name), h), fieldnames(CollisionSettings); init=hash(:CollisionSettings, h))
+end
+function Base.hash(s::CollisionSettings, h::UInt)
+    foldl((h, name) -> hash(getfield(s, name), h),
+        fieldnames(CollisionSettings); init = hash(:CollisionSettings, h))
+end
 
-const COLLISION_PREFACTOR = 4pi * Constants.CLASSICAL_ELECTRON_RADIUS^2 * Constants.SPEED_OF_LIGHT
+const COLLISION_PREFACTOR = 4pi * Constants.CLASSICAL_ELECTRON_RADIUS^2 *
+                            Constants.SPEED_OF_LIGHT
 
 # ∫₀^X ln(1 + x)/x dx = −Li₂(−X): the series below X = 1/2, the inversion
 # −Li₂(−X) = π²/6 + ½ ln²X + Li₂(−1/X) above X = 2, the quadrature between
 function _bremsstrahlung_integral(X::Real)
     X <= 0.5 && return sum((-1)^(k + 1) * X^k / k^2 for k in 1:60)
     X >= 2 && return π^2 / 6 + log(X)^2 / 2 + sum((-1)^k * X^(-k) / k^2 for k in 1:60)
-    return quadgk(x -> log1p(x) / x, 0, X; rtol=1e-14)[1]
+    return quadgk(x -> log1p(x) / x, 0, X; rtol = 1e-14)[1]
 end
 
 """
@@ -204,19 +218,19 @@ W. Heitler, Proc. R. Soc. Lond. A 146, 83 (1934), doi:10.1098/rspa.1934.0140) an
 
 DREAM's line 234 writes the constant `4/3` of the formula as an integer division, which is 1
 in C++, so DREAM's stopping power is 6.3 to 6.5 % above this one for `p ≤ 1`, 3.1 % at
-`p = 10` and 1.7 % at `p = 100`.
-Runes2P keeps `4/3`;
+`p = 10` and 1.7 % at `p = 100`. Runes2P keeps `4/3`;
 `constant = :dream` gives DREAM's value, for the comparisons with DREAM. DREAM
 returns 0 at `p = 0`; the limit is `16/3`, and the slowing-down frequency is 0 there anyway.
 """
-function bremsstrahlung_cross_section(p::Real; constant::Symbol=:koch_motz)
+function bremsstrahlung_cross_section(p::Real; constant::Symbol = :koch_motz)
     p == 0 && return 16 / 3 * one(p)
     gamma = sqrt(1 + p^2)
     gp = gamma * p
     log_term = log(gamma + p)
     X = 2p * (gamma + p)
     c = constant === :dream ? 1.0 : 4 / 3
-    return (4 / 3) * (3gamma^2 + 1) / gp * log_term - (8gamma + 6p) / (3gp * p) * log_term^2 - c +
+    return (4 / 3) * (3gamma^2 + 1) / gp * log_term -
+           (8gamma + 6p) / (3gp * p) * log_term^2 - c +
            2 / gp * _bremsstrahlung_integral(X)
 end
 
@@ -232,8 +246,9 @@ hydrogenic for one and two bound electrons: 5123.6 eV for K¹⁸⁺ against `14.
 """
 function mean_excitation_energy(Z::Integer, Z0::Integer)
     Z == Z0 && return NaN
-    Z <= size(MEAN_EXCITATION_ENERGY, 1) && return MEAN_EXCITATION_ENERGY[Z, Z0+1]
-    Z <= size(MEAN_EXCITATION_ENERGY_EXTENDED, 1) && return MEAN_EXCITATION_ENERGY_EXTENDED[Z, Z-Z0]
+    Z <= size(MEAN_EXCITATION_ENERGY, 1) && return MEAN_EXCITATION_ENERGY[Z, Z0 + 1]
+    Z <= size(MEAN_EXCITATION_ENERGY_EXTENDED, 1) &&
+        return MEAN_EXCITATION_ENERGY_EXTENDED[Z, Z - Z0]
     bound = Z - Z0
     nmax = length(MEAN_EXCITATION_ENERGY_D)
     if bound <= nmax
@@ -255,7 +270,7 @@ end
 Effective ion size `ā_j` in units of the reduced Compton wavelength (`2/α · a_j`):
 DFT values from Hesslow et al. (2018) Table 1 where available, else their eq. 2.28.
 """
-function ion_size(Z::Integer, Z0::Integer; table::Symbol=:hesslow)
+function ion_size(Z::Integer, Z0::Integer; table::Symbol = :hesslow)
     charges = table === :dream ? ION_SIZE_Z_DREAM : ION_SIZE_Z
     for n in eachindex(ION_SIZE_Z0)
         if charges[n] == Z && ION_SIZE_Z0[n] == Z0
@@ -287,7 +302,7 @@ evaluated once; the frequencies are then evaluated at any momentum with
 [`parallel_diffusion_frequency`](@ref). The Coulomb logarithm is evaluated in each call,
 since the energy-dependent model depends on the momentum.
 """
-struct CollisionModel{T,P<:PlasmaState}
+struct CollisionModel{T, P <: PlasmaState}
     plasma::P
     settings::CollisionSettings
     charge_states::Vector{ChargeState}
@@ -298,42 +313,50 @@ struct CollisionModel{T,P<:PlasmaState}
     scaled_bessel_k2::Vector{T}
     # per radius: the momentum faces and the ionization part of the slowing down per unit
     # density at each face and charge state (bound_friction = :ionization_split), or nothing
-    ionization_tables::Vector{Union{Nothing,Tuple{Vector{Float64},Matrix{Float64}}}}
+    ionization_tables::Vector{Union{Nothing, Tuple{Vector{Float64}, Matrix{Float64}}}}
 end
 
 # the tables of the ionization part of the slowing down, per momentum grid: keyed
 # by the vector of its faces, and within it by the spectrum and the charge states. The weak
 # keys let a table go with its grid.
-const IONIZATION_FRICTION_TABLES = WeakKeyDict{Vector{Float64},Dict{Any,Matrix{Float64}}}()
+const IONIZATION_FRICTION_TABLES = WeakKeyDict{Vector{Float64}, Dict{Any, Matrix{Float64}}}()
 const IONIZATION_FRICTION_LOCK = ReentrantLock()
 
 # the table of _ionization_slowing_down at the faces `faces` for the charge states, columns
 # in the order of `states`, from the cache or built once
-function _ionization_friction_table(faces::Vector{Float64}, states::Vector{ChargeState}, spectrum::Symbol,
-                                    form::Symbol)
-    key = (spectrum, form, [(s.element, s.charge, s.ionization_energy, s.secondary_width) for s in states])
+function _ionization_friction_table(
+        faces::Vector{Float64}, states::Vector{ChargeState}, spectrum::Symbol,
+        form::Symbol)
+    key = (spectrum, form,
+        [(s.element, s.charge, s.ionization_energy, s.secondary_width) for s in states])
     lock(IONIZATION_FRICTION_LOCK) do
-        tables = get!(() -> Dict{Any,Matrix{Float64}}(), IONIZATION_FRICTION_TABLES, faces)
+        tables = get!(() -> Dict{Any, Matrix{Float64}}(), IONIZATION_FRICTION_TABLES, faces)
         get!(tables, key) do
             [_ionization_slowing_down(s, p, spectrum, form) for p in faces, s in states]
         end
     end
 end
 
-function CollisionModel(plasma::PlasmaState{T}, settings::CollisionSettings; faces=nothing) where {T}
+function CollisionModel(plasma::PlasmaState{T}, settings::CollisionSettings; faces = nothing) where {T}
     charge_states = ChargeState[]
     split = settings.bound_friction === :ionization_split
     widths = split ? merge(SECONDARY_SPECTRUM_WIDTHS, settings.secondary_widths) : nothing
     for (index, s) in enumerate(plasma.ions)
-        split && _check_ionization_split_data(atomic_element(s.name), widths, settings.secondary_spectrum)
+        split &&
+            _check_ionization_split_data(atomic_element(s.name), widths, settings.secondary_spectrum)
         for Z0 in 0:s.nuclear_charge
-            excitation = mean_excitation_energy(s.nuclear_charge, Z0) / Constants.ELECTRON_REST_ENERGY
+            excitation = mean_excitation_energy(s.nuclear_charge, Z0) /
+                         Constants.ELECTRON_REST_ENERGY
             effective_size = Z0 == s.nuclear_charge ? NaN :
-                             ion_size(s.nuclear_charge, Z0; table=settings.ion_size_table)
-            ionization = split && Z0 < s.nuclear_charge ? ionization_energy(s.name, Z0) : NaN
-            width = split && settings.secondary_spectrum === :opal ? widths[atomic_element(s.name)] : NaN
-            push!(charge_states, ChargeState(s.nuclear_charge, Z0, index, excitation, effective_size, s.name,
-                                             ionization, width))
+                             ion_size(s.nuclear_charge, Z0; table = settings.ion_size_table)
+            ionization = split && Z0 < s.nuclear_charge ? ionization_energy(s.name, Z0) :
+                         NaN
+            width = split && settings.secondary_spectrum === :opal ?
+                    widths[atomic_element(s.name)] : NaN
+            push!(charge_states,
+                ChargeState(
+                    s.nuclear_charge, Z0, index, excitation, effective_size, s.name,
+                    ionization, width))
         end
     end
     nr = radial_cell_count(plasma)
@@ -343,29 +366,37 @@ function CollisionModel(plasma::PlasmaState{T}, settings::CollisionSettings; fac
     k0 = besselkx.(0, 1 ./ theta)
     k1 = besselkx.(1, 1 ./ theta)
     k2 = besselkx.(2, 1 ./ theta)
-    tables = Union{Nothing,Tuple{Vector{Float64},Matrix{Float64}}}[nothing for _ in 1:nr]
+    tables = Union{Nothing, Tuple{Vector{Float64}, Matrix{Float64}}}[nothing for _ in 1:nr]
     if split && faces !== nothing
-        length(faces) == nr || throw(DimensionMismatch("the momentum faces and the plasma have different radii"))
+        length(faces) == nr ||
+            throw(DimensionMismatch("the momentum faces and the plasma have different radii"))
         for ir in 1:nr
             f = faces[ir]
             f isa Vector{Float64} &&
-                (tables[ir] = (f, _ionization_friction_table(f, charge_states, settings.secondary_spectrum,
-                                                                  settings.ionization_cross_section_form)))
+                (tables[ir] = (f,
+                    _ionization_friction_table(
+                        f, charge_states, settings.secondary_spectrum,
+                        settings.ionization_cross_section_form)))
         end
     end
-    return CollisionModel{eltype(k0),typeof(plasma)}(plasma, settings, charge_states, free,
-                                                      bound, k0, k1, k2, tables)
+    return CollisionModel{eltype(k0), typeof(plasma)}(
+        plasma, settings, charge_states, free,
+        bound, k0, k1, k2, tables)
 end
 
+#! format: off
 @inline _charge_state_density(model::CollisionModel, state::ChargeState, ir) =
     model.plasma.ions[state.species_index].charge_state_densities[state.charge+1, ir]
+#! format: on
 
-_normalized_temperature(model::CollisionModel, ir) =
+function _normalized_temperature(model::CollisionModel, ir)
     model.plasma.cold_electron_temperature[ir] / Constants.ELECTRON_REST_ENERGY
+end
 
-_coulomb_logarithm(model::CollisionModel, collision, p, ir) =
+function _coulomb_logarithm(model::CollisionModel, collision, p, ir)
     coulomb_logarithm(collision, model.settings.coulomb_logarithm, p,
-                      model.plasma.cold_electron_temperature[ir], model.free_electron_density[ir])
+        model.plasma.cold_electron_temperature[ir], model.free_electron_density[ir])
+end
 
 # Density of the target electrons of electron-electron collisions: the cold electrons,
 # plus the bound electrons without screening.
@@ -386,11 +417,14 @@ function _psi(n::Int, model::CollisionModel, ir, p)
     if p^2 > threshold * (threshold + 2)  # superthermal expansion
         e = exp(-gamma_minus_one / theta)
         if n == 0
-            return model.scaled_bessel_k0[ir] + theta * (-e / p) + theta^2 * (gamma / p^3 * e)
+            return model.scaled_bessel_k0[ir] + theta * (-e / p) +
+                   theta^2 * (gamma / p^3 * e)
         elseif n == 1
-            return model.scaled_bessel_k1[ir] + theta * (-gamma / p * e) + theta^2 * (e / p^3)
+            return model.scaled_bessel_k1[ir] + theta * (-gamma / p * e) +
+                   theta^2 * (e / p^3)
         else
-            return model.scaled_bessel_k0[ir] + theta * (model.scaled_bessel_k1[ir] - gamma^2 / p * e) +
+            return model.scaled_bessel_k0[ir] +
+                   theta * (model.scaled_bessel_k1[ir] - gamma^2 / p * e) +
                    theta^2 * (-gamma * (gamma^2 - 2) / p^3 * e)
         end
     elseif p < 0.15 || theta < 0.005  # low-energy expansion
@@ -405,7 +439,7 @@ function _psi(n::Int, model::CollisionModel, ir, p)
             gamma_s = sqrt(1 + s^2)
             exp(-(s^2 / (1 + gamma_s)) / theta) * gamma_s^(n - 1)
         end
-        return first(quadgk(integrand, zero(p), p; rtol=1e-8))
+        return first(quadgk(integrand, zero(p), p; rtol = 1e-8))
     end
 end
 
@@ -473,7 +507,7 @@ function _check_ionization_split_data(element, widths, spectrum)
                             "$element, which DREAM's tables lack ($(join(sort!(collect(keys(KINETIC_IONIZATION_FITS))), ", ")))"))
     spectrum === :beb || haskey(widths, element) ||
         throw(ArgumentError("bound_friction = :ionization_split needs the width of the secondary spectrum of " *
-                            "$element: give it with secondary_widths = Dict(\"$element\" => Ē in eV) (issue #177)"))
+                            "$element: give it with secondary_widths = Dict(\"$element\" => Ē in eV)"))
     return nothing
 end
 
@@ -500,8 +534,10 @@ function _ionization_slowing_down(state::ChargeState, p, spectrum, form)
     sigma == 0 && return zero(p)
     gamma = sqrt(1 + p^2)
     energy = p^2 / (gamma + 1) * Constants.ELECTRON_REST_ENERGY      # kinetic energy [eV]
+    #! format: off
     loss = state.ionization_energy +
            secondary_spectrum_mean(spectrum, state.secondary_width, energy, state.ionization_energy, Inf)
+    #! format: on
     speed = Constants.SPEED_OF_LIGHT * p / gamma
     return gamma * sigma * speed * loss / (Constants.ELECTRON_REST_ENERGY * p^2)
 end
@@ -509,15 +545,18 @@ end
 # the slowing down on the bound electrons of charge state `state` per m⁻³ of it at radius
 # ir, in units of the prefactor of ν_s: the Bethe term with its screening weight, or with
 # bound_friction = :ionization_split the ionization part above the threshold and the rest,
-# floored at zero. The Bethe path keeps the order of the arithmetic of DREAM's port, so that
-# its values stay the same to the last bit.
-function _bound_slowing_down(model::CollisionModel, index, state::ChargeState, ir, p, prefactor)
-    bethe = _screening_weight(model.settings, state, p) * _bound_electron_stopping(model, state, p)
+# floored at zero. The Bethe path keeps the order of the arithmetic of the port of DREAM's
+# formula, so that its values do not change when the split is added.
+function _bound_slowing_down(
+        model::CollisionModel, index, state::ChargeState, ir, p, prefactor)
+    bethe = _screening_weight(model.settings, state, p) *
+            _bound_electron_stopping(model, state, p)
     # one number type on both branches: the ionization part carries the partials of the plasma,
     # the Bethe term does not
     model.settings.bound_friction === :ionization_split ||
         return convert(promote_type(typeof(bethe), eltype(model.plasma.cold_electron_temperature)), bethe)
-    ionization = _ionization_envelope(model, ir, p) * _ionization_part(model, index, state, ir, p) / prefactor
+    ionization = _ionization_envelope(model, ir, p) *
+                 _ionization_part(model, index, state, ir, p) / prefactor
     return ionization + max(bethe - ionization, zero(ionization))
 end
 
@@ -532,17 +571,20 @@ function _ionization_part(model::CollisionModel, index, state::ChargeState, ir, 
         k <= length(faces) && faces[k] == p && return values[k, index]
     end
     return _ionization_slowing_down(state, p, model.settings.secondary_spectrum,
-                                    model.settings.ionization_cross_section_form)
+        model.settings.ionization_cross_section_form)
 end
-_ionization_part(model::CollisionModel, index, state::ChargeState, ir, p) =
-    _ionization_slowing_down(state, p, model.settings.secondary_spectrum, model.settings.ionization_cross_section_form)
+function _ionization_part(model::CollisionModel, index, state::ChargeState, ir, p)
+    _ionization_slowing_down(state, p, model.settings.secondary_spectrum,
+        model.settings.ionization_cross_section_form)
+end
 
 # Bound-electron contribution to pitch-angle scattering (Hesslow et al. eq. 2.25).
 function _bound_electron_scattering(state::ChargeState, p)
     bound = state.nuclear_charge - state.charge
     bound == 0 && return zero(p)
     x = (p * state.effective_size)^1.5
-    return 2 / 3 * bound * ((state.nuclear_charge + state.charge) * log(1 + x) - bound * x / (1 + x))
+    return 2 / 3 * bound *
+           ((state.nuclear_charge + state.charge) * log(1 + x) - bound * x / (1 + x))
 end
 
 """
@@ -554,8 +596,9 @@ of density `n` and nuclear charge `Z`, `n Z² α r₀² c φ(p) γ/p` with the c
 [`bremsstrahlung_cross_section`](@ref), as DREAM's `src/Equations/SlowingDownFrequency.cpp:204-207`
 and `:236` (where DREAM's `φ` differs by its integer division, see there).
 """
-slowing_down_frequency(model::CollisionModel, ir, p) =
+function slowing_down_frequency(model::CollisionModel, ir, p)
     _collisional_slowing_down(model, ir, p) + _radiative_slowing_down(model, ir, p)
+end
 
 # the collisional part of ν_s: the free and, with partial screening, the bound electrons
 function _collisional_slowing_down(model::CollisionModel, ir, p)
@@ -568,7 +611,8 @@ function _collisional_slowing_down(model::CollisionModel, ir, p)
     if model.settings.screening === :partial
         for (index, state) in enumerate(model.charge_states)
             state.charge == state.nuclear_charge && continue
-            nu += _bound_slowing_down(model, index, state, ir, p, prefactor) * _charge_state_density(model, state, ir)
+            nu += _bound_slowing_down(model, index, state, ir, p, prefactor) *
+                  _charge_state_density(model, state, ir)
         end
     end
     return prefactor * nu
@@ -579,8 +623,9 @@ end
 function _radiative_slowing_down(model::CollisionModel, ir, p)
     nu = zero(p * model.scaled_bessel_k0[ir])
     (p == 0 || model.settings.bremsstrahlung !== :stopping_power) && return nu
-    radiative = COLLISION_PREFACTOR * Constants.FINE_STRUCTURE_CONSTANT / (4π) * sqrt(1 + p^2) / p *
-                bremsstrahlung_cross_section(p; constant=model.settings.bremsstrahlung_constant)
+    radiative = COLLISION_PREFACTOR * Constants.FINE_STRUCTURE_CONSTANT / (4π) *
+                sqrt(1 + p^2) / p *
+                bremsstrahlung_cross_section(p; constant = model.settings.bremsstrahlung_constant)
     for state in model.charge_states
         nu += radiative * state.nuclear_charge^2 * _charge_state_density(model, state, ir)
     end
@@ -609,7 +654,8 @@ function deflection_frequency(model::CollisionModel, ir, p)
     if model.settings.screening === :partial
         for state in model.charge_states
             state.charge == state.nuclear_charge && continue
-            nu += _screening_weight(model.settings, state, p) * _bound_electron_scattering(state, p) *
+            nu += _screening_weight(model.settings, state, p) *
+                  _bound_electron_scattering(state, p) *
                   _charge_state_density(model, state, ir)
         end
     end
@@ -628,12 +674,14 @@ function parallel_diffusion_frequency(model::CollisionModel, ir, p)
     (model.settings.mode === :full && p != 0) || return z
     theta = _normalized_temperature(model, ir)
     if model.settings.screened_diffusion === :maxwellian
-        nu_s = model.settings.bremsstrahlung_diffusion === :dream ? slowing_down_frequency(model, ir, p) :
+        nu_s = model.settings.bremsstrahlung_diffusion === :dream ?
+               slowing_down_frequency(model, ir, p) :
                _collisional_slowing_down(model, ir, p)
     else  # free electrons only
         nu_s = COLLISION_PREFACTOR * (1 + p^2) / p^3 *
                _coulomb_logarithm(model, :electron_electron, p, ir) *
-               _thermal_slowing_down_factor(model, ir, p) * model.plasma.cold_electron_density[ir]
+               _thermal_slowing_down_factor(model, ir, p) *
+               model.plasma.cold_electron_density[ir]
     end
     return theta * sqrt(1 + p^2) * nu_s
 end
@@ -658,7 +706,8 @@ function p3_slowing_down_frequency_at_zero(model::CollisionModel, ir)
     if model.settings.screening === :partial
         for state in model.charge_states
             state.charge == state.nuclear_charge && continue
-            nu += _screening_weight(model.settings, state, z) * _bound_electron_stopping(model, state, z) *
+            nu += _screening_weight(model.settings, state, z) *
+                  _bound_electron_stopping(model, state, z) *
                   _charge_state_density(model, state, ir)
         end
     end

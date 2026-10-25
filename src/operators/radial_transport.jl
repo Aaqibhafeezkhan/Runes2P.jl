@@ -10,7 +10,9 @@ One value per radial face of `grid` (radii + 1) from a number, which holds on al
 vector with one value per face, or a callable of r evaluated on the faces
 ([`radial_values`](@ref)).
 """
-radial_face_values(values, grid::KineticGrid) = collect(Float64, radial_values(values, grid.radial_grid.r_faces))
+function radial_face_values(values, grid::KineticGrid)
+    collect(Float64, radial_values(values, grid.radial_grid.r_faces))
+end
 
 """
     add_rechester_rosenbluth_diffusion!(op, delta_b_over_b; major_radius, safety_factor=1)
@@ -39,8 +41,9 @@ perturbation alone sets the coefficient. `major_radius = 1` with the default saf
 reproduces it. A physical coefficient in a cylinder needs the major radius of the device,
 and DREAM needs `dBB √R₀` for the same coefficient.
 """
-function add_rechester_rosenbluth_diffusion!(op::AdvectionDiffusion{T}, delta_b_over_b; major_radius::Real,
-                                             safety_factor=1.0) where {T}
+function add_rechester_rosenbluth_diffusion!(
+        op::AdvectionDiffusion{T}, delta_b_over_b; major_radius::Real,
+        safety_factor = 1.0) where {T}
     major_radius > 0 || throw(ArgumentError("the major radius must be positive"))
     grid = op.grid
     level = radial_face_values(delta_b_over_b, grid)
@@ -52,7 +55,9 @@ function add_rechester_rosenbluth_diffusion!(op::AdvectionDiffusion{T}, delta_b_
         overlap = op.radial_overlaps[k]
         prefactor = pi * q[k] * major_radius * level[k]^2 * Constants.SPEED_OF_LIGHT
         for s in 1:overlap_cell_count(overlap), (i, p) in enumerate(p_centers)
-            op.diffusion_r_r[i, s, k] += prefactor * p * abs(overlap.xi_centers[s]) / sqrt(1 + p^2)
+
+            op.diffusion_r_r[i, s, k] += prefactor * p * abs(overlap.xi_centers[s]) /
+                                         sqrt(1 + p^2)
         end
     end
     return op
@@ -68,15 +73,17 @@ and by nothing else when only radial transport acts. Face `radii + 1` is the edg
 plasma, where the flux is the loss of the plasma (zero with `r_boundary = :zero_flux`). The
 flux through the first face, the axis, is zero.
 """
-function radial_particle_flux(op::AdvectionDiffusion, f::AbstractArray{<:Any,3}, face::Integer)
+function radial_particle_flux(op::AdvectionDiffusion, f::AbstractArray{<:Any, 3}, face::Integer)
     nr = radial_cell_count(op.grid)
-    1 <= face <= nr + 1 || throw(ArgumentError("radial face $face outside the grid (1 to $(nr + 1))"))
+    1 <= face <= nr + 1 ||
+        throw(ArgumentError("radial face $face outside the grid (1 to $(nr + 1))"))
     size(f) == size(op.grid) || throw(DimensionMismatch("f must have the grid size"))
     total = zero(_flux_eltype(op, f))
     face == 1 && return total
     ir = face - 1   # the radius inside the face
     m = op.momentum_grids[ir]
     @inbounds for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
+
         total += m.p_widths[i] * m.xi_widths[j] * _r_flux(op, f, i, j, ir, face)
     end
     return total
@@ -88,7 +95,8 @@ end
 Particle content of every radius, `Σ 𝒱' Δp Δξ Δr f` over its momentum cells. The sum over
 the radii is [`total_particles`](@ref).
 """
-function radial_particle_content(grid::KineticGrid{T}, f::AbstractArray{S,3}) where {T,S}
+function radial_particle_content(grid::KineticGrid{T}, f::AbstractArray{S, 3}) where {T, S}
     size(f) == size(grid) || throw(DimensionMismatch("f must have the grid size"))
-    return density(grid, f) .* grid.radial_grid.spatial_jacobian .* grid.radial_grid.r_widths
+    return density(grid, f) .* grid.radial_grid.spatial_jacobian .*
+           grid.radial_grid.r_widths
 end

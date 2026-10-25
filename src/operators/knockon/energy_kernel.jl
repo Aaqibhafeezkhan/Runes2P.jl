@@ -21,7 +21,7 @@ the DREAM notes), with `[p_L, p_U]` the part of the cell inside
 Ported from DREAM `MollerEnergyKernel.cpp` and `KnockOnUtilities.cpp`
 (`EvaluateMollerFluxMatrixElementOnGrid`, `EvaluateMollerFluxIntegratedOverKnockonGrid`).
 """
-struct MollerEnergyKernel{T<:AbstractFloat}
+struct MollerEnergyKernel{T <: AbstractFloat}
     rates::Matrix{T}             # (knock-on p cells, primary p cells)
     total_rates::Vector{T}       # (primary p cells)
     rates_above_grid::Vector{T}  # (primary p cells)
@@ -36,7 +36,8 @@ Build the kernel for knock-on momentum grid `knockon` and primary momentum grid
 `p_cutoff > 0`.
 """
 function MollerEnergyKernel(knockon::MomentumGrid{T}, primary::MomentumGrid{T}, p_cutoff::Real) where {T}
-    p_cutoff > 0 || throw(ArgumentError("p_cutoff must be positive (S is singular at p = 0)"))
+    p_cutoff > 0 ||
+        throw(ArgumentError("p_cutoff must be positive (S is singular at p = 0)"))
     cutoff = T(p_cutoff)
     np_knockon, np_primary = momentum_cell_count(knockon), momentum_cell_count(primary)
     rates = zeros(T, np_knockon, np_primary)
@@ -49,9 +50,10 @@ function MollerEnergyKernel(knockon::MomentumGrid{T}, primary::MomentumGrid{T}, 
         beta1 = p1 / sqrt(1 + p1^2)
         for i in 1:np_knockon
             p_lower = max(knockon.p_faces[i], cutoff)
-            p_upper = min(knockon.p_faces[i+1], p_max)
+            p_upper = min(knockon.p_faces[i + 1], p_max)
             p_upper > p_lower || continue
-            rates[i, k] = beta1 * (moller_flux(p_upper, p1) - moller_flux(p_lower, p1)) / knockon.p_widths[i]
+            rates[i, k] = beta1 * (moller_flux(p_upper, p1) - moller_flux(p_lower, p1)) /
+                          knockon.p_widths[i]
         end
         # O(1) evaluation of Σ_i Δp_i rates[i, k], as in DREAM
         p_lower = max(first(knockon.p_faces), cutoff)

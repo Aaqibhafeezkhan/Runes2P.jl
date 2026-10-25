@@ -3,26 +3,44 @@
 # effective charge, and DREAM's fit of the conductivity of the test-particle operator
 # (`PredictedOhmicCurrentFromDistributionTerm::FractionOfBraamsConductivity`).
 
-# The normalized conductivity σ̄(Θ, X) of a relativistic plasma, with Θ = T/mₑc² and
-# X = 1/(1 + Z_eff), as tabulated in DREAM's `RunawayFluid.cpp` (`conductivityBraams`, after
-# Braams and Karney, Phys. Fluids B 1, 1355 (1989)). Rows: X, columns: Θ.
-const BRAAMS_KARNEY_TEMPERATURES = (0.0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0, 100.0)
-const BRAAMS_KARNEY_CHARGES = (0.0, 0.090909090909091, 0.166666666666667, 0.333333333333333, 0.5, 1.0)
-const BRAAMS_KARNEY_TABLE = [
-    12.7661 12.2972 11.8737 10.8120 9.5075 7.8269 5.4760 3.9694 2.8247 1.7887 1.2649 0.8944 0.5657 0.4000
-    11.3301 10.9587 10.6195 9.7540 8.6631 7.2156 5.1138 3.7221 2.6483 1.6738 1.1826 0.8359 0.5286 0.3738
-    10.3912 10.0778 9.7896 9.0462 8.0936 6.8043 4.8805 3.5730 2.5484 1.6116 1.1386 0.8047 0.5089 0.3598
-    8.7546 8.5328 8.3265 7.7844 7.0689 6.0624 4.4724 3.3261 2.3920 1.5180 1.0731 0.7585 0.4797 0.3392
-    7.4290 7.2736 7.1277 6.7381 6.2095 5.4367 4.1373 3.1347 2.2786 1.4538 1.0288 0.7274 0.4600 0.3253
-    3.7599 3.7549 3.7492 3.7285 3.6842 3.5713 3.1821 2.6501 2.0313 1.3301 0.9465 0.6704 0.4242 0.3000
-]
+# the parsed table of data/braams_karney_conductivity.toml, read once
+const _BRAAMS_KARNEY_DATA = read_data_file("braams_karney_conductivity")["data"]
+
+"""
+    BRAAMS_KARNEY_TEMPERATURES
+
+The temperatures Θ = T/mₑc² of the columns of `BRAAMS_KARNEY_TABLE`, as tabulated in
+DREAM's `RunawayFluid.cpp` (`conductivityTmc2`). Read from
+`data/braams_karney_conductivity.toml`.
+"""
+const BRAAMS_KARNEY_TEMPERATURES = Tuple(float_vector(_BRAAMS_KARNEY_DATA["temperatures"]))
+
+"""
+    BRAAMS_KARNEY_CHARGES
+
+The values X = 1/(1 + Z_eff) of the rows of `BRAAMS_KARNEY_TABLE`, as tabulated in
+DREAM's `RunawayFluid.cpp` (`conductivityX`). Read from
+`data/braams_karney_conductivity.toml`.
+"""
+const BRAAMS_KARNEY_CHARGES = Tuple(float_vector(_BRAAMS_KARNEY_DATA["charges"]))
+
+"""
+    BRAAMS_KARNEY_TABLE
+
+The normalized conductivity σ̄(Θ, X) of a relativistic plasma, with Θ = T/mₑc² and
+X = 1/(1 + Z_eff), of B. J. Braams and C. F. F. Karney, Phys. Fluids B 1, 1355 (1989), as
+tabulated in DREAM's `RunawayFluid.cpp` (`conductivityBraams`). Rows: X
+(`BRAAMS_KARNEY_CHARGES`), columns: Θ (`BRAAMS_KARNEY_TEMPERATURES`). Read from
+`data/braams_karney_conductivity.toml`.
+"""
+const BRAAMS_KARNEY_TABLE = float_matrix(_BRAAMS_KARNEY_DATA["table"])
 
 # the interval of a sorted tuple that holds x, as the index of its lower end
 function _table_interval(points, x)
     first(points) <= x <= last(points) ||
         throw(DomainError(x, "outside the table of the conductivity ($(first(points)) to $(last(points)))"))
     i = 1
-    while i < length(points) - 1 && x > points[i+1]
+    while i < length(points) - 1 && x > points[i + 1]
         i += 1
     end
     return i
@@ -40,10 +58,14 @@ and `Θ = 0.01` (5.1 keV) the table is linear in the temperature.
 function normalized_conductivity(theta, x)
     i = _table_interval(BRAAMS_KARNEY_TEMPERATURES, theta)
     j = _table_interval(BRAAMS_KARNEY_CHARGES, x)
-    t = (theta - BRAAMS_KARNEY_TEMPERATURES[i]) / (BRAAMS_KARNEY_TEMPERATURES[i+1] - BRAAMS_KARNEY_TEMPERATURES[i])
-    u = (x - BRAAMS_KARNEY_CHARGES[j]) / (BRAAMS_KARNEY_CHARGES[j+1] - BRAAMS_KARNEY_CHARGES[j])
-    return (1 - t) * (1 - u) * BRAAMS_KARNEY_TABLE[j, i] + t * (1 - u) * BRAAMS_KARNEY_TABLE[j, i+1] +
-           (1 - t) * u * BRAAMS_KARNEY_TABLE[j+1, i] + t * u * BRAAMS_KARNEY_TABLE[j+1, i+1]
+    t = (theta - BRAAMS_KARNEY_TEMPERATURES[i]) /
+        (BRAAMS_KARNEY_TEMPERATURES[i + 1] - BRAAMS_KARNEY_TEMPERATURES[i])
+    u = (x - BRAAMS_KARNEY_CHARGES[j]) /
+        (BRAAMS_KARNEY_CHARGES[j + 1] - BRAAMS_KARNEY_CHARGES[j])
+    return (1 - t) * (1 - u) * BRAAMS_KARNEY_TABLE[j, i] +
+           t * (1 - u) * BRAAMS_KARNEY_TABLE[j, i + 1] +
+           (1 - t) * u * BRAAMS_KARNEY_TABLE[j + 1, i] +
+           t * u * BRAAMS_KARNEY_TABLE[j + 1, i + 1]
 end
 
 """
@@ -58,8 +80,10 @@ a plasma without free electrons.
 function effective_charge(ions, ir::Integer)
     free = free_electron_density(ions, ir)
     free == 0 && return one(float(typeof(free)))
+    #! format: off
     squares = sum((Z0^2 * s.charge_state_densities[Z0+1, ir] for s in ions for Z0 in 0:s.nuclear_charge);
                   init=zero(free))
+    #! format: on
     return max(squares / free, one(squares / free))
 end
 effective_charge(plasma::PlasmaState, ir::Integer) = effective_charge(plasma.ions, ir)
@@ -84,13 +108,15 @@ it is the Lorentz conductivity
 """
 function braams_karney_conductivity(temperature, effective_charge, free_electron_density)
     temperature > 0 || throw(DomainError(temperature, "the temperature must be positive"))
-    effective_charge > 0 || throw(DomainError(effective_charge, "the effective charge must be positive"))
+    effective_charge > 0 ||
+        throw(DomainError(effective_charge, "the effective charge must be positive"))
     energy = temperature * Constants.ELEMENTARY_CHARGE
     theta = energy / (Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT^2)
     normalized = normalized_conductivity(theta, 1 / (1 + effective_charge))
     logarithm = thermal_coulomb_logarithm(temperature, free_electron_density)
     return 4π * Constants.VACUUM_PERMITTIVITY^2 * energy * sqrt(energy) /
-           (effective_charge * sqrt(Constants.ELECTRON_MASS) * Constants.ELEMENTARY_CHARGE^2 * logarithm) * normalized
+           (effective_charge * sqrt(Constants.ELECTRON_MASS) *
+            Constants.ELEMENTARY_CHARGE^2 * logarithm) * normalized
 end
 
 """
@@ -99,9 +125,11 @@ end
 The conductivity of Braams and Karney at the radius index `ir` of `plasma`, with its cold
 temperature, its effective charge and its free-electron density.
 """
-braams_karney_conductivity(plasma::PlasmaState, ir::Integer) =
-    braams_karney_conductivity(plasma.cold_electron_temperature[ir], effective_charge(plasma, ir),
-                               free_electron_density(plasma, ir))
+function braams_karney_conductivity(plasma::PlasmaState, ir::Integer)
+    braams_karney_conductivity(
+        plasma.cold_electron_temperature[ir], effective_charge(plasma, ir),
+        free_electron_density(plasma, ir))
+end
 
 """
     test_particle_conductivity_fraction(effective_charge)
@@ -114,4 +142,6 @@ electron-electron collisions, and the fit is to conductivities of CODE, with a l
 error of 1 % as stated in DREAM. It does not know the grid, the collision settings or the
 temperature: 0.513, 0.638, 0.761 and 0.921 at `Z_eff` = 1, 2, 4 and 16.
 """
-test_particle_conductivity_fraction(effective_charge) = 1 - 1.406 / (1.888 + effective_charge)
+function test_particle_conductivity_fraction(effective_charge)
+    1 - 1.406 / (1.888 + effective_charge)
+end

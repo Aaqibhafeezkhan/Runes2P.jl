@@ -42,13 +42,17 @@ of their own take the forms `IonSpecies(name, Z, Z0, profile, radial_grid)` and
 `IonSpecies(name, Z, profiles, radial_grid)`. The state holds the evaluated values, so its
 record holds them too.
 """
-function PlasmaState(radial_grid::RadialGrid; cold_electron_temperature, ions, electric_field, magnetic_field,
-                     cold_electron_density=nothing)
+function PlasmaState(radial_grid::RadialGrid; cold_electron_temperature,
+        ions, electric_field, magnetic_field,
+        cold_electron_density = nothing)
     centers = radial_grid.r_centers
-    density = cold_electron_density === nothing ? nothing : radial_values(cold_electron_density, centers)
-    return PlasmaState(; cold_electron_temperature=radial_values(cold_electron_temperature, centers), ions,
-                       electric_field=radial_values(electric_field, centers),
-                       magnetic_field=radial_values(magnetic_field, centers), cold_electron_density=density)
+    density = cold_electron_density === nothing ? nothing :
+              radial_values(cold_electron_density, centers)
+    return PlasmaState(;
+        cold_electron_temperature = radial_values(cold_electron_temperature, centers),
+        ions,
+        electric_field = radial_values(electric_field, centers),
+        magnetic_field = radial_values(magnetic_field, centers), cold_electron_density = density)
 end
 
 PlasmaState(grid::KineticGrid; kwargs...) = PlasmaState(grid.radial_grid; kwargs...)
@@ -61,21 +65,29 @@ Ion species with densities [m⁻³] in any form of [`radial_values`](@ref), eval
 cell centres of `radial_grid` (a `RadialGrid` or a `KineticGrid`): all in the charge state
 `Z0`, or one profile per charge state `0:Z` in `profiles`.
 """
-IonSpecies(name::AbstractString, Z::Integer, Z0::Integer, profile, radial_grid::RadialGrid) =
+function IonSpecies(
+        name::AbstractString, Z::Integer, Z0::Integer, profile, radial_grid::RadialGrid)
     IonSpecies(name, Z, Z0, radial_values(profile, radial_grid.r_centers))
-
-function IonSpecies(name::AbstractString, Z::Integer, profiles::AbstractVector, radial_grid::RadialGrid)
-    length(profiles) == Z + 1 || throw(ArgumentError("need Z + 1 charge-state profiles for $name"))
-    centers = radial_grid.r_centers
-    return IonSpecies(name, Z, permutedims(stack(radial_values(p, centers) for p in profiles)))
 end
 
-IonSpecies(name::AbstractString, Z::Integer, Z0::Integer, profile, grid::KineticGrid) =
-    IonSpecies(name, Z, Z0, profile, grid.radial_grid)
-IonSpecies(name::AbstractString, Z::Integer, profiles::AbstractVector, grid::KineticGrid) =
-    IonSpecies(name, Z, profiles, grid.radial_grid)
+function IonSpecies(name::AbstractString, Z::Integer, profiles::AbstractVector, radial_grid::RadialGrid)
+    length(profiles) == Z + 1 ||
+        throw(ArgumentError("need Z + 1 charge-state profiles for $name"))
+    centers = radial_grid.r_centers
+    #! format: off
+    return IonSpecies(name, Z, permutedims(stack(radial_values(p, centers) for p in profiles)))
+    #! format: on
+end
 
-# levels that are piecewise constant in time (moved from solvers/transport_update.jl)
+function IonSpecies(
+        name::AbstractString, Z::Integer, Z0::Integer, profile, grid::KineticGrid)
+    IonSpecies(name, Z, Z0, profile, grid.radial_grid)
+end
+function IonSpecies(name::AbstractString, Z::Integer, profiles::AbstractVector, grid::KineticGrid)
+    IonSpecies(name, Z, profiles, grid.radial_grid)
+end
+
+# levels that are piecewise constant in time
 
 """
     PiecewiseConstant(values, switch_times)
@@ -83,9 +95,8 @@ IonSpecies(name::AbstractString, Z::Integer, profiles::AbstractVector, grid::Kin
 Function of time that holds `values[k]` from `switch_times[k-1]` up to `switch_times[k]`
 (`values[1]` before the first switch time, the last value from the last switch time on).
 At a switch time it has the value of the interval that starts there. `values` are numbers
-or vectors. A typical transport history of a disruption run is of this form: a level of δB/B
-for the first milliseconds and a hundredth of it afterwards,
-`PiecewiseConstant([1e-3, 1e-5], [1e-3])`.
+or vectors. For example, a level of δB/B for the first millisecond and a hundredth of it
+afterwards is `PiecewiseConstant([1e-3, 1e-5], [1e-3])`.
 
 An update that takes such a function requires its switch times to be time points of the
 run ([`forced_time_points`](@ref)), so that no interval holds a switch.
@@ -97,14 +108,16 @@ struct PiecewiseConstant{V}
         length(values) == length(switch_times) + 1 ||
             throw(ArgumentError("need one value more than switch times, got $(length(values)) values and " *
                                 "$(length(switch_times)) switch times"))
-        issorted(switch_times; lt=<=) || throw(ArgumentError("the switch times must be strictly increasing"))
+        issorted(switch_times; lt = <=) ||
+            throw(ArgumentError("the switch times must be strictly increasing"))
         return new{eltype(values)}(collect(values), collect(Float64, switch_times))
     end
 end
 
 # a time point within round-off below a switch time counts as the switch time
-(history::PiecewiseConstant)(t::Real) =
+function (history::PiecewiseConstant)(t::Real)
     history.values[searchsortedlast(history.switch_times, t + 1e-12 * abs(t)) + 1]
+end
 
 """
     level_over_step(level, t)
@@ -116,8 +129,9 @@ keeps the value before the switch, as the interval updates of the kinetic transp
 for any other function its value at `t`.
 """
 level_over_step(level, t) = level(t)
-level_over_step(history::PiecewiseConstant, t::Real) =
+function level_over_step(history::PiecewiseConstant, t::Real)
     history.values[searchsortedfirst(history.switch_times, t - 1e-12 * abs(t))]
+end
 
 """
     forced_time_points(update)

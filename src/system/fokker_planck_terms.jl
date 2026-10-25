@@ -1,6 +1,5 @@
 # The Fokker-Planck term of a kinetic unknown: the advection-diffusion operator with its
-# collision coefficients, the electric field and the plasma it follows. Moved out of
-# terms.jl.
+# collision coefficients, the electric field and the plasma it follows.
 
 """
     FokkerPlanckTerm(unknown, operator::AdvectionDiffusion; jacobian=:exact, electric_field=nothing,
@@ -27,50 +26,39 @@ one ([`PrescribedPlasma`](@ref)). The coefficients of `operator` are rebuilt fro
 `settings` and `synchrotron` ([`set_fokker_planck_coefficients!`](@ref)), and the scheme and
 the boundary conditions of `operator` are kept. Without them the term takes those that
 built `operator` ([`fokker_planck_operator`](@ref)), and `CollisionSettings()` with the
-synchrotron loss for an operator built otherwise, which is on by default (decision of the
-author, 2026-10-04). The rebuild happens when the plasma values of any radius differ from
-those of the last rebuild ([`update_key!`](@ref)), not at every new time, and rebuilds all
-radii. Without `plasma` the coefficients of `operator` are fixed.
-[`PrescribedFokkerPlanckTerm`](@ref) builds such a term from a function of time.
+synchrotron loss for an operator built otherwise (on by default, a choice of this package;
+see the docs page *Choices of this package*). The rebuild happens when the plasma values
+of any radius differ from those of the last rebuild ([`update_key!`](@ref)), not at every
+new time, and rebuilds all radii. Without `plasma` the coefficients of `operator` are
+fixed. [`PrescribedFokkerPlanckTerm`](@ref) builds such a term from a function of time.
 
 With a plasma that reads unknowns ([`PlasmaFromUnknowns`](@ref)) the term depends on them
 and is not linear. `lagged` names the part of that plasma taken at the start of the step;
-the rest is taken at the state of the Newton iterate, as DREAM does, and the stored Jacobian
-holds its columns ([`add_plasma_columns!`](@ref)) next to the block in `f`. With the ion
-densities lagged and the temperature and the density implicit, the stored Jacobian has the
-columns of the temperature and the density and none of the charge states, and the residual
-is consistent within the step. DREAM's reference case drops these columns from its Jacobian
-alone (`enableIonJacobian(False)`).
+the rest is taken at the state of the Newton iterate, as DREAM does, and the stored
+Jacobian holds its columns ([`add_plasma_columns!`](@ref)) next to the block in `f`. With
+the ion densities lagged and the temperature and the density implicit, the stored Jacobian
+has the columns of the temperature and the density and none of the charge states, and the
+residual is consistent within the step. DREAM's disruption example drops these columns
+from its Jacobian alone (`enableIonJacobian(False)`, `examples/Disruptions/generate.py:243`).
 
 - `lagged = :all`: the whole plasma at the start of the step, set in
   [`prepare_step!`](@ref), with the prescribed part of the plasma at the time of the
   evaluation. The term is linear in `f` within a step and its block is exact. In the ODE
   form ([`rhs!`](@ref) of the system, the SciML interface) `prepare_step!` sees the state
   itself, so the term is implicit there.
-- `lagged = :ions` (the default): the ion densities of the plasma when it reads them, no
-  group otherwise. On the production hot-tail grid with D and Ar (270 × 15 cells per radius,
-  4 radii) one assembly of the Jacobian costs 41 to 45 applications of the Fokker-Planck
-  operator against 76 to 87 with the implicit charge states, at the same Newton iterations
-  per step. To t = 1e-5 s the lag reaches every error of the implicit charge states in 0.43
-  to 0.60 of the wall time, with fixed steps and under the step controller; at equal steps
-  it changes the error by -27 to -10 % in the temperature at the axis and by less than 1 %
-  in the densities. A term that lags them is of first order under BDF2, and `ode_function`
-  passes no Jacobian for a system with it ([`lags_in_ode_form`](@ref)). The kinetic
-  ionization and a corrected conductivity read the charge states of the iterate, so within a
-  step the ions enter the collisions of `f` and those terms at two states, a difference of
-  first order in the step. Those terms do not take the lagged ions yet.
+- `lagged = :ions` (the default, a choice of this package; see the docs page *Choices of
+  this package*): the ion densities of the plasma when it reads them, no group otherwise.
+  A term that lags them is of first order under BDF2, and `ode_function` passes no Jacobian
+  for a system with it ([`lags_in_ode_form`](@ref)). The kinetic ionization and a corrected
+  conductivity read the charge states of the iterate, so within a step the ions enter the
+  collisions of `f` and those terms at two states, a difference of first order in the step.
 - `lagged = ()`: nothing lagged; the columns of the charge states are part of the plasma
   columns.
 - `lagged = (:ion_densities,)`: the ion densities by name, as `:ions` for that unknown.
 
-The keyword `coefficients` is deprecated: `coefficients = :lagged` is
-`lagged = :all`, and `coefficients = :implicit` keeps `lagged`. With `coefficients = :lagged`,
-a `lagged` other than `:ions` (its default) or `:all` is an error; `lagged = :ions` given
-explicitly cannot be told from the default and becomes `:all`.
-
 `jacobian` selects what the stored Jacobian block holds for a flux-limiter scheme (DREAM's
-`ad_jac` setting of `AdvectionInterpolation`). The residual is always the operator's own, so
-every mode converges to the same solution:
+`ad_jac` setting of `AdvectionInterpolation`). The residual is always
+the operator's own, so every mode converges to the same solution:
 
 - `:exact`: the Jacobian of the residual by colored forward-mode AD, including the
   limiter's derivative ψ′ (DREAM `AD_INTERP_JACOBIAN_FULL`, which carries ψ′ only for the
@@ -83,25 +71,27 @@ every mode converges to the same solution:
   scheme's stencil (3-point for the two-point schemes).
 
 For a scheme linear in `f` the frozen limiter is the exact Jacobian, and another linear
-scheme's is still a different matrix (upwind's for a central residual, DREAM #126).
+scheme's is still a different matrix (upwind's for a central residual, the approximation
+that rescues some DREAM runs at high momentum resolution with central interpolation; see
+the docs page *Comparison with DREAM*).
 With an approximate block the term declares [`jacobian_kind`](@ref)`(term) === :approximate`: the Newton iteration on the
 stored matrix is a quasi-Newton one that converges linearly, or, with
 [`GMRES`](@ref)`(operator=:exact)`, the stored block only preconditions the exact Newton
 operator ([`jacobian_correction_product!`](@ref), one dual-number pass of the operator
 per product).
 """
-struct FokkerPlanckTerm{T,P} <: EquationTerm
+struct FokkerPlanckTerm{T, P} <: EquationTerm
     unknown::Symbol
-    operator::AdvectionDiffusion{T,T}
+    operator::AdvectionDiffusion{T, T}
     jacobian::Symbol
-    electric_field::Union{Nothing,Symbol}    # the unknown of the field, when it is one
-    stored_operator::AdvectionDiffusion{T,T}   # the operator whose (frozen) derivative is the stored block
-    values::Array{T,3}                       # the iterate's values (frozen limiter, corrections)
-    correction::Array{T,3}
-    dual_input::Array{ForwardDiff.Dual{JacobianCorrectionTag,T,1},3}
-    dual_output::Array{ForwardDiff.Dual{JacobianCorrectionTag,T,1},3}
+    electric_field::Union{Nothing, Symbol}    # the unknown of the field, when it is one
+    stored_operator::AdvectionDiffusion{T, T}   # the operator whose (frozen) derivative is the stored block
+    values::Array{T, 3}                       # the iterate's values (frozen limiter, corrections)
+    correction::Array{T, 3}
+    dual_input::Array{ForwardDiff.Dual{JacobianCorrectionTag, T, 1}, 3}
+    dual_output::Array{ForwardDiff.Dual{JacobianCorrectionTag, T, 1}, 3}
     field_values::Vector{T}                  # the iterate's field (corrections)
-    dual_field::Vector{ForwardDiff.Dual{JacobianCorrectionTag,T,1}}
+    dual_field::Vector{ForwardDiff.Dual{JacobianCorrectionTag, T, 1}}
     plasma::P                                # nothing, or the PlasmaSource of the coefficients
     settings::CollisionSettings
     synchrotron::Bool
@@ -114,26 +104,21 @@ struct FokkerPlanckTerm{T,P} <: EquationTerm
     ion_state::Vector{Float64}               # the state at the start of the step, for lagged ions
 end
 
-const LINEAR_JACOBIAN_SCHEMES = (:upwind, :central, :exponential_fitting, :quick, :upwind_second_order)
+const LINEAR_JACOBIAN_SCHEMES = (
+    :upwind, :central, :exponential_fitting, :quick, :upwind_second_order)
 
-function FokkerPlanckTerm(unknown::Symbol, operator::AdvectionDiffusion{T}; jacobian::Symbol=:exact,
-                          electric_field::Union{Nothing,Symbol}=nothing, plasma=nothing,
-                          settings::Union{Nothing,CollisionSettings}=nothing, synchrotron::Union{Nothing,Bool}=nothing,
-                          lagged=:ions, coefficients::Union{Nothing,Symbol}=nothing) where {T}
-    if coefficients !== nothing
-        coefficients in (:implicit, :lagged) ||
-            throw(ArgumentError("coefficients must be :implicit or :lagged, not $coefficients"))
-        Base.depwarn("the keyword coefficients of FokkerPlanckTerm is deprecated: coefficients = :lagged is " *
-                     "lagged = :all (issue #185)", :FokkerPlanckTerm)
-        coefficients === :lagged && lagged !== :ions && lagged !== :all &&
-            throw(ArgumentError("FokkerPlanckTerm: give lagged alone, coefficients = :lagged is lagged = :all"))
-        coefficients === :lagged && (lagged = :all)
-    end
+function FokkerPlanckTerm(
+        unknown::Symbol, operator::AdvectionDiffusion{T}; jacobian::Symbol = :exact,
+        electric_field::Union{Nothing, Symbol} = nothing, plasma = nothing,
+        settings::Union{Nothing, CollisionSettings} = nothing, synchrotron::Union{
+            Nothing, Bool} = nothing,
+        lagged = :ions) where {T}
     lag_all = lagged === :all
     # the settings that built the operator, before the field branch below forgets them: a
     # rebuild with other settings would change the coefficients at the first refresh
     built = operator.coefficient_source[]
-    settings === nothing && (settings = built === nothing ? CollisionSettings() : built.settings)
+    settings === nothing &&
+        (settings = built === nothing ? CollisionSettings() : built.settings)
     synchrotron === nothing && (synchrotron = built === nothing ? true : built.synchrotron)
     plasma_from = plasma === nothing ? nothing : plasma_source(plasma)
     lagged = if lag_all
@@ -142,14 +127,17 @@ function FokkerPlanckTerm(unknown::Symbol, operator::AdvectionDiffusion{T}; jaco
         ions = ion_dependency(plasma_from)
         ions === nothing ? () : (ions,)
     else
-        lagged isa Symbol && throw(ArgumentError("lagged is :all, :ions or a collection of names, not $lagged"))
+        lagged isa Symbol &&
+            throw(ArgumentError("lagged is :all, :ions or a collection of names, not $lagged"))
         Tuple(Symbol(name) for name in lagged)
     end
     # the rebuild of the coefficients leaves the field out when it is an unknown
-    plasma_from !== nothing && electric_field !== nothing && (operator.coefficient_source[] = nothing)
+    plasma_from !== nothing && electric_field !== nothing &&
+        (operator.coefficient_source[] = nothing)
     if electric_field !== nothing
         source = operator.coefficient_source[]
-        source !== nothing && get(source, :electric_field, true) && any(!iszero, source.plasma.electric_field) &&
+        source !== nothing && get(source, :electric_field, true) &&
+            any(!iszero, source.plasma.electric_field) &&
             throw(ArgumentError("the operator holds the electric field of its plasma, and the term would add the " *
                                 "unknown $electric_field to it: build the operator with electric_field = false"))
         set_unit_field_coefficients!(operator)
@@ -162,25 +150,32 @@ function FokkerPlanckTerm(unknown::Symbol, operator::AdvectionDiffusion{T}; jaco
         throw(ArgumentError("jacobian must be :exact, :frozen_limiter or a linear scheme " *
                             "($(join(LINEAR_JACOBIAN_SCHEMES, ", "))), not $jacobian"))
     end
-    dims = _jacobian_kind(jacobian, operator, stored) === :approximate ? size(operator.grid) : (0, 0, 0)
-    D = ForwardDiff.Dual{JacobianCorrectionTag,T,1}
+    dims = _jacobian_kind(jacobian, operator, stored) === :approximate ?
+           size(operator.grid) : (0, 0, 0)
+    D = ForwardDiff.Dual{JacobianCorrectionTag, T, 1}
     radii = electric_field === nothing ? 0 : radial_cell_count(operator.grid)
-    return FokkerPlanckTerm{T,typeof(plasma_from)}(unknown, operator, jacobian, electric_field, stored, zeros(T, dims),
-                                              zeros(T, dims), zeros(D, dims), zeros(D, dims), zeros(T, radii),
-                                              zeros(D, radii), plasma_from, settings, synchrotron, PlasmaKey(), Ref(0),
-                                              lag_all, Ref{Any}(nothing), Ref{Any}(nothing), lagged, Float64[])
+    return FokkerPlanckTerm{T, typeof(plasma_from)}(
+        unknown, operator, jacobian, electric_field, stored, zeros(T, dims),
+        zeros(T, dims), zeros(D, dims), zeros(D, dims), zeros(T, radii),
+        zeros(D, radii), plasma_from, settings, synchrotron, PlasmaKey(), Ref(0),
+        lag_all, Ref{Any}(nothing), Ref{Any}(nothing), lagged, Float64[])
 end
 
 lags_in_ode_form(term::FokkerPlanckTerm) = _is_lagged(term) || _lags_ions(term)
 
 # whether the term takes the ion densities of its plasma from the start of the step
-_lags_ions(term::FokkerPlanckTerm) = ion_dependency(term.plasma) !== nothing && ion_dependency(term.plasma) in term.lagged
+function _lags_ions(term::FokkerPlanckTerm)
+    ion_dependency(term.plasma) !== nothing && ion_dependency(term.plasma) in term.lagged
+end
 # the state of the ion densities of the plasma of a term
-_ion_state(term::FokkerPlanckTerm, u) = _lags_ions(term) && !isempty(term.ion_state) ? term.ion_state : u
+function _ion_state(term::FokkerPlanckTerm, u)
+    _lags_ions(term) && !isempty(term.ion_state) ? term.ion_state : u
+end
 # the plasma of the term at the state u, with lagged ions from the start of the step
 function _fokker_planck_plasma(term::FokkerPlanckTerm, u, layout, t)
     state = _ion_state(term, u)
-    return state === u ? plasma_values(term.plasma, u, layout, t) : plasma_values(term.plasma, u, layout, t; ion_state=state)
+    return state === u ? plasma_values(term.plasma, u, layout, t) :
+           plasma_values(term.plasma, u, layout, t; ion_state = state)
 end
 
 """
@@ -204,12 +199,14 @@ _is_lagged(term::FokkerPlanckTerm) = term.lag_all && is_state_dependent(term.pla
 function _rebuild_coefficients!(term::FokkerPlanckTerm, u, layout, t)
     term.plasma === nothing && return term.operator
     field = term.electric_field === nothing
-    plasma = changed_plasma!(term.plasma_key, term.plasma, u, layout, t; electric_field=field,
-                             ion_state=_ion_state(term, u))
+    plasma = changed_plasma!(
+        term.plasma_key, term.plasma, u, layout, t; electric_field = field,
+        ion_state = _ion_state(term, u))
     plasma === nothing && return term.operator
     try
-        set_fokker_planck_coefficients!(term.operator, plasma, term.settings; synchrotron=term.synchrotron,
-                                        electric_field=field)
+        set_fokker_planck_coefficients!(
+            term.operator, plasma, term.settings; synchrotron = term.synchrotron,
+            electric_field = field)
     catch
         reset_key!(term.plasma_key)
         rethrow()
@@ -259,7 +256,9 @@ them with [`plasma_column_sparsity!`](@ref) and adds them with
 unknowns and whose coefficients are implicit.
 """
 has_plasma_columns(::Any) = false
-has_plasma_columns(term::FokkerPlanckTerm) = is_state_dependent(term.plasma) && !_is_lagged(term)
+function has_plasma_columns(term::FokkerPlanckTerm)
+    is_state_dependent(term.plasma) && !_is_lagged(term)
+end
 
 """
     plasma_column_sparsity!(entries, term, layout, row)
@@ -268,7 +267,9 @@ Push the entries of the plasma columns of a term with [`has_plasma_columns`](@re
 cell of the row unknown at a radius against each plasma unknown of that radius.
 """
 function plasma_column_sparsity!(entries, term::FokkerPlanckTerm, layout, row)
-    for ir in 1:radial_cell_count(layout), column in plasma_columns(term.plasma, layout, ir; with_ions=!_lags_ions(term))
+    for ir in 1:radial_cell_count(layout),
+        column in plasma_columns(term.plasma, layout, ir; with_ions = !_lags_ions(term))
+
         append!(entries, ((r, column) for r in unknown_range(layout, row, ir)))
     end
     return entries
@@ -289,13 +290,14 @@ function add_plasma_columns!(J, term::FokkerPlanckTerm, u, layout, row, t)
     D = eltype(op.advection_p)
     id = unknown_id(layout, term.unknown)
     f = kinetic_array(u, layout, id)
-    df = term.dual_columns[]::Array{D,3}
+    df = term.dual_columns[]::Array{D, 3}
     fill!(df, zero(D))
-    apply!(df, op, f; electric_field=_field_values(term.electric_field, u, layout))
+    apply!(df, op, f; electric_field = _field_values(term.electric_field, u, layout))
     np, nxi, nr = size(df)
     for ir in 1:nr
         columns = plasma_columns(term.plasma, layout, ir; with_ions)
         for j in 1:nxi, i in 1:np
+
             r = _kinetic_index(layout, row, ir, i, j)
             partials = ForwardDiff.partials(df[i, j, ir])
             for k in eachindex(columns)
@@ -314,22 +316,23 @@ function _dual_coefficients!(term::FokkerPlanckTerm, u, layout, t)
     with_ions = ion_dependency(term.plasma) !== nothing && !_lags_ions(term)
     dual = dual_plasma(plasma, term.plasma.density !== nothing, with_ions)
     op = _dual_operator!(term, eltype(dual.cold_electron_temperature))
-    set_fokker_planck_coefficients!(op, dual, term.settings; synchrotron=term.synchrotron,
-                                    electric_field=term.electric_field === nothing)
+    set_fokker_planck_coefficients!(
+        op, dual, term.settings; synchrotron = term.synchrotron,
+        electric_field = term.electric_field === nothing)
     return op, with_ions
 end
 
 # the operator of dual coefficients of a term, made at the first use
 function _dual_operator!(term::FokkerPlanckTerm, ::Type{D}) where {D}
     op = term.dual_operator[]
-    if !(op isa AdvectionDiffusion{<:Any,D})
+    if !(op isa AdvectionDiffusion{<:Any, D})
         op = similar_coefficients(term.operator, D)
         # the coefficients of a unit field do not depend on the plasma
         term.electric_field === nothing || set_unit_field_coefficients!(op)
         term.dual_operator[] = op
         term.dual_columns[] = zeros(D, size(term.operator.grid))
     end
-    return op::AdvectionDiffusion{<:Any,D}
+    return op::AdvectionDiffusion{<:Any, D}
 end
 
 # a frozen limiter of a linear scheme is the exact derivative; another scheme's Jacobian
@@ -337,21 +340,28 @@ end
 function _jacobian_kind(jacobian, operator, stored)
     jacobian === :exact && return :exact
     jacobian === :frozen_limiter && return is_linear(operator) ? :exact : :approximate
-    return (stored.p_scheme, stored.xi_scheme) == (operator.p_scheme, operator.xi_scheme) ? :exact : :approximate
+    return (stored.p_scheme, stored.xi_scheme) == (operator.p_scheme, operator.xi_scheme) ?
+           :exact : :approximate
 end
 
-dependencies(term::FokkerPlanckTerm) =
-    unique!([term.unknown; term.electric_field === nothing ? Symbol[] : [term.electric_field];
+function dependencies(term::FokkerPlanckTerm)
+    unique!([term.unknown;
+             term.electric_field === nothing ? Symbol[] : [term.electric_field];
              collect(Symbol, source_dependencies(term.plasma))])
+end
 # the kind of the stored block in f: another scheme's Jacobian or a frozen limiter
-_scheme_jacobian_kind(term::FokkerPlanckTerm) = _jacobian_kind(term.jacobian, term.operator, term.stored_operator)
+function _scheme_jacobian_kind(term::FokkerPlanckTerm)
+    _jacobian_kind(term.jacobian, term.operator, term.stored_operator)
+end
 # the columns of the plasma unknowns are exact for the operator's own scheme, so the kind
 # is that of the block in f
 jacobian_kind(term::FokkerPlanckTerm) = _scheme_jacobian_kind(term)
 # with the field as an unknown the term is bilinear in the distribution and the field; with a
 # plasma from the unknowns the coefficients depend on the state
-is_linear(term::FokkerPlanckTerm) =
-    term.electric_field === nothing && !is_state_dependent(term.plasma) && is_linear(term.operator)
+function is_linear(term::FokkerPlanckTerm)
+    term.electric_field === nothing && !is_state_dependent(term.plasma) &&
+        is_linear(term.operator)
+end
 
 validate(term::FokkerPlanckTerm, layout, row) = _check_fokker_planck(term, layout, row, 0.0)
 
@@ -363,7 +373,9 @@ function _check_fokker_planck(term::FokkerPlanckTerm, layout, row, t)
         throw(ArgumentError("FokkerPlanckTerm acts on and adds to kinetic unknowns"))
     grid = term.operator.grid
     for k in (id, row), ir in 1:radial_cell_count(layout)
-        layout.shapes[k, ir] == (momentum_cell_count(grid, ir), pitch_cell_count(grid, ir)) ||
+
+        layout.shapes[k, ir] ==
+        (momentum_cell_count(grid, ir), pitch_cell_count(grid, ir)) ||
             throw(DimensionMismatch("the operator grid does not match $(layout.unknowns[k].name)"))
     end
     if term.electric_field !== nothing
@@ -379,7 +391,8 @@ function _check_fokker_planck(term::FokkerPlanckTerm, layout, row, t)
     for name in source_dependencies(term.plasma)
         id = unknown_id(layout, name)
         if name === ion_dependency(term.plasma)
-            _check_ion_unknown(layout, id, IonComposition(plasma_values(term.plasma.prescribed, nothing, nothing, t)))
+            _check_ion_unknown(layout, id,
+                IonComposition(plasma_values(term.plasma.prescribed, nothing, nothing, t)))
             continue
         end
         layout.kinds[id] === :radial && layout.sizes[id, 1] == 1 ||
@@ -401,13 +414,13 @@ function validate(term::FokkerPlanckTerm, layout, row, t)
         source.density === nothing &&
             throw(ArgumentError("the plasma of the FokkerPlanckTerm of $(term.unknown) keeps the density of its " *
                                 "prescribed part (density = nothing), while the system has the unknown " *
-                                "cold_electron_density: read it with density = :cold_electron_density (issue #154)"))
+                                "cold_electron_density: read it with density = :cold_electron_density"))
     elseif source isa PrescribedPlasma && term.settings.mode === :full
         plasma_values(source, nothing, nothing, t).cold_density_given ||
             throw(ArgumentError("the prescribed plasma of the FokkerPlanckTerm of $(term.unknown) takes the " *
                                 "free-electron density as the cold density, which counts the electrons of the " *
                                 "grids twice in a system with the unknown cold_electron_density: give the cold " *
-                                "density, or read it from the unknown (issue #154)"))
+                                "density, or read it from the unknown"))
     end
     return nothing
 end
@@ -416,11 +429,12 @@ function rhs!(out, term::FokkerPlanckTerm, u, layout, row, t)
     refresh_coefficients!(term, u, layout, t)
     id = unknown_id(layout, term.unknown)
     field = _field_values(term.electric_field, u, layout)
-    if _equally_spaced(layout.radius_offsets[row]) && _equally_spaced(layout.radius_offsets[id])
+    if _equally_spaced(layout.radius_offsets[row]) &&
+       _equally_spaced(layout.radius_offsets[id])
         # equally spaced radius blocks (the usual case) index by arithmetic instead of a load
         np, nxi = layout.shapes[id, 1]
         _fokker_planck!(LayoutKineticArray(out, _offset_range(layout, row), np, nxi), term,
-                        LayoutKineticArray(u, _offset_range(layout, id), np, nxi), field)
+            LayoutKineticArray(u, _offset_range(layout, id), np, nxi), field)
     else
         _fokker_planck!(kinetic_array(out, layout, row), term, kinetic_array(u, layout, id), field)
     end
@@ -437,23 +451,24 @@ function _plain_field!(term::FokkerPlanckTerm, field)
 end
 
 # the operator on `f` into `df`, with the stored block's derivative for a dual state
-function _fokker_planck!(df, term::FokkerPlanckTerm, f, field=nothing)
+function _fokker_planck!(df, term::FokkerPlanckTerm, f, field = nothing)
     if _scheme_jacobian_kind(term) === :exact || !(eltype(f) <: ForwardDiff.Dual)
-        apply!(df, term.operator, f; electric_field=field)
+        apply!(df, term.operator, f; electric_field = field)
     elseif term.jacobian === :frozen_limiter
         # a dual state (Jacobian assembly): the limiter weights at the values, applied as
         # constants; the value part is the full residual, since the weights at f are f's own
         term.values .= _value.(f)
-        apply!(df, term.operator, f; limiter_state=term.values, electric_field=field)
+        apply!(df, term.operator, f; limiter_state = term.values, electric_field = field)
     else
         # the derivative of the other scheme, with the value part corrected to the
         # operator's own residual (constant sources cancel in the difference)
-        apply!(df, term.stored_operator, f; electric_field=field)
+        apply!(df, term.stored_operator, f; electric_field = field)
         term.values .= _value.(f)
         plain = _plain_field!(term, field)
         fill!(term.correction, zero(eltype(term.correction)))
-        apply!(term.correction, term.operator, term.values; electric_field=plain)
-        apply!(term.correction, term.stored_operator, term.values; scale=-1, electric_field=plain)
+        apply!(term.correction, term.operator, term.values; electric_field = plain)
+        apply!(term.correction, term.stored_operator,
+            term.values; scale = -1, electric_field = plain)
         df .+= term.correction
     end
     return df
@@ -463,8 +478,9 @@ function sparsity!(entries, term::FokkerPlanckTerm, layout, row)
     id = unknown_id(layout, term.unknown)
     op = term.stored_operator
     np, nxi, nr = size(op.grid)
-    widths = (p_width=stencil_half_width(op.p_scheme), xi_width=stencil_half_width(op.xi_scheme),
-              r_width=stencil_half_width(op.r_scheme), p_upper_boundary=op.p_upper_boundary)
+    widths = (p_width = stencil_half_width(op.p_scheme),
+        xi_width = stencil_half_width(op.xi_scheme),
+        r_width = stencil_half_width(op.r_scheme), p_upper_boundary = op.p_upper_boundary)
     for ir in 1:nr, j in 1:nxi, i in 1:np
         r = _kinetic_index(layout, row, ir, i, j)
         _visit_stencil(op.grid, i, j, ir; widths...) do i2, j2, ir2
@@ -472,7 +488,8 @@ function sparsity!(entries, term::FokkerPlanckTerm, layout, row)
         end
         # the field of the radius acts on every cell of the radius
         term.electric_field === nothing ||
-            push!(entries, (r, first(unknown_range(layout, unknown_id(layout, term.electric_field), ir))))
+            push!(entries, (r,
+                first(unknown_range(layout, unknown_id(layout, term.electric_field), ir))))
     end
     return entries
 end
@@ -493,19 +510,21 @@ function jacobian_correction_product!(out, term::FokkerPlanckTerm, u, v, layout,
     # the field and its direction, when the field is an unknown
     field = nothing
     if term.electric_field !== nothing
-        values, change = _field_values(term.electric_field, u, layout), _field_values(term.electric_field, v, layout)
+        values, change = _field_values(term.electric_field, u, layout),
+        _field_values(term.electric_field, v, layout)
         for ir in eachindex(term.dual_field)
             term.dual_field[ir] = D(values[ir], ForwardDiff.Partials((change[ir],)))
         end
         field = term.dual_field
     end
     fill!(output, zero(D))
-    apply!(output, term.operator, input; electric_field=field)
+    apply!(output, term.operator, input; electric_field = field)
     if term.jacobian === :frozen_limiter
         term.values .= f
-        apply!(output, term.operator, input; scale=-1, limiter_state=term.values, electric_field=field)
+        apply!(output, term.operator, input; scale = -1,
+            limiter_state = term.values, electric_field = field)
     else
-        apply!(output, term.stored_operator, input; scale=-1, electric_field=field)
+        apply!(output, term.stored_operator, input; scale = -1, electric_field = field)
     end
     out_view = kinetic_array(out, layout, row)
     @inbounds for k in CartesianIndices(output)
@@ -519,17 +538,22 @@ end
                                settings=nothing, synchrotron=nothing, jacobian=:exact,
                                electric_field=nothing)
 
-A [`FokkerPlanckTerm`](@ref) whose collision coefficients follow a plasma prescribed in time
-(a cooling plasma with `T(t)` prescribed): `plasma_at(t)` returns the [`PlasmaState`](@ref)
-at the time `t`. The same as `FokkerPlanckTerm(unknown, operator; plasma = plasma_at,
-settings, synchrotron, jacobian, electric_field)`, which this function returns. The
-coefficients are rebuilt when the plasma values change ([`refresh_coefficients!`](@ref)).
+A [`FokkerPlanckTerm`](@ref) whose collision coefficients follow a plasma prescribed in
+time (such as a cooling plasma with `T(t)` prescribed): `plasma_at(t)` returns the
+[`PlasmaState`](@ref) at the time `t`. The same as
+`FokkerPlanckTerm(unknown, operator; plasma = plasma_at, settings, synchrotron, jacobian,
+electric_field)`, which this function returns. The coefficients are rebuilt
+when the plasma values change ([`refresh_coefficients!`](@ref)).
 
 With `electric_field`, the name of the unknown of the field, the field of the prescribed
 plasma is left out of the coefficients, and the term takes the field of the state.
 """
-PrescribedFokkerPlanckTerm(unknown::Symbol, operator::AdvectionDiffusion, plasma_at;
-                           settings::Union{Nothing,CollisionSettings}=nothing, synchrotron::Union{Nothing,Bool}=nothing,
-                           jacobian::Symbol=:exact, electric_field::Union{Nothing,Symbol}=nothing) =
-    FokkerPlanckTerm(unknown, operator; jacobian, electric_field, plasma=PrescribedPlasma(plasma_at), settings,
-                     synchrotron)
+function PrescribedFokkerPlanckTerm(
+        unknown::Symbol, operator::AdvectionDiffusion, plasma_at;
+        settings::Union{Nothing, CollisionSettings} = nothing, synchrotron::Union{
+            Nothing, Bool} = nothing,
+        jacobian::Symbol = :exact, electric_field::Union{Nothing, Symbol} = nothing)
+    FokkerPlanckTerm(unknown, operator; jacobian, electric_field,
+        plasma = PrescribedPlasma(plasma_at), settings,
+        synchrotron)
+end

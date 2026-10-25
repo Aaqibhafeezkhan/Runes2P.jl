@@ -1,14 +1,16 @@
 """
-HDF5 files of Runes2P: the output of a `TimeSolution`, the
-checkpoints of a run and their readers. Loaded when HDF5 is, so that Runes2P does not depend
-on HDF5.
+HDF5 files of Runes2P: the output of a `TimeSolution`, the checkpoints of a run and their
+readers. Loaded when HDF5 is, so that Runes2P does not depend on HDF5.
 """
 module Runes2PHDF5Ext
 
-using Runes2P: Runes2P, TimeSolution, SolverStatistics, StoredState, CheckpointSettings, UnknownLayout, ScalarUnknown,
-            RadialUnknown, KineticUnknown, LowerLimit, RadialGrid, MomentumGrid, cylindrical_grid, describe,
-            radial_cell_count, has_shared_momentum_grid, unknown_range, checkpoint_file, previous_checkpoint_file,
-            segment_files, write_atomically
+using Runes2P: Runes2P, TimeSolution, SolverStatistics, StoredState, CheckpointSettings,
+               UnknownLayout, ScalarUnknown,
+               RadialUnknown, KineticUnknown, LowerLimit, RadialGrid, MomentumGrid,
+               cylindrical_grid, describe,
+               radial_cell_count, has_shared_momentum_grid, unknown_range, checkpoint_file,
+               previous_checkpoint_file,
+               segment_files, write_atomically
 using HDF5: HDF5, h5open, create_group, attributes
 
 # ---------------------------------------------------------------------------------------
@@ -47,8 +49,8 @@ function _write_record(parent, name::AbstractString, value::Bool)
 end
 _write_record(parent, name::AbstractString, value) = (parent[name] = value)
 
-function _read_record(group::Union{HDF5.File,HDF5.Group})
-    record = Dict{String,Any}()
+function _read_record(group::Union{HDF5.File, HDF5.Group})
+    record = Dict{String, Any}()
     for name in keys(group)
         object = group[name]
         record[name] = object isa HDF5.Group ? _read_record(object) : _read_value(object)
@@ -133,48 +135,44 @@ end
 function _read_kinetic_grid(record, radial::RadialGrid)
     nr = radial_cell_count(radial)
     momentum(entry) = MomentumGrid(read(entry["p_faces"]), read(entry["xi_faces"]))
-    haskey(record, "momentum_grid") && return cylindrical_grid(momentum(record["momentum_grid"]), radial)
+    haskey(record, "momentum_grid") &&
+        return cylindrical_grid(momentum(record["momentum_grid"]), radial)
     grids = [momentum(record["momentum_grids"]["radius_$ir"]) for ir in 1:nr]
     return cylindrical_grid(grids, radial)
 end
 
-# the layout of a file, rebuilt from its root group `layout` for matching unknowns by
-# name and comparing grids: version 2 is the settings record
-# with the grids inline, version 1 (before format 0.14) held the faces per unknown and
-# the order as one string
+# the layout of a file, rebuilt from its root group `layout` (the settings record of the
+# layout with the grids inline) for matching unknowns by name and comparing grids
 function _read_layout(group)
     radial = RadialGrid(read(group["r_faces"]))
-    nr = radial_cell_count(radial)
-    version = haskey(group, "layout_version") ? Int(read(group["layout_version"])) : 1
-    scalars = version == 1 ? (endswith(read(group["order"]), "first") ? :first : :last) : Symbol(read(group["scalars"]))
+    scalars = Symbol(read(group["scalars"]))
     entries = group["unknowns"]
-    order = version == 1 ? read(entries["order"]) : read(group["order"])
+    order = read(group["order"])
     unknowns = map(order) do name
         entry = entries[name]
         kind, scale = read(entry["kind"]), read(entry["scale"])
         limit = if haskey(entry, "lower_limit_tolerance")
-            reference = haskey(entry, "lower_limit_reference") ? Symbol(read(entry["lower_limit_reference"])) : nothing
-            value = haskey(entry, "lower_limit_value") ? read(entry["lower_limit_value"]) : 0.0
-            LowerLimit(; value, tolerance=read(entry["lower_limit_tolerance"]), reference)
+            reference = haskey(entry, "lower_limit_reference") ?
+                        Symbol(read(entry["lower_limit_reference"])) : nothing
+            value = haskey(entry, "lower_limit_value") ? read(entry["lower_limit_value"]) :
+                    0.0
+            LowerLimit(; value, tolerance = read(entry["lower_limit_tolerance"]), reference)
         else
             false
         end
         if kind == "scalar"
-            ScalarUnknown(Symbol(name); scale, nonnegative=limit)
+            ScalarUnknown(Symbol(name); scale, nonnegative = limit)
         elseif kind == "radial"
             components = read(entry["components"])
             groups = if haskey(entry, "group_starts")
                 starts = read(entry["group_starts"])
-                [starts[k]:(k == length(starts) ? components : starts[k+1] - 1) for k in eachindex(starts)]
+                [starts[k]:(k == length(starts) ? components : starts[k + 1] - 1)
+                 for k in eachindex(starts)]
             end
-            RadialUnknown(Symbol(name); components, scale, nonnegative=limit, groups)
-        elseif version == 1
-            grids = [MomentumGrid(read(entry["p_faces"][string(ir)]), read(entry["xi_faces"][string(ir)]))
-                     for ir in 1:nr]
-            KineticUnknown(Symbol(name), cylindrical_grid(grids, radial); scale, nonnegative=limit)
+            RadialUnknown(Symbol(name); components, scale, nonnegative = limit, groups)
         else
             grid = _read_kinetic_grid(group["grids"][read(entry["grid"])], radial)
-            KineticUnknown(Symbol(name), grid; scale, nonnegative=limit)
+            KineticUnknown(Symbol(name), grid; scale, nonnegative = limit)
         end
     end
     return UnknownLayout(radial, unknowns; scalars)
@@ -198,7 +196,8 @@ function _read_statistics(group)
         type = fieldtype(SolverStatistics, field)
         haskey(group, String(field)) || return type()
         data = read(group[String(field)])
-        eltype(type) === Symbol ? Symbol.(data) : eltype(type) === Bool ? data .!= 0 : convert(type, data)
+        eltype(type) === Symbol ? Symbol.(data) :
+        eltype(type) === Bool ? data .!= 0 : convert(type, data)
     end
     return SolverStatistics(values...)
 end
@@ -207,17 +206,21 @@ function _append_statistics!(all::SolverStatistics, part::SolverStatistics)
     attempts = length(all.time)
     for field in fieldnames(SolverStatistics)
         values = getfield(part, field)
-        append!(getfield(all, field), field === :iteration_attempt ? values .+ attempts : values)
+        append!(getfield(all, field), field === :iteration_attempt ? values .+ attempts :
+                                      values)
     end
     return all
 end
 
 # the statistics of the first `count` attempted steps
-_statistics_first(stats::SolverStatistics, count::Integer) =
+function _statistics_first(stats::SolverStatistics, count::Integer)
     _statistics_of(stats, 1:min(count, length(stats.time)))
+end
 
 # the statistics of the attempted steps that end at or before `time`
-_statistics_until(stats::SolverStatistics, time::Real) = _statistics_of(stats, findall(<=(time), stats.time))
+function _statistics_until(stats::SolverStatistics, time::Real)
+    _statistics_of(stats, findall(<=(time), stats.time))
+end
 
 function _statistics_of(stats::SolverStatistics, attempts::AbstractVector{<:Integer})
     length(attempts) == length(stats.time) && return stats
@@ -272,7 +275,7 @@ function _write_solution(filename::AbstractString, solution::TimeSolution)
     return filename
 end
 
-function Runes2P.write_output(filename::AbstractString, solution::TimeSolution; atomic::Bool=false)
+function Runes2P.write_output(filename::AbstractString, solution::TimeSolution; atomic::Bool = false)
     atomic ? write_atomically(temporary -> _write_solution(temporary, solution), filename) :
     _write_solution(filename, solution)
     return filename
@@ -280,27 +283,31 @@ end
 
 function Runes2P.read_settings(filename::AbstractString)
     return h5open(filename, "r") do file
-        haskey(file, "settings") ? _read_record(file["settings"]) : Dict{String,Any}()
+        haskey(file, "settings") ? _read_record(file["settings"]) : Dict{String, Any}()
     end
 end
 
+# the oldest format that the readers take
+const OLDEST_FORMAT_VERSION = v"0.0.1"
+
 function _check_version(file, filename)
-    version = read(attributes(file)["format_version"])
-    version isa AbstractString ||
-        throw(ArgumentError("$filename has the format of before the numbering (format_version = $version), " *
-                            "which holds no state to resume from"))
-    VersionNumber(version) > Runes2P.OUTPUT_FORMAT_VERSION &&
+    version = VersionNumber(read(attributes(file)["format_version"]))
+    version < OLDEST_FORMAT_VERSION &&
+        throw(ArgumentError("$filename has the format version $version, older than this Runes2P reads " *
+                            "($OLDEST_FORMAT_VERSION and later)"))
+    version > Runes2P.OUTPUT_FORMAT_VERSION &&
         throw(ArgumentError("$filename has the format version $version, newer than this Runes2P reads " *
                             "($(Runes2P.output_format_version()))"))
-    return VersionNumber(version)
+    return version
 end
 
 # ---------------------------------------------------------------------------------------
 # checkpoints
 
-function Runes2P.write_checkpoint(filename::AbstractString, stored::StoredState; previous=nothing)
+function Runes2P.write_checkpoint(filename::AbstractString, stored::StoredState; previous = nothing)
     # a checkpoint that cannot be read does not replace the good one before it
-    previous !== nothing && isfile(filename) && !HDF5.ishdf5(filename) && (previous = nothing)
+    previous !== nothing && isfile(filename) && !HDF5.ishdf5(filename) &&
+        (previous = nothing)
     write_atomically(filename; previous) do temporary
         h5open(temporary, "w") do file
             _write_root(file, stored.settings)
@@ -319,11 +326,12 @@ function Runes2P.write_checkpoint(filename::AbstractString, stored::StoredState;
     end
     return filename
 end
-Runes2P.write_checkpoint(settings::CheckpointSettings, stored::StoredState) =
-    Runes2P.write_checkpoint(checkpoint_file(settings), stored; previous=previous_checkpoint_file(settings))
+function Runes2P.write_checkpoint(settings::CheckpointSettings, stored::StoredState)
+    Runes2P.write_checkpoint(checkpoint_file(settings), stored; previous = previous_checkpoint_file(settings))
+end
 
 function _read_update_states(group, column)
-    states = Dict{String,Vector{Float64}}()
+    states = Dict{String, Vector{Float64}}()
     for name in keys(group)
         data = read(group[name])
         states[name] = column === nothing ? vec(data) : data[:, column]
@@ -331,43 +339,45 @@ function _read_update_states(group, column)
     return states
 end
 
-function Runes2P.read_state(filename::AbstractString; time_index::Union{Nothing,Integer}=nothing)
+function Runes2P.read_state(filename::AbstractString; time_index::Union{Nothing, Integer} = nothing)
     return h5open(filename, "r") do file
         _check_version(file, filename)
         layout = _read_layout(file["layout"])
-        settings = haskey(file, "settings") ? _read_record(file["settings"]) : Dict{String,Any}()
+        settings = haskey(file, "settings") ? _read_record(file["settings"]) :
+                   Dict{String, Any}()
         times = haskey(file, "time") ? read(file["time"]) : Float64[]
         if haskey(file, "checkpoint")
             time_index === nothing || time_index == 1 ||
                 throw(ArgumentError("$filename is a checkpoint, which holds one state"))
             group = file["checkpoint"]
             state = vec(_read_states(file["unknowns"], layout, 1:1))
-            # a checkpoint of a format before 0.14 has no record of the stepper: its time
-            # is a time point of the run, where a stepper starts fresh
-            stepper = haskey(group, "stepper") ? _read_record(group["stepper"]) : Dict{String,Any}()
+            stepper = _read_record(group["stepper"])
             return StoredState(Float64(read(group["time"])), state, layout,
-                               _read_update_states(group["update_states"], nothing), settings,
-                               Int(read(group["segment"])), Int(read(group["saved_count"])),
-                               _read_record(group["summary"]), stepper, String(filename))
+                _read_update_states(group["update_states"], nothing), settings,
+                Int(read(group["segment"])), Int(read(group["saved_count"])),
+                _read_record(group["summary"]), stepper, String(filename))
         end
         index = time_index === nothing ? length(times) : Int(time_index)
         1 <= index <= length(times) ||
             throw(ArgumentError("$filename has $(length(times)) saved states, there is no state $index"))
-        segment = get(settings, "segment", Dict{String,Any}())
-        updates = haskey(file, "update_states") ? _read_update_states(file["update_states"], index) :
-                  Dict{String,Vector{Float64}}()
-        return StoredState(Float64(times[index]), vec(_read_states(file["unknowns"], layout, index:index)), layout,
-                           updates, settings, Int(get(segment, "index", 1)),
-                           Int(get(segment, "saved_before", 0)) + index, Dict{String,Any}(), Dict{String,Any}(),
-                           String(filename))
+        segment = get(settings, "segment", Dict{String, Any}())
+        updates = haskey(file, "update_states") ?
+                  _read_update_states(file["update_states"], index) :
+                  Dict{String, Vector{Float64}}()
+        return StoredState(Float64(times[index]),
+            vec(_read_states(file["unknowns"], layout, index:index)), layout,
+            updates, settings, Int(get(segment, "index", 1)),
+            Int(get(segment, "saved_before", 0)) + index, Dict{String, Any}(), Dict{
+                String, Any}(),
+            String(filename))
     end
 end
 
 Runes2P.read_checkpoint(filename::AbstractString) = Runes2P.read_state(filename)
 
 # A run whose checkpoints all exist but cannot be read must not start again from its
-# initial state: with resume = true it would replace the file of the first segment.
-# Only a run without any checkpoint file starts fresh.
+# initial state: with resume = true it would replace the file of the first segment. Only a
+# run without any checkpoint file starts fresh.
 function Runes2P.read_checkpoint(settings::CheckpointSettings)
     unreadable = String[]
     for file in (checkpoint_file(settings), previous_checkpoint_file(settings))
@@ -391,25 +401,31 @@ end
 function _read_solution(filename::AbstractString)
     return h5open(filename, "r") do file
         _check_version(file, filename)
-        haskey(file, "checkpoint") && throw(ArgumentError("$filename is a checkpoint, read it with read_state"))
+        haskey(file, "checkpoint") &&
+            throw(ArgumentError("$filename is a checkpoint, read it with read_state"))
         layout = _read_layout(file["layout"])
         times = haskey(file, "time") ? read(file["time"]) : Float64[]
-        states = isempty(times) ? zeros(length(layout), 0) : _read_states(file["unknowns"], layout, 1:length(times))
-        settings = haskey(file, "settings") ? _read_record(file["settings"]) : Dict{String,Any}()
-        updates = Dict{String,Matrix{Float64}}()
+        states = isempty(times) ? zeros(length(layout), 0) :
+                 _read_states(file["unknowns"], layout, 1:length(times))
+        settings = haskey(file, "settings") ? _read_record(file["settings"]) :
+                   Dict{String, Any}()
+        updates = Dict{String, Matrix{Float64}}()
         if haskey(file, "update_states")
             for name in keys(file["update_states"])
                 updates[name] = read(file["update_states"][name])
             end
         end
-        TimeSolution(layout, times, states, _read_statistics(file["solver_statistics"]), settings, updates)
+        TimeSolution(layout, times, states,
+            _read_statistics(file["solver_statistics"]), settings, updates)
     end
 end
 
-_start_time(solution::TimeSolution) = Float64(get(get(solution.settings, "segment", Dict{String,Any}()),
-                                                  "start_time", -Inf))
+function _start_time(solution::TimeSolution)
+    Float64(get(get(solution.settings, "segment", Dict{String, Any}()),
+        "start_time", -Inf))
+end
 function _attempts_before(solution::TimeSolution)
-    value = get(get(solution.settings, "segment", Dict{String,Any}()), "attempts_before", nothing)
+    value = get(get(solution.settings, "segment", Dict{String, Any}()), "attempts_before", nothing)
     return value === nothing ? nothing : Int(value)
 end
 
@@ -423,19 +439,19 @@ function Runes2P.read_output(filenames::AbstractString...)
     statistics = SolverStatistics()
     # the segments of one run start one after the other, and each saved time appears once:
     # segments in the wrong order, or of two runs from the same start, are refused
-    all(k -> _start_time(parts[k]) >= _start_time(parts[k-1]), 2:length(parts)) ||
+    all(k -> _start_time(parts[k]) >= _start_time(parts[k - 1]), 2:length(parts)) ||
         throw(ArgumentError("the files are not the segments of one run in order: a segment starts before the one given before it"))
     # each segment resumed from the one before it, where both records say so: a fresh run
     # under the name of an earlier one leaves the higher segments of that run
     for k in 2:length(parts)
-        record = get(parts[k].settings, "segment", Dict{String,Any}())
-        index = get(get(parts[k-1].settings, "segment", Dict{String,Any}()), "index", nothing)
+        record = get(parts[k].settings, "segment", Dict{String, Any}())
+        index = get(get(parts[k - 1].settings, "segment", Dict{String, Any}()), "index", nothing)
         from = get(record, "resumed_from_segment", nothing)
         from === nothing || index === nothing || from == index ||
             throw(ArgumentError("$(filenames[k]) resumed from segment $from, and $(filenames[k-1]) is segment " *
                                 "$index: the files are not the segments of one run"))
         hash = get(record, "previous_setup_hash", "unknown")
-        previous = get(parts[k-1].settings, "setup_hash", nothing)
+        previous = get(parts[k - 1].settings, "setup_hash", nothing)
         hash == "unknown" || previous === nothing || hash == previous ||
             throw(ArgumentError("$(filenames[k]) resumed from a segment with another setup than " *
                                 "$(filenames[k-1]): the files are not the segments of one run"))
@@ -446,17 +462,22 @@ function Runes2P.read_output(filenames::AbstractString...)
     updates = Dict(name => Matrix{Float64}[] for name in names)
     for (k, part) in enumerate(parts)
         Runes2P.unknown_names(part.layout) == Runes2P.unknown_names(first_part.layout) &&
-            length(part.layout) == length(first_part.layout) ||
+        length(part.layout) == length(first_part.layout) ||
             throw(ArgumentError("$(filenames[k]) has another layout than $(first(filenames)); " *
                                 "read the segments of a run whose unknowns changed one by one"))
         # what a segment did after the start of the following one is repeated by it: the
         # statistics are cut by the count of attempts the following segment resumed
-        # from (a failed attempt is recorded at the time it aimed at), by the time before
-        # format 0.14
-        limit = k < length(parts) ? _start_time(parts[k+1]) : Inf
+        # from (a failed attempt is recorded at the time it aimed at), and by the start time
+        # of the following segment where a record has no count (a resume from an output
+        # file, the last segment)
+        limit = k < length(parts) ? _start_time(parts[k + 1]) : Inf
+        #! format: off
         before, after = _attempts_before(part), k < length(parts) ? _attempts_before(parts[k+1]) : nothing
+        #! format: on
         if before !== nothing && after !== nothing
+            #! format: off
             _append_statistics!(statistics, _statistics_first(part.statistics, after - before))
+            #! format: on
         else
             _append_statistics!(statistics, _statistics_until(part.statistics, limit))
         end
@@ -470,12 +491,17 @@ function Runes2P.read_output(filenames::AbstractString...)
             push!(updates[name], states[:, kept])
         end
     end
-    all(>(0), diff(times)) || throw(ArgumentError("the files are not the segments of one run in order"))
-    states = isempty(columns) ? zeros(eltype(first_part.states), length(first_part.layout), 0) : reduce(hcat, columns)
+    all(>(0), diff(times)) ||
+        throw(ArgumentError("the files are not the segments of one run in order"))
+    states = isempty(columns) ?
+             zeros(eltype(first_part.states), length(first_part.layout), 0) :
+             reduce(hcat, columns)
     return TimeSolution(first_part.layout, times, states, statistics, last(parts).settings,
-                        Dict(name => reduce(hcat, parts) for (name, parts) in updates if !isempty(parts)))
+        Dict(name => reduce(hcat, parts) for (name, parts) in updates if !isempty(parts)))
 end
 
-Runes2P.read_output(settings::CheckpointSettings) = Runes2P.read_output(segment_files(settings)...)
+function Runes2P.read_output(settings::CheckpointSettings)
+    Runes2P.read_output(segment_files(settings)...)
+end
 
 end # module Runes2PHDF5Ext

@@ -1,13 +1,13 @@
 # Knock-on operator in its default configuration (primary averaged over its pitch cell,
-# ξ* integrated over the receiving interval) against a reference built from
-# quadrature only: the energy part from the Møller cross section, the pitch part from the
-# gyrophase fraction integrated over the primary cell. The DREAM comparison covers the
+# ξ* integrated over the receiving interval) against a reference built from quadrature
+# only: the energy part from the Møller cross section, the pitch part from the gyrophase
+# fraction integrated over the primary cell. The DREAM comparison covers the
 # DREAM-compatible configuration only; the loop, BLAS and dense forms share the kernels.
 using QuadGK: quadgk
 
 @testset "knock-on operator against quadrature" begin
     rad = RadialGrid(uniform_r_faces(1, 0.5))
-    mom = MomentumGrid(uniform_p_faces(14, 0.0, 4.0), -cos.(range(0, π; length=7)))
+    mom = MomentumGrid(uniform_p_faces(14, 0.0, 4.0), -cos.(range(0, π; length = 7)))
     g = cylindrical_grid(mom, rad)
     p_cut = 0.15
     np, nξ = momentum_cell_count(g), pitch_cell_count(g)
@@ -15,7 +15,7 @@ using QuadGK: quadgk
 
     # receiving interval of pair (i, k)
     interval(i, k) = (max(mom.p_faces[i], p_cut),
-                      min(mom.p_faces[i+1], max_knockon_momentum(mom.p_centers[k])))
+        min(mom.p_faces[i + 1], max_knockon_momentum(mom.p_centers[k])))
     pairs = [(i, k) for i in 1:np, k in 1:np if >(reverse(interval(i, k))...)]
 
     # Δξ_j δ_jl: gyrophase fraction reaching cell j, averaged over primary cell l. The
@@ -24,11 +24,13 @@ using QuadGK: quadgk
     # Without these breakpoints quadgk misses narrow kink regions (1e-5 errors while
     # reporting 1e-14).
     function fraction(j, l, ξs)
-        lo, hi = mom.xi_faces[l], mom.xi_faces[l+1]
-        cuts = [ξs * t + s * sqrt((1 - t^2) * (1 - ξs^2)) for t in mom.xi_faces for s in (-1, 1)]
+        lo, hi = mom.xi_faces[l], mom.xi_faces[l + 1]
+        cuts = [ξs * t + s * sqrt((1 - t^2) * (1 - ξs^2)) for t in mom.xi_faces
+                for s in (-1, 1)]
         pts = sort!([lo; filter(x -> lo < x < hi, cuts); hi])
-        return quadgk(ξ1 -> pitch_cell_fraction(mom.xi_faces[j], mom.xi_faces[j+1], ξ1, ξs), pts...;
-                      rtol=1e-12, atol=1e-14)[1] / mom.xi_widths[l]
+        return quadgk(
+            ξ1 -> pitch_cell_fraction(mom.xi_faces[j], mom.xi_faces[j + 1], ξ1, ξs), pts...;
+            rtol = 1e-12, atol = 1e-14)[1] / mom.xi_widths[l]
     end
 
     @testset "pitch columns of the default kernel" begin
@@ -40,9 +42,11 @@ using QuadGK: quadgk
             nodes, weights = Runes2P.gauss(pts)
             err = 0.0
             for ξs in (0.2, 0.45, 0.7, 0.93), l in 1:nξ
+
                 pitch_kernel_column_split!(col, mom.xi_faces, ξs;
-                                           primary_cell=(mom.xi_faces[l], mom.xi_faces[l+1]), nodes, weights)
-                err = max(err, maximum(abs(mom.xi_widths[j] * col[j] - fraction(j, l, ξs)) for j in 1:nξ))
+                    primary_cell = (mom.xi_faces[l], mom.xi_faces[l + 1]), nodes, weights)
+                err = max(err, maximum(abs(mom.xi_widths[j] * col[j] - fraction(j, l, ξs))
+                for j in 1:nξ))
             end
             err
         end
@@ -61,8 +65,8 @@ using QuadGK: quadgk
     function columns!(D, ξs)
         for l in 1:nξ
             pitch_kernel_column_split!(column, mom.xi_faces, ξs;
-                                       primary_cell=(mom.xi_faces[l], mom.xi_faces[l+1]),
-                                       nodes=nodes12, weights=weights12)
+                primary_cell = (mom.xi_faces[l], mom.xi_faces[l + 1]),
+                nodes = nodes12, weights = weights12)
             D[:, l] .= column
         end
         return D
@@ -73,16 +77,19 @@ using QuadGK: quadgk
         for (i, k) in pairs
             pL, pU = interval(i, k)
             p1 = mom.p_centers[k]
-            W = [mom.p_widths[k] * mom.xi_widths[l] * phase_space_jacobian(g, 1)[k, l] * f[k, l, 1]
+            W = [mom.p_widths[k] * mom.xi_widths[l] * phase_space_jacobian(g, 1)[k, l] *
+                 f[k, l, 1]
                  for l in 1:nξ]
             h = (pU - pL) / subintervals
-            for q in 0:subintervals-1, (x, w) in zip(xg, wg)
+            for q in 0:(subintervals - 1), (x, w) in zip(xg, wg)
+
                 p = pL + h * (q + (x + 1) / 2)
                 weight = w * h / 2 * β(p1) * β(p) * moller_cross_section(p, p1)
                 contribution = weight .* (columns!(D, xi_star(p, p1)) * W)
                 for j in 1:nξ
                     # columns! returns δ (per unit ξ), so only 𝒱' Δp_i divides here
-                    C[i, j, 1] += contribution[j] / (phase_space_jacobian(g, 1)[i, j] * mom.p_widths[i])
+                    C[i, j, 1] += contribution[j] /
+                                  (phase_space_jacobian(g, 1)[i, j] * mom.p_widths[i])
                 end
             end
         end
@@ -102,14 +109,14 @@ using QuadGK: quadgk
         C = zeros(size(g))
         apply!(C, KnockOnOperator(g, g, p_cut), f, [1.0])
         @test L1(C) < 2e-4
-        # one ξ* per pair, at the midpoint of the receiving interval (an earlier Runes2P):
+        # one ξ* per pair, at the midpoint of the receiving interval (mode :midpoint):
         # 600 times worse on the same grid (measured 1.9e-2, and 3.9e-2 with DREAM's
         # cell-centre ξ*)
         Cmid = zeros(size(g))
-        apply!(Cmid, KnockOnOperator(g, g, p_cut; xi_star_mode=:midpoint), f, [1.0])
+        apply!(Cmid, KnockOnOperator(g, g, p_cut; xi_star_mode = :midpoint), f, [1.0])
         @test L1(Cmid) > 100 * L1(C)
         # production is exact in both modes and for every table size
-        for kw in ((;), (xi_star_mode=:midpoint,), (table_size=20,))
+        for kw in ((;), (xi_star_mode = :midpoint,), (table_size = 20,))
             Cp = zeros(size(g))
             apply!(Cp, KnockOnOperator(g, g, p_cut; kw...), f, [1.0])
             @test density(g, Cp) ≈ density(g, Cref) rtol = 1e-10
@@ -120,7 +127,8 @@ using QuadGK: quadgk
         # with the ξ* integration the remaining errors are the pitch table and the primary
         # pitch quadrature; refining both converges to the reference
         # measured 8.8e-5, 3.2e-5, 5.9e-6, 3.6e-7
-        errs = map(((20, 4), (80, 4), (80, 12), (320, 12))) do (table_size, primary_pitch_points)
+        errs = map((
+            (20, 4), (80, 4), (80, 12), (320, 12))) do (table_size, primary_pitch_points)
             C = zeros(size(g))
             apply!(C, KnockOnOperator(g, g, p_cut; table_size, primary_pitch_points), f, [1.0])
             L1(C)

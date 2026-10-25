@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://osrep.github.io/Runes2P.jl/dev/
+    about: Getting started, the model and the API reference of Runes2P.

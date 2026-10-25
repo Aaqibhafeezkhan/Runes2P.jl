@@ -1,14 +1,14 @@
-# A preconditioner for the coupled system: the kinetic unknowns in blocks per
-# radius, the fluid and scalar unknowns in one block that holds their coupling between the
-# radii exactly through its Schur complement, and radial line solves for the radial
-# transport of the distributions.
+# A preconditioner for the coupled system: the kinetic unknowns in blocks per radius, the
+# fluid and scalar unknowns in one block that holds their coupling between the radii exactly
+# through its Schur complement, and radial line solves for the radial transport of the
+# distributions.
 
 """
     FluidSchurLU(; radial_lines=:auto)
 
-The default preconditioner of [`GMRES`](@ref), for systems whose radii are coupled through the fluid
-unknowns (Ampère's law, the plasma current and the other scalars) and through the radial
-transport of the distributions. [`RadiusBlockLU`](@ref) leaves both
+The default preconditioner of [`GMRES`](@ref), for systems whose radii are coupled
+through the fluid unknowns (Ampère's law, the plasma current and the other scalars) and
+through the radial transport of the distributions. [`RadiusBlockLU`](@ref) leaves both
 couplings out, and its Krylov count grows with the number of radii.
 
 - The kinetic unknowns of each radius form one block, factorized exactly (UMFPACK), with
@@ -38,28 +38,32 @@ whose current values the residuals between the stages take: still a fixed linear
 each solve, and a preconditioner of the current matrix. A kinetic row must not couple to a
 radial unknown of another radius; `GMRES` refuses such a system.
 
-Separation on a self-consistent system with an electric field unknown:
-without radial transport the Schur stage alone is exact and GMRES
-takes 1 to 2 iterations at 6 to 24 radii, against 8 to 22 with `RadiusBlockLU`. With
-radial diffusion at a coupling typical of a disruption run (`D Δt/Δr² ≈ 5`) the symmetric
+On the self-consistent system with the values of
+`reference/dream/cases/self_consistent_field.py` (the hot-tail and the runaway grid, the
+electric field as an unknown, minor radius 0.22 m), at 6 to 24 radii and optionally with
+radial diffusion: without radial transport the Schur stage alone is exact and GMRES takes 1
+to 2 iterations at 6 to 24 radii, against 8 to 22 with `RadiusBlockLU`. With radial
+diffusion at a coupling typical of a disruption run (`D Δt/Δr² ≈ 5`) the symmetric
 application takes 5 iterations at 12 and 24 radii, against 49 and 55.
 """
 struct FluidSchurLU <: BlockPreconditioner
-    radial_lines::Union{Bool,Symbol}
+    radial_lines::Union{Bool, Symbol}
 end
 
-function FluidSchurLU(; radial_lines::Union{Bool,Symbol}=:auto)
+function FluidSchurLU(; radial_lines::Union{Bool, Symbol} = :auto)
     radial_lines isa Bool || radial_lines === :auto ||
         throw(ArgumentError("radial_lines is true, false or :auto, got $radial_lines"))
     return FluidSchurLU(radial_lines)
 end
 
 # whether every kinetic unknown has one pitch grid at all radii, as the lines need
+#! format: off
 _one_pitch_grid(layout::UnknownLayout) =
     all(layout.kinds[id] !== :kinetic ||
         (all(==(layout.sizes[id, 1]), layout.sizes[id, :]) && unknown.grid.radial_overlaps !== nothing &&
          all(has_identical_grids, unknown.grid.radial_overlaps))
         for (id, unknown) in enumerate(layout.unknowns))
+#! format: on
 
 # the tridiagonal systems along the radii of the kinetic cells
 struct RadialLines{T}
@@ -74,25 +78,25 @@ struct RadialLines{T}
     right::Vector{T}
 end
 
-mutable struct FluidSchurFactors{T,F}
-    const matrix::SparseMatrixCSC{T,Int}
+mutable struct FluidSchurFactors{T, F}
+    const matrix::SparseMatrixCSC{T, Int}
     const kinetic_ranges::Vector{UnitRange{Int}}      # per radius
     const fluid::Vector{Int}                          # indices of the radial and scalar unknowns
-    const blocks::Vector{SparseMatrixCSC{T,Int}}
+    const blocks::Vector{SparseMatrixCSC{T, Int}}
     const block_positions::Vector{Vector{Int}}
     const factorizations::Vector{F}
-    const low_rank::Vector{Union{Nothing,LowRankCorrection{T}}}
+    const low_rank::Vector{Union{Nothing, LowRankCorrection{T}}}
     const coupled::Vector{Vector{Int}}                # per radius: positions in `fluid` of the columns of A_kf
-    const kf_entries::Vector{Vector{NTuple{3,Int}}}   # per radius: (kinetic row, column of `coupled`, nz position)
-    const fk_entries::Vector{Vector{NTuple{3,Int}}}   # per radius: (fluid row, kinetic column, nz position)
+    const kf_entries::Vector{Vector{NTuple{3, Int}}}   # per radius: (kinetic row, column of `coupled`, nz position)
+    const fk_entries::Vector{Vector{NTuple{3, Int}}}   # per radius: (fluid row, kinetic column, nz position)
     const fk_values::Vector{Vector{T}}
-    const ff_entries::Vector{NTuple{3,Int}}           # (fluid row, fluid column, nz position)
+    const ff_entries::Vector{NTuple{3, Int}}           # (fluid row, fluid column, nz position)
     const solved_columns::Vector{Matrix{T}}           # per radius: A_kk⁻¹ A_kf
     const schur::Matrix{T}
     const schur_factors::Matrix{T}                    # the storage of the factorization of `schur`
-    schur_factorization::Union{Nothing,LinearAlgebra.LU{T,Matrix{T},Vector{Int}}}
-    const lines::Union{Nothing,RadialLines{T}}
-    const low_rank_terms::Vector{Union{Nothing,Tuple{Matrix{T},Matrix{T}}}}   # per radius: the scaled left and right factors
+    schur_factorization::Union{Nothing, LinearAlgebra.LU{T, Matrix{T}, Vector{Int}}}
+    const lines::Union{Nothing, RadialLines{T}}
+    const low_rank_terms::Vector{Union{Nothing, Tuple{Matrix{T}, Matrix{T}}}}   # per radius: the scaled left and right factors
     const low_rank_coefficients::Vector{Vector{T}}
     const kinetic_output::Vector{Vector{T}}
     const kinetic_input::Vector{Vector{T}}
@@ -110,11 +114,12 @@ function _entry_position(matrix::SparseMatrixCSC, row, column)
 end
 
 function _kinetic_range(layout::UnknownLayout, ir)
-    ranges = [unknown_range(layout, id, ir) for id in eachindex(layout.unknowns) if layout.kinds[id] === :kinetic]
+    ranges = [unknown_range(layout, id, ir)
+              for id in eachindex(layout.unknowns) if layout.kinds[id] === :kinetic]
     isempty(ranges) && return 1:0
-    sort!(ranges; by=first)
+    sort!(ranges; by = first)
     for k in 2:length(ranges)
-        first(ranges[k]) == last(ranges[k-1]) + 1 ||
+        first(ranges[k]) == last(ranges[k - 1]) + 1 ||
             throw(ArgumentError("the kinetic unknowns of radius $ir are not contiguous in the layout"))
     end
     return first(first(ranges)):last(last(ranges))
@@ -125,9 +130,10 @@ function _radial_lines(layout::UnknownLayout, matrix::SparseMatrixCSC{T}) where 
     lines = Vector{Vector{Int}}()
     for (id, unknown) in enumerate(layout.unknowns)
         layout.kinds[id] === :kinetic || continue
-        all(==(layout.sizes[id, 1]), layout.sizes[id, :]) && unknown.grid.radial_overlaps !== nothing &&
-            all(has_identical_grids, unknown.grid.radial_overlaps) ||
-            throw(ArgumentError("the radial lines of FluidSchurLU need one pitch grid for all radii (issue #72): " *
+        all(==(layout.sizes[id, 1]), layout.sizes[id, :]) &&
+        unknown.grid.radial_overlaps !== nothing &&
+        all(has_identical_grids, unknown.grid.radial_overlaps) ||
+            throw(ArgumentError("the radial lines of FluidSchurLU need one pitch grid for all radii: " *
                                 "$(unknown.name) has pitch grids that differ between radii"))
         for q in 1:layout.sizes[id, 1]
             push!(lines, [first(unknown_range(layout, id, ir)) + q - 1 for ir in 1:nr])
@@ -135,15 +141,18 @@ function _radial_lines(layout::UnknownLayout, matrix::SparseMatrixCSC{T}) where 
     end
     index = isempty(lines) ? zeros(Int, 0, nr) : permutedims(reduce(hcat, lines))
     count = size(index, 1)
-    lower, diagonal, upper = zeros(Int, count, nr), zeros(Int, count, nr), zeros(Int, count, nr)
+    lower, diagonal, upper = zeros(Int, count, nr), zeros(Int, count, nr),
+    zeros(Int, count, nr)
     for l in 1:count, ir in 1:nr
+
         row = index[l, ir]
         diagonal[l, ir] = _entry_position(matrix, row, row)
-        ir > 1 && (lower[l, ir] = _entry_position(matrix, row, index[l, ir-1]))
-        ir < nr && (upper[l, ir] = _entry_position(matrix, row, index[l, ir+1]))
+        ir > 1 && (lower[l, ir] = _entry_position(matrix, row, index[l, ir - 1]))
+        ir < nr && (upper[l, ir] = _entry_position(matrix, row, index[l, ir + 1]))
     end
-    return RadialLines(index, lower, diagonal, upper, zeros(T, count, nr), zeros(T, count, nr), zeros(T, count, nr),
-                       zeros(T, nr), zeros(T, nr))
+    return RadialLines(index, lower, diagonal, upper, zeros(T, count, nr),
+        zeros(T, count, nr), zeros(T, count, nr),
+        zeros(T, nr), zeros(T, nr))
 end
 
 function preconditioner_factors(p::FluidSchurLU, matrix::SparseMatrixCSC{T}, layout::UnknownLayout) where {T}
@@ -164,13 +173,16 @@ function preconditioner_factors(p::FluidSchurLU, matrix::SparseMatrixCSC{T}, lay
     extracted = [_extract_block(matrix, range) for range in kinetic_ranges]
     blocks, block_positions = first.(extracted), last.(extracted)
     # a radius without kinetic unknowns keeps a placeholder of size 1
+    #! format: off
     factorizations = [lu(isempty(range) ? SparseMatrixCSC{T,Int}(LinearAlgebra.I, 1, 1) : block; check=false)
                       for (range, block) in zip(kinetic_ranges, blocks)]
-    kf = [NTuple{3,Int}[] for _ in 1:nr]
-    fk = [NTuple{3,Int}[] for _ in 1:nr]
-    ff = NTuple{3,Int}[]
+    #! format: on
+    kf = [NTuple{3, Int}[] for _ in 1:nr]
+    fk = [NTuple{3, Int}[] for _ in 1:nr]
+    ff = NTuple{3, Int}[]
     coupled_sets = [Int[] for _ in 1:nr]
     for column in 1:n, k in nzrange(matrix, column)
+
         row = matrix.rowval[k]
         row_radius, column_radius = kinetic_radius[row], kinetic_radius[column]
         if row_radius > 0 && column_radius == 0
@@ -178,9 +190,11 @@ function preconditioner_factors(p::FluidSchurLU, matrix::SparseMatrixCSC{T}, lay
                 throw(ArgumentError("a kinetic row of radius $row_radius couples to a radial unknown of radius " *
                                     "$(radius[column]): FluidSchurLU eliminates the kinetic blocks radius by radius"))
             push!(coupled_sets[row_radius], fluid_position[column])
-            push!(kf[row_radius], (row - first(kinetic_ranges[row_radius]) + 1, fluid_position[column], k))
+            push!(kf[row_radius], (
+                row - first(kinetic_ranges[row_radius]) + 1, fluid_position[column], k))
         elseif row_radius == 0 && column_radius > 0
-            push!(fk[column_radius], (fluid_position[row], column - first(kinetic_ranges[column_radius]) + 1, k))
+            push!(fk[column_radius],
+                (fluid_position[row], column - first(kinetic_ranges[column_radius]) + 1, k))
         elseif row_radius == 0 && column_radius == 0
             push!(ff, (fluid_position[row], fluid_position[column], k))
         end
@@ -190,17 +204,20 @@ function preconditioner_factors(p::FluidSchurLU, matrix::SparseMatrixCSC{T}, lay
     # factorize! takes one pass over the entries
     for ir in 1:nr
         lookup = Dict(position => c for (c, position) in enumerate(coupled[ir]))
-        kf[ir] = sort!([(row, lookup[position], k) for (row, position, k) in kf[ir]]; by=entry -> entry[2])
+        kf[ir] = sort!([(row, lookup[position], k) for (row, position, k) in kf[ir]]; by = entry -> entry[2])
     end
     nf = length(fluid)
-    with_lines = nr > 1 && (p.radial_lines === true || (p.radial_lines === :auto && _one_pitch_grid(layout)))
+    with_lines = nr > 1 && (p.radial_lines === true ||
+                  (p.radial_lines === :auto && _one_pitch_grid(layout)))
     if p.radial_lines === :auto && !with_lines && nr > 1
-        @warn "FluidSchurLU without radial lines: the pitch grids differ between radii (issue #72). The fluid " *
+        @warn "FluidSchurLU without radial lines: the pitch grids differ between radii. The fluid " *
               "coupling stays exact, the radial transport of the distributions is left to the Krylov iteration" maxlog = 1
     end
     lines = with_lines ? _radial_lines(layout, matrix) : nothing
     # without kinetic couplings between radii the lines would be a diagonal step
-    lines !== nothing && all(==(0), lines.lower) && all(==(0), lines.upper) && (lines = nothing)
+    lines !== nothing && all(==(0), lines.lower) && all(==(0), lines.upper) &&
+        (lines = nothing)
+    #! format: off
     return FluidSchurFactors(matrix, kinetic_ranges, fluid, blocks, block_positions, factorizations,
                              Union{Nothing,LowRankCorrection{T}}[nothing for _ in 1:nr], coupled, kf, fk,
                              [zeros(T, length(entries)) for entries in fk], ff,
@@ -209,6 +226,7 @@ function preconditioner_factors(p::FluidSchurLU, matrix::SparseMatrixCSC{T}, lay
                              Union{Nothing,Tuple{Matrix{T},Matrix{T}}}[nothing for _ in 1:nr], [T[] for _ in 1:nr],
                              [zeros(T, length(r)) for r in kinetic_ranges], [zeros(T, length(r)) for r in kinetic_ranges],
                              [zeros(T, length(c)) for c in coupled], zeros(T, nf), zeros(T, n), zeros(T, n))
+    #! format: on
 end
 
 # y = A_kk,r⁻¹ x with the Woodbury update of the block
@@ -218,7 +236,8 @@ function _kinetic_solve!(y, factors::FluidSchurFactors, ir, x)
     return y
 end
 
-function factorize!(factors::FluidSchurFactors{T}, ::FluidSchurLU, matrix::SparseMatrixCSC, low_rank=nothing) where {T}
+function factorize!(factors::FluidSchurFactors{T}, ::FluidSchurLU,
+        matrix::SparseMatrixCSC, low_rank = nothing) where {T}
     nzval = matrix.nzval
     for ir in eachindex(factors.blocks)
         range = factors.kinetic_ranges[ir]
@@ -227,12 +246,13 @@ function factorize!(factors::FluidSchurFactors{T}, ::FluidSchurLU, matrix::Spars
         @inbounds for m in eachindex(positions)
             block.nzval[m] = nzval[positions[m]]
         end
-        lu!(factors.factorizations[ir], block; check=false)
+        lu!(factors.factorizations[ir], block; check = false)
         issuccess(factors.factorizations[ir]) || return false
         factors.low_rank[ir] = nothing
         factors.low_rank_terms[ir] = nothing
         if low_rank !== nothing
-            scaled = _scaled_low_rank(low_rank.blocks, range, low_rank.row_weights, low_rank.scales, T)
+            scaled = _scaled_low_rank(
+                low_rank.blocks, range, low_rank.row_weights, low_rank.scales, T)
             if scaled !== nothing
                 factors.low_rank_terms[ir] = scaled
                 resize!(factors.low_rank_coefficients[ir], size(scaled[2], 2))
@@ -278,15 +298,17 @@ function factorize!(factors::FluidSchurFactors{T}, ::FluidSchurLU, matrix::Spars
         factors.schur_factorization = nothing
     else
         copyto!(factors.schur_factors, schur)
-        factorization = LinearAlgebra.lu!(factors.schur_factors; check=false)
+        factorization = LinearAlgebra.lu!(factors.schur_factors; check = false)
         issuccess(factorization) || return false
         factors.schur_factorization = factorization
     end
     lines = factors.lines
     if lines !== nothing
         for ir in axes(lines.index, 2), l in axes(lines.index, 1)
+
             lines.a[l, ir] = lines.lower[l, ir] == 0 ? zero(T) : nzval[lines.lower[l, ir]]
-            lines.b[l, ir] = lines.diagonal[l, ir] == 0 ? zero(T) : nzval[lines.diagonal[l, ir]]
+            lines.b[l, ir] = lines.diagonal[l, ir] == 0 ? zero(T) :
+                             nzval[lines.diagonal[l, ir]]
             lines.c[l, ir] = lines.upper[l, ir] == 0 ? zero(T) : nzval[lines.upper[l, ir]]
             lines.b[l, ir] == 0 && return false
         end
@@ -311,7 +333,8 @@ function _schur_solve!(y, factors::FluidSchurFactors, x)
             fluid_work[row] -= values[e] * output[column]
         end
     end
-    factors.schur_factorization === nothing || ldiv!(factors.schur_factorization, fluid_work)
+    factors.schur_factorization === nothing ||
+        ldiv!(factors.schur_factorization, fluid_work)
     @inbounds for (m, i) in enumerate(factors.fluid)
         y[i] = fluid_work[m]
     end
@@ -337,13 +360,14 @@ function _line_solve!(y, lines::RadialLines{T}, x) where {T}
         modified[1] = nr > 1 ? lines.c[l, 1] / denominator : zero(T)
         right[1] = x[lines.index[l, 1]] / denominator
         for ir in 2:nr
-            denominator = lines.b[l, ir] - lines.a[l, ir] * modified[ir-1]
+            denominator = lines.b[l, ir] - lines.a[l, ir] * modified[ir - 1]
             modified[ir] = ir < nr ? lines.c[l, ir] / denominator : zero(T)
-            right[ir] = (x[lines.index[l, ir]] - lines.a[l, ir] * right[ir-1]) / denominator
+            right[ir] = (x[lines.index[l, ir]] - lines.a[l, ir] * right[ir - 1]) /
+                        denominator
         end
         y[lines.index[l, nr]] = right[nr]
-        for ir in nr-1:-1:1
-            right[ir] -= modified[ir] * right[ir+1]
+        for ir in (nr - 1):-1:1
+            right[ir] -= modified[ir] * right[ir + 1]
             y[lines.index[l, ir]] = right[ir]
         end
     end

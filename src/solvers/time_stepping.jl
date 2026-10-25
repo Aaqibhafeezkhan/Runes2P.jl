@@ -1,14 +1,13 @@
-# Backward-Euler time stepping: steps whose length a stepper
-# sets, every time point of the run the end of a step, a failed Newton solve retried with
-# shorter steps, saved states at their own times, updates, checkpoints and the stop after
-# accepted steps, and solver statistics per attempted step with their own time array
-# (DREAM #296).
+# Backward-Euler time stepping: steps whose length a stepper sets, every time point of the
+# run the end of a step, a failed Newton solve retried with shorter steps, saved states at
+# their own times, updates, checkpoints and the stop after accepted steps, and solver
+# statistics per attempted step with their own time array.
 
 """
     SolverStatistics
 
 Solver statistics of a run, one entry per attempted step (accepted or not), with its own
-time array (DREAM #296):
+time array:
 
 - `time`, `time_step`: end time and length of the attempted step;
 - `accepted`, `status`: whether the step was accepted, and the [`NewtonResult`](@ref)
@@ -23,7 +22,7 @@ time array (DREAM #296):
 - `initial_residual_norm`, `residual_norm`, `update_norm`: scaled norms before the first
   and after the last Newton iteration (see [`NewtonSolver`](@ref));
 - `convergence_order`: estimated order of the Newton iteration (about 2 with a correct
-  Jacobian; about 1 flags an inexact Jacobian, DREAM #226);
+  Jacobian; about 1 flags an inexact Jacobian, with which the iteration still converges);
 - `smallest_step_length`: the shortest Newton step length used (1 when neither the lower
   limits nor the line search shortened a step);
 - `accepted_at_residual_floor`: the step converged with its residual above
@@ -67,13 +66,17 @@ struct SolverStatistics
     kind::Vector{Symbol}
     error::Vector{Float64}
 end
-SolverStatistics() = SolverStatistics(Float64[], Float64[], Bool[], Symbol[], Int[], Int[], Int[], Float64[],
-                                      Float64[], Float64[], Float64[], Float64[], Bool[], Bool[], Float64[],
-                                      Float64[], Float64[], Float64[], Float64[], Int[], Float64[], Float64[], Float64[],
-                                      Symbol[], Float64[])
+function SolverStatistics()
+    SolverStatistics(
+        Float64[], Float64[], Bool[], Symbol[], Int[], Int[], Int[], Float64[],
+        Float64[], Float64[], Float64[], Float64[], Bool[], Bool[], Float64[],
+        Float64[], Float64[], Float64[], Float64[], Int[], Float64[], Float64[], Float64[],
+        Symbol[], Float64[])
+end
 
-function _record!(stats::SolverStatistics, t, dt, result::NewtonResult, ws::NewtonWorkspace, wall;
-                  kind::Symbol=:step, accepted::Bool=result.status === :converged, error::Real=NaN)
+function _record!(
+        stats::SolverStatistics, t, dt, result::NewtonResult, ws::NewtonWorkspace, wall;
+        kind::Symbol = :step, accepted::Bool = result.status === :converged, error::Real = NaN)
     push!(stats.time, t)
     push!(stats.time_step, dt)
     push!(stats.accepted, accepted)
@@ -88,7 +91,8 @@ function _record!(stats::SolverStatistics, t, dt, result::NewtonResult, ws::Newt
     push!(stats.update_norm, result.update_norm)
     push!(stats.convergence_order, result.convergence_order)
     push!(stats.smallest_step_length, result.smallest_step_length)
-    push!(stats.accepted_at_residual_floor, result.status === :converged && result.residual_floor)
+    push!(stats.accepted_at_residual_floor, result.status === :converged &&
+        result.residual_floor)
     push!(stats.accepted_as_linear, result.status === :converged && result.linear_step)
     push!(stats.wall_time, wall)
     push!(stats.jacobian_time, result.jacobian_time)
@@ -113,17 +117,20 @@ column per saved time; views of the unknowns through [`unknown_view`](@ref)), th
 each saved state was computed (one column per saved time). Of a resumed run it holds the
 states saved by this segment, those after the time it resumed from.
 """
-struct TimeSolution{T,L<:UnknownLayout}
+struct TimeSolution{T, L <: UnknownLayout}
     layout::L
     times::Vector{T}
     states::Matrix{T}
     statistics::SolverStatistics
-    settings::Dict{String,Any}
-    update_states::Dict{String,Matrix{Float64}}
+    settings::Dict{String, Any}
+    update_states::Dict{String, Matrix{Float64}}
 end
-TimeSolution(layout::UnknownLayout, times::Vector, states::Matrix, statistics::SolverStatistics,
-             settings::Dict{String,Any}=Dict{String,Any}()) =
-    TimeSolution(layout, times, states, statistics, settings, Dict{String,Matrix{Float64}}())
+function TimeSolution(
+        layout::UnknownLayout, times::Vector, states::Matrix, statistics::SolverStatistics,
+        settings::Dict{String, Any} = Dict{String, Any}())
+    TimeSolution(
+        layout, times, states, statistics, settings, Dict{String, Matrix{Float64}}())
+end
 
 """
     TimeStepFailure
@@ -139,14 +146,16 @@ struct TimeStepFailure <: Exception
     statistics::SolverStatistics
 end
 
-Base.showerror(io::IO, e::TimeStepFailure) =
-    print(io, "TimeStepFailure: the step to t = $(e.time) failed with status :$(e.status) ",
-          "at the time step $(e.time_step)")
+function Base.showerror(io::IO, e::TimeStepFailure)
+    print(
+        io, "TimeStepFailure: the step to t = $(e.time) failed with status :$(e.status) ",
+        "at the time step $(e.time_step)")
+end
 
 # ---------------------------------------------------------------------------------------
-# time steppers: what sets the length of the next step and
-# what a stepper carries from step to step, which goes into the checkpoint so that a
-# resumed run repeats the uninterrupted one. A stepper implements
+# time steppers: what sets the length of the next step and what a stepper carries from step
+# to step, which goes into the checkpoint so that a resumed run repeats the uninterrupted
+# one. A stepper implements
 #
 # - `stepper_state(stepper, system, times, t, record)`: its state at the time t, fresh or
 #   restored from the record of a checkpoint;
@@ -176,17 +185,19 @@ ceilings(::TimeStepper, times, save_times) = collect(Float64, times)
 
 # the end of a step of the length the stepper asks for: the last step before a ceiling
 # lands exactly on it; the slack covers the rounding of t + dt
-_step_end(t, dt, ceiling) = ceiling - t <= dt * (1 + 1e-10) + 4eps(ceiling) ? ceiling : t + dt
+function _step_end(t, dt, ceiling)
+    ceiling - t <= dt * (1 + 1e-10) + 4eps(ceiling) ? ceiling : t + dt
+end
 
 # one solve from the state `from` to the time t_next, into `to`, recorded in the
 # statistics; `to` holds the last iterate on failure
-function _solve_step!(run, from, to, t_next, h; kind::Symbol=:step)
+function _solve_step!(run, from, to, t_next, h; kind::Symbol = :step)
     copyto!(to, from)
     started = time_ns()
     result = newton_solve!(to, from, run.ws, t_next, h)
     # a half step is never a step of the run
     _record!(run.stats, t_next, h, result, run.ws, (time_ns() - started) / 1e9; kind,
-             accepted=kind === :step && result.status === :converged)
+        accepted = kind === :step && result.status === :converged)
     return result
 end
 
@@ -194,7 +205,7 @@ end
 function _give_up(run, options, t_next, h, result, how)
     log = options.log
     log_event!(log, "run failed", Logging.Error,
-               "the step to t = $t_next s with the time step $h s failed with the status $(result.status) $how")
+        "the step to t = $t_next s with the time step $h s failed with the status $(result.status) $how")
     _finish(run, log, "segment end, failed")
     throw(TimeStepFailure(t_next, h, result.status, run.stats))
 end
@@ -203,9 +214,10 @@ end
 function _retry_after_failure(run, options, t_next, h, result, how)
     log = options.log
     log_event!(log, "step failed", Logging.Warn,
-               "the step to t = $t_next s with the time step $h s ended with the status $(result.status) and $how")
-    report_step!(log, run.u_old, run.layout, run.t, run.times, run.next_point - 2, run.stats;
-                 errors=stepper_errors(run.stepper_state))
+        "the step to t = $t_next s with the time step $h s ended with the status $(result.status) and $how")
+    report_step!(
+        log, run.u_old, run.layout, run.t, run.times, run.next_point - 2, run.stats;
+        errors = stepper_errors(run.stepper_state))
     return nothing
 end
 
@@ -221,7 +233,7 @@ step that still fails throws [`TimeStepFailure`](@ref).
 struct FixedSteps <: TimeStepper
     max_halvings::Int
 end
-function FixedSteps(; max_halvings::Integer=10)
+function FixedSteps(; max_halvings::Integer = 10)
     max_halvings >= 0 || throw(ArgumentError("max_halvings must not be negative"))
     return FixedSteps(Int(max_halvings))
 end
@@ -236,7 +248,7 @@ end
 # point), zero at the last time point
 function _interval_length(times, t)
     k = searchsortedlast(times, t)
-    return k >= length(times) ? 0.0 : Float64(times[k+1] - times[k])
+    return k >= length(times) ? 0.0 : Float64(times[k + 1] - times[k])
 end
 
 """
@@ -260,8 +272,9 @@ stepper_errors(state) = nothing
 reset_history!(state) = nothing
 
 "Record of the state of a stepper, stored in the checkpoint."
-stepper_record(state::FixedStepState) =
+function stepper_record(state::FixedStepState)
     SettingsRecord("type" => "FixedSteps", "dt" => state.dt, "halvings" => state.halvings)
+end
 
 function advance!(stepper::FixedSteps, state::FixedStepState, run, options, ceiling)
     t = run.t
@@ -271,9 +284,11 @@ function advance!(stepper::FixedSteps, state::FixedStepState, run, options, ceil
     if result.status !== :converged
         state.halvings += 1
         state.halvings > stepper.max_halvings &&
-            _give_up(run, options, t_next, h, result, "after $(stepper.max_halvings) halvings")
+            _give_up(
+                run, options, t_next, h, result, "after $(stepper.max_halvings) halvings")
         state.dt = h / 2
-        return _retry_after_failure(run, options, t_next, h, result, "is retried with half the time step")
+        return _retry_after_failure(
+            run, options, t_next, h, result, "is retried with half the time step")
     end
     # at a time point the next interval starts with its full length
     if t_next == run.times[run.next_point]
@@ -288,20 +303,20 @@ end
                  exponent=1.0, max_failures=5, failure_factor=0.2)
 
 DREAM's adaptive time stepper (`TYPE_ADAPTIVE`, `TimeStepperAdaptive.cpp`), the
-compatibility option of the step control. A checked step is solved three
-times: two steps of half the length and one of the full length from the same state, so
-the error estimate costs two solves per step of progress. The error of an unknown is the
-2-norm of the difference between the full step and the two half steps over the 2-norm of
-the full step, `‖u_full - u_half‖ / (absolute + relative ‖u_full‖)`, taken over every
-entry of the unknown at every radius; the error of the step is the largest over the
-unknowns. The step is accepted when it is at most 1, and its solution is that of the
-full step, as in DREAM. The next step is `safety · h / error^exponent` in either case,
-without a cap on its growth (DREAM: safety 0.95, exponent 1.0; its stabiliser, exponent
-0.7 with a memory of the last error, is compiled out). `check_every` steps between two
-checked steps are taken at the current length without a check, the documented intent of
-DREAM's `checkevery`. DREAM's code takes them from a stale `initTime`, with the lengths
-`h₁ − h₀`, `−h₀`, `−(h₀ + h₁)`, and `checkevery + 1` of them (`TimeStepperAdaptive.cpp:119-122`,
-`145-152`, `334-338`), so no option reproduces it.
+compatibility option of the step control. A checked step is solved three times: two steps of
+half the length and one of the full length from the same state, so the error estimate costs
+two solves per step of progress. The error of an unknown is the 2-norm of the difference
+between the full step and the two half steps over the 2-norm of the full step,
+`‖u_full - u_half‖ / (absolute + relative ‖u_full‖)`, taken over every entry of the unknown
+at every radius; the error of the step is the largest over the unknowns. The step is
+accepted when it is at most 1, and its solution is that of the full step, as in DREAM. The
+next step is `safety · h / error^exponent` in either case, without a cap on its growth
+(DREAM: safety 0.95, exponent 1.0; its stabiliser, exponent 0.7 with a memory of the last
+error, is compiled out). `check_every` steps between two checked steps are taken at the
+current length without a check, the documented intent of DREAM's `checkevery`. DREAM's code
+takes them from a stale `initTime`, with the lengths `h₁ − h₀`, `−h₀`, `−(h₀ + h₁)`, and
+`checkevery + 1` of them (`TimeStepperAdaptive.cpp:119-122`, `145-152`, `334-338`), so no
+option reproduces it.
 
 The tolerances are the [`Tolerance`](@ref)s the system holds for the time-step error
 (`time_step_tolerances` of [`EquationSystem`](@ref)); an unknown without one gets
@@ -331,19 +346,23 @@ struct StepDoubling <: TimeStepper
     max_failures::Int
     failure_factor::Float64
 end
-function StepDoubling(; initial_step::Union{Nothing,Real}=nothing, relative_tolerance::Real=1e-2,
-                      check_every::Integer=0, safety::Real=0.95, exponent::Real=1.0, max_failures::Integer=5,
-                      failure_factor::Real=0.2)
-    initial_step === nothing || initial_step > 0 || throw(ArgumentError("the initial step must be positive"))
-    relative_tolerance > 0 || throw(ArgumentError("the relative tolerance must be positive"))
+function StepDoubling(;
+        initial_step::Union{Nothing, Real} = nothing, relative_tolerance::Real = 1e-2,
+        check_every::Integer = 0, safety::Real = 0.95, exponent::Real = 1.0, max_failures::Integer = 5,
+        failure_factor::Real = 0.2)
+    initial_step === nothing || initial_step > 0 ||
+        throw(ArgumentError("the initial step must be positive"))
+    relative_tolerance > 0 ||
+        throw(ArgumentError("the relative tolerance must be positive"))
     check_every >= 0 || throw(ArgumentError("check_every must not be negative"))
     0 < safety <= 1 || throw(ArgumentError("the safety factor must lie in (0, 1]"))
     exponent > 0 || throw(ArgumentError("the exponent must be positive"))
     max_failures >= 0 || throw(ArgumentError("max_failures must not be negative"))
     0 < failure_factor < 1 || throw(ArgumentError("the failure factor must lie in (0, 1)"))
-    return StepDoubling(initial_step === nothing ? NaN : Float64(initial_step), Float64(relative_tolerance),
-                        Int(check_every), Float64(safety), Float64(exponent), Int(max_failures),
-                        Float64(failure_factor))
+    return StepDoubling(
+        initial_step === nothing ? NaN : Float64(initial_step), Float64(relative_tolerance),
+        Int(check_every), Float64(safety), Float64(exponent), Int(max_failures),
+        Float64(failure_factor))
 end
 
 # the state of StepDoubling: the step length, the steps taken since the last check, the
@@ -360,30 +379,37 @@ mutable struct StepDoublingState{T}
     const errors::Vector{Float64}     # per unknown, NaN before the first check
 end
 
-function stepper_state(stepper::StepDoubling, system::EquationSystem{T}, times, t, record::AbstractDict) where {T}
+function stepper_state(stepper::StepDoubling, system::EquationSystem{T},
+        times, t, record::AbstractDict) where {T}
     layout = system.layout
     absolute, relative = Float64[], Float64[]
     for u in layout.unknowns
         tolerance = get(system.time_step_tolerances, u.name, nothing)
         push!(absolute, tolerance === nothing ? 0.0 : tolerance.absolute)
-        push!(relative, tolerance === nothing ? stepper.relative_tolerance : tolerance.relative)
+        push!(relative, tolerance === nothing ? stepper.relative_tolerance :
+                        tolerance.relative)
     end
     n = length(layout)
     if get(record, "type", "") == "StepDoubling"
-        return StepDoublingState{T}(Float64(record["dt"]), Int(record["steps_since_check"]), Int(record["failures"]),
-                                    absolute, relative, zeros(T, n), zeros(T, n), fill(NaN, length(layout.unknowns)))
+        return StepDoublingState{T}(
+            Float64(record["dt"]), Int(record["steps_since_check"]),
+            Int(record["failures"]),
+            absolute, relative, zeros(T, n), zeros(T, n), fill(NaN, length(layout.unknowns)))
     end
     dt = isnan(stepper.initial_step) ? _interval_length(times, t) : stepper.initial_step
     # the first check comes with the first step, as in DREAM
-    return StepDoublingState{T}(dt, stepper.check_every, 0, absolute, relative, zeros(T, n), zeros(T, n),
-                                fill(NaN, length(layout.unknowns)))
+    return StepDoublingState{T}(
+        dt, stepper.check_every, 0, absolute, relative, zeros(T, n), zeros(T, n),
+        fill(NaN, length(layout.unknowns)))
 end
 
 stepper_errors(state::StepDoublingState) = state.errors
 
-stepper_record(state::StepDoublingState) =
-    SettingsRecord("type" => "StepDoubling", "dt" => state.dt, "steps_since_check" => state.steps_since_check,
-                   "failures" => state.failures)
+function stepper_record(state::StepDoublingState)
+    SettingsRecord("type" => "StepDoubling", "dt" => state.dt,
+        "steps_since_check" => state.steps_since_check,
+        "failures" => state.failures)
+end
 
 # the error per unknown of the full step `full` against the two half steps `doubled`,
 # and the largest of them; an unknown with zero tolerances is left out (NaN)
@@ -397,6 +423,7 @@ function _doubling_errors!(state::StepDoublingState, layout, full, doubled)
         end
         norm_full = norm_difference = 0.0
         for range in _unknown_ranges(layout, id), i in range
+
             norm_full += full[i]^2
             norm_difference += (full[i] - doubled[i])^2
         end
@@ -412,14 +439,16 @@ end
 
 # a failed solve of the doubling: the step length shrinks by the failure factor from the
 # step tried, `step`, which a ceiling may have cut below the planned length
-function _doubling_failure!(stepper::StepDoubling, state::StepDoublingState, run, options, t_next, h, result;
-                            step=h)
+function _doubling_failure!(
+        stepper::StepDoubling, state::StepDoublingState, run, options, t_next, h, result;
+        step = h)
     state.failures += 1
     state.failures > stepper.max_failures &&
-        _give_up(run, options, t_next, h, result, "after $(stepper.max_failures) failures in a row")
+        _give_up(run, options, t_next, h, result,
+            "after $(stepper.max_failures) failures in a row")
     state.dt = stepper.failure_factor * min(state.dt, step)
     return _retry_after_failure(run, options, t_next, h, result,
-                                "is retried with $(stepper.failure_factor) times the time step")
+        "is retried with $(stepper.failure_factor) times the time step")
 end
 
 function advance!(stepper::StepDoubling, state::StepDoublingState, run, options, ceiling)
@@ -429,7 +458,8 @@ function advance!(stepper::StepDoubling, state::StepDoublingState, run, options,
     if state.steps_since_check < stepper.check_every
         # a step without a check, at the current length
         result = _solve_step!(run, u_old, u, t_next, h)
-        result.status === :converged || return _doubling_failure!(stepper, state, run, options, t_next, h, result)
+        result.status === :converged ||
+            return _doubling_failure!(stepper, state, run, options, t_next, h, result)
         state.steps_since_check += 1
         state.failures = 0
         return (t_next, h)
@@ -438,13 +468,16 @@ function advance!(stepper::StepDoubling, state::StepDoublingState, run, options,
     t_half = t + h / 2
     # DREAM counts the failures in a row of every solve (`ValidateStep` after each converged
     # one), so a converged half step resets the count
-    result = _solve_step!(run, u_old, state.half, t_half, t_half - t; kind=:half_step)
+    result = _solve_step!(run, u_old, state.half, t_half, t_half - t; kind = :half_step)
     result.status === :converged ||
-        return _doubling_failure!(stepper, state, run, options, t_half, t_half - t, result; step=h)
+        return _doubling_failure!(
+            stepper, state, run, options, t_half, t_half - t, result; step = h)
     state.failures = 0
-    result = _solve_step!(run, state.half, state.doubled, t_next, t_next - t_half; kind=:half_step)
+    result = _solve_step!(
+        run, state.half, state.doubled, t_next, t_next - t_half; kind = :half_step)
     result.status === :converged ||
-        return _doubling_failure!(stepper, state, run, options, t_next, t_next - t_half, result; step=h)
+        return _doubling_failure!(
+            stepper, state, run, options, t_next, t_next - t_half, result; step = h)
     state.failures = 0
     copyto!(u, u_old)
     started = time_ns()
@@ -466,10 +499,10 @@ function advance!(stepper::StepDoubling, state::StepDoublingState, run, options,
     if !accepted
         log = options.log
         log_event!(log, "step rejected", Logging.Info,
-                   "the step to t = $t_next s with the time step $h s has the error $error of its tolerance " *
-                   "and is retried with the time step $(state.dt) s")
+            "the step to t = $t_next s with the time step $h s has the error $error of its tolerance " *
+            "and is retried with the time step $(state.dt) s")
         report_step!(log, u_old, run.layout, t, run.times, run.next_point - 2, run.stats;
-                     errors=stepper_errors(state))
+            errors = stepper_errors(state))
         return nothing
     end
     return (t_next, h)
@@ -495,22 +528,23 @@ the difference and costs one vector operation. The first step of a run has no hi
 it is solved as one step doubling ([`StepDoubling`](@ref), twice the cost of that step
 alone), whose difference `u_full - u_half` is half the local error.
 
-The error of an unknown is the root mean square over its entries of the local error
-over `absolute + relative |u|`, with the [`Tolerance`](@ref) the system holds for the
-time-step error (`time_step_tolerances` of [`EquationSystem`](@ref)); an unknown without
-one gets `relative_tolerance` and the absolute tolerance `relative_tolerance` times its
-scale, a floor that keeps entries near zero (the tail of a distribution, a density before
-its source acts) from holding the step. A radial unknown with more than one group of
-components ([`component_groups`](@ref), the charge states of the ion species) gets no
-absolute part and the `group` part `relative_tolerance` in its place: each entry is
-measured against `relative_tolerance` times the sum over its group, the density of its
-species, so a trace impurity is controlled on its own scale. An unknown
-with all tolerances zero is left out.
+The error of an unknown is the root mean square over its entries of the local error over
+`absolute + relative |u|`, with the [`Tolerance`](@ref) the system holds for the time-step
+error (`time_step_tolerances` of [`EquationSystem`](@ref)); an unknown without one gets
+`relative_tolerance` and the absolute tolerance `relative_tolerance` times its scale, a
+floor that keeps entries near zero (the tail of a distribution, a density before its source
+acts) from holding the step. A radial unknown with more than one group of components
+([`component_groups`](@ref), the charge states of the ion species) gets no absolute part and
+the `group` part `relative_tolerance` in its place: each entry is measured against
+`relative_tolerance` times the sum over its group, the density of its species, so a trace
+impurity is controlled on its own scale. An unknown with all tolerances zero is left out.
 The error of the step is the largest over the unknowns; the step is accepted when it is
 at most 1.
 
-The next step follows the PI filter of Gustafsson and Söderlind (Hairer and Wanner,
-Solving ODEs II, section IV.2):
+The next step follows the PI step-size control of K. Gustafsson, M. Lundh and
+G. Söderlind, BIT 28, 270 (1988) and K. Gustafsson, ACM Trans. Math. Softw. 17, 533
+(1991); see E. Hairer and G. Wanner, Solving Ordinary Differential Equations II, 2nd ed.
+(Springer, 1996), section IV.2:
 `h_new = h · safety · error^(-gains[1]) · error_old^(gains[2])`, with the factor kept
 between `min_shrink` and `max_growth`. The default gains are the elementary 0.7 and 0.4
 over the order of the local error, `(0.35, 0.2)` for backward Euler, whose local error is
@@ -590,20 +624,25 @@ struct StepController <: TimeStepper
     tail_floor::Float64        # the absolute tolerance of the tail density, relative to the density
     order::Int                 # 1: backward Euler, 2: BDF2
 end
-function StepController(; initial_step::Union{Nothing,Real}=nothing, relative_tolerance::Real=1e-3,
-                        max_growth::Real=2.0, min_shrink::Real=0.2, safety::Real=0.9, gains=nothing,
-                        max_failures::Integer=5, failure_factor::Real=0.2, max_rejections::Integer=20,
-                        tail_cut::Union{Nothing,Real}=1.0, tail_floor::Real=1e-12, order::Integer=1)
-    order in (1, 2) || throw(ArgumentError("order must be 1 (backward Euler) or 2 (BDF2), not $order"))
+function StepController(;
+        initial_step::Union{Nothing, Real} = nothing, relative_tolerance::Real = 1e-3,
+        max_growth::Real = 2.0, min_shrink::Real = 0.2, safety::Real = 0.9, gains = nothing,
+        max_failures::Integer = 5, failure_factor::Real = 0.2, max_rejections::Integer = 20,
+        tail_cut::Union{Nothing, Real} = 1.0, tail_floor::Real = 1e-12, order::Integer = 1)
+    order in (1, 2) ||
+        throw(ArgumentError("order must be 1 (backward Euler) or 2 (BDF2), not $order"))
     # variable-step BDF2 is zero-stable for a step ratio below 1 + √2
     order == 2 && max_growth >= 1 + sqrt(2) &&
         throw(ArgumentError("BDF2 needs max_growth below 1 + √2 ≈ 2.414 for its stability, not $max_growth"))
     # the elementary gains over the order of the local error, h^(order+1)
     gains === nothing && (gains = (0.7 / (order + 1), 0.4 / (order + 1)))
-    initial_step === nothing || initial_step > 0 || throw(ArgumentError("the initial step must be positive"))
-    tail_cut === nothing || tail_cut >= 0 || throw(ArgumentError("tail_cut must not be negative"))
+    initial_step === nothing || initial_step > 0 ||
+        throw(ArgumentError("the initial step must be positive"))
+    tail_cut === nothing || tail_cut >= 0 ||
+        throw(ArgumentError("tail_cut must not be negative"))
     tail_floor >= 0 || throw(ArgumentError("tail_floor must not be negative"))
-    relative_tolerance > 0 || throw(ArgumentError("the relative tolerance must be positive"))
+    relative_tolerance > 0 ||
+        throw(ArgumentError("the relative tolerance must be positive"))
     max_growth > 1 || throw(ArgumentError("max_growth must exceed 1"))
     0 < min_shrink < 1 || throw(ArgumentError("min_shrink must lie in (0, 1)"))
     0 < safety <= 1 || throw(ArgumentError("the safety factor must lie in (0, 1]"))
@@ -612,16 +651,19 @@ function StepController(; initial_step::Union{Nothing,Real}=nothing, relative_to
     max_failures >= 0 || throw(ArgumentError("max_failures must not be negative"))
     0 < failure_factor < 1 || throw(ArgumentError("the failure factor must lie in (0, 1)"))
     max_rejections >= 1 || throw(ArgumentError("max_rejections must be at least 1"))
-    return StepController(initial_step === nothing ? NaN : Float64(initial_step), Float64(relative_tolerance),
-                          Float64(max_growth), Float64(min_shrink), Float64(safety),
-                          Float64(gains[1]), Float64(gains[2]), Int(max_failures), Float64(failure_factor),
-                          Int(max_rejections), tail_cut === nothing ? NaN : Float64(tail_cut), Float64(tail_floor),
-                          Int(order))
+    return StepController(
+        initial_step === nothing ? NaN : Float64(initial_step), Float64(relative_tolerance),
+        Float64(max_growth), Float64(min_shrink), Float64(safety),
+        Float64(gains[1]), Float64(gains[2]), Int(max_failures), Float64(failure_factor),
+        Int(max_rejections), tail_cut === nothing ? NaN : Float64(tail_cut), Float64(tail_floor),
+        Int(order))
 end
 
 # the gains of the filter for a step of the order k: those of the stepper are for its own
 # order, and the steps of backward Euler that start a BDF2 run scale them to order 1
-_gains(stepper::StepController, k) = (stepper.gain_error, stepper.gain_memory) .* ((stepper.order + 1) / (k + 1))
+function _gains(stepper::StepController, k)
+    (stepper.gain_error, stepper.gain_memory) .* ((stepper.order + 1) / (k + 1))
+end
 
 # BDF2 is of second order for the implicit terms alone: an explicit term and a term built
 # from the start of the step keep the first order of their own time level
@@ -629,13 +671,14 @@ function _warn_first_order_terms(system::EquationSystem)
     first_order = !isempty(system.explicit_terms) ||
                   any(bound -> _first_order_term(bound.term), system.sparse_terms) ||
                   any(bound -> _first_order_term(bound.term), system.matrix_free_terms)
-    first_order && @warn "StepController(order = 2) with explicit or lagged terms: BDF2 is of second order for the " *
-                         "implicit terms only, the explicit and lagged ones stay of first order"
+    first_order &&
+        @warn "StepController(order = 2) with explicit or lagged terms: BDF2 is of second order for the " *
+              "implicit terms only, the explicit and lagged ones stay of first order"
     return first_order
 end
 # the terms that take a part of their residual at the start of the step: lagged coefficients
-# or ions of a Fokker-Planck term, the energy loss of such a term, a lagged knock-on primary,
-# a field-particle term that follows the unknowns
+# or ions of a Fokker-Planck term, the energy loss of such a term, a lagged knock-on
+# primary, a field-particle term that follows the unknowns
 _first_order_term(term) = lags_in_ode_form(term)
 
 # the state of StepController: the step length, the two last accepted states before the
@@ -657,15 +700,16 @@ mutable struct StepControllerState{T}
     const doubled::Vector{T}
     const reference::Vector{T}        # the reference state of the BDF2 step
     const errors::Vector{Float64}     # per unknown, NaN before the first estimate
-    const tail_region::Union{Nothing,MomentumRegion}   # the region of the tail moments
-    const tail_weights::Vector{Vector{NTuple{3,Matrix{Float64}}}}   # per unknown and radius: tail density, tail current and density weights, empty without
+    const tail_region::Union{Nothing, MomentumRegion}   # the region of the tail moments
+    const tail_weights::Vector{Vector{NTuple{3, Matrix{Float64}}}}   # per unknown and radius: tail density, tail current and density weights, empty without
     const tail_errors::Vector{Float64}                 # per unknown, the error of the tail moments, NaN without
     const tail_floor::Float64                          # the tail floor relative to the density of the grid electrons
     const grid_density::Vector{Float64}                # per radius, the density of the electrons on all kinetic grids
     const group::Vector{Float64}      # per unknown: the tolerance relative to the sum over a group of components
 end
 
-function stepper_state(stepper::StepController, system::EquationSystem{T}, times, t, record::AbstractDict) where {T}
+function stepper_state(stepper::StepController, system::EquationSystem{T},
+        times, t, record::AbstractDict) where {T}
     layout = system.layout
     absolute, relative, group = Float64[], Float64[], Float64[]
     for u in layout.unknowns
@@ -673,10 +717,13 @@ function stepper_state(stepper::StepController, system::EquationSystem{T}, times
         # the charge states of the ion species: each relative to the density of its species,
         # so that a trace impurity is not measured against the scale of the main one
         grouped = u isa RadialUnknown && length(component_groups(u)) > 1
-        push!(absolute, tolerance !== nothing ? tolerance.absolute :
-                        grouped ? 0.0 : stepper.relative_tolerance * u.scale)
-        push!(relative, tolerance === nothing ? stepper.relative_tolerance : tolerance.relative)
-        push!(group, tolerance !== nothing ? tolerance.group : grouped ? stepper.relative_tolerance : 0.0)
+        push!(absolute,
+            tolerance !== nothing ? tolerance.absolute :
+            grouped ? 0.0 : stepper.relative_tolerance * u.scale)
+        push!(relative, tolerance === nothing ? stepper.relative_tolerance :
+                        tolerance.relative)
+        push!(group, tolerance !== nothing ? tolerance.group :
+                     grouped ? stepper.relative_tolerance : 0.0)
     end
     stepper.order == 2 && _warn_first_order_terms(system)
     n = length(layout)
@@ -684,20 +731,27 @@ function stepper_state(stepper::StepController, system::EquationSystem{T}, times
     # the tail moments of the kinetic unknowns: the region above the cut and the weights of
     # the moments on each kinetic unknown's grid
     tail_region = isnan(stepper.tail_cut) ? nothing : MomentumRegion(stepper.tail_cut)
-    tail_weights = [tail_region !== nothing && layout.kinds[id] === :kinetic ? _tail_moment_weights(u.grid, tail_region) :
-                    NTuple{3,Matrix{Float64}}[] for (id, u) in enumerate(layout.unknowns)]
+    tail_weights = [tail_region !== nothing && layout.kinds[id] === :kinetic ?
+                    _tail_moment_weights(u.grid, tail_region) :
+                    NTuple{3, Matrix{Float64}}[] for (id, u) in enumerate(layout.unknowns)]
+    #! format: off
     state(dt, step, step2, error_old, failures, previous, previous2) =
         StepControllerState{T}(dt, step, step2, error_old, failures, 0, previous, previous2, absolute, relative,
                                zeros(T, n), zeros(T, n), zeros(T, n), fill(NaN, count), tail_region, tail_weights,
                                fill(NaN, count), stepper.tail_floor, zeros(radial_cell_count(layout)), group)
+    #! format: on
     if get(record, "type", "") == "StepController"
-        previous = haskey(record, "previous_state") ? Vector{T}(record["previous_state"]) : T[]
+        previous = haskey(record, "previous_state") ? Vector{T}(record["previous_state"]) :
+                   T[]
         if length(previous) == n
-            # the second state of BDF2, when the record has one (format 0.24)
-            previous2 = haskey(record, "previous_state_2") ? Vector{T}(record["previous_state_2"]) : T[]
+            # the second state of BDF2, when the record has one
+            previous2 = haskey(record, "previous_state_2") ?
+                        Vector{T}(record["previous_state_2"]) : T[]
             step2 = length(previous2) == n ? Float64(record["previous_step_2"]) : NaN
-            return state(Float64(record["dt"]), Float64(record["previous_step"]), step2, Float64(record["error_old"]),
-                         Int(record["failures"]), previous, length(previous2) == n ? previous2 : zeros(T, n))
+            return state(Float64(record["dt"]), Float64(record["previous_step"]),
+                step2, Float64(record["error_old"]),
+                Int(record["failures"]), previous, length(previous2) == n ? previous2 :
+                                                   zeros(T, n))
         end
         # the run resumes onto another layout (an unknown added or removed): the stored
         # states of the predictor do not fit, so the controller starts with its stored
@@ -712,9 +766,11 @@ function stepper_state(stepper::StepController, system::EquationSystem{T}, times
 end
 
 function stepper_record(state::StepControllerState)
-    record = SettingsRecord("type" => "StepController", "dt" => state.dt, "previous_step" => state.previous_step,
-                            "error_old" => state.error_old, "failures" => state.failures)
-    isnan(state.previous_step) || (record["previous_state"] = collect(Float64, state.previous))
+    record = SettingsRecord("type" => "StepController", "dt" => state.dt,
+        "previous_step" => state.previous_step,
+        "error_old" => state.error_old, "failures" => state.failures)
+    isnan(state.previous_step) ||
+        (record["previous_state"] = collect(Float64, state.previous))
     if !isnan(state.previous_step2)
         record["previous_step_2"] = state.previous_step2
         record["previous_state_2"] = collect(Float64, state.previous2)
@@ -722,14 +778,18 @@ function stepper_record(state::StepControllerState)
     return record
 end
 
-ceilings(::StepController, times, save_times) = sort!(unique!(collect(Float64, vcat(times, save_times))))
+function ceilings(::StepController, times, save_times)
+    sort!(unique!(collect(Float64, vcat(times, save_times))))
+end
 
 stepper_errors(state::StepControllerState) = state.errors
 
 # after an update that changed the setup the extrapolation through the states before it
 # would hold the jump of the setup, a term of first order in the step: the next step takes
 # its estimate from a doubling, as the first step of a run
-reset_history!(state::StepControllerState) = (state.previous_step = NaN; state.previous_step2 = NaN; nothing)
+function reset_history!(state::StepControllerState)
+    (state.previous_step = NaN; state.previous_step2 = NaN; nothing)
+end
 
 # the error per unknown of the local error estimate `factor (a - b)`, the root mean
 # square over the entries of the unknown of the estimate over its tolerance at the
@@ -789,10 +849,12 @@ end
 # all kinetic grids at the radius (`_grid_density!`), that of the current e c times it.
 # The cells of the tail lie far below the absolute floor of the cell measure, so
 # the moments are what controls the tail.
-function _tail_moment_error!(state::StepControllerState, layout, id, u, a, b, factor, relative)
+function _tail_moment_error!(
+        state::StepControllerState, layout, id, u, a, b, factor, relative)
     sum_squares, count = 0.0, 0
     for (ir, (density_weights, current_weights, _)) in enumerate(state.tail_weights[id])
-        f, f_a, f_b = kinetic_view(u, layout, id, ir), kinetic_view(a, layout, id, ir), kinetic_view(b, layout, id, ir)
+        f, f_a, f_b = kinetic_view(u, layout, id, ir), kinetic_view(a, layout, id, ir),
+        kinetic_view(b, layout, id, ir)
         density_u, current_u, density_e, current_e = 0.0, 0.0, 0.0, 0.0
         @inbounds for k in eachindex(f, f_a, f_b, density_weights, current_weights)
             estimate = factor * (f_a[k] - f_b[k])
@@ -802,13 +864,16 @@ function _tail_moment_error!(state::StepControllerState, layout, id, u, a, b, fa
             current_e += current_weights[k] * estimate
         end
         floor_density = state.tail_floor * state.grid_density[ir]
-        floor_current = Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT * floor_density
+        floor_current = Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT *
+                        floor_density
+        #! format: off
         for (e, m, floor) in ((density_e, density_u, floor_density), (current_e, current_u, floor_current))
             scale = floor + relative * abs(m)
             scale == 0 && continue
             sum_squares += (e / scale)^2
             count += 1
         end
+        #! format: on
     end
     return count == 0 ? 0.0 : sqrt(sum_squares / count)
 end
@@ -818,7 +883,9 @@ end
 # floor relative to its own density would vanish with it
 function _grid_density!(state::StepControllerState, layout, u)
     fill!(state.grid_density, 0.0)
-    for (id, weights) in enumerate(state.tail_weights), (ir, (_, _, all_weights)) in enumerate(weights)
+    for (id, weights) in enumerate(state.tail_weights),
+        (ir, (_, _, all_weights)) in enumerate(weights)
+
         f = kinetic_view(u, layout, id, ir)
         density = 0.0
         @inbounds for k in eachindex(f, all_weights)
@@ -832,22 +899,25 @@ function _grid_density!(state::StepControllerState, layout, u)
     return state.grid_density
 end
 
-# the weights of the density and the current density above the cut of the region, and of
-# the density over all momenta, per radius on the momentum grid of that radius: the
-# moments of `density` and `current_density` as sums of weight times f, for grids whose cell counts differ between
-# the radii
+# the weights of the density and the current density above the cut of the region, and of the
+# density over all momenta, per radius on the momentum grid of that radius: the moments of
+# `density` and `current_density` as sums of weight times f, for grids whose cell counts
+# differ between the radii
 function _tail_moment_weights(grid::KineticGrid, region::MomentumRegion)
-    weights = NTuple{3,Matrix{Float64}}[]
+    weights = NTuple{3, Matrix{Float64}}[]
     for ir in 1:radial_cell_count(grid)
         m = momentum_grid(grid, ir)
         jacobian = phase_space_jacobian(grid, ir)
         envelope = momentum_envelope(region, grid, ir)
         pitch = pitch_moment_weights(m)
         volume = grid.radial_grid.spatial_jacobian[ir]
-        density_weights = [envelope[i] * jacobian[i, j] * m.p_widths[i] * m.xi_widths[j] / volume
+        density_weights = [envelope[i] * jacobian[i, j] * m.p_widths[i] * m.xi_widths[j] /
+                           volume
                            for i in 1:momentum_cell_count(m), j in 1:pitch_cell_count(m)]
-        current_weights = [Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT * envelope[i] * jacobian[i, j] *
-                           m.p_widths[i] * m.p_centers[i] / sqrt(1 + m.p_centers[i]^2) * pitch[j] / volume
+        current_weights = [Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT *
+                           envelope[i] * jacobian[i, j] *
+                           m.p_widths[i] * m.p_centers[i] / sqrt(1 + m.p_centers[i]^2) *
+                           pitch[j] / volume
                            for i in 1:momentum_cell_count(m), j in 1:pitch_cell_count(m)]
         all_weights = [jacobian[i, j] * m.p_widths[i] * m.xi_widths[j] / volume
                        for i in 1:momentum_cell_count(m), j in 1:pitch_cell_count(m)]
@@ -858,31 +928,37 @@ end
 
 # a failed solve of the controller: the step length shrinks by the failure factor from the
 # step tried, `step`, which a ceiling may have cut below the planned length
-function _controller_failure!(stepper::StepController, state::StepControllerState, run, options, t_next, h, result;
-                              step=h)
+function _controller_failure!(stepper::StepController, state::StepControllerState,
+        run, options, t_next, h, result;
+        step = h)
     state.failures += 1
     state.failures > stepper.max_failures &&
-        _give_up(run, options, t_next, h, result, "after $(stepper.max_failures) failures in a row")
+        _give_up(run, options, t_next, h, result,
+            "after $(stepper.max_failures) failures in a row")
     state.dt = stepper.failure_factor * min(state.dt, step)
     return _retry_after_failure(run, options, t_next, h, result,
-                                "is retried with $(stepper.failure_factor) times the time step")
+        "is retried with $(stepper.failure_factor) times the time step")
 end
 
 # the solve of the step from u_old to u over h with its error estimate and the order of
 # the step: backward Euler with the estimate from the predictor through the last accepted
 # state, or from a doubling when there is none; BDF2 (order 2) once two accepted states
 # precede u_old. `nothing` after a failed solve, which the controller has handled.
-function _controller_estimate!(stepper::StepController, state::StepControllerState, run, options, t_next, h)
+function _controller_estimate!(
+        stepper::StepController, state::StepControllerState, run, options, t_next, h)
     u_old, u = run.u_old, run.u
     if isnan(state.previous_step)
         t = run.t
         t_half = t + h / 2
-        result = _solve_step!(run, u_old, state.half, t_half, t_half - t; kind=:half_step)
+        result = _solve_step!(run, u_old, state.half, t_half, t_half - t; kind = :half_step)
         result.status === :converged ||
-            return _controller_failure!(stepper, state, run, options, t_half, t_half - t, result; step=h)
-        result = _solve_step!(run, state.half, state.doubled, t_next, t_next - t_half; kind=:half_step)
+            return _controller_failure!(
+                stepper, state, run, options, t_half, t_half - t, result; step = h)
+        result = _solve_step!(
+            run, state.half, state.doubled, t_next, t_next - t_half; kind = :half_step)
         result.status === :converged ||
-            return _controller_failure!(stepper, state, run, options, t_next, t_next - t_half, result; step=h)
+            return _controller_failure!(
+                stepper, state, run, options, t_next, t_next - t_half, result; step = h)
     end
     bdf2 = stepper.order == 2 && !isnan(state.previous_step2)
     copyto!(u, u_old)
@@ -893,7 +969,7 @@ function _controller_estimate!(stepper::StepController, state::StepControllerSta
         ω = h / state.previous_step
         a, b, c = (1 + ω)^2 / (1 + 2ω), ω^2 / (1 + 2ω), (1 + ω) / (1 + 2ω)
         @. state.reference = a * u_old - b * state.previous
-        result = newton_solve!(u, u_old, run.ws, t_next, c * h; reference=state.reference)
+        result = newton_solve!(u, u_old, run.ws, t_next, c * h; reference = state.reference)
     else
         result = newton_solve!(u, u_old, run.ws, t_next, h)
     end
@@ -927,7 +1003,8 @@ function _controller_estimate!(stepper::StepController, state::StepControllerSta
     return (error, result, wall, bdf2 ? 2 : 1)
 end
 
-function advance!(stepper::StepController, state::StepControllerState, run, options, ceiling)
+function advance!(
+        stepper::StepController, state::StepControllerState, run, options, ceiling)
     t, u_old, u = run.t, run.u_old, run.u
     t_next = _step_end(t, state.dt, ceiling)
     h = t_next - t
@@ -940,27 +1017,32 @@ function advance!(stepper::StepController, state::StepControllerState, run, opti
     if !accepted
         state.rejections += 1
         state.rejections > stepper.max_rejections &&
-            _give_up(run, options, t_next, h, NewtonResult(:rejected, result.iterations, result.initial_residual_norm,
-                                                          result.residual_norm, result.update_norm,
-                                                          result.convergence_order, result.smallest_step_length,
-                                                          result.krylov_iterations, result.preconditioner_updates,
-                                                          false, false, 0.0, 0.0, 0.0, 0.0),
-                     "with the error $error of its tolerance, after $(stepper.max_rejections) rejections in a row")
+            _give_up(run,
+                options,
+                t_next,
+                h,
+                NewtonResult(:rejected, result.iterations, result.initial_residual_norm,
+                    result.residual_norm, result.update_norm,
+                    result.convergence_order, result.smallest_step_length,
+                    result.krylov_iterations, result.preconditioner_updates,
+                    false, false, 0.0, 0.0, 0.0, 0.0),
+                "with the error $error of its tolerance, after $(stepper.max_rejections) rejections in a row")
         # the elementary rule for a local error of the order of the step, from the
         # measured step; the filter keeps its memory
         state.dt = h * max(stepper.min_shrink, stepper.safety * error^(-1 / (order + 1)))
         log = options.log
         log_event!(log, "step rejected", Logging.Info,
-                   "the step to t = $t_next s with the time step $h s has the error $error of its tolerance " *
-                   "and is retried with the time step $(state.dt) s")
+            "the step to t = $t_next s with the time step $h s has the error $error of its tolerance " *
+            "and is retried with the time step $(state.dt) s")
         report_step!(log, u_old, run.layout, t, run.times, run.next_point - 2, run.stats;
-                     errors=stepper_errors(state))
+            errors = stepper_errors(state))
         return nothing
     end
     state.rejections = 0
     # the PI filter on the measured step, its growth capped; a zero error grows by the cap
     gain_error, gain_memory = _gains(stepper, order)
-    factor = error == 0 ? stepper.max_growth : stepper.safety * error^(-gain_error) * state.error_old^gain_memory
+    factor = error == 0 ? stepper.max_growth :
+             stepper.safety * error^(-gain_error) * state.error_old^gain_memory
     state.dt = h * clamp(factor, stepper.min_shrink, stepper.max_growth)
     # the memory of the filter floored as in Hairer's codes: a step with an error near
     # zero would otherwise shrink the next one by the limit
@@ -987,31 +1069,35 @@ The options of a run of [`integrate`](@ref), which takes them as keywords or as 
 record. `save_times = nothing` saves at the time points. The others are described with
 [`integrate`](@ref).
 """
-Base.@kwdef struct RunOptions{S<:NewtonSolver,P<:TimeStepper,U,C<:Union{Nothing,CheckpointSettings},R,
-                              X<:Union{Nothing,StopCondition},L<:Union{Nothing,ProgressLog},D}
+Base.@kwdef struct RunOptions{
+    S <: NewtonSolver, P <: TimeStepper, U, C <: Union{Nothing, CheckpointSettings}, R,
+    X <: Union{Nothing, StopCondition}, L <: Union{Nothing, ProgressLog}, D}
     solver::S = NewtonSolver()
     stepper::P = FixedSteps()
-    save_times::Union{Nothing,AbstractVector} = nothing
+    save_times::Union{Nothing, AbstractVector} = nothing
     updates::U = ()
     checkpoint::C = nothing
     resume::R = false
     stop::X = nothing
     log::L = nothing
-    description::D = Dict{String,Any}()
+    description::D = Dict{String, Any}()
 end
 
-# the record of a run (moved from settings.jl)
+# the record of a run
 
 "Sections of the settings that define the setup of a run, covered by `setup_hash`."
-const SETUP_SECTIONS = ("grids", "layout", "system", "updates", "prescribed", "solver", "time", "run")
+const SETUP_SECTIONS = (
+    "grids", "layout", "system", "updates", "prescribed", "solver", "time", "run")
 
-_has_undescribed(record::AbstractDict) =
+function _has_undescribed(record::AbstractDict)
     get(record, "described", true) === false || any(_has_undescribed, values(record))
+end
 _has_undescribed(value) = false
 
 function _describe_time(times, save_times, stepper)
-    record = SettingsRecord("time_count" => length(times), "save_count" => length(save_times),
-                            "stepper" => describe(stepper))
+    record = SettingsRecord(
+        "time_count" => length(times), "save_count" => length(save_times),
+        "stepper" => describe(stepper))
     isempty(times) || (record["times"] = collect(Float64, times))
     isempty(save_times) || (record["save_times"] = collect(Float64, save_times))
     return record
@@ -1057,23 +1143,26 @@ reached, the intervals done and the reason of a stop, and for a resumed segment 
 it resumed from, the commit and setup hash of the run that wrote it and the sections whose
 hash changed.
 """
-function run_settings(system::EquationSystem; solver::NewtonSolver=NewtonSolver(),
-                      times::AbstractVector=Float64[], save_times::AbstractVector=times,
-                      stepper=nothing, max_step_halvings::Union{Nothing,Integer}=nothing,
-                      description=SettingsRecord(),
-                      updates=(), checkpoint=nothing, stop=nothing, log=nothing,
-                      max_table_bytes::Integer=MAX_PRESCRIBED_TABLE_BYTES)
+function run_settings(system::EquationSystem; solver::NewtonSolver = NewtonSolver(),
+        times::AbstractVector = Float64[], save_times::AbstractVector = times,
+        stepper = nothing, max_step_halvings::Union{Nothing, Integer} = nothing,
+        description = SettingsRecord(),
+        updates = (), checkpoint = nothing, stop = nothing, log = nothing,
+        max_table_bytes::Integer = MAX_PRESCRIBED_TABLE_BYTES)
     if max_step_halvings !== nothing
-        stepper === nothing || throw(ArgumentError("give max_step_halvings or stepper, not both"))
-        stepper = FixedSteps(; max_halvings=max_step_halvings)
+        stepper === nothing ||
+            throw(ArgumentError("give max_step_halvings or stepper, not both"))
+        stepper = FixedSteps(; max_halvings = max_step_halvings)
     end
     stepper === nothing && (stepper = FixedSteps())
     context = DescriptionContext(; times, max_table_bytes)
     record = SettingsRecord()
     record["layout"] = describe(system.layout, context)
     record["system"] = describe(system, context)
+    #! format: off
     record["updates"] = SettingsRecord(update_name(update) => describe(update, context)
                                        for update in _checked_updates(updates))
+    #! format: on
     # after the layout, the terms and the updates have named their grids and tables
     record["grids"] = describe(context)
     record["prescribed"] = describe_tables(context)
@@ -1081,11 +1170,14 @@ function run_settings(system::EquationSystem; solver::NewtonSolver=NewtonSolver(
     record["time"] = _describe_time(times, save_times, stepper)
     record["run"] = _plain(description)
     record["complete"] = !_has_undescribed(record)
+    #! format: off
     record["hashes"] = SettingsRecord(section => settings_hash(record[section]) for section in SETUP_SECTIONS)
     record["setup_hash"] = settings_hash(SettingsRecord(section => record[section] for section in SETUP_SECTIONS))
+    #! format: on
     record["code"] = code_version()
     record["environment"] = run_environment()
-    record["checkpoint"] = checkpoint === nothing ? SettingsRecord("type" => "none") : describe(checkpoint)
+    record["checkpoint"] = checkpoint === nothing ? SettingsRecord("type" => "none") :
+                           describe(checkpoint)
     record["stop"] = stop === nothing ? SettingsRecord("type" => "none") : describe(stop)
     record["log"] = log === nothing ? SettingsRecord("type" => "none") : describe(log)
     return record
@@ -1101,18 +1193,24 @@ extension `Runes2PHDF5Ext`, which loads with HDF5 (`using HDF5`).
 function read_settings end
 
 # the record of a run with these options
-run_settings(system::EquationSystem, times::AbstractVector, options::RunOptions) =
+function run_settings(system::EquationSystem, times::AbstractVector, options::RunOptions)
     run_settings(system; options.solver, options.stepper, times,
-                 save_times=options.save_times === nothing ? times : options.save_times, options.description,
-                 options.updates, options.checkpoint, options.stop, options.log)
+        save_times = options.save_times === nothing ? times : options.save_times, options.description,
+        options.updates, options.checkpoint, options.stop, options.log)
+end
 
 # the part of a run's saved states a segment holds: columns 1:count of the arrays
-function _segment_solution(layout, save_times, first_save, count, saved, stats, settings, updates, saved_updates)
+function _segment_solution(layout, save_times, first_save, count, saved,
+        stats, settings, updates, saved_updates)
     T = eltype(saved)
+    #! format: off
     update_states = Dict{String,Matrix{Float64}}(update_name(update) => saved_updates[k][:, 1:count]
                                                  for (k, update) in enumerate(updates))
-    return TimeSolution(layout, collect(T, save_times[first_save:first_save+count-1]), saved[:, 1:count], stats,
-                        settings, update_states)
+    #! format: on
+    return TimeSolution(
+        layout, collect(T, save_times[first_save:(first_save + count - 1)]),
+        saved[:, 1:count], stats,
+        settings, update_states)
 end
 
 """
@@ -1121,23 +1219,23 @@ end
               log=nothing)
     integrate(system, u0, times, options::RunOptions)
 
-Backward-Euler integration of `system` from the state `u0` at `times[1]` through the
-time points `times` (any increasing array, e.g. nonuniform or matching the restarts of
-another run, DREAM #502). The `stepper` ([`TimeStepper`](@ref)) sets the length of every
-step, and every time point is the end of a step: with [`FixedSteps`](@ref), the default,
-each interval between two time points is one step, retried with half the time step when
-it fails (`max_step_halvings = n` is a shorthand for `stepper = FixedSteps(max_halvings=n)`).
-Each step is solved by [`newton_solve!`](@ref) with explicit terms at the previous time
-level. A step that still fails throws [`TimeStepFailure`](@ref).
+Backward-Euler integration of `system` from the state `u0` at `times[1]` through the time
+points `times` (any increasing array, e.g. nonuniform or matching the restarts of another
+run). The `stepper` ([`TimeStepper`](@ref)) sets the length of every step, and every time
+point is the end of a step: with [`FixedSteps`](@ref), the default, each interval between
+two time points is one step, retried with half the time step when it fails
+(`max_step_halvings = n` is a shorthand for `stepper = FixedSteps(max_halvings=n)`). Each
+step is solved by [`newton_solve!`](@ref) with explicit terms at the previous time level. A
+step that still fails throws [`TimeStepFailure`](@ref).
 
-States are saved at `save_times` (strictly increasing, inside `[times[1], times[end]]`; two save
-times within a relative 1e-12 of one time point count as one and are refused), and every
-saved state is a computed one: with [`FixedSteps`](@ref) and [`StepDoubling`](@ref) a
-save time must be a time point (an `ArgumentError` names one that is not; DREAM saves
-computed steps only, DREAM issues #81 and #93), while [`StepController`](@ref) ends a step
-on every save time. A save time within a relative 1e-12 of a time point is taken as that
-time point. [`time_points`](@ref) builds `times` and `save_times` from [`Leg`](@ref)s in
-one arithmetic. Returns a [`TimeSolution`](@ref).
+States are saved at `save_times` (strictly increasing, inside `[times[1], times[end]]`; a
+save time within a relative 1e-12 of a time point is taken as that time point, and two save
+times taken as one time point are refused), and every saved state is a computed one: with
+[`FixedSteps`](@ref) and [`StepDoubling`](@ref) a save time must be a time point (an
+`ArgumentError` names one that is not; DREAM saves computed steps only), while
+[`StepController`](@ref) ends a step on every save time. [`time_points`](@ref) builds
+`times` and `save_times` from [`Leg`](@ref)s in one arithmetic. Returns a
+[`TimeSolution`](@ref).
 
 The solution carries the record of the run's settings ([`run_settings`](@ref)), taken
 before the first step and before a stored state is restored, so it describes the setup
@@ -1188,10 +1286,14 @@ milestones of the simulated time, after a silence and on demand, and the events 
 run when they happen. The warnings of the run are written to it.
 """
 function integrate(system::EquationSystem, u0::AbstractVector, times::AbstractVector;
-                   max_step_halvings::Union{Nothing,Integer}=nothing, options...)
+        max_step_halvings::Union{Nothing, Integer} = nothing, options...)
     if max_step_halvings !== nothing
-        haskey(options, :stepper) && throw(ArgumentError("give max_step_halvings or stepper, not both"))
-        return integrate(system, u0, times, RunOptions(; stepper=FixedSteps(; max_halvings=max_step_halvings), options...))
+        haskey(options, :stepper) &&
+            throw(ArgumentError("give max_step_halvings or stepper, not both"))
+        return integrate(system,
+            u0,
+            times,
+            RunOptions(; stepper = FixedSteps(; max_halvings = max_step_halvings), options...))
     end
     return integrate(system, u0, times, RunOptions(; options...))
 end
@@ -1210,13 +1312,14 @@ end
 
 # checks of the arguments of a run that do not need the stored state
 function _check_run(system::EquationSystem, u0, times, save_times, options::RunOptions)
-    length(u0) == length(system.layout) || throw(DimensionMismatch("u0 does not match the layout"))
+    length(u0) == length(system.layout) ||
+        throw(DimensionMismatch("u0 does not match the layout"))
     isempty(times) && throw(ArgumentError("times is empty"))
-    all(k -> times[k+1] > times[k], 1:length(times)-1) ||
+    all(k -> times[k + 1] > times[k], 1:(length(times) - 1)) ||
         throw(ArgumentError("times must be strictly increasing"))
     # strictly, after the snap to the time points: a repeated save time would be saved twice,
     # and the reader of a segmented run refuses repeated times
-    all(k -> save_times[k+1] > save_times[k], 1:length(save_times)-1) ||
+    all(k -> save_times[k + 1] > save_times[k], 1:(length(save_times) - 1)) ||
         throw(ArgumentError("save_times must be strictly increasing (after snapping to the time points within a relative 1e-12)"))
     all(s -> first(times) <= s <= last(times), save_times) ||
         throw(ArgumentError("save_times must lie inside [times[1], times[end]]"))
@@ -1232,13 +1335,16 @@ function _check_run(system::EquationSystem, u0, times, save_times, options::RunO
     updates = _checked_updates(options.updates)
     foreach(update -> check_update(update, system), updates)
     for update in updates, t in forced_time_points(update)
-        first(times) < t < last(times) && !any(point -> isapprox(point, t; rtol=1e-12), times) &&
+
+        first(times) < t < last(times) &&
+            !any(point -> isapprox(point, t; rtol = 1e-12), times) &&
             throw(ArgumentError("the update $(update_name(update)) changes at t = $t, which is not a time " *
                                 "point of the run"))
     end
     # a term whose input switches in time (the level of a heat transport)
     for equation in system.equations, term in equation.terms, t in forced_time_points(term)
-        first(times) < t < last(times) && !any(point -> isapprox(point, t; rtol=1e-12), times) &&
+        first(times) < t < last(times) &&
+            !any(point -> isapprox(point, t; rtol = 1e-12), times) &&
             throw(ArgumentError("a $(nameof(typeof(term))) in the equation of $(equation.unknown) changes at " *
                                 "t = $t, which is not a time point of the run"))
     end
@@ -1248,7 +1354,8 @@ end
 
 # the start of a segment: the time and the states it starts from, restored from the
 # stored state when there is one, and the record of the segment
-function _start_segment!(u_old, layout, times, save_times, updates, settings, stored, options::RunOptions)
+function _start_segment!(
+        u_old, layout, times, save_times, updates, settings, stored, options::RunOptions)
     T = eltype(u_old)
     t = T(first(times))
     first_save, segment = 1, 1
@@ -1272,7 +1379,8 @@ function _start_segment!(u_old, layout, times, save_times, updates, settings, st
         summary_before = stored.summary
         stepper_before = stored.stepper
     end
-    settings["segment"] = _segment_record(segment, stored, settings, t, stored === nothing ? 0 : stored.saved_count)
+    settings["segment"] = _segment_record(
+        segment, stored, settings, t, stored === nothing ? 0 : stored.saved_count)
     checkpoint = options.checkpoint
     if checkpoint !== nothing
         mkpath(checkpoint.directory)
@@ -1302,7 +1410,7 @@ end
 # The state of a running segment: the states and the times, what it has saved, its
 # statistics and its record, and the wall-time bookkeeping of the checkpoints and the
 # stop. The loop of `_run_steps!` and the helpers below act on it.
-mutable struct RunState{T,L<:UnknownLayout,U,W<:NewtonWorkspace,S,P}
+mutable struct RunState{T, L <: UnknownLayout, U, W <: NewtonWorkspace, S, P}
     const layout::L
     const times::Vector{T}
     const save_times::Vector{T}
@@ -1311,9 +1419,9 @@ mutable struct RunState{T,L<:UnknownLayout,U,W<:NewtonWorkspace,S,P}
     const saved::Matrix{T}
     const saved_updates::Vector{Matrix{Float64}}
     const stats::SolverStatistics
-    const settings::Dict{String,Any}
+    const settings::Dict{String, Any}
     const segment::Int
-    const summary_before::Dict{String,Any}
+    const summary_before::Dict{String, Any}
     const u_old::Vector{T}
     const u::Vector{T}
     const ws::W
@@ -1355,11 +1463,13 @@ function _apply_updates!(run::RunState)
     return nothing
 end
 
-_segment_solution(run::RunState) =
-    _segment_solution(run.layout, run.save_times, run.first_save, run.next_save - run.first_save, run.saved,
-                      run.stats, run.settings, run.updates, run.saved_updates)
+function _segment_solution(run::RunState)
+    _segment_solution(run.layout, run.save_times, run.first_save,
+        run.next_save - run.first_save, run.saved,
+        run.stats, run.settings, run.updates, run.saved_updates)
+end
 
-function _update_segment!(run::RunState, status; reason=nothing, checkpoint_written=false)
+function _update_segment!(run::RunState, status; reason = nothing, checkpoint_written = false)
     record = run.settings["segment"]
     record["status"] = status
     record["end_time"] = Float64(run.t)
@@ -1369,11 +1479,13 @@ function _update_segment!(run::RunState, status; reason=nothing, checkpoint_writ
     return nothing
 end
 
-function _write_checkpoint!(run::RunState, checkpoint::CheckpointSettings, log, status, reason)
+function _write_checkpoint!(
+        run::RunState, checkpoint::CheckpointSettings, log, status, reason)
     started_write = time()
-    _update_segment!(run, status; reason, checkpoint_written=true)
+    _update_segment!(run, status; reason, checkpoint_written = true)
     # the output first: a checkpoint then never names states its segment file lacks
-    write_output(segment_file(checkpoint, run.segment), _segment_solution(run); atomic=true)
+    write_output(segment_file(checkpoint, run.segment), _segment_solution(run); atomic = true)
+    #! format: off
     write_checkpoint(checkpoint,
                      StoredState(Float64(run.t), copy(run.u_old), run.layout,
                                  Dict{String,Vector{Float64}}(update_name(update) => update_state(update)
@@ -1381,11 +1493,12 @@ function _write_checkpoint!(run::RunState, checkpoint::CheckpointSettings, log, 
                                  run.settings, run.segment, run.next_save - 1,
                                  _run_summary(run.summary_before, run.stats, time() - run.started_run),
                                  stepper_record(run.stepper_state), checkpoint_file(checkpoint)))
+    #! format: on
     run.last_checkpoint = time()
     run.longest_write = max(run.longest_write, run.last_checkpoint - started_write)
     log_event!(log, "checkpoint", Logging.Info,
-               "written at t = $(run.t) s in $(round(run.last_checkpoint - started_write; digits=2)) s: " *
-               checkpoint_file(checkpoint))
+        "written at t = $(run.t) s in $(round(run.last_checkpoint - started_write; digits=2)) s: " *
+        checkpoint_file(checkpoint))
     return nothing
 end
 
@@ -1397,45 +1510,52 @@ function _snap_save_times(save_times::AbstractVector, times::AbstractVector)
     for (k, s) in enumerate(snapped)
         i = searchsortedfirst(times, s)
         for j in (i - 1, i)
-            1 <= j <= length(times) && isapprox(times[j], s; rtol=1e-12) && (snapped[k] = times[j])
+            1 <= j <= length(times) && isapprox(times[j], s; rtol = 1e-12) &&
+                (snapped[k] = times[j])
         end
     end
     return snapped
 end
 
 function _integrate(system::EquationSystem{T}, u0::AbstractVector, times::AbstractVector,
-                    options::RunOptions) where {T}
+        options::RunOptions) where {T}
     layout = system.layout
-    save_times = options.save_times === nothing ? times : _snap_save_times(options.save_times, times)
+    save_times = options.save_times === nothing ? times :
+                 _snap_save_times(options.save_times, times)
     updates = _check_run(system, u0, times, save_times, options)
     settings = run_settings(system, times, options)
     stored = _resume_state(options.resume, options.checkpoint)
     u_old = Vector{T}(u0)
-    start = _start_segment!(u_old, layout, times, save_times, updates, settings, stored, options)
+    start = _start_segment!(
+        u_old, layout, times, save_times, updates, settings, stored, options)
     # the unknowns that take their initial value from their equation: all of
     # them at the start of a run, those the stored layout lacks on a resume
-    added = stored === nothing ? nothing : setdiff((unknown.name for unknown in layout.unknowns), start.copied)
-    filled = fill_initial_values!(u_old, system, start.t; unknowns=added)
-    isempty(filled) || (settings["segment"]["initial_values_from_equations"] = String.(filled))
+    added = stored === nothing ? nothing :
+            setdiff((unknown.name for unknown in layout.unknowns), start.copied)
+    filled = fill_initial_values!(u_old, system, start.t; unknowns = added)
+    isempty(filled) ||
+        (settings["segment"]["initial_values_from_equations"] = String.(filled))
     stop, log, checkpoint = options.stop, options.log, options.checkpoint
 
     # a stop file of an earlier segment is not a request to this one
-    stop === nothing || isempty(stop.stop_file) || rm(stop.stop_file; force=true)
+    stop === nothing || isempty(stop.stop_file) || rm(stop.stop_file; force = true)
     save_count = length(save_times) - start.first_save + 1
     state = stepper_state(options.stepper, system, times, start.t, start.stepper_before)
     step_ceilings = collect(T, ceilings(options.stepper, times, save_times))
     saved_updates = Matrix{Float64}[Matrix{Float64}(undef, length(update_state(update)), save_count)
                                     for update in updates]
     started_run = time()
-    run = RunState(layout, collect(T, times), collect(T, save_times), start.first_save, updates,
-                   Matrix{T}(undef, length(layout), save_count), saved_updates,
-                   SolverStatistics(), settings, start.segment, start.summary_before, u_old, copy(u_old),
-                   NewtonWorkspace(system, options.solver), options.stepper, state, step_ceilings,
-                   start.t, start.first_save, searchsortedlast(times, start.t) + 1,
-                   searchsortedlast(step_ceilings, start.t) + 1, 0, started_run, started_run, 0.0, 0.0)
+    run = RunState(
+        layout, collect(T, times), collect(T, save_times), start.first_save, updates,
+        Matrix{T}(undef, length(layout), save_count), saved_updates,
+        SolverStatistics(), settings, start.segment, start.summary_before, u_old, copy(u_old),
+        NewtonWorkspace(system, options.solver), options.stepper, state, step_ceilings,
+        start.t, start.first_save, searchsortedlast(times, start.t) + 1,
+        searchsortedlast(step_ceilings, start.t) + 1, 0, started_run, started_run, 0.0, 0.0)
     _apply_updates!(run)
     # the state at the first time point is saved by a run that starts there
-    while stored === nothing && run.next_save <= length(save_times) && save_times[run.next_save] == first(times)
+    while stored === nothing && run.next_save <= length(save_times) &&
+          save_times[run.next_save] == first(times)
         _save!(run, u_old)
     end
     start_log!(log, settings, u_old, layout, run.t, times, run.next_point - 2, run.stats)
@@ -1443,9 +1563,11 @@ function _integrate(system::EquationSystem{T}, u0::AbstractVector, times::Abstra
 end
 
 # the entry of the log at the end of the segment
-_finish(run::RunState, log, reason) =
-    write_entry(log, reason, run.u_old, run.layout, run.t, run.times, run.next_point - 2, run.stats;
-                errors=stepper_errors(run.stepper_state))
+function _finish(run::RunState, log, reason)
+    write_entry(
+        log, reason, run.u_old, run.layout, run.t, run.times, run.next_point - 2, run.stats;
+        errors = stepper_errors(run.stepper_state))
+end
 
 function _run_steps!(run::RunState{T}, options::RunOptions) where {T}
     times, layout, stats = run.times, run.layout, run.stats
@@ -1455,22 +1577,25 @@ function _run_steps!(run::RunState{T}, options::RunOptions) where {T}
     started = time_ns()
     while run.t < last(times)
         t = run.t
-        advanced = advance!(run.stepper, run.stepper_state, run, options, run.ceilings[run.next_ceiling])
+        advanced = advance!(
+            run.stepper, run.stepper_state, run, options, run.ceilings[run.next_ceiling])
         advanced === nothing && continue      # a failed or rejected attempt, retried by the stepper
         t_next, h = advanced
         last_record = length(stats.time)      # the accepted step is the last one recorded
         if log !== nothing
-            stats.accepted_at_residual_floor[last_record] && !stats.accepted_as_linear[last_record] &&
+            stats.accepted_at_residual_floor[last_record] &&
+                !stats.accepted_as_linear[last_record] &&
                 log_event!(log, "residual floor", Logging.Info,
-                           "the step to t = $t_next s was accepted with the residual " *
-                           "$(stats.residual_norm[last_record]) above the tolerance, where it had stopped decreasing")
+                    "the step to t = $t_next s was accepted with the residual " *
+                    "$(stats.residual_norm[last_record]) above the tolerance, where it had stopped decreasing")
             negative = _negative_cells(u, layout)
             negative > 0 && log_event!(log, "negative values", Logging.Warn,
-                                       "$negative negative cells of the kinetic unknowns after the step to " *
-                                       "t = $t_next s")
+                "$negative negative cells of the kinetic unknowns after the step to " *
+                "t = $t_next s")
         end
         # every save time is an end of a step (`_check_run`), so the saved state is the computed one
-        while run.next_save <= length(run.save_times) && run.save_times[run.next_save] <= t_next
+        while run.next_save <= length(run.save_times) &&
+              run.save_times[run.next_save] <= t_next
             run.save_times[run.next_save] == t_next ||
                 error("the save time $(run.save_times[run.next_save]) lies inside the step to $t_next")
             _save!(run, u)
@@ -1484,10 +1609,12 @@ function _run_steps!(run::RunState{T}, options::RunOptions) where {T}
 
         last_step = run.t >= last(times)
         # the last time point is the end of the run, not a stop
-        reason = last_step ? nothing : stop_reason(stop, run.longest_step, run.longest_write)
+        reason = last_step ? nothing :
+                 stop_reason(stop, run.longest_step, run.longest_write)
         status = last_step ? "finished" : reason === nothing ? "running" : "stopped"
         if checkpoint !== nothing &&
-           (last_step || reason !== nothing || time() - run.last_checkpoint >= checkpoint.interval)
+           (last_step || reason !== nothing ||
+            time() - run.last_checkpoint >= checkpoint.interval)
             _write_checkpoint!(run, checkpoint, log, status, reason)
         end
         _update_segment!(run, status; reason)
@@ -1500,7 +1627,7 @@ function _run_steps!(run::RunState{T}, options::RunOptions) where {T}
         # the setup for the next step follows the accepted state
         _apply_updates!(run)
         report_progress!(log, u_old, layout, run.t, times, run.next_point - 2, stats;
-                         errors=stepper_errors(run.stepper_state))
+            errors = stepper_errors(run.stepper_state))
         started = time_ns()
     end
     _update_segment!(run, "finished")
@@ -1511,17 +1638,17 @@ end
 """
     write_output(filename, solution::TimeSolution; atomic=false)
 
-Write a [`TimeSolution`](@ref) to an HDF5 file: the root
-attributes `format_version` ([`OUTPUT_FORMAT_VERSION`](@ref)), `runes2p_commit`,
-`runes2p_version` and `runes2p_tree_clean`, the record of the run under `settings`
-([`run_settings`](@ref), read back by [`read_settings`](@ref)), the
-[`describe`](@ref) record of the layout under `layout`, the saved `time`, one dataset per
-unknown under `unknowns` (scalar `(t)`, radial `(components, r, t)`, kinetic on a shared
-grid `(p, xi, r, t)`, on per-radius grids a group with one `(p, xi, t)` dataset per radius
-named `radius_<ir>`), and the [`SolverStatistics`](@ref) under `solver_statistics` with
-their own time array, and the states of the interval updates per saved time under
-`update_states`. `atomic = true` writes to a temporary file that is renamed onto
-`filename` ([`write_atomically`](@ref)). [`read_output`](@ref) reads the file back.
-Defined by the package extension `Runes2PHDF5Ext`, which loads with HDF5 (`using HDF5`).
+Write a [`TimeSolution`](@ref) to an HDF5 file: the root attributes `format_version`
+([`OUTPUT_FORMAT_VERSION`](@ref)), `runes2p_commit`, `runes2p_version` and
+`runes2p_tree_clean`, the record of the run under `settings` ([`run_settings`](@ref), read
+back by [`read_settings`](@ref)), the [`describe`](@ref) record of the layout under
+`layout`, the saved `time`, one dataset per unknown under `unknowns` (scalar `(t)`, radial
+`(components, r, t)`, kinetic on a shared grid `(p, xi, r, t)`, on per-radius grids a group
+with one `(p, xi, t)` dataset per radius named `radius_<ir>`), and the
+[`SolverStatistics`](@ref) under `solver_statistics` with their own time array, and the
+states of the interval updates per saved time under `update_states`. `atomic = true` writes
+to a temporary file that is renamed onto `filename` ([`write_atomically`](@ref)).
+[`read_output`](@ref) reads the file back. Defined by the package extension
+`Runes2PHDF5Ext`, which loads with HDF5 (`using HDF5`).
 """
 function write_output end

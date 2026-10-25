@@ -34,30 +34,43 @@ using ForwardDiff
         @test (t.kind, t.oscillator_strength, t.energy, t.scale) == (1, 3.89, 18.72, 1.3)
         @test t.values == [0.1953, 0.1696, 0.1681, 0.1664, 0.207]
         @test [length(f.autoionization) > 0 for f in CHIANTI_IONIZATION_FITS["Ar"]] ==
-              [false, false, true, true, true, true, true, true, false, false, false, false, false, false, true, true, false, false]
-        # the generator writes the same table from the files where they are at hand
+              [false, false, true, true, true, true, true, true, false,
+            false, false, false, false, false, true, true, false, false]
+        # the generator writes the same data file from the files where they are at hand
         directory = get(ENV, "RUNES2P_CHIANTI_DIR", joinpath(homedir(), "chianti"))
         if isdir(directory)
             mktempdir() do tmp
-                out = joinpath(tmp, "table.jl")
+                out = joinpath(tmp, "chianti_ionization.toml")
                 script = joinpath(@__DIR__, "..", "scripts", "generate_chianti_ionization.jl")
-                run(pipeline(`$(Base.julia_cmd()) --startup-file=no $script $directory $out`; stdout=devnull))
-                @test read(out, String) == read(joinpath(@__DIR__, "..", "src", "physics", "ionization_chianti_fits.jl"), String)
+                run(pipeline(`$(Base.julia_cmd()) --startup-file=no $script $directory $out`; stdout = devnull))
+                @test read(out, String) ==
+                      read(joinpath(@__DIR__, "..", "data", "chianti_ionization.toml"), String)
             end
         else
             @info "no CHIANTI files at $directory (RUNES2P_CHIANTI_DIR): the regeneration of the table is skipped"
             @test_skip isdir(directory)
         end
+        # the docstring cites the version and the read date of the header of the data file
+        metadata = Runes2P.parse_data_file(joinpath(Runes2P.DATA_DIRECTORY,
+            "chianti_ionization.toml"))["metadata"]
+        source = match(r"^CHIANTI (\S+) .*, read on (\S+)$", metadata["version_or_date"])
+        docstring = join(split(string(@doc CHIANTI_IONIZATION_FITS)), " ")
+        @test source !== nothing
+        @test occursin("version $(source[1]) ", docstring)
+        @test occursin("read on $(source[2])", docstring)
     end
 
     @testset "the threshold and the bare nucleus" begin
-        for (element, Z) in (("H", 1), ("Ne", 10), ("Ar", 18)), Z0 in 0:Z-1
-            I = minimum(s.threshold for s in CHIANTI_IONIZATION_FITS[element][Z0+1].direct)
+        for (element, Z) in (("H", 1), ("Ne", 10), ("Ar", 18)), Z0 in 0:(Z - 1)
+
+            I = minimum(s.threshold
+            for s in CHIANTI_IONIZATION_FITS[element][Z0 + 1].direct)
             @test ionization_cross_section(element, Z0, momentum(0.999I)) == 0
             @test ionization_cross_section(element, Z0, momentum(1.01I)) > 0
             @test ionization_cross_section(element, Z0, 0.0) == 0
             # positive from the threshold to 10⁶ times it
-            @test all(E -> ionization_cross_section(element, Z0, momentum(E)) > 0, I .* 10 .^ range(0.01, 6; length=200) .+ 0.0)
+            @test all(E -> ionization_cross_section(element, Z0, momentum(E)) > 0,
+                I .* 10 .^ range(0.01, 6; length = 200) .+ 0.0)
         end
         @test ionization_cross_section("Ar", 18, 1.0) == 0
         @test_throws ArgumentError ionization_cross_section("Ar", 19, 1.0)
@@ -69,33 +82,45 @@ using ForwardDiff
         # E_m, where the Bethe form equals the continued fit
         dsigma(element, Z0, p) = ForwardDiff.derivative(x -> ionization_cross_section(element, Z0, x), p)
         Em = Runes2P.CHIANTI_MATCHING_ENERGY
-        for (element, Z) in (("H", 1), ("Ne", 10), ("Ar", 18)), Z0 in 0:Z-1
-            for E in (Em / Runes2P.CHIANTI_MATCHING_WIDTH, Em * Runes2P.CHIANTI_MATCHING_WIDTH)
+        for (element, Z) in (("H", 1), ("Ne", 10), ("Ar", 18)), Z0 in 0:(Z - 1)
+
+            for E in (Em / Runes2P.CHIANTI_MATCHING_WIDTH, Em *
+                                                           Runes2P.CHIANTI_MATCHING_WIDTH)
                 below, above = momentum(E * (1 - 1e-9)), momentum(E * (1 + 1e-9))
-                @test ionization_cross_section(element, Z0, above) ≈ ionization_cross_section(element, Z0, below) rtol = 1e-7
+                @test ionization_cross_section(element, Z0, above) ≈
+                      ionization_cross_section(element, Z0, below) rtol = 1e-7
                 @test dsigma(element, Z0, above) ≈ dsigma(element, Z0, below) rtol = 1e-6
             end
-            fit = CHIANTI_IONIZATION_FITS[element][Z0+1]
+            fit = CHIANTI_IONIZATION_FITS[element][Z0 + 1]
             p = momentum(Em)
             beta2 = p^2 / (1 + p^2)
-            @test Runes2P._fano_ordinate(fit, p) ≈ fit.bethe_m2 * (log(p^2) - beta2) + fit.bethe_c rtol = 1e-12
+            @test Runes2P._fano_ordinate(fit, p) ≈
+                  fit.bethe_m2 * (log(p^2) - beta2) + fit.bethe_c rtol = 1e-12
         end
     end
 
     @testset "the derivative in the number type of ForwardDiff" begin
-        for (element, Z0) in (("H", 0), ("Ar", 0), ("Ar", 4), ("Ar", 16), ("Ne", 7)), E in (1.5e2, 3e3, 7e4, 1.4e5, 1e6)
-            I = minimum(s.threshold for s in CHIANTI_IONIZATION_FITS[element][Z0+1].direct)
+        for (element, Z0) in (("H", 0), ("Ar", 0), ("Ar", 4), ("Ar", 16), ("Ne", 7)),
+            E in (1.5e2, 3e3, 7e4, 1.4e5, 1e6)
+
+            I = minimum(s.threshold
+            for s in CHIANTI_IONIZATION_FITS[element][Z0 + 1].direct)
             E > 1.2I || continue
             p = momentum(E)
             h = 1e-6 * p
-            central = (ionization_cross_section(element, Z0, p + h) - ionization_cross_section(element, Z0, p - h)) / 2h
-            @test ForwardDiff.derivative(x -> ionization_cross_section(element, Z0, x), p) ≈ central rtol = 1e-5
+            central = (ionization_cross_section(element, Z0, p + h) -
+                       ionization_cross_section(element, Z0, p - h)) / 2h
+            @test ForwardDiff.derivative(x -> ionization_cross_section(element, Z0, x), p) ≈
+                  central rtol = 1e-5
         end
     end
 
     @testset "elements without CHIANTI data keep DREAM's form" begin
-        for (element, Z0) in (("W", 3), ("Fe", 10), ("He", 0), ("C", 2)), p in (0.05, 0.5, 5.0)
-            @test ionization_cross_section(element, Z0, p) == ionization_cross_section(element, Z0, p; form=:dream)
+        for (element, Z0) in (("W", 3), ("Fe", 10), ("He", 0), ("C", 2)),
+            p in (0.05, 0.5, 5.0)
+
+            @test ionization_cross_section(element, Z0, p) ==
+                  ionization_cross_section(element, Z0, p; form = :dream)
         end
         @test_throws ArgumentError ionization_cross_section("Xe", 0, 1.0)
         @test Runes2P.chianti_element("D") == Runes2P.chianti_element("T") == "H"
@@ -109,6 +134,7 @@ using ForwardDiff
         # with I₀ and A₀..A₈ of their Table A (ε and I₀ in eV). Their figures run to about 16
         # times the threshold (Figs. 19 and 20); the crossed-beam measurements they cite are in the figures
         # only, not in the paper's tables, so the test takes their calculation.
+        #! format: off
         bao = Dict(1 => (26.36, (2.0082, 7.9127, -82.7503, 423.7535, -1084.3120, 1474.9080, -1055.0340, 359.2106, -43.4720)),
                    2 => (39.39, (3.8239, 2.1709, -80.9699, 636.3123, -2548.8810, 5635.6100, -7026.3510, 4635.2580, -1262.9480)),
                    3 => (58.4, (0.8373, 1.4281, -2.9451, 22.0089, -97.4737, 225.3819, -259.3369, 131.0904, -17.0746)),
@@ -126,12 +152,14 @@ using ForwardDiff
                    15 => (918.1, (1.5115, -1.0740, -2.5212, 18.9358, -105.2461, 322.5170, -549.0846, 476.0584, -164.1591)),
                    16 => (4119.27, (-0.5900, 1.5208, -2.5486, 26.2808, -110.6533, 285.7379, -418.3374, 318.6666, -96.1045)),
                    17 => (4426.22, (-0.1223, 0.5942, -1.4626, 14.5349, -64.8382, 174.0111, -263.2082, 206.3366, -64.3983)))
+        #! format: on
         function bao_li(Z0, E)
             I0, A = bao[Z0]
-            return 1e-17 / (E * I0) * (A[1] * log(E / I0) + sum(A[i+1] * (1 - I0 / E)^i for i in 1:8))   # m²
+            return 1e-17 / (E * I0) *
+                   (A[1] * log(E / I0) + sum(A[i + 1] * (1 - I0 / E)^i for i in 1:8))   # m²
         end
         # Bao and Li are independent of Dere's fits (their own distorted-wave calculations). The
-        # bands below were set to contain the ratios found, and the reasons are given with them:
+        # bands below are set to contain the ratios found, and the reasons are given with them:
         # they are not uncertainty bands.
         # Bands: Bao and Li find their results within 20 % of the literature; Dere's final errors
         # have the median 10 % and reach 25 % for the ions of this sequence. Where direct
@@ -147,18 +175,21 @@ using ForwardDiff
         # from 0.97 at 1.5 I to 1.24 at 5 I and 1.35 and 1.38 at 10 I (beyond their figures the
         # fit has a negative Bethe coefficient A₀ and is not usable): tested to 5 I.
         for Z0 in 1:17
-            fit = CHIANTI_IONIZATION_FITS["Ar"][Z0+1]
+            fit = CHIANTI_IONIZATION_FITS["Ar"][Z0 + 1]
             I = minimum(s.threshold for s in fit.direct)
             autoionizing = 2 <= Z0 <= 7
-            for k in (autoionizing ? (3, 5, 10) : Z0 >= 16 ? (1.5, 2, 3, 5) : (1.5, 2, 3, 5, 10))
-                ratio = ionization_cross_section("Ar", Z0, momentum(k * I)) / bao_li(Z0, k * I)
+            for k in (autoionizing ? (3, 5, 10) :
+                      Z0 >= 16 ? (1.5, 2, 3, 5) : (1.5, 2, 3, 5, 10))
+                ratio = ionization_cross_section("Ar", Z0, momentum(k * I)) /
+                        bao_li(Z0, k * I)
                 @test abs(ratio - 1) < (autoionizing ? 0.4 : 0.3)
             end
         end
         # the excitation-autoionization is needed: Ar⁷⁺ at 3 I, the direct ionization alone is
         # 0.33 of Bao and Li, with the autoionization 1.13
         fit = CHIANTI_IONIZATION_FITS["Ar"][8]
-        direct_only = ChiantiIonization(fit.ion, fit.direct, fit.autoionization_scale, Runes2P.ChiantiAutoionization[])
+        direct_only = ChiantiIonization(
+            fit.ion, fit.direct, fit.autoionization_scale, Runes2P.ChiantiAutoionization[])
         E = 3 * fit.direct[1].threshold
         @test chianti_cross_section(direct_only, momentum(E)) / bao_li(7, E) < 0.4
         @test 0.9 < chianti_cross_section(fit, momentum(E)) / bao_li(7, E) < 1.3

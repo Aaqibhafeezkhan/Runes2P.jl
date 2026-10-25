@@ -9,7 +9,9 @@ const COULOMB_LOGARITHM_INTERPOLATION_EXPONENT = 5  # between thermal and relati
 Thermal Coulomb logarithm `14.9 - ½ ln(n/10²⁰) + ln(T/keV)` for temperature `T` [eV], zero
 for a vanishing density.
 """
-thermal_coulomb_logarithm(T, n) = n == 0 ? zero(T) : 14.9 - 0.5 * log(n / 1e20) + log(T / 1e3)
+function thermal_coulomb_logarithm(T, n)
+    n == 0 ? zero(T) : 14.9 - 0.5 * log(n / 1e20) + log(T / 1e3)
+end
 
 """
     relativistic_coulomb_logarithm(T, free_electron_density)
@@ -29,9 +31,10 @@ function coulomb_logarithm(collision::Symbol, model::Symbol, p, T, n)
     model === :relativistic && return relativistic_coulomb_logarithm(T, n)
     thermal = thermal_coulomb_logarithm(T, n)
     model === :thermal && return thermal
-    model === :energy_dependent || throw(ArgumentError("unknown Coulomb logarithm model $model"))
+    model === :energy_dependent ||
+        throw(ArgumentError("unknown Coulomb logarithm model $model"))
     # the thermal value at p = 0, the limit of the formula below: its square root of zero has
-    # no derivative when p carries one (the plasma columns at the face p = 0)
+    # no derivative when p carries one (the dual numbers of the plasma columns at the face p = 0)
     _value(p) == 0 && return thermal
     thermal_p = sqrt(2 * T / Constants.ELECTRON_REST_ENERGY)
     x = if collision === :electron_electron

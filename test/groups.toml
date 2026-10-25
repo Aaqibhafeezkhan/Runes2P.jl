@@ -1,23 +1,24 @@
-# Groups of the test suite. Each group runs as one task of an array job on a cluster, and
-# every test file is in exactly one group (checked by runtests.jl). `tier = "quick"` marks
-# the unit tests: `Pkg.test(test_args=["--tier", "quick"])` runs them alone. The full tier
-# adds the physics validation and the comparisons with DREAM.
+# Groups of the test suite. Every test file is in exactly one group (checked by
+# runtests.jl), and the groups can run side by side in separate processes.
+# `tier = "quick"` marks the unit tests: `Pkg.test(test_args=["--tier", "quick"])` runs
+# them alone. The full tier adds the physics validation and the comparisons with DREAM.
 #
 # The group `component` holds the component tests: one building block in isolation
 # (grids, layout, knock-on kernels, moments, the operator on a grid, the terms of the fluid
-# equations on a radial grid, the step controllers on small systems). It is the smoke
-# tier, run as one process before a commit: `julia --project=test test/runtests.jl component`.
+# equations on a radial grid, the step controllers on small systems). These are the smoke
+# tests, run as one process: `julia --project=test test/runtests.jl component`.
 # A file belongs to it by what it tests, so the group is not packed (`packed = false`).
 #
-# The other groups are packed from the times of the files in an array job. A new test file
-# goes into a group of its tier, or into the group `component`, until the next packing.
+# The other groups balance the run time by the measured run times of their files. The
+# comment above a group gives its measured run time in minutes. A new test file goes into
+# a group of its tier, or into the group `component`.
 
 [[group]]
 name = "component"
 tier = "quick"
 packed = false
-# 8.9 minutes, kept as defined
-files = ["test_knockon_kinematics.jl", "test_grids.jl", "test_knockon_implicit.jl", "test_knockon_cutoff.jl", "test_knockon_energy_kernel.jl", "test_pitch_overlap.jl", "test_energy_moment.jl", "test_adas.jl", "test_step_doubling.jl", "test_layout.jl", "test_advection_diffusion.jl", "test_legs.jl", "test_moments.jl", "test_per_radius_grids.jl", "test_energy_transfer.jl", "test_radiation.jl", "test_momentum_region.jl", "test_knockon_pairings.jl", "test_ion_energy.jl", "test_knockon_pitch_kernel.jl", "test_heat_transport.jl", "test_radial_profiles.jl", "test_discretization.jl", "test_induction.jl", "test_per_radius_pitch_grids.jl", "test_time_stepping.jl", "test_step_controller.jl", "test_jacobian.jl", "test_ion_unknowns.jl", "test_ion_rates.jl", "test_ion_columns.jl", "test_ion_transport.jl", "test_include_order.jl", "test_renamed_keywords.jl", "test_avalanche_rp.jl"]
+# 8.9 minutes
+files = ["test_knockon_kinematics.jl", "test_grids.jl", "test_knockon_implicit.jl", "test_knockon_cutoff.jl", "test_knockon_energy_kernel.jl", "test_pitch_overlap.jl", "test_energy_moment.jl", "test_adas.jl", "test_step_doubling.jl", "test_layout.jl", "test_advection_diffusion.jl", "test_legs.jl", "test_moments.jl", "test_per_radius_grids.jl", "test_energy_transfer.jl", "test_radiation.jl", "test_momentum_region.jl", "test_knockon_pairings.jl", "test_ion_energy.jl", "test_knockon_pitch_kernel.jl", "test_heat_transport.jl", "test_radial_profiles.jl", "test_discretization.jl", "test_induction.jl", "test_per_radius_pitch_grids.jl", "test_time_stepping.jl", "test_step_controller.jl", "test_jacobian.jl", "test_ion_unknowns.jl", "test_ion_rates.jl", "test_ion_columns.jl", "test_ion_transport.jl", "test_include_order.jl", "test_avalanche_rp.jl", "test_data_files.jl"]
 
 [[group]]
 name = "quick-1"
@@ -160,6 +161,5 @@ files = ["test_kinetic_ionization_dream.jl", "test_avalanche_rp_dream.jl", "test
 [[group]]
 name = "full-9"
 tier = "full"
-# the ion charge states with every piece in one run, its own group before the first array
-# with it
+# every piece of the ion model together in one run: a group of its own, with no measured run time
 files = ["test_ion_integration.jl"]

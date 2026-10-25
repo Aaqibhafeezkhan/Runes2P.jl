@@ -1,4 +1,4 @@
-# DREAM's step doubling (TimeStepperAdaptive.cpp) on a linear decay whose
+# DREAM's step doubling (`TimeStepperAdaptive.cpp`) on a linear decay whose
 # backward-Euler steps are known in closed form: the error estimate, the step sequence by
 # DREAM's rule with its rejections, the steps between checks, the failure path, the
 # record of the stepper and the resume from a checkpoint. The comparison with DREAM's
@@ -14,15 +14,16 @@ _doubling_error(k, h, rel) = abs(1 - (1 + k * h) / (1 + k * h / 2)^2) / rel
 
 # the sequence DREAM's rule produces on the decay from t = 0 to t_end: per checked step
 # its end time, length, error and acceptance, and the state at the end
-function _dream_sequence(k, h0, rel, t_end; safety=0.95)
+function _dream_sequence(k, h0, rel, t_end; safety = 0.95)
     t, h, u = 0.0, h0, 1.0
-    checks = NamedTuple{(:time, :step, :error, :accepted),Tuple{Float64,Float64,Float64,Bool}}[]
+    checks = NamedTuple{
+        (:time, :step, :error, :accepted), Tuple{Float64, Float64, Float64, Bool}}[]
     while t < t_end
         t_next = t_end - t <= h * (1 + 1e-10) ? t_end : t + h
         h_step = t_next - t
         error = _doubling_error(k, h_step, rel)
         accepted = error <= 1
-        push!(checks, (time=t_next, step=h_step, error=error, accepted=accepted))
+        push!(checks, (time = t_next, step = h_step, error = error, accepted = accepted))
         h = safety * h_step / error
         if accepted
             u = _decay_step(u, k, h_step)
@@ -36,20 +37,22 @@ end
     @testset "settings" begin
         stepper = StepDoubling()
         @test isnan(stepper.initial_step)
-        @test (stepper.relative_tolerance, stepper.check_every, stepper.safety, stepper.exponent) == (1e-2, 0, 0.95, 1.0)
+        @test (stepper.relative_tolerance, stepper.check_every,
+            stepper.safety, stepper.exponent) == (1e-2, 0, 0.95, 1.0)
         @test (stepper.max_failures, stepper.failure_factor) == (5, 0.2)
-        @test StepDoubling(initial_step=1e-3).initial_step == 1e-3
-        @test_throws ArgumentError StepDoubling(initial_step=0)
-        @test_throws ArgumentError StepDoubling(relative_tolerance=0)
-        @test_throws ArgumentError StepDoubling(check_every=-1)
-        @test_throws ArgumentError StepDoubling(safety=1.5)
-        @test_throws ArgumentError StepDoubling(exponent=0)
-        @test_throws ArgumentError StepDoubling(max_failures=-1)
-        @test_throws ArgumentError StepDoubling(failure_factor=1)
-        @test describe(StepDoubling(initial_step=1e-3, check_every=2)) ==
-              Dict{String,Any}("type" => "StepDoubling", "initial_step" => 1e-3, "relative_tolerance" => 1e-2,
-                               "check_every" => 2, "safety" => 0.95, "exponent" => 1.0, "max_failures" => 5,
-                               "failure_factor" => 0.2)
+        @test StepDoubling(initial_step = 1e-3).initial_step == 1e-3
+        @test_throws ArgumentError StepDoubling(initial_step = 0)
+        @test_throws ArgumentError StepDoubling(relative_tolerance = 0)
+        @test_throws ArgumentError StepDoubling(check_every = -1)
+        @test_throws ArgumentError StepDoubling(safety = 1.5)
+        @test_throws ArgumentError StepDoubling(exponent = 0)
+        @test_throws ArgumentError StepDoubling(max_failures = -1)
+        @test_throws ArgumentError StepDoubling(failure_factor = 1)
+        @test describe(StepDoubling(initial_step = 1e-3, check_every = 2)) ==
+              Dict{String, Any}(
+            "type" => "StepDoubling", "initial_step" => 1e-3, "relative_tolerance" => 1e-2,
+            "check_every" => 2, "safety" => 0.95, "exponent" => 1.0, "max_failures" => 5,
+            "failure_factor" => 0.2)
     end
 
     @testset "DREAM's rule on a linear decay, with rejections" begin
@@ -57,9 +60,9 @@ end
         # between accepted short steps and rejected long ones, since with error ∝ h² and
         # the exponent 1 the map h → 0.95 h / error has a marginal fixed point
         k, h0, rel, t_end = 3.0, 0.5, 1e-2, 1.0
-        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k))
-        solution = integrate(system, [1.0], [0.0, t_end]; save_times=[0.0, t_end],
-                             stepper=StepDoubling(initial_step=h0, relative_tolerance=rel))
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = -k))
+        solution = integrate(system, [1.0], [0.0, t_end]; save_times = [0.0, t_end],
+            stepper = StepDoubling(initial_step = h0, relative_tolerance = rel))
         stats = solution.statistics
         checks, u_end = _dream_sequence(k, h0, rel, t_end)
         checked = findall(==(:step), stats.kind)
@@ -76,7 +79,8 @@ end
         @test !any(stats.accepted[half])
         @test all(isnan, stats.error[half])
         @test stats.time[checked .- 1] ≈ stats.time[checked]            # the second half step ends with the step
-        @test stats.time[checked .- 2] ≈ stats.time[checked] .- stats.time_step[checked] ./ 2
+        @test stats.time[checked .- 2] ≈
+              stats.time[checked] .- stats.time_step[checked] ./ 2
         @test solution.states[1, end] ≈ u_end rtol = 1e-12
         @test solution.settings["time"]["stepper"]["type"] == "StepDoubling"
         @test solution.settings["segment"]["steps"] == count(c -> c.accepted, checks)
@@ -86,9 +90,9 @@ end
 
     @testset "steps between checks" begin
         k, h0, rel = 3.0, 0.02, 1e-2
-        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k))
-        solution = integrate(system, [1.0], [0.0, 2.0]; save_times=[0.0, 2.0],
-                             stepper=StepDoubling(initial_step=h0, relative_tolerance=rel, check_every=2))
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = -k))
+        solution = integrate(system, [1.0], [0.0, 2.0]; save_times = [0.0, 2.0],
+            stepper = StepDoubling(initial_step = h0, relative_tolerance = rel, check_every = 2))
         stats = solution.statistics
         # the first step is checked, then two unchecked steps at the new length, and so on
         @test stats.kind[1:3] == [:half_step, :half_step, :step]
@@ -106,7 +110,8 @@ end
         @test stats.error[8] ≈ _doubling_error(k, h1, rel)
         @test stats.kind[9:11] == [:half_step, :half_step, :step]
         @test stats.time_step[11] ≈ 0.95 * h1 / stats.error[8]
-        @test solution.states[1, end] ≈ foldl((u, h) -> _decay_step(u, k, h), stats.time_step[stats.accepted]; init=1.0)
+        @test solution.states[1, end] ≈
+              foldl((u, h) -> _decay_step(u, k, h), stats.time_step[stats.accepted]; init = 1.0)
     end
 
     @testset "save times between the steps, the last step lands on the end" begin
@@ -114,45 +119,55 @@ end
         # them: every saved state is a computed one, as in DREAM, and a save time between
         # the time points is rejected
         k = 3.0
-        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k))
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = -k))
         times = [0.0, 0.3, 0.55, 1.0]
-        stepper = StepDoubling(initial_step=0.05, relative_tolerance=1e-2)
-        solution = integrate(system, [1.0], times; save_times=[0.0, 0.55, 1.0], stepper)
+        stepper = StepDoubling(initial_step = 0.05, relative_tolerance = 1e-2)
+        solution = integrate(system, [1.0], times; save_times = [0.0, 0.55, 1.0], stepper)
         stats = solution.statistics
         accepted_times = stats.time[stats.accepted]
         @test all(t -> t in accepted_times, times[2:end])
         @test solution.times == [0.0, 0.55, 1.0]
         for (k_save, s) in enumerate([0.55, 1.0])
             upto = findfirst(==(s), accepted_times)
-            states = foldl((u, h) -> _decay_step(u, k, h), diff([0.0; accepted_times[1:upto]]); init=1.0)
-            @test solution.states[1, k_save+1] ≈ states rtol = 1e-12
+            states = foldl(
+                (u, h) -> _decay_step(u, k, h), diff([0.0;
+                                                      accepted_times[1:upto]]); init = 1.0)
+            @test solution.states[1, k_save + 1] ≈ states rtol = 1e-12
         end
-        @test_throws ArgumentError integrate(system, [1.0], times; save_times=[0.0, 0.4, 1.0], stepper)
+        @test_throws ArgumentError integrate(
+            system, [1.0], times; save_times = [0.0, 0.4, 1.0], stepper)
     end
 
     @testset "tolerances per unknown" begin
         k, h0 = 3.0, 0.1
         rad = RadialGrid(uniform_r_faces(1, 0.5))
         layout = UnknownLayout(rad, [RadialUnknown(:x), RadialUnknown(:y)])
-        equations = [Equation(:x, TimeDerivative(), LinearTerm(:x; coefficient=-k)),
-                     Equation(:y, TimeDerivative(), LinearTerm(:y; coefficient=-2k))]
+        equations = [Equation(:x, TimeDerivative(), LinearTerm(:x; coefficient = -k)),
+            Equation(:y, TimeDerivative(), LinearTerm(:y; coefficient = -2k))]
         # a looser tolerance on y than the stepper's default on x: x sets the error
-        loose = EquationSystem(layout, equations; time_step_tolerances=Dict(:y => Tolerance(0.0, 1.0)))
-        solution = integrate(loose, [1.0, 1.0], [0.0, 0.2]; stepper=StepDoubling(initial_step=h0))
+        loose = EquationSystem(layout, equations; time_step_tolerances = Dict(:y =>
+            Tolerance(0.0, 1.0)))
+        solution = integrate(loose, [1.0, 1.0], [0.0, 0.2]; stepper = StepDoubling(initial_step = h0))
         first_check = findfirst(==(:step), solution.statistics.kind)
         @test solution.statistics.error[first_check] ≈ _doubling_error(k, h0, 1e-2)
         # an absolute tolerance enters the scale
-        absolute = EquationSystem(layout, equations; time_step_tolerances=Dict(:x => Tolerance(0.5, 1e-2),
-                                                                               :y => Tolerance(0.5, 1e-2)))
-        solution = integrate(absolute, [1.0, 1.0], [0.0, 0.2]; stepper=StepDoubling(initial_step=h0))
+        absolute = EquationSystem(layout,
+            equations;
+            time_step_tolerances = Dict(:x => Tolerance(0.5, 1e-2),
+                :y => Tolerance(0.5, 1e-2)))
+        solution = integrate(absolute, [1.0, 1.0], [0.0, 0.2]; stepper = StepDoubling(initial_step = h0))
         first_check = findfirst(==(:step), solution.statistics.kind)
-        u_full, u_half = _decay_step(1.0, 2k, h0), _decay_step(_decay_step(1.0, 2k, h0 / 2), 2k, h0 / 2)
-        @test solution.statistics.error[first_check] ≈ abs(u_full - u_half) / (0.5 + 1e-2 * abs(u_full))
+        u_full, u_half = _decay_step(1.0, 2k, h0),
+        _decay_step(_decay_step(1.0, 2k, h0 / 2), 2k, h0 / 2)
+        @test solution.statistics.error[first_check] ≈
+              abs(u_full - u_half) / (0.5 + 1e-2 * abs(u_full))
         # both tolerances zero: the unknown is left out, and with every unknown left out
         # the error is zero and the next step unbounded (one step to the end)
-        excluded = EquationSystem(layout, equations; time_step_tolerances=Dict(:x => Tolerance(0.0, 0.0),
-                                                                               :y => Tolerance(0.0, 0.0)))
-        solution = integrate(excluded, [1.0, 1.0], [0.0, 0.2]; stepper=StepDoubling(initial_step=h0))
+        excluded = EquationSystem(layout,
+            equations;
+            time_step_tolerances = Dict(:x => Tolerance(0.0, 0.0),
+                :y => Tolerance(0.0, 0.0)))
+        solution = integrate(excluded, [1.0, 1.0], [0.0, 0.2]; stepper = StepDoubling(initial_step = h0))
         stats = solution.statistics
         @test stats.kind == [:half_step, :half_step, :step, :half_step, :half_step, :step]
         @test stats.error[[3, 6]] == [0.0, 0.0]
@@ -165,7 +180,7 @@ end
         # and the stepper retries with 0.2 times the length
         k = 1.0
         system = single_unknown_system(TimeDerivative(), BoundedGrowthTerm(:x, k, 10.0))
-        solution = integrate(system, [1.0], [0.0, 1.0]; stepper=StepDoubling(initial_step=0.95))
+        solution = integrate(system, [1.0], [0.0, 1.0]; stepper = StepDoubling(initial_step = 0.95))
         stats = solution.statistics
         @test stats.kind[1:3] == [:half_step, :half_step, :step]
         @test stats.status[1:3] == [:converged, :converged, :domain_error]
@@ -176,20 +191,22 @@ end
         @test all(==(:converged), stats.status[4:6])
         # the retry is checked as any step: accepted when its error is within the tolerance
         @test stats.accepted[6] == (stats.error[6] <= 1)
-        @test solution.states[1, end] ≈ foldl((u, h) -> _growth_step(u, k, h), stats.time_step[stats.accepted];
-                                              init=1.0) rtol = 1e-12
+        @test solution.states[1, end] ≈
+              foldl((u, h) -> _growth_step(u, k, h), stats.time_step[stats.accepted];
+            init = 1.0) rtol = 1e-12
         @test solution.states[1, end] < 10
         @test_throws TimeStepFailure integrate(system, [1.0], [0.0, 1.0];
-                                               stepper=StepDoubling(initial_step=0.95, max_failures=0))
+            stepper = StepDoubling(initial_step = 0.95, max_failures = 0))
     end
 
     @testset "a failed step cut by a ceiling shrinks from its own length" begin
-        # the planned length (100) lies far beyond the ceiling at t = 2, so
-        # the step tried is 2. Growth k = 0.25 from 9 with the bound 15.5: the half steps of 1
-        # give 12 and 16, the second fails. The retry takes 0.2 times the step tried, 0.4,
-        # where 0.2 times the planned length (20) cut to the ceiling repeated the failed step.
+        # the planned length (100) lies far beyond the ceiling at t = 2, so the step tried is
+        # 2. Growth k = 0.25 from 9 with the bound 15.5: the half steps of 1 give 12 and 16,
+        # the second fails. The retry takes 0.2 times the step tried, 0.4; 0.2 times the
+        # planned length (20), cut to the ceiling, would repeat the failed step.
         system = single_unknown_system(TimeDerivative(), BoundedGrowthTerm(:x, 0.25, 15.5))
-        solution = integrate(system, [9.0], [0.0, 2.0]; stepper=StepDoubling(initial_step=100.0, max_failures=2))
+        solution = integrate(system, [9.0], [0.0, 2.0];
+            stepper = StepDoubling(initial_step = 100.0, max_failures = 2))
         stats = solution.statistics
         @test stats.kind[1:2] == [:half_step, :half_step]
         @test stats.status[1:2] == [:converged, :domain_error]
@@ -200,16 +217,16 @@ end
 
     @testset "record and resume" begin
         k, h0 = 3.0, 0.05
-        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k))
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = -k))
         times = [0.0, 0.5, 1.0]            # the save times are time points
         save_times = [0.0, 0.5, 1.0]
-        stepper = StepDoubling(initial_step=h0, relative_tolerance=1e-2, check_every=1)
+        stepper = StepDoubling(initial_step = h0, relative_tolerance = 1e-2, check_every = 1)
         whole = integrate(system, [1.0], times; save_times, stepper)
         @test count(whole.statistics.accepted) > 10
         # a segment stopped after its first accepted step, resumed from the checkpoint
-        checkpoint = CheckpointSettings("doubling"; directory=mktempdir(), interval=0)
+        checkpoint = CheckpointSettings("doubling"; directory = mktempdir(), interval = 0)
         first_segment = integrate(system, [1.0], times; save_times, stepper, checkpoint,
-                                  stop=StopCondition(wall_budget=1e-9, slack=0))
+            stop = StopCondition(wall_budget = 1e-9, slack = 0))
         @test run_status(first_segment) === :stopped
         @test first_segment.settings["segment"]["steps"] == 1
         stored = read_checkpoint(checkpoint)
@@ -218,16 +235,18 @@ end
         @test stored.stepper["dt"] ≈ 0.95 * h0 / whole.statistics.error[3]
         @test stored.stepper["steps_since_check"] == 0
         @test stored.stepper["failures"] == 0
-        second_segment = @test_logs integrate(system, [1.0], times; save_times, stepper, checkpoint, resume=true)
+        second_segment = @test_logs integrate(
+            system, [1.0], times; save_times, stepper, checkpoint, resume = true)
         @test run_status(second_segment) === :finished
         @test second_segment.times == save_times[2:end]
         @test second_segment.states == whole.states[:, 2:end]
         done = count(first_segment.statistics.accepted)
         rows = length(first_segment.statistics.time)
-        @test second_segment.statistics.time == whole.statistics.time[rows+1:end]
-        @test second_segment.statistics.time_step == whole.statistics.time_step[rows+1:end]
-        @test second_segment.statistics.kind == whole.statistics.kind[rows+1:end]
-        @test isequal(second_segment.statistics.error, whole.statistics.error[rows+1:end])
+        @test second_segment.statistics.time == whole.statistics.time[(rows + 1):end]
+        @test second_segment.statistics.time_step ==
+              whole.statistics.time_step[(rows + 1):end]
+        @test second_segment.statistics.kind == whole.statistics.kind[(rows + 1):end]
+        @test isequal(second_segment.statistics.error, whole.statistics.error[(rows + 1):end])
         joined = read_output(checkpoint)
         @test joined.states == whole.states
         @test isequal(joined.statistics.kind, whole.statistics.kind)

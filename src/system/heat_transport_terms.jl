@@ -56,7 +56,7 @@ step does not straddle a change.
 - `:constant_gradient_dream`: DREAM's `BC_DF_CONST`, the gradient of the last two cells
   continued one cell outside (two radii at least).
 """
-struct HeatTransportTerm{D,Q} <: EquationTerm
+struct HeatTransportTerm{D, Q} <: EquationTerm
     temperature::Symbol
     density::Symbol
     model::Symbol                        # :prescribed or :rechester_rosenbluth
@@ -71,11 +71,13 @@ struct HeatTransportTerm{D,Q} <: EquationTerm
     safety_factor_faces::Base.RefValue{Vector{Float64}}   # q on the faces, evaluated once
 end
 
-function HeatTransportTerm(; diffusion=nothing, diffusion_at=nothing, delta_b_over_b=nothing,
-                           delta_b_over_b_at=nothing, major_radius::Union{Nothing,Real}=nothing,
-                           safety_factor=1.0, temperature::Symbol=:cold_electron_temperature,
-                           density::Symbol=:cold_electron_density, edge::Symbol=:zero_flux, coefficient::Real=1.0)
-    given = [x !== nothing for x in (diffusion, diffusion_at, delta_b_over_b, delta_b_over_b_at)]
+function HeatTransportTerm(;
+        diffusion = nothing, diffusion_at = nothing, delta_b_over_b = nothing,
+        delta_b_over_b_at = nothing, major_radius::Union{Nothing, Real} = nothing,
+        safety_factor = 1.0, temperature::Symbol = :cold_electron_temperature,
+        density::Symbol = :cold_electron_density, edge::Symbol = :zero_flux, coefficient::Real = 1.0)
+    given = [x !== nothing
+             for x in (diffusion, diffusion_at, delta_b_over_b, delta_b_over_b_at)]
     count(given) == 1 ||
         throw(ArgumentError("give one of diffusion, diffusion_at, delta_b_over_b and delta_b_over_b_at"))
     edge in (:zero_flux, :absorbing, :absorbing_dream, :constant_gradient_dream) ||
@@ -83,17 +85,21 @@ function HeatTransportTerm(; diffusion=nothing, diffusion_at=nothing, delta_b_ov
                             "not $edge"))
     model = given[1] || given[2] ? :prescribed : :rechester_rosenbluth
     if model === :rechester_rosenbluth
-        major_radius === nothing && throw(ArgumentError("the Rechester-Rosenbluth model needs the major radius"))
+        major_radius === nothing &&
+            throw(ArgumentError("the Rechester-Rosenbluth model needs the major radius"))
         major_radius > 0 || throw(ArgumentError("the major radius must be positive"))
     end
     level = something(diffusion, diffusion_at, delta_b_over_b, delta_b_over_b_at)
-    return HeatTransportTerm(temperature, density, model, level, given[2] || given[4], safety_factor,
-                             major_radius === nothing ? NaN : Float64(major_radius), edge, Float64(coefficient),
-                             Ref(Float64[]), Ref(NaN), Ref(Float64[]))
+    return HeatTransportTerm(
+        temperature, density, model, level, given[2] || given[4], safety_factor,
+        major_radius === nothing ? NaN : Float64(major_radius), edge, Float64(coefficient),
+        Ref(Float64[]), Ref(NaN), Ref(Float64[]))
 end
 
 dependencies(term::HeatTransportTerm) = unique([term.temperature, term.density])
-forced_time_points(term::HeatTransportTerm) = term.level_in_time ? forced_time_points(term.level) : Float64[]
+function forced_time_points(term::HeatTransportTerm)
+    term.level_in_time ? forced_time_points(term.level) : Float64[]
+end
 
 function validate(term::HeatTransportTerm, layout, row)
     for id in (unknown_id(layout, term.temperature), unknown_id(layout, term.density), row)
@@ -101,9 +107,10 @@ function validate(term::HeatTransportTerm, layout, row)
             throw(ArgumentError("HeatTransportTerm takes and adds to radial unknowns with one component, not " *
                                 "$(layout.unknowns[id].name)"))
     end
-    # both edges of DREAM take the distance of the last two centres (with one radius
-    # :absorbing_dream took a distance of 1 m)
-    term.edge in (:constant_gradient_dream, :absorbing_dream) && radial_cell_count(layout) < 2 &&
+    # both edges of DREAM take the distance of the last two centres, which one radius does
+    # not have
+    term.edge in (:constant_gradient_dream, :absorbing_dream) &&
+        radial_cell_count(layout) < 2 &&
         throw(ArgumentError("the edge $(term.edge) needs two radii at least, as in DREAM"))
     term.level_in_time || _heat_level_faces(term, layout.radial_grid, 0.0)
     return nothing
@@ -120,7 +127,8 @@ function _heat_level_faces(term::HeatTransportTerm, rg::RadialGrid, t)
         isempty(term.faces[]) || return term.faces[]
         values = collect(Float64, radial_values(term.level, rg.r_faces))
     end
-    all(>=(0), values) || throw(ArgumentError("the level of the heat transport must not be negative"))
+    all(>=(0), values) ||
+        throw(ArgumentError("the level of the heat transport must not be negative"))
     term.faces[] = values
     return values
 end
@@ -137,7 +145,8 @@ end
 function _heat_conductivity(term::HeatTransportTerm, level, q, n, T)
     term.model === :prescribed && return 1.5 * Constants.ELEMENTARY_CHARGE * level * n
     theta = T / Constants.ELECTRON_REST_ENERGY
-    return 3 * sqrt(2π) * Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT * q * term.major_radius *
+    return 3 * sqrt(2π) * Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT * q *
+           term.major_radius *
            level^2 * n * sqrt(theta) * (1 - 5 * theta / 8)
 end
 
@@ -147,26 +156,28 @@ function _heat_flux(term::HeatTransportTerm, rg::RadialGrid, levels, q, T, n, k)
     zero_flux = zero(eltype(T)) * zero(eltype(n))
     k == 1 && return zero_flux
     if k <= nr
-        distance = rg.r_centers[k] - rg.r_centers[k-1]
-        delta = rg.r_widths[k-1] / 2 / distance
-        n_face = delta * n[k] + (1 - delta) * n[k-1]
-        T_face = delta * T[k] + (1 - delta) * T[k-1]
-        return rg.spatial_jacobian_faces[k] * _heat_conductivity(term, levels[k], q[k], n_face, T_face) *
-               (T[k] - T[k-1]) / distance
+        distance = rg.r_centers[k] - rg.r_centers[k - 1]
+        delta = rg.r_widths[k - 1] / 2 / distance
+        n_face = delta * n[k] + (1 - delta) * n[k - 1]
+        T_face = delta * T[k] + (1 - delta) * T[k - 1]
+        return rg.spatial_jacobian_faces[k] *
+               _heat_conductivity(term, levels[k], q[k], n_face, T_face) *
+               (T[k] - T[k - 1]) / distance
     end
     term.edge === :zero_flux && return zero_flux
     if term.edge === :absorbing
-        distance, outside = rg.r_faces[nr+1] - rg.r_centers[nr], zero(eltype(T))
+        distance, outside = rg.r_faces[nr + 1] - rg.r_centers[nr], zero(eltype(T))
     else
-        distance = rg.r_centers[nr] - rg.r_centers[nr-1]
+        distance = rg.r_centers[nr] - rg.r_centers[nr - 1]
         outside = if term.edge === :absorbing_dream
             zero(eltype(T))
         else
-            ratio = rg.r_widths[nr] / rg.r_widths[nr-1]
-            (1 + ratio) * T[nr] - ratio * T[nr-1]
+            ratio = rg.r_widths[nr] / rg.r_widths[nr - 1]
+            (1 + ratio) * T[nr] - ratio * T[nr - 1]
         end
     end
-    return rg.spatial_jacobian_faces[nr+1] * _heat_conductivity(term, levels[nr+1], q[nr+1], n[nr], T[nr]) *
+    return rg.spatial_jacobian_faces[nr + 1] *
+           _heat_conductivity(term, levels[nr + 1], q[nr + 1], n[nr], T[nr]) *
            (outside - T[nr]) / distance
 end
 
@@ -177,7 +188,8 @@ function rhs!(out, term::HeatTransportTerm, u, layout, row, t)
     T = radial_values(u, layout, unknown_id(layout, term.temperature))
     n = radial_values(u, layout, unknown_id(layout, term.density))
     for ir in 1:radial_cell_count(rg)
-        divergence = (_heat_flux(term, rg, levels, q, T, n, ir + 1) - _heat_flux(term, rg, levels, q, T, n, ir)) /
+        divergence = (_heat_flux(term, rg, levels, q, T, n, ir + 1) -
+                      _heat_flux(term, rg, levels, q, T, n, ir)) /
                      (rg.spatial_jacobian[ir] * rg.r_widths[ir])
         out[first(unknown_range(layout, row, ir))] += term.coefficient * divergence
     end
@@ -188,7 +200,9 @@ end
 function sparsity!(entries, term::HeatTransportTerm, layout, row)
     nr = radial_cell_count(layout)
     for ir in 1:nr, name in dependencies(term), neighbour in max(ir - 1, 1):min(ir + 1, nr)
-        push!(entries, (first(unknown_range(layout, row, ir)), first(unknown_range(layout, unknown_id(layout, name), neighbour))))
+        push!(entries,
+            (first(unknown_range(layout, row, ir)),
+                first(unknown_range(layout, unknown_id(layout, name), neighbour))))
     end
     return entries
 end
@@ -205,6 +219,6 @@ function heat_flux_through_edge(term::HeatTransportTerm, u, layout, t)
     T = radial_values(u, layout, unknown_id(layout, term.temperature))
     n = radial_values(u, layout, unknown_id(layout, term.density))
     return -term.coefficient * _heat_flux(term, rg, _heat_level_faces(term, rg, t),
-                                          _heat_safety_factor_faces(term, rg), T, n,
-                                          radial_cell_count(rg) + 1)
+        _heat_safety_factor_faces(term, rg), T, n,
+        radial_cell_count(rg) + 1)
 end

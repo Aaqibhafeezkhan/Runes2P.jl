@@ -1,6 +1,6 @@
 # Terms of the induction equations in cylindrical geometry (DREAM's psi_p.cpp, E_field.cpp
-# and j_tot.cpp): Ampère's law for the poloidal flux with the gradient at the edge from the
-# flux at the edge, and the current through the cross-section.
+# and j_tot.cpp): Ampère's law for the poloidal flux with the
+# gradient at the edge from the flux at the edge, and the current through the cross-section.
 #
 # The poloidal flux is DREAM's: divided by the major radius, in V s/m. Faraday's law is
 # `dψ/dt = 2π E` and Ampère's law `2π μ₀ j = (1/r) ∂_r (r ∂_r ψ)`, so a field that is
@@ -24,14 +24,18 @@ struct PoloidalFluxDiffusionTerm <: EquationTerm
     edge_poloidal_flux::Symbol
     coefficient::Float64
 end
-PoloidalFluxDiffusionTerm(poloidal_flux::Symbol, edge_poloidal_flux::Symbol; coefficient::Real=1.0) =
+function PoloidalFluxDiffusionTerm(poloidal_flux::Symbol, edge_poloidal_flux::Symbol; coefficient::Real = 1.0)
     PoloidalFluxDiffusionTerm(poloidal_flux, edge_poloidal_flux, Float64(coefficient))
+end
 
-dependencies(term::PoloidalFluxDiffusionTerm) = [term.poloidal_flux, term.edge_poloidal_flux]
+function dependencies(term::PoloidalFluxDiffusionTerm)
+    [term.poloidal_flux, term.edge_poloidal_flux]
+end
 is_linear(::PoloidalFluxDiffusionTerm) = true
 
 function validate(term::PoloidalFluxDiffusionTerm, layout, row)
-    id, edge = unknown_id(layout, term.poloidal_flux), unknown_id(layout, term.edge_poloidal_flux)
+    id, edge = unknown_id(layout, term.poloidal_flux),
+    unknown_id(layout, term.edge_poloidal_flux)
     layout.kinds[id] === :radial && layout.sizes[id, 1] == 1 ||
         throw(ArgumentError("the poloidal flux is a radial unknown with one component"))
     layout.kinds[edge] === :scalar ||
@@ -46,8 +50,10 @@ Base.@propagate_inbounds function _flux_gradient(rg::RadialGrid, psi, psi_edge, 
     nr = radial_cell_count(rg)
     k == 1 && return zero(eltype(psi)) * zero(psi_edge)
     k == nr + 1 &&
-        return rg.spatial_jacobian_faces[k] * (psi_edge - psi[nr]) / (rg.r_faces[k] - rg.r_centers[nr])
-    return rg.spatial_jacobian_faces[k] * (psi[k] - psi[k-1]) / (rg.r_centers[k] - rg.r_centers[k-1])
+        return rg.spatial_jacobian_faces[k] * (psi_edge - psi[nr]) /
+               (rg.r_faces[k] - rg.r_centers[nr])
+    return rg.spatial_jacobian_faces[k] * (psi[k] - psi[k - 1]) /
+           (rg.r_centers[k] - rg.r_centers[k - 1])
 end
 
 function rhs!(out, term::PoloidalFluxDiffusionTerm, u, layout, row, t)
@@ -55,7 +61,8 @@ function rhs!(out, term::PoloidalFluxDiffusionTerm, u, layout, row, t)
     psi = radial_values(u, layout, unknown_id(layout, term.poloidal_flux))
     psi_edge = u[first(unknown_range(layout, unknown_id(layout, term.edge_poloidal_flux)))]
     @inbounds for ir in 1:radial_cell_count(rg)
-        divergence = (_flux_gradient(rg, psi, psi_edge, ir + 1) - _flux_gradient(rg, psi, psi_edge, ir)) /
+        divergence = (_flux_gradient(rg, psi, psi_edge, ir + 1) -
+                      _flux_gradient(rg, psi, psi_edge, ir)) /
                      (rg.spatial_jacobian[ir] * rg.r_widths[ir])
         out[first(unknown_range(layout, row, ir))] += term.coefficient * divergence
     end
@@ -63,7 +70,8 @@ function rhs!(out, term::PoloidalFluxDiffusionTerm, u, layout, row, t)
 end
 
 function sparsity!(entries, term::PoloidalFluxDiffusionTerm, layout, row)
-    id, edge = unknown_id(layout, term.poloidal_flux), unknown_id(layout, term.edge_poloidal_flux)
+    id, edge = unknown_id(layout, term.poloidal_flux),
+    unknown_id(layout, term.edge_poloidal_flux)
     nr = radial_cell_count(layout)
     for ir in 1:nr
         r = first(unknown_range(layout, row, ir))
@@ -71,7 +79,8 @@ function sparsity!(entries, term::PoloidalFluxDiffusionTerm, layout, row)
             push!(entries, (r, first(unknown_range(layout, id, neighbour))))
         end
     end
-    push!(entries, (first(unknown_range(layout, row, nr)), first(unknown_range(layout, edge))))
+    push!(entries, (
+        first(unknown_range(layout, row, nr)), first(unknown_range(layout, edge))))
     return entries
 end
 
@@ -88,8 +97,9 @@ struct CrossSectionIntegralTerm <: EquationTerm
     unknown::Symbol
     coefficient::Float64
 end
-CrossSectionIntegralTerm(unknown::Symbol; coefficient::Real=1.0) =
+function CrossSectionIntegralTerm(unknown::Symbol; coefficient::Real = 1.0)
     CrossSectionIntegralTerm(unknown, Float64(coefficient))
+end
 
 dependencies(term::CrossSectionIntegralTerm) = [term.unknown]
 is_linear(::CrossSectionIntegralTerm) = true
@@ -128,7 +138,7 @@ function add_jacobian!(J, term::CrossSectionIntegralTerm, u, layout, row, t)
     r = first(unknown_range(layout, row))
     for ir in 1:radial_cell_count(rg)
         _add_entry!(J, r, first(unknown_range(layout, id, ir)),
-                    term.coefficient * 2π * rg.spatial_jacobian[ir] * rg.r_widths[ir])
+            term.coefficient * 2π * rg.spatial_jacobian[ir] * rg.r_widths[ir])
     end
     return J
 end
@@ -185,16 +195,17 @@ scales of the flux and of the plasma current follow from that of the current den
 `π a² j`. The total current density gets its equation from the caller, the sum of the
 currents of the run, the others from [`induction_equations`](@ref).
 """
-function induction_unknowns(rg::RadialGrid; electric_field_scale::Real=1.0, current_density_scale::Real=1e6,
-                            names::InductionNames=InductionNames())
+function induction_unknowns(
+        rg::RadialGrid; electric_field_scale::Real = 1.0, current_density_scale::Real = 1e6,
+        names::InductionNames = InductionNames())
     current_scale = π * last(rg.r_faces)^2 * current_density_scale
     flux_scale = Constants.VACUUM_PERMEABILITY * current_scale
-    return [RadialUnknown(names.electric_field; scale=electric_field_scale),
-            RadialUnknown(names.poloidal_flux; scale=flux_scale),
-            RadialUnknown(names.total_current_density; scale=current_density_scale),
-            ScalarUnknown(names.plasma_current; scale=current_scale),
-            ScalarUnknown(names.edge_poloidal_flux; scale=flux_scale),
-            ScalarUnknown(names.wall_poloidal_flux; scale=flux_scale)]
+    return [RadialUnknown(names.electric_field; scale = electric_field_scale),
+        RadialUnknown(names.poloidal_flux; scale = flux_scale),
+        RadialUnknown(names.total_current_density; scale = current_density_scale),
+        ScalarUnknown(names.plasma_current; scale = current_scale),
+        ScalarUnknown(names.edge_poloidal_flux; scale = flux_scale),
+        ScalarUnknown(names.wall_poloidal_flux; scale = flux_scale)]
 end
 
 """
@@ -218,22 +229,25 @@ conducting wall, which holds the flux at the wall. The row of Ampère's law take
 `2π μ₀` times `current_density_scale`. The equation of the total current density, the sum
 of the currents of the run, comes from the caller.
 """
-function induction_equations(rg::RadialGrid; wall_radius::Real=last(rg.r_faces), loop_voltage_at_wall=0.0,
-                             current_density_scale::Real=1e6, names::InductionNames=InductionNames())
+function induction_equations(
+        rg::RadialGrid; wall_radius::Real = last(rg.r_faces), loop_voltage_at_wall = 0.0,
+        current_density_scale::Real = 1e6, names::InductionNames = InductionNames())
     inductance = edge_to_wall_inductance(last(rg.r_faces), wall_radius)
     mu0 = Constants.VACUUM_PERMEABILITY
     return [
         Equation(names.electric_field, TimeDerivative(names.poloidal_flux),
-                 LinearTerm(names.electric_field; coefficient=2π)),
+            LinearTerm(names.electric_field; coefficient = 2π)),
         Equation(names.poloidal_flux, Algebraic(),
-                 PoloidalFluxDiffusionTerm(names.poloidal_flux, names.edge_poloidal_flux),
-                 LinearTerm(names.total_current_density; coefficient=-2π * mu0);
-                 scale=2π * mu0 * current_density_scale),
-        Equation(names.plasma_current, Algebraic(), CrossSectionIntegralTerm(names.total_current_density),
-                 LinearTerm(names.plasma_current; coefficient=-1)),
-        Equation(names.edge_poloidal_flux, Algebraic(), LinearTerm(names.wall_poloidal_flux),
-                 LinearTerm(names.plasma_current; coefficient=-inductance),
-                 LinearTerm(names.edge_poloidal_flux; coefficient=-1)),
+            PoloidalFluxDiffusionTerm(names.poloidal_flux, names.edge_poloidal_flux),
+            LinearTerm(names.total_current_density; coefficient = -2π * mu0);
+            scale = 2π * mu0 * current_density_scale),
+        Equation(names.plasma_current, Algebraic(),
+            CrossSectionIntegralTerm(names.total_current_density),
+            LinearTerm(names.plasma_current; coefficient = -1)),
+        Equation(
+            names.edge_poloidal_flux, Algebraic(), LinearTerm(names.wall_poloidal_flux),
+            LinearTerm(names.plasma_current; coefficient = -inductance),
+            LinearTerm(names.edge_poloidal_flux; coefficient = -1)),
         Equation(names.wall_poloidal_flux, TimeDerivative(), PrescribedValueTerm(loop_voltage_at_wall))]
 end
 
@@ -248,23 +262,29 @@ with the flux at the wall zero). Returns the named tuple `(poloidal_flux, plasma
 edge_poloidal_flux, wall_poloidal_flux)`: the state of the induction unknowns at the start
 of a run, next to the field and the current density.
 """
-function initial_poloidal_flux(rg::RadialGrid, total_current_density::AbstractVector{<:Real};
-                               wall_radius::Real=last(rg.r_faces), wall_poloidal_flux::Real=0.0)
+function initial_poloidal_flux(
+        rg::RadialGrid, total_current_density::AbstractVector{<:Real};
+        wall_radius::Real = last(rg.r_faces), wall_poloidal_flux::Real = 0.0)
     nr = radial_cell_count(rg)
     length(total_current_density) == nr ||
         throw(DimensionMismatch("the current density needs one value per radius"))
     mu0 = Constants.VACUUM_PERMEABILITY
     plasma_current = sum(cross_section_weights(rg) .* total_current_density)
-    edge_flux = wall_poloidal_flux - edge_to_wall_inductance(last(rg.r_faces), wall_radius) * plasma_current
+    edge_flux = wall_poloidal_flux -
+                edge_to_wall_inductance(last(rg.r_faces), wall_radius) * plasma_current
     # V' times the gradient at the upper face of a cell is the sum of 2π μ₀ j V' Δr up to the
     # cell: the flux follows from the edge inwards
-    enclosed = cumsum(2π * mu0 .* total_current_density .* rg.spatial_jacobian .* rg.r_widths)
+    enclosed = cumsum(2π * mu0 .* total_current_density .* rg.spatial_jacobian .*
+                      rg.r_widths)
     flux = zeros(float(eltype(total_current_density)), nr)
-    flux[nr] = edge_flux - (rg.r_faces[nr+1] - rg.r_centers[nr]) * enclosed[nr] / rg.spatial_jacobian_faces[nr+1]
-    for ir in nr-1:-1:1
-        flux[ir] = flux[ir+1] -
-                   (rg.r_centers[ir+1] - rg.r_centers[ir]) * enclosed[ir] / rg.spatial_jacobian_faces[ir+1]
+    flux[nr] = edge_flux -
+               (rg.r_faces[nr + 1] - rg.r_centers[nr]) * enclosed[nr] /
+               rg.spatial_jacobian_faces[nr + 1]
+    for ir in (nr - 1):-1:1
+        flux[ir] = flux[ir + 1] -
+                   (rg.r_centers[ir + 1] - rg.r_centers[ir]) * enclosed[ir] /
+                   rg.spatial_jacobian_faces[ir + 1]
     end
-    return (; poloidal_flux=flux, plasma_current, edge_poloidal_flux=edge_flux,
-            wall_poloidal_flux=float(wall_poloidal_flux))
+    return (; poloidal_flux = flux, plasma_current, edge_poloidal_flux = edge_flux,
+        wall_poloidal_flux = float(wall_poloidal_flux))
 end

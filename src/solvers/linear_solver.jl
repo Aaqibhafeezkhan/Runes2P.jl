@@ -1,6 +1,6 @@
-# Linear solvers for the Newton iterations. A solver type holds
-# the settings; `linear_solver_cache` creates the state reused between solves (the
-# symbolic factorization of a fixed sparsity pattern, Krylov workspaces, preconditioners).
+# Linear solvers for the Newton iterations. A solver type holds the settings;
+# `linear_solver_cache` creates the state reused between solves (the symbolic factorization
+# of a fixed sparsity pattern, Krylov workspaces, preconditioners).
 
 using LinearAlgebra: LinearAlgebra, lu, lu!, issuccess, ldiv!
 using SparseArrays: nzrange
@@ -43,16 +43,16 @@ abstract type LinearSolver end
 
 matrix_unchanged!(cache, unchanged::Bool) = nothing
 
-# Woodbury update of the factorization of a diagonal block of the scaled Newton matrix:
-# the implicit matrix-free terms with a low-rank Jacobian
-# ([`low_rank_jacobian`](@ref)) add `Ũ Ṽᵀ` to the block `B`, with `Ũ = -W U` and
-# `Ṽ = S V` from the term's `U Vᵀ`, the row weights `W` and the unknown scales `S`.
-# Then `(B + Ũ Ṽᵀ)⁻¹ x = y - Z (I + Ṽᵀ Z)⁻¹ Ṽᵀ y` with `y = B⁻¹ x` and `Z = B⁻¹ Ũ`:
-# `k` solves with `B` when the block is factorized, one per application and O(n k) work.
+# Woodbury update of the factorization of a diagonal block of the scaled Newton matrix: the
+# implicit matrix-free terms with a low-rank Jacobian ([`low_rank_jacobian`](@ref)) add
+# `Ũ Ṽᵀ` to the block `B`, with `Ũ = -W U` and `Ṽ = S V` from the term's `U Vᵀ`, the row
+# weights `W` and the unknown scales `S`. Then `(B + Ũ Ṽᵀ)⁻¹ x = y - Z (I + Ṽᵀ Z)⁻¹ Ṽᵀ y`
+# with `y = B⁻¹ x` and `Z = B⁻¹ Ũ`: `k` solves with `B` when the block is factorized, one
+# per application and O(n k) work.
 struct LowRankCorrection{T}
     solved_left::Matrix{T}   # Z = B⁻¹ Ũ
     right::Matrix{T}         # Ṽ
-    capacitance::LinearAlgebra.LU{T,Matrix{T},Vector{Int}}   # I + Ṽᵀ Z
+    capacitance::LinearAlgebra.LU{T, Matrix{T}, Vector{Int}}   # I + Ṽᵀ Z
     coefficients::Vector{T}
 end
 
@@ -68,7 +68,8 @@ end
 
 # Ũ and Ṽ of the low-rank blocks inside `range` (in the block's own indices), or nothing;
 # blocks that reach outside `range` are left out, as the other couplings between blocks
-function _scaled_low_rank(blocks, range::UnitRange{Int}, row_weights, scales, ::Type{T}) where {T}
+function _scaled_low_rank(
+        blocks, range::UnitRange{Int}, row_weights, scales, ::Type{T}) where {T}
     lefts, rights = Matrix{T}[], Matrix{T}[]
     n = length(range)
     for b in blocks
@@ -90,7 +91,7 @@ function _low_rank_correction(left::Matrix{T}, right::Matrix{T}, solve!) where {
     for c in axes(left, 2)
         solve!(view(solved, :, c), left[:, c])
     end
-    capacitance = LinearAlgebra.lu(LinearAlgebra.I + transpose(right) * solved; check=false)
+    capacitance = LinearAlgebra.lu(LinearAlgebra.I + transpose(right) * solved; check = false)
     issuccess(capacitance) || return nothing
     return LowRankCorrection(solved, right, capacitance, zeros(T, size(left, 2)))
 end
@@ -117,19 +118,21 @@ knock-on term) is refused; those need the Newton-Krylov solver [`GMRES`](@ref).
 """
 struct SparseLU <: LinearSolver end
 
-mutable struct SparseLUCache{F,S,W}
+mutable struct SparseLUCache{F, S, W}
     factorization::F
     system::S
     row_weights::W
     scales::W
-    low_rank::Union{Nothing,LowRankCorrection}   # Woodbury update of the factorization
+    low_rank::Union{Nothing, LowRankCorrection}   # Woodbury update of the factorization
     factorization_seconds::Float64
     factorized::Bool          # the factorization is that of the matrix of the last solve
     matrix_unchanged::Bool    # the matrix of the next solve is that of the last one
     factorizations::Int       # numerical factorizations since the cache was made
 end
 
-matrix_unchanged!(cache::SparseLUCache, unchanged::Bool) = (cache.matrix_unchanged = unchanged; nothing)
+function matrix_unchanged!(cache::SparseLUCache, unchanged::Bool)
+    (cache.matrix_unchanged = unchanged; nothing)
+end
 
 requires_stored_jacobian(::SparseLU) = true
 krylov_iterations(::SparseLUCache) = 0
@@ -138,28 +141,33 @@ factorization_time(cache::SparseLUCache) = cache.factorization_seconds
 linear_tolerance(::SparseLUCache) = 0.0
 newton_operator_exact(::SparseLUCache) = false
 
-linear_solver_cache(::SparseLU, matrix::SparseMatrixCSC, system, row_weights, scales) =
-    SparseLUCache(lu(matrix; check=false), system, row_weights, scales, nothing, 0.0, false, false, 0)
+function linear_solver_cache(
+        ::SparseLU, matrix::SparseMatrixCSC, system, row_weights, scales)
+    SparseLUCache(lu(matrix; check = false), system, row_weights,
+        scales, nothing, 0.0, false, false, 0)
+end
 
 # the Woodbury update of the whole matrix for the low-rank matrix-free terms at (u, t)
 function _update_low_rank!(cache::SparseLUCache, u, t)
     cache.low_rank = nothing
     system = cache.system
     isempty(system.matrix_free_terms) && return true
-    scaled = _scaled_low_rank(_low_rank_blocks(system, u, t), 1:length(u), cache.row_weights, cache.scales,
-                              eltype(cache.scales))
+    scaled = _scaled_low_rank(
+        _low_rank_blocks(system, u, t), 1:length(u), cache.row_weights, cache.scales,
+        eltype(cache.scales))
     scaled === nothing && return true
     cache.low_rank = _low_rank_correction(scaled..., (y, x) -> ldiv!(y, cache.factorization, x))
     return cache.low_rank !== nothing
 end
 
-function solve!(x::AbstractVector, cache::SparseLUCache, matrix::SparseMatrixCSC, b::AbstractVector,
-                u, t, dt, iteration)
+function solve!(
+        x::AbstractVector, cache::SparseLUCache, matrix::SparseMatrixCSC, b::AbstractVector,
+        u, t, dt, iteration)
     cache.factorization_seconds = 0.0
     if !(cache.factorized && cache.matrix_unchanged)
         # reuses the symbolic analysis of the pattern
         started = time_ns()
-        lu!(cache.factorization, matrix; check=false)
+        lu!(cache.factorization, matrix; check = false)
         cache.factorization_seconds = (time_ns() - started) / 1e9
         cache.factorizations += 1
         cache.factorized = issuccess(cache.factorization) && _update_low_rank!(cache, u, t)

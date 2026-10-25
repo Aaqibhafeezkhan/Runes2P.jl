@@ -24,6 +24,7 @@ function Runes2P.rhs!(out, term::FloorSinkTerm, u, layout, row, t)
     id = unknown_id(layout, term.unknown)
     for ir in 1:radial_cell_count(layout),
         (a, b) in zip(unknown_range(layout, row, ir), unknown_range(layout, id, ir))
+
         u[b] > term.floor || throw(DomainError(u[b], "at or below the floor of the sink"))
         out[a] -= term.rate * clamp((u[b] - term.bottom) / (term.top - term.bottom), 0, 1)
     end
@@ -47,7 +48,7 @@ end
         @test result.status === :domain_error
         @test result.iterations == 0
 
-        limited = single_unknown_system(TimeDerivative(), SquareRootDecayTerm(:x, k); nonnegative=true)
+        limited = single_unknown_system(TimeDerivative(), SquareRootDecayTerm(:x, k); nonnegative = true)
         ws = NewtonWorkspace(limited)
         u = copy(u0)
         result = newton_solve!(u, u0, ws, dt, dt)
@@ -62,10 +63,10 @@ end
         @test length(ws.update_norms) == length(ws.residual_norms) == result.iterations
     end
 
-    @testset "lower limits shorten only steps towards the limit (DREAM #91)" begin
+    @testset "lower limits shorten only steps towards the limit, never growth" begin
         dt, u0 = 1.0, [2.0]
         # growth by a factor 100 in one step: never shortened
-        growth = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=0.99); nonnegative=true)
+        growth = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = 0.99); nonnegative = true)
         u = copy(u0)
         ws = NewtonWorkspace(growth)
         result = newton_solve!(u, u0, ws, dt, dt)
@@ -78,7 +79,8 @@ end
 
         # decay by a factor 1000: the limit lets each iteration remove at most 90% of the
         # distance to zero, so a few more iterations, never below zero
-        decay = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-999.0); nonnegative=true)
+        decay = single_unknown_system(
+            TimeDerivative(), LinearTerm(:x; coefficient = -999.0); nonnegative = true)
         u = copy(u0)
         ws = NewtonWorkspace(decay)
         result = newton_solve!(u, u0, ws, dt, dt)
@@ -88,11 +90,12 @@ end
         @test result.iterations > 2
         # a larger admissible reduction per iteration converges faster
         u = copy(u0)
-        faster = newton_solve!(u, u0, NewtonWorkspace(decay, NewtonSolver(max_reduction=0.999)), dt, dt)
+        faster = newton_solve!(
+            u, u0, NewtonWorkspace(decay, NewtonSolver(max_reduction = 0.999)), dt, dt)
         @test faster.status === :converged
         @test faster.iterations < result.iterations
         # without the limit the linear step takes one iteration plus the check
-        unlimited = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-999.0))
+        unlimited = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = -999.0))
         u = copy(u0)
         @test newton_solve!(u, u0, NewtonWorkspace(unlimited), dt, dt).iterations == 2
     end
@@ -101,12 +104,13 @@ end
         # du/dt = -x - 3 with the limit x ≥ -0.1 n: the backward-Euler solution -1 (dt = 1)
         # lies below the limit; the iterates approach the limit and stop there, and the
         # step fails
-        reference = RadialUnknown(:n; scale=1.0)
-        n_equation = Equation(:n, TimeDerivative(), LinearTerm(:n; coefficient=0.0))
-        limit = LowerLimit(tolerance=0.1, reference=:n)
-        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-1.0),
-                                       ConstantSourceTerm(-3.0); nonnegative=limit,
-                                       extra=((reference, n_equation),))
+        reference = RadialUnknown(:n; scale = 1.0)
+        n_equation = Equation(:n, TimeDerivative(), LinearTerm(:n; coefficient = 0.0))
+        limit = LowerLimit(tolerance = 0.1, reference = :n)
+        system = single_unknown_system(
+            TimeDerivative(), LinearTerm(:x; coefficient = -1.0),
+            ConstantSourceTerm(-3.0); nonnegative = limit,
+            extra = ((reference, n_equation),))
         layout = system.layout
         u_old = zeros(length(layout))
         unknown_view(u_old, layout, :x, 1)[1] = 1.0
@@ -117,33 +121,37 @@ end
         @test -0.1 <= unknown_view(u, layout, :x, 1)[1] < -0.0999
         @test describe(layout)["unknowns"]["x"]["lower_limit_reference"] == "n"
         # checks on declaration
-        @test_throws ArgumentError LowerLimit(tolerance=-1.0)
+        @test_throws ArgumentError LowerLimit(tolerance = -1.0)
         rad = RadialGrid(uniform_r_faces(1, 0.5))
-        @test_throws ArgumentError UnknownLayout(rad, [RadialUnknown(:x; nonnegative=LowerLimit(reference=:y))])
-        @test_throws ArgumentError UnknownLayout(rad, [RadialUnknown(:x; nonnegative=LowerLimit(reference=:y)),
-                                                       RadialUnknown(:y; components=2)])
-        @test_throws ArgumentError UnknownLayout(rad, [ScalarUnknown(:x; nonnegative=LowerLimit(reference=:y)),
-                                                       RadialUnknown(:y)])
+        @test_throws ArgumentError UnknownLayout(
+            rad, [RadialUnknown(:x; nonnegative = LowerLimit(reference = :y))])
+        @test_throws ArgumentError UnknownLayout(rad,
+            [RadialUnknown(:x; nonnegative = LowerLimit(reference = :y)),
+                RadialUnknown(:y; components = 2)])
+        @test_throws ArgumentError UnknownLayout(rad,
+            [ScalarUnknown(:x; nonnegative = LowerLimit(reference = :y)),
+                RadialUnknown(:y)])
     end
 
-    @testset "absolute lower limit: the floor of a temperature (issue #152)" begin
+    @testset "absolute lower limit: the floor of a temperature" begin
         # dx/dt = -4.7 s(x) from x = 4 with dt = 1, s the ramp from 0 at 0.8 to 1 at 1: the
         # backward-Euler solution is 22.8 / 24.5, above the floor 0.5 of the sink
         sink = FloorSinkTerm(:x, 4.7, 0.8, 1.0, 0.5)
         solution = 22.8 / 24.5
         u0 = [4.0]
         # the sink is not defined at the zero state, so the system takes the initial state
-        floor_system(limit) =
-            EquationSystem(UnknownLayout(RadialGrid(uniform_r_faces(1, 0.5)), [RadialUnknown(:x; nonnegative=limit)]),
-                           [Equation(:x, TimeDerivative(), sink)]; initial_state=u0)
+        floor_system(limit) = EquationSystem(
+            UnknownLayout(RadialGrid(uniform_r_faces(1, 0.5)), [RadialUnknown(:x; nonnegative = limit)]),
+            [Equation(:x, TimeDerivative(), sink)]; initial_state = u0)
         # the limit at zero lets the first step fall to 10 % of 4, below the floor: the
         # solve fails although the solution of the step is allowed
         at_zero = floor_system(true)
         u = copy(u0)
-        @test newton_solve!(u, u0, NewtonWorkspace(at_zero), 1.0, 1.0).status === :domain_error
+        @test newton_solve!(u, u0, NewtonWorkspace(at_zero), 1.0, 1.0).status ===
+              :domain_error
         # the limit at the floor damps the first step to 90 % of the distance to the floor,
         # and the iteration converges
-        at_floor = floor_system(LowerLimit(value=0.5))
+        at_floor = floor_system(LowerLimit(value = 0.5))
         ws = NewtonWorkspace(at_floor)
         u = copy(u0)
         result = newton_solve!(u, u0, ws, 1.0, 1.0)
@@ -153,25 +161,30 @@ end
         @test all(==(1.0), ws.step_lengths[2:end])
         # dx/dt = -x - 3.6 from x = 4: the solution 0.2 of the step lies below the floor,
         # the iterates approach the floor from above and the step is refused
-        below = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-1.0), ConstantSourceTerm(-3.6);
-                                      nonnegative=LowerLimit(value=0.5))
+        below = single_unknown_system(
+            TimeDerivative(), LinearTerm(:x; coefficient = -1.0), ConstantSourceTerm(-3.6);
+            nonnegative = LowerLimit(value = 0.5))
         u = copy(u0)
-        @test newton_solve!(u, u0, NewtonWorkspace(below), 1.0, 1.0).status === :below_lower_limit
+        @test newton_solve!(u, u0, NewtonWorkspace(below), 1.0, 1.0).status ===
+              :below_lower_limit
         @test 0.5 <= u[1] < 0.5001
-        @test_throws TimeStepFailure integrate(below, u0, [0.0, 1.0]; stepper=FixedSteps(; max_halvings=0))
+        @test_throws TimeStepFailure integrate(below, u0, [0.0, 1.0]; stepper = FixedSteps(;
+            max_halvings = 0))
         # the value with a tolerance: the limit is value - tolerance * scale
-        loose = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-1.0), ConstantSourceTerm(-3.6);
-                                      scale=2.0, nonnegative=LowerLimit(value=0.5, tolerance=0.1))
+        loose = single_unknown_system(
+            TimeDerivative(), LinearTerm(:x; coefficient = -1.0), ConstantSourceTerm(-3.6);
+            scale = 2.0, nonnegative = LowerLimit(value = 0.5, tolerance = 0.1))
         u = copy(u0)
-        @test newton_solve!(u, u0, NewtonWorkspace(loose), 1.0, 1.0).status === :below_lower_limit
+        @test newton_solve!(u, u0, NewtonWorkspace(loose), 1.0, 1.0).status ===
+              :below_lower_limit
         @test 0.3 <= u[1] < 0.3001
         # the record holds the value only where one is set
         @test describe(at_floor.layout)["unknowns"]["x"]["lower_limit_value"] == 0.5
         @test !haskey(describe(at_zero.layout)["unknowns"]["x"], "lower_limit_value")
-        @test_throws ArgumentError LowerLimit(value=Inf)
+        @test_throws ArgumentError LowerLimit(value = Inf)
     end
 
-    @testset "line search on the scaled residual (DREAM PR #460)" begin
+    @testset "line search on the scaled residual" begin
         # 0 = atan(x - 1): plain Newton diverges from |x - 1| > 1.39
         system = single_unknown_system(Algebraic(), ArctangentTerm(:x, 1.0))
         u_old = [4.0]
@@ -179,7 +192,7 @@ end
         plain = newton_solve!(u, u_old, NewtonWorkspace(system), 0.0, 1.0)
         @test plain.status !== :converged
         u = copy(u_old)
-        ws = NewtonWorkspace(system, NewtonSolver(line_search=true))
+        ws = NewtonWorkspace(system, NewtonSolver(line_search = true))
         result = newton_solve!(u, u_old, ws, 0.0, 1.0)
         @test result.status === :converged
         @test u[1] ≈ 1.0 atol = 1e-10
@@ -189,20 +202,25 @@ end
     end
 
     @testset "failures are reported, not thrown" begin
-        singular = single_unknown_system(Algebraic(), LinearTerm(:x; coefficient=0.0))
+        singular = single_unknown_system(Algebraic(), LinearTerm(:x; coefficient = 0.0))
         u = [1.0]
-        @test newton_solve!(u, [1.0], NewtonWorkspace(singular), 0.0, 1.0).status === :singular_matrix
-        nan_source = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-1.0),
-                                           ConstantSourceTerm(NaN))
+        @test newton_solve!(u, [1.0], NewtonWorkspace(singular), 0.0, 1.0).status ===
+              :singular_matrix
+        nan_source = single_unknown_system(
+            TimeDerivative(), LinearTerm(:x; coefficient = -1.0),
+            ConstantSourceTerm(NaN))
         u = [1.0]
-        @test newton_solve!(u, [1.0], NewtonWorkspace(nan_source), 1.0, 1.0).status === :non_finite_residual
+        @test newton_solve!(u, [1.0], NewtonWorkspace(nan_source), 1.0, 1.0).status ===
+              :non_finite_residual
         # a finite residual with a non-finite Jacobian: √x at x = 0
         u = [0.0]
         steep = NewtonWorkspace(single_unknown_system(TimeDerivative(), SquareRootDecayTerm(:x, 10.0)))
         @test newton_solve!(u, [0.0], steep, 1.0, 1.0).status === :non_finite_jacobian
         u = [1.0]
-        few = NewtonWorkspace(single_unknown_system(TimeDerivative(), SquareRootDecayTerm(:x, 10.0);
-                                                    nonnegative=true), NewtonSolver(max_iterations=2))
+        few = NewtonWorkspace(
+            single_unknown_system(TimeDerivative(), SquareRootDecayTerm(:x, 10.0);
+                nonnegative = true),
+            NewtonSolver(max_iterations = 2))
         @test newton_solve!(u, [1.0], few, 1.0, 1.0).status === :max_iterations
     end
 
@@ -211,32 +229,37 @@ end
         g = cylindrical_grid(MomentumGrid(uniform_p_faces(6, 0.0, 3.0), uniform_xi_faces(4)), rad)
         op = KnockOnOperator(g, g, 0.2)
         layout = UnknownLayout(rad, [KineticUnknown(:hot_tail_distribution, g)])
-        term(treatment) = KnockOnTerm(:hot_tail_distribution, op; target_density=[1e20], treatment)
-        decay = LinearTerm(:hot_tail_distribution; coefficient=-1.0)
-        implicit = EquationSystem(layout, [Equation(:hot_tail_distribution, TimeDerivative(), decay,
-                                                    term(:implicit))])
+        term(treatment) = KnockOnTerm(:hot_tail_distribution, op; target_density = [1e20], treatment)
+        decay = LinearTerm(:hot_tail_distribution; coefficient = -1.0)
+        implicit = EquationSystem(layout,
+            [Equation(:hot_tail_distribution, TimeDerivative(), decay,
+                term(:implicit))])
         @test_throws ArgumentError NewtonWorkspace(implicit)
-        explicit = EquationSystem(layout, [Equation(:hot_tail_distribution, TimeDerivative(), decay,
-                                                    term(:explicit))])
+        explicit = EquationSystem(layout,
+            [Equation(:hot_tail_distribution, TimeDerivative(), decay,
+                term(:explicit))])
         @test NewtonWorkspace(explicit) isa NewtonWorkspace
     end
 
     @testset "time points from any array, saved states independent of the steps" begin
         # du/dt = -k u on two radii with different initial values
         k = 3.0
-        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k); nr=2)
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = -k); nr = 2)
         u0 = [1.0, 2.0]
         times = [0.0, 0.01, 0.05, 0.06, 0.2, 0.7]
         save_times = [0.0, 0.05, 0.06, 0.7]
         solution = integrate(system, u0, times; save_times)
-        exact = [u0 ./ prod(1 + k * (times[j+1] - times[j]) for j in 1:m-1; init=1.0) for m in eachindex(times)]
+        exact = [u0 ./
+                 prod(1 + k * (times[j + 1] - times[j]) for j in 1:(m - 1); init = 1.0)
+                 for m in eachindex(times)]
         @test solution.times == save_times
         @test solution.states[:, 1] == u0
         @test solution.states[:, 2] ≈ exact[3] rtol = 1e-12
         @test solution.states[:, 3] ≈ exact[4] rtol = 1e-12
         @test solution.states[:, 4] ≈ exact[6] rtol = 1e-12
         # every saved state is a computed one: a save time between the time points is rejected
-        @test_throws ArgumentError integrate(system, u0, times; save_times=[0.0, 0.03, 0.7])
+        @test_throws ArgumentError integrate(system, u0, times; save_times = [
+            0.0, 0.03, 0.7])
         stats = solution.statistics
         @test stats.time == times[2:end]
         @test stats.time_step ≈ diff(times)
@@ -248,13 +271,14 @@ end
         # the timed parts of a step are within its wall time, the factorization within the solve
         @test all(>=(0), stats.jacobian_time) && all(>=(0), stats.residual_time)
         @test all(stats.factorization_time .<= stats.linear_solve_time)
-        @test all(stats.jacobian_time .+ stats.residual_time .+ stats.linear_solve_time .<= stats.wall_time)
+        @test all(stats.jacobian_time .+ stats.residual_time .+ stats.linear_solve_time .<=
+                  stats.wall_time)
         @test all(>(0), stats.jacobian_time) && all(>(0), stats.factorization_time)
         @test length(stats.iteration_attempt) == sum(stats.newton_iterations)
-        @test stats.iteration_attempt == repeat(1:length(times)-1, inner=2)
+        @test stats.iteration_attempt == repeat(1:(length(times) - 1), inner = 2)
         @test_throws ArgumentError integrate(system, u0, [0.0, 0.1, 0.1])
-        @test_throws ArgumentError integrate(system, u0, times; save_times=[0.8])
-        @test_throws ArgumentError integrate(system, u0, times; save_times=[0.1, 0.0])
+        @test_throws ArgumentError integrate(system, u0, times; save_times = [0.8])
+        @test_throws ArgumentError integrate(system, u0, times; save_times = [0.1, 0.0])
     end
 
     @testset "a failed step is retried with shorter steps" begin
@@ -270,51 +294,57 @@ end
         @test stats.time_step ≈ [0.24, 0.12, 0.12, 0.02]
         # the accepted steps end exactly on the requested time points
         @test stats.time[2:end] == [0.12, 0.24, 0.26]
-        expected = foldl((u, h) -> square_root_step(u, k, h), stats.time_step[2:end]; init=0.2)
+        expected = foldl((u, h) -> square_root_step(u, k, h), stats.time_step[2:end]; init = 0.2)
         @test solution.states[1, end] ≈ expected rtol = 1e-12
-        @test_throws TimeStepFailure integrate(system, [0.2], times; max_step_halvings=0)
-        @test_throws TimeStepFailure integrate(system, [0.2], times; stepper=FixedSteps(max_halvings=0))
-        @test_throws ArgumentError integrate(system, [0.2], times; max_step_halvings=0, stepper=FixedSteps())
-        @test_throws ArgumentError FixedSteps(max_halvings=-1)
+        @test_throws TimeStepFailure integrate(system, [0.2], times; max_step_halvings = 0)
+        @test_throws TimeStepFailure integrate(system, [0.2], times; stepper = FixedSteps(max_halvings = 0))
+        @test_throws ArgumentError integrate(
+            system, [0.2], times; max_step_halvings = 0, stepper = FixedSteps())
+        @test_throws ArgumentError FixedSteps(max_halvings = -1)
     end
 
     @testset "run options" begin
         # the keyword form and the record give the same run and the same record
         k = 3.0
-        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-k); nr=2)
+        system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = -k); nr = 2)
         times = [0.0, 0.01, 0.05, 0.2]
-        options = RunOptions(save_times=[0.0, 0.05, 0.2], description=Dict("name" => "options"))
+        options = RunOptions(save_times = [0.0, 0.05, 0.2], description = Dict("name" => "options"))
         by_record = integrate(system, [1.0, 2.0], times, options)
-        by_keywords = integrate(system, [1.0, 2.0], times; save_times=[0.0, 0.05, 0.2],
-                                description=Dict("name" => "options"))
+        by_keywords = integrate(system, [1.0, 2.0], times; save_times = [0.0, 0.05, 0.2],
+            description = Dict("name" => "options"))
         @test by_record.states == by_keywords.states
         @test by_record.times == by_keywords.times == [0.0, 0.05, 0.2]
         @test by_record.settings["setup_hash"] == by_keywords.settings["setup_hash"]
-        @test by_record.settings["time"]["stepper"] == Dict{String,Any}("type" => "FixedSteps", "max_halvings" => 10)
+        @test by_record.settings["time"]["stepper"] ==
+              Dict{String, Any}("type" => "FixedSteps", "max_halvings" => 10)
         @test by_record.settings["segment"]["steps"] == 3
         # `environment` carries the start time, which differs when the two calls straddle a second
         without_environment(record) = filter(pair -> pair.first != "environment", record)
         record_of_options = run_settings(system, times, options)
-        record_of_keywords = run_settings(system; times, save_times=[0.0, 0.05, 0.2],
-                                          description=Dict("name" => "options"))
-        @test without_environment(record_of_options) == without_environment(record_of_keywords)
+        record_of_keywords = run_settings(system; times, save_times = [0.0, 0.05, 0.2],
+            description = Dict("name" => "options"))
+        @test without_environment(record_of_options) ==
+              without_environment(record_of_keywords)
         @test haskey(record_of_options["environment"], "start_time")
         @test haskey(record_of_keywords["environment"], "start_time")
         @test RunOptions().stepper == FixedSteps()
         @test RunOptions().save_times === nothing
-        @test describe(FixedSteps(max_halvings=3)) == Dict{String,Any}("type" => "FixedSteps", "max_halvings" => 3)
+        @test describe(FixedSteps(max_halvings = 3)) ==
+              Dict{String, Any}("type" => "FixedSteps", "max_halvings" => 3)
     end
 
     @testset "HDF5 output" begin
         rad = RadialGrid(uniform_r_faces(2, 0.5))
         mom = MomentumGrid(uniform_p_faces(5, 0.0, 2.0), uniform_xi_faces(3))
         g = cylindrical_grid(mom, rad)
-        layout = UnknownLayout(rad, [ScalarUnknown(:plasma_current; scale=2.0),
-                                     RadialUnknown(:ion_densities; components=2, nonnegative=true),
-                                     KineticUnknown(:hot_tail_distribution, g)])
-        decay(name) = Equation(name, TimeDerivative(), LinearTerm(name; coefficient=-1.0))
-        system = EquationSystem(layout, [decay(:plasma_current), decay(:ion_densities),
-                                         decay(:hot_tail_distribution)])
+        layout = UnknownLayout(rad,
+            [ScalarUnknown(:plasma_current; scale = 2.0),
+                RadialUnknown(:ion_densities; components = 2, nonnegative = true),
+                KineticUnknown(:hot_tail_distribution, g)])
+        decay(name) = Equation(name, TimeDerivative(), LinearTerm(name; coefficient = -1.0))
+        system = EquationSystem(layout,
+            [decay(:plasma_current), decay(:ion_densities),
+                decay(:hot_tail_distribution)])
         u0 = collect(1.0:length(layout))
         solution = integrate(system, u0, [0.0, 0.1, 0.2])
         file = tempname() * ".h5"
@@ -328,16 +358,19 @@ end
             @test f[:, :, 2, 3] == kinetic_view(solution.states[:, 3], layout, 3, 2)
             n = read(h5["unknowns/ion_densities"])
             @test size(n) == (2, 2, 3)
-            @test n[:, 1, 2] == unknown_view(solution.states[:, 2], layout, :ion_densities, 1)
+            @test n[:, 1, 2] ==
+                  unknown_view(solution.states[:, 2], layout, :ion_densities, 1)
             @test read(h5["unknowns/plasma_current"]) == solution.states[end, :]
-            @test read(h5["layout/order"]) == ["plasma_current", "ion_densities", "hot_tail_distribution"]
+            @test read(h5["layout/order"]) ==
+                  ["plasma_current", "ion_densities", "hot_tail_distribution"]
             @test read(h5["layout/layout_version"]) == 2
             grid_name = read(h5["layout/unknowns/hot_tail_distribution/grid"])
             @test read(h5["layout/grids/$grid_name/momentum_grid/p_faces"]) == mom.p_faces
             @test read(h5["layout/unknowns/ion_densities/lower_limit_tolerance"]) == 0.0
             @test read(h5["solver_statistics/time"]) == [0.1, 0.2]
             @test read(h5["solver_statistics/status"]) == ["converged", "converged"]
-            @test read(h5["solver_statistics/newton_iterations"]) == solution.statistics.newton_iterations
+            @test read(h5["solver_statistics/newton_iterations"]) ==
+                  solution.statistics.newton_iterations
         end
         rm(file)
 
@@ -361,9 +394,9 @@ end
     # With rate·dt = 1e10 the transient and the right-hand side cancel to ten digits, so
     # round-off keeps the scaled residual near 1e-6, above the default tolerance. Newton
     # reaches the exact solution in one step; without the stall criterion it would iterate
-    # to the limit and the step would fail (found by the Dreicer runs).
+    # to the limit and the step would fail.
     rad = RadialGrid(uniform_r_faces(1, 0.5))
-    layout = UnknownLayout(rad, [RadialUnknown(:x; components=2, scale=1.0)])
+    layout = UnknownLayout(rad, [RadialUnknown(:x; components = 2, scale = 1.0)])
     rate = 1e10
     system = EquationSystem(layout, [Equation(:x, TimeDerivative(), ExchangeTerm(:x, rate))])
     u_old = [1.0, 0.0]
@@ -387,13 +420,15 @@ end
     @test u[1] + u[2] ≈ sum(u_old) rtol = 1e-12
 end
 
-# A repeated save time was saved twice, which the reader of a segmented run refuses; the run
-# refuses it, also when two save times snap to one time point.
+# A repeated save time would be saved twice, which the reader of a segmented run refuses;
+# the run refuses it, also when two save times snap to one time point.
 @testset "repeated save times are refused" begin
-    system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient=-1.0))
+    system = single_unknown_system(TimeDerivative(), LinearTerm(:x; coefficient = -1.0))
     u0 = [1.0]
     times = [0.0, 0.5, 1.0]
-    @test length(integrate(system, u0, times; save_times=[0.0, 0.5, 1.0]).times) == 3
-    @test_throws "strictly increasing" integrate(system, u0, times; save_times=[0.0, 0.5, 0.5, 1.0])
-    @test_throws "strictly increasing" integrate(system, u0, times; save_times=[0.0, 0.5, 0.5 * (1 + 1e-13), 1.0])
+    @test length(integrate(system, u0, times; save_times = [0.0, 0.5, 1.0]).times) == 3
+    @test_throws "strictly increasing" integrate(system, u0, times; save_times = [
+        0.0, 0.5, 0.5, 1.0])
+    @test_throws "strictly increasing" integrate(
+        system, u0, times; save_times = [0.0, 0.5, 0.5 * (1 + 1e-13), 1.0])
 end

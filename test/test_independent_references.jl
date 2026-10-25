@@ -1,78 +1,94 @@
-# Independent references for results that rested on DREAM alone: the energy of a closed
-# plasma with ionizing charge states, the time integration of the energy of the cold
-# electrons against a closed form, the split of a Maxwellian at the threshold of the
+# Independent references for results that are otherwise checked against DREAM alone: the
+# energy of a closed plasma with ionizing charge states, the time integration of the energy of
+# the cold electrons against a closed form, the split of a Maxwellian at the threshold of the
 # kinetic ionization against the continuous integrals, the coronal balance of argon against
 # published balances with other atomic data, the cross sections of the kinetic ionization
 # against measurements, Gould's relativistic correction against the 4BN cross section, and the
 # 4BN stopping power against the 3BN cross section and ESTAR.
 using QuadGK: quadgk
 
-@testset "independent references of 5.9 and 5.10" begin
+@testset "independent references" begin
     # the complementary error function by quadrature (1 − erf loses its digits at x = 25)
-    erfc(z) = 2 / sqrt(π) * quadgk(t -> exp(-t^2), z, Inf; rtol=1e-13)[1]
+    erfc(z) = 2 / sqrt(π) * quadgk(t -> exp(-t^2), z, Inf; rtol = 1e-13)[1]
     e = Constants.ELEMENTARY_CHARGE
-    minus(name) = LinearTerm(name; coefficient=-1)
+    minus(name) = LinearTerm(name; coefficient = -1)
 
     if !isdir(adas_cache_directory())
         @info "no ADF11 cache at $(adas_cache_directory()): the closed neon plasma is skipped"
         @test_skip isdir(adas_cache_directory())
     else
-    @testset "the energy of a closed neon plasma (item 1)" begin
-        # Neutral neon deposited into a deuterium plasma at 30 eV, no field and no transport:
-        # the charge states ionize, the cold electrons pay the binding energy and the
-        # radiation, and the ions exchange energy with them. The energy of the plasma, the
-        # thermal energies of the electrons and the ions and the potential energy of the
-        # charge states E_pot = Σ n_Z0 Σ_{k<Z0} e I(k) (NIST, summed here), changes only by
-        # what the radiation takes out: W_cold + W_i + E_pot + ∫ P_rad dt is constant. Independent
-        # of the formula of each term, it catches a sign or an index of the binding energy and
-        # of the exchange.
-        composition = IonComposition(["D" => 1, "Ne" => 10])
-        neon = zeros(11, 1)
-        neon[1, 1] = 3e18
-        prescribed = PlasmaState(; cold_electron_temperature=[30.0], electric_field=[0.0], magnetic_field=[0.0],
-                                 ions=[IonSpecies("D", 1, 1, [5e19]), IonSpecies("Ne", 10, neon)])
-        radial = RadialGrid(uniform_r_faces(1, 0.5))
-        layout = UnknownLayout(radial, [ion_densities_unknown(composition), RadialUnknown(:cold_electron_density; scale=1e19),
-                                        RadialUnknown(:cold_electron_temperature; scale=10.0),
-                                        RadialUnknown(:cold_thermal_energy; scale=THERMAL_ENERGY_FACTOR * 1e20),
-                                        RadialUnknown(:ion_thermal_energy; components=2, scale=THERMAL_ENERGY_FACTOR * 1e20,
-                                                      nonnegative=true)])
-        ions = (ions=:ion_densities,)
-        radiation = RadiatedPowerTerm(prescribed; radiation=:recombination, ions...)
-        equations = [Equation(:ion_densities, TimeDerivative(), IonRateTerm(composition)), population_equations(composition)...,
-                     thermal_energy_equation(),
-                     Equation(:cold_electron_temperature, TimeDerivative(:cold_thermal_energy), radiation,
-                              IonEnergyExchangeTerm(prescribed; side=:electrons, ions...)),
-                     Equation(:ion_thermal_energy, TimeDerivative(), IonEnergyExchangeTerm(prescribed; side=:ions, ions...))]
-        u0 = zeros(length(layout))
-        set_ion_densities!(u0, layout, prescribed)
-        radial_values(u0, layout, 2) .= free_electron_density(prescribed, 1)
-        radial_values(u0, layout, 3) .= 30.0
-        set_ion_thermal_energy!(u0, layout, prescribed, 3.0; ions=:ion_densities)
-        system = EquationSystem(layout, equations; time_scale=1e-7, initial_state=u0)
-        times = collect(range(0.0, 2e-6; length=41))
-        solution = integrate(system, u0, times; stepper=FixedSteps(), solver=NewtonSolver(residual_tolerance=1e-12))
-        @test all(solution.statistics.accepted)
-        potential(u) = sum(e * sum(ionization_energy("Ne", k) for k in 0:Z0-1; init=0.0) * radial_view(u, layout, 1, 1)[2 + Z0 + 1]
-                           for Z0 in 0:10) + e * ionization_energy("D", 0) * radial_view(u, layout, 1, 1)[2]
-        energy(u) = only(radial_values(u, layout, 4)) + sum(radial_view(u, layout, 5, 1)) + potential(u)
-        radiated = 0.0
-        balance = Float64[]
-        for m in 2:length(times)
-            u = solution.states[:, m]
-            # backward Euler: the radiation of the step at the state of its end
-            radiated += (times[m] - times[m-1]) * only(radiated_power(radiation, u, layout, times[m]).radiation)
-            push!(balance, energy(u) + radiated - energy(solution.states[:, 1]))
+        @testset "the energy of a closed neon plasma" begin
+            # Neutral neon deposited into a deuterium plasma at 30 eV, no field and no transport:
+            # the charge states ionize, the cold electrons pay the binding energy and the
+            # radiation, and the ions exchange energy with them. The energy of the plasma, the
+            # thermal energies of the electrons and the ions and the potential energy of the
+            # charge states E_pot = Σ n_Z0 Σ_{k<Z0} e I(k) (NIST, summed here), changes only by
+            # what the radiation takes out: W_cold + W_i + E_pot + ∫ P_rad dt is constant. Independent
+            # of the formula of each term, it catches a sign or an index of the binding energy and
+            # of the exchange.
+            composition = IonComposition(["D" => 1, "Ne" => 10])
+            neon = zeros(11, 1)
+            neon[1, 1] = 3e18
+            prescribed = PlasmaState(; cold_electron_temperature = [30.0],
+                electric_field = [0.0], magnetic_field = [0.0],
+                ions = [IonSpecies("D", 1, 1, [5e19]), IonSpecies("Ne", 10, neon)])
+            radial = RadialGrid(uniform_r_faces(1, 0.5))
+            layout = UnknownLayout(radial,
+                [ion_densities_unknown(composition),
+                    RadialUnknown(:cold_electron_density; scale = 1e19),
+                    RadialUnknown(:cold_electron_temperature; scale = 10.0),
+                    RadialUnknown(:cold_thermal_energy; scale = THERMAL_ENERGY_FACTOR *
+                                                                1e20),
+                    RadialUnknown(:ion_thermal_energy; components = 2,
+                        scale = THERMAL_ENERGY_FACTOR * 1e20,
+                        nonnegative = true)])
+            ions = (ions = :ion_densities,)
+            radiation = RadiatedPowerTerm(prescribed; radiation = :recombination, ions...)
+            equations = [
+                Equation(:ion_densities, TimeDerivative(), IonRateTerm(composition)),
+                population_equations(composition)...,
+                thermal_energy_equation(),
+                Equation(:cold_electron_temperature,
+                    TimeDerivative(:cold_thermal_energy), radiation,
+                    IonEnergyExchangeTerm(prescribed; side = :electrons, ions...)),
+                Equation(:ion_thermal_energy, TimeDerivative(),
+                    IonEnergyExchangeTerm(prescribed; side = :ions, ions...))]
+            u0 = zeros(length(layout))
+            set_ion_densities!(u0, layout, prescribed)
+            radial_values(u0, layout, 2) .= free_electron_density(prescribed, 1)
+            radial_values(u0, layout, 3) .= 30.0
+            set_ion_thermal_energy!(u0, layout, prescribed, 3.0; ions = :ion_densities)
+            system = EquationSystem(layout, equations; time_scale = 1e-7, initial_state = u0)
+            times = collect(range(0.0, 2e-6; length = 41))
+            solution = integrate(system, u0, times; stepper = FixedSteps(),
+                solver = NewtonSolver(residual_tolerance = 1e-12))
+            @test all(solution.statistics.accepted)
+            potential(u) = sum(e *
+                               sum(ionization_energy("Ne", k) for k in 0:(Z0 - 1); init = 0.0) *
+                               radial_view(u, layout, 1, 1)[2 + Z0 + 1]
+            for Z0 in 0:10) +
+                           e * ionization_energy("D", 0) * radial_view(u, layout, 1, 1)[2]
+            energy(u) = only(radial_values(u, layout, 4)) +
+                        sum(radial_view(u, layout, 5, 1)) + potential(u)
+            radiated = 0.0
+            balance = Float64[]
+            for m in 2:length(times)
+                u = solution.states[:, m]
+                # backward Euler: the radiation of the step at the state of its end
+                radiated += (times[m] - times[m - 1]) *
+                            only(radiated_power(radiation, u, layout, times[m]).radiation)
+                push!(balance, energy(u) + radiated - energy(solution.states[:, 1]))
+            end
+            # the neon ionized (its potential energy grew by 15 %) and radiated 8.3 J/m³, both far
+            # above the residual of the balance
+            @test potential(solution.states[:, end]) >
+                  1.1 * potential(solution.states[:, 1])
+            @test maximum(abs, balance) < 1e-8 * energy(solution.states[:, 1])
+            @test radiated > 1e4 * maximum(abs, balance)
         end
-        # the neon ionized (its potential energy grew by 15 %) and radiated 8.3 J/m³, both far
-        # above the residual of the balance
-        @test potential(solution.states[:, end]) > 1.1 * potential(solution.states[:, 1])
-        @test maximum(abs, balance) < 1e-8 * energy(solution.states[:, 1])
-        @test radiated > 1e4 * maximum(abs, balance)
-    end
     end
 
-    @testset "Gould's bremsstrahlung cools a plasma as the closed form (item 2)" begin
+    @testset "Gould's bremsstrahlung cools a plasma as the closed form" begin
         # Fully ionized deuterium with a fixed density and the radiation of DREAM's mode, which
         # here is Gould's bremsstrahlung alone (no bound electrons, no line radiation):
         # (3/2) e n dT/dt = −C √T n² (1 + a T), a = (11/24 + κ)/mₑc² (GOULD_ION_CORRECTION,
@@ -84,29 +100,37 @@ using QuadGK: quadgk
             @test_skip isdir(adas_cache_directory())
         else
             n, T0 = 1e20, 20.0
-            prescribed = PlasmaState(; cold_electron_temperature=[T0], electric_field=[0.0], magnetic_field=[0.0],
-                                     ions=[IonSpecies("D", 1, 1, [n])], cold_electron_density=[n])
+            prescribed = PlasmaState(; cold_electron_temperature = [T0],
+                electric_field = [0.0], magnetic_field = [0.0],
+                ions = [IonSpecies("D", 1, 1, [n])], cold_electron_density = [n])
             radial = RadialGrid(uniform_r_faces(1, 0.5))
-            layout = UnknownLayout(radial, [RadialUnknown(:cold_electron_density; scale=1e20),
-                                            RadialUnknown(:cold_electron_temperature; scale=10.0),
-                                            RadialUnknown(:cold_thermal_energy; scale=THERMAL_ENERGY_FACTOR * 1e21)])
-            equations = [Equation(:cold_electron_density, Algebraic(), PrescribedValueTerm([n]), minus(:cold_electron_density)),
-                         thermal_energy_equation(),
-                         Equation(:cold_electron_temperature, TimeDerivative(:cold_thermal_energy),
-                                  RadiatedPowerTerm(prescribed; radiation=:dream))]
+            layout = UnknownLayout(radial,
+                [RadialUnknown(:cold_electron_density; scale = 1e20),
+                    RadialUnknown(:cold_electron_temperature; scale = 10.0),
+                    RadialUnknown(:cold_thermal_energy; scale = THERMAL_ENERGY_FACTOR *
+                                                                1e21)])
+            equations = [
+                Equation(:cold_electron_density, Algebraic(),
+                    PrescribedValueTerm([n]), minus(:cold_electron_density)),
+                thermal_energy_equation(),
+                Equation(:cold_electron_temperature, TimeDerivative(:cold_thermal_energy),
+                    RadiatedPowerTerm(prescribed; radiation = :dream))]
             u0 = zeros(length(layout))
             radial_values(u0, layout, 1) .= n
             radial_values(u0, layout, 2) .= T0
-            system = EquationSystem(layout, equations; time_scale=1e-3, initial_state=u0)
+            system = EquationSystem(layout, equations; time_scale = 1e-3, initial_state = u0)
             mc2 = Constants.ELECTRON_REST_ENERGY
             a = (Runes2P.GOULD_ION_CORRECTION + Runes2P.GOULD_ELECTRON_CORRECTION) / mc2
             k = Runes2P.GOULD_BREMSSTRAHLUNG_PREFACTOR * n / (THERMAL_ENERGY_FACTOR)
             t_end = sqrt(T0) / k                      # to about a quarter of the temperature
             exact(t) = tan(atan(sqrt(a * T0)) - k * sqrt(a) * t / 2)^2 / a
             errors = map((25, 50, 100)) do steps
-                solution = integrate(system, u0, collect(range(0.0, t_end; length=steps + 1)); stepper=FixedSteps(),
-                                     solver=NewtonSolver(residual_tolerance=1e-12))
-                abs(only(radial_values(solution.states[:, end], layout, 2)) - exact(t_end)) / exact(t_end)
+                solution = integrate(
+                    system, u0, collect(range(0.0, t_end; length = steps + 1));
+                    stepper = FixedSteps(),
+                    solver = NewtonSolver(residual_tolerance = 1e-12))
+                abs(only(radial_values(solution.states[:, end], layout, 2)) -
+                    exact(t_end)) / exact(t_end)
             end
             @test exact(t_end) < 0.5T0
             @test errors[3] < 1e-2
@@ -114,7 +138,7 @@ using QuadGK: quadgk
         end
     end
 
-    @testset "the split of a Maxwellian at the threshold (item 5)" begin
+    @testset "the split of a Maxwellian at the threshold" begin
         # f_> of the grid against the quadrature of the continuous relativistic Maxwellian
         # exp(−(γ − 1)/Θ) that the split takes, and A_> against that of the Maxwellian times v σ
         # above the threshold: both separate the quadrature of the grid from the method of the
@@ -122,34 +146,42 @@ using QuadGK: quadgk
         # x = E_c/T, to the relativistic correction p⁴/(8Θ) of the exponent, 6e-4 at five
         # thermal momenta (0.6 % at 10 eV).
         for T in (1.0, 10.0)
-        theta = T / Constants.ELECTRON_REST_ENERGY
-        composition = IonComposition(["Ar" => 18])
-        radial = RadialGrid(uniform_r_faces(1, 0.5))
-        grid = cylindrical_grid(MomentumGrid(uniform_p_faces(4000, 0.0, 12 * sqrt(2theta)), uniform_xi_faces(1)), radial)
-        layout = UnknownLayout(radial, [ion_densities_unknown(composition), RadialUnknown(:cold_electron_temperature),
-                                        KineticUnknown(:f, grid)])
-        u = zeros(length(layout))
-        radial_values(u, layout, 2) .= T
-        for factor in (3.0, 5.0)
-            kinetic = KineticIonizationTerm(composition, :f, grid;
-                                            region=MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor)))
-            split = threshold_split(kinetic, 1, u, layout, 0.0)
-            p0 = factor * sqrt(2theta)
-            x = (sqrt(1 + p0^2) - 1) / theta        # E_c/T
-            maxwellian(p) = p^2 * exp(-p^2 / (sqrt(1 + p^2) + 1) / theta)
-            speed(p) = Constants.SPEED_OF_LIGHT * p / sqrt(1 + p^2)
-            total = quadgk(maxwellian, 0, 40sqrt(2theta); rtol=1e-12)[1]
-            @test split.fraction ≈ quadgk(maxwellian, p0, 40sqrt(2theta); rtol=1e-12)[1] / total rtol = 2e-4
-            T == 1.0 && @test split.fraction ≈ erfc(sqrt(x)) + 2sqrt(x / π) * exp(-x) rtol = 2e-3
-            # A_> of Ar⁺ (component 2)
-            above = quadgk(p -> maxwellian(p) * speed(p) * ionization_cross_section("Ar", 1, p), p0, 40sqrt(2theta);
-                           rtol=1e-10)[1]
-            @test split.coefficients[2] ≈ above / total rtol = 2e-3
-        end
+            theta = T / Constants.ELECTRON_REST_ENERGY
+            composition = IonComposition(["Ar" => 18])
+            radial = RadialGrid(uniform_r_faces(1, 0.5))
+            grid = cylindrical_grid(
+                MomentumGrid(uniform_p_faces(4000, 0.0, 12 * sqrt(2theta)), uniform_xi_faces(1)),
+                radial)
+            layout = UnknownLayout(radial,
+                [ion_densities_unknown(composition),
+                    RadialUnknown(:cold_electron_temperature),
+                    KineticUnknown(:f, grid)])
+            u = zeros(length(layout))
+            radial_values(u, layout, 2) .= T
+            for factor in (3.0, 5.0)
+                kinetic = KineticIonizationTerm(composition, :f, grid;
+                    region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor)))
+                split = threshold_split(kinetic, 1, u, layout, 0.0)
+                p0 = factor * sqrt(2theta)
+                x = (sqrt(1 + p0^2) - 1) / theta        # E_c/T
+                maxwellian(p) = p^2 * exp(-p^2 / (sqrt(1 + p^2) + 1) / theta)
+                speed(p) = Constants.SPEED_OF_LIGHT * p / sqrt(1 + p^2)
+                total = quadgk(maxwellian, 0, 40sqrt(2theta); rtol = 1e-12)[1]
+                @test split.fraction ≈
+                      quadgk(maxwellian, p0, 40sqrt(2theta); rtol = 1e-12)[1] / total rtol = 2e-4
+                T == 1.0 &&
+                    @test split.fraction ≈ erfc(sqrt(x)) + 2sqrt(x / π) * exp(-x) rtol = 2e-3
+                # A_> of Ar⁺ (component 2)
+                above = quadgk(
+                    p -> maxwellian(p) * speed(p) * ionization_cross_section("Ar", 1, p),
+                    p0, 40sqrt(2theta);
+                    rtol = 1e-10)[1]
+                @test split.coefficients[2] ≈ above / total rtol = 2e-3
+            end
         end
     end
 
-    @testset "the coronal balance of argon against published balances (item 3)" begin
+    @testset "the coronal balance of argon against published balances" begin
         # The coronal equilibrium of the ADAS rates (coronal_equilibrium) against two ionization
         # balances with other atomic data, in the zero-density limit: Mazzotta, Mazzitelli,
         # Colafrancesco, Vittorio, Astron. Astrophys. Suppl. Ser. 133 (1998) 403, Table 2, and
@@ -163,25 +195,26 @@ using QuadGK: quadgk
         # data and the three differ by the spread of the atomic data, so the bands catch a wrong
         # block, index or sign of the rates (a whole charge state, a factor two in temperature),
         # not the data: Runes2P at 1e16 m⁻³, the lowest density of the tables, has the peaks at
-        # 48.4 and 847 eV and the mean charges 3.26, 8.55 and 15.975 (2026-10-12).
+        # 48.4 and 847 eV and the mean charges 3.26, 8.55 and 15.975.
         if !isdir(adas_cache_directory())
             @info "no ADF11 cache: the coronal balance of argon is skipped"
             @test_skip isdir(adas_cache_directory())
         else
             term = IonRateTerm(IonComposition(["D" => 1, "Ar" => 18]))
             n_e = 1e16
-            fraction(T) = coronal_equilibrium(term, 2, n_e, T; density=1.0)
+            fraction(T) = coronal_equilibrium(term, 2, n_e, T; density = 1.0)
             mean_charge(T) = sum((0:18) .* fraction(T))
             function peak(z)
-                grid = 10 .^ range(log10(5.0), log10(3000.0); length=1201)
-                return grid[argmax([fraction(T)[z+1] for T in grid])]
+                grid = 10 .^ range(log10(5.0), log10(3000.0); length = 1201)
+                return grid[argmax([fraction(T)[z + 1] for T in grid])]
             end
             for (z, references) in ((8, (54.8, 59.3)), (16, (865.0, 873.0)))
                 for reference in references
                     @test 0.75 < peak(z) / reference < 1.33
                 end
             end
-            for (T, references) in ((10.0, (3.03, 2.97)), (100.0, (8.56, 8.48)), (1000.0, (15.972, 15.970)))
+            for (T, references) in ((10.0, (3.03, 2.97)), (100.0, (8.56, 8.48)), (
+                1000.0, (15.972, 15.970)))
                 for reference in references
                     @test abs(mean_charge(T) - reference) < (T == 10.0 ? 0.5 : 0.2)
                 end
@@ -189,7 +222,7 @@ using QuadGK: quadgk
         end
     end
 
-    @testset "the cross sections of the kinetic ionization against measurements (item 4, #244)" begin
+    @testset "the cross sections of the kinetic ionization against measurements" begin
         # Measured cross sections of the neutral atoms [m²]:
         # - hydrogen, M. B. Shah, D. S. Elliott, H. B. Gilbody, J. Phys. B 20, 3501 (1987),
         #   Table 1 (atomic H, ±6.8 % in the absolute scale), at its rows of 102.0, 198.2,
@@ -232,32 +265,40 @@ using QuadGK: quadgk
         # misses the plateau. The checks of the model are the MeV asymptotes, whose M² Dere
         # computes from photoionization data (his eq. (1)), and Bao and Li for the ions
         # (test_chianti_ionization.jl).
-        # The departures of the fits of DREAM's method stay asserted as they were found:
-        # both within 10 % of Shah from 0.1 to 1 keV and of Straub at 100 eV; the
-        # form with 1/β² has the energy dependence of the asymptote from 0.5 to 2 MeV, where
-        # DREAM's grows away from it (at 1 MeV 1.72 times the asymptote for hydrogen, 0.92 for
-        # argon; 1.43 and 0.74 for the form with 1/β²).
+        # The departures of the fits of DREAM's method are asserted as well: both within 10 % of
+        # Shah from 0.1 to 1 keV and of Straub at 100 eV; the form with 1/β² has the energy
+        # dependence of the asymptote from 0.5 to 2 MeV, where DREAM's grows away from it (at
+        # 1 MeV 1.72 times the asymptote for hydrogen, 0.92 for argon; 1.43 and 0.74 for the
+        # form with 1/β²).
         mc2 = Constants.ELECTRON_REST_ENERGY
         momentum(E) = sqrt((1 + E / mc2)^2 - 1)
         shah = ((102.0, 5.40e-21), (198.2, 3.98e-21), (508.2, 2.00e-21), (998.2, 1.13e-21))
         for (E, measured) in shah
             @test abs(ionization_cross_section("H", 0, momentum(E)) / measured - 1) < 0.068
             for form in (:dream, :bethe)
-                @test 0.9 < ionization_cross_section("H", 0, momentum(E); form) / measured < 1.1
+                @test 0.9 < ionization_cross_section("H", 0, momentum(E); form) / measured <
+                      1.1
             end
         end
         # deuterium takes the parameters of hydrogen
-        @test ionization_cross_section("D", 0, momentum(500.0)) == ionization_cross_section("H", 0, momentum(500.0))
-        straub = ((20, 0.46), (25, 1.24), (30, 1.84), (35, 2.26), (40, 2.55), (45, 2.66), (50, 2.70), (60, 2.67),
-                  (70, 2.67), (80, 2.69), (90, 2.69), (100, 2.64), (120, 2.55), (140, 2.45), (160, 2.35), (180, 2.27),
-                  (200, 2.18), (250, 1.99), (300, 1.79), (400, 1.51), (500, 1.31), (600, 1.16), (700, 1.03),
-                  (800, 0.932), (900, 0.865), (1000, 0.795))
+        @test ionization_cross_section("D", 0, momentum(500.0)) ==
+              ionization_cross_section("H", 0, momentum(500.0))
+        straub = ((20, 0.46), (25, 1.24), (30, 1.84), (35, 2.26),
+            (40, 2.55), (45, 2.66), (50, 2.70), (60, 2.67),
+            (70, 2.67), (80, 2.69), (90, 2.69), (100, 2.64), (120, 2.55),
+            (140, 2.45), (160, 2.35), (180, 2.27),
+            (200, 2.18), (250, 1.99), (300, 1.79), (400, 1.51), (500, 1.31), (600, 1.16), (
+                700, 1.03),
+            (800, 0.932), (900, 0.865), (1000, 0.795))
         for (E, measured) in straub
-            @test abs(ionization_cross_section("Ar", 0, momentum(E)) / (measured * 1e-20) - 1) < 0.12
+            @test abs(ionization_cross_section("Ar", 0, momentum(E)) / (measured * 1e-20) -
+                      1) < 0.12
         end
         for form in (:dream, :bethe)
-            @test 0.9 < ionization_cross_section("Ar", 0, momentum(100.0); form) / 2.64e-20 < 1.15
-            @test ionization_cross_section("Ar", 0, momentum(1000.0); form) / 0.795e-20 < 0.8
+            @test 0.9 <
+                  ionization_cross_section("Ar", 0, momentum(100.0); form) / 2.64e-20 < 1.15
+            @test ionization_cross_section("Ar", 0, momentum(1000.0); form) / 0.795e-20 <
+                  0.8
         end
         compton = 4π * 3.8615926796e-13^2       # 4π(ħ/mc)² [m²], the reduced Compton wavelength of CODATA 2018
         function asymptote(M2, C, E)
@@ -265,26 +306,33 @@ using QuadGK: quadgk
             β2 = p^2 / (1 + p^2)
             return compton * (M2 * (log(β2 / (1 - β2)) / β2 - 1) + C / β2)
         end
-        megavolt = 10 .^ range(5, 7; length=9)
-        for (element, M2, C, band) in (("H", 0.2823, 4.007, 0.068), ("Ar", 4.22, 37.93, 0.12))
-            ratios = [ionization_cross_section(element, 0, momentum(E)) / asymptote(M2, C, E) for E in megavolt]
+        megavolt = 10 .^ range(5, 7; length = 9)
+        for (element, M2, C, band) in (("H", 0.2823, 4.007, 0.068), (
+            "Ar", 4.22, 37.93, 0.12))
+            ratios = [ionization_cross_section(element, 0, momentum(E)) /
+                      asymptote(M2, C, E) for E in megavolt]
             @test all(r -> abs(r - 1) < band, ratios)
         end
-        neon = [ionization_cross_section("Ne", 0, momentum(E)) / asymptote(2.02, 18.17, E) for E in megavolt]
+        neon = [ionization_cross_section("Ne", 0, momentum(E)) / asymptote(2.02, 18.17, E)
+                for E in megavolt]
         @test all(r -> 0.85 < r < 0.95, neon)
-        @test all(E -> ionization_cross_section("Ne", 0, momentum(E); form=:dream) / asymptote(2.02, 18.17, E) < 0.4, megavolt)
+        @test all(
+            E -> ionization_cross_section("Ne", 0, momentum(E); form = :dream) /
+                 asymptote(2.02, 18.17, E) < 0.4,
+            megavolt)
         @test CHIANTI_IONIZATION_FITS["H"][1].bethe_m2 ≈ 0.2823 rtol = 0.01
         @test CHIANTI_IONIZATION_FITS["Ar"][1].bethe_m2 ≈ 4.22 rtol = 0.015
         energies = (0.5e6, 1e6, 2e6)
         for (element, M2, C) in (("H", 0.2823, 4.007), ("Ar", 4.22, 37.93))
-            ratio(form) = [ionization_cross_section(element, 0, momentum(E); form) / asymptote(M2, C, E) for E in energies]
+            ratio(form) = [ionization_cross_section(element, 0, momentum(E); form) /
+                           asymptote(M2, C, E) for E in energies]
             @test maximum(ratio(:bethe)) / minimum(ratio(:bethe)) < 1.08
             @test maximum(ratio(:chianti)) / minimum(ratio(:chianti)) < 1.02
             element == "H" && @test maximum(ratio(:dream)) / minimum(ratio(:dream)) > 1.3
         end
     end
 
-    @testset "Gould's relativistic correction from the 4BN cross section (item 6)" begin
+    @testset "Gould's relativistic correction from the 4BN cross section" begin
         # The power of electron-ion bremsstrahlung of a Jüttner distribution, n_e n_i Z² α r₀² m c³
         # ⟨β γ φ⟩ with φ = bremsstrahlung_cross_section (the 4BN of Koch and Motz), over its
         # nonrelativistic limit (16/3)√(8θ/π): (R − 1)/θ tends to the coefficient of θ in
@@ -294,8 +342,9 @@ using QuadGK: quadgk
         function excess(θ)
             jüttner(p) = p^2 * exp(-p^2 / (1 + sqrt(1 + p^2)) / θ)
             top = 40 * sqrt(2θ)
-            norm = quadgk(jüttner, 0, top; rtol=1e-13)[1]
-            average = quadgk(p -> jüttner(p) * p * bremsstrahlung_cross_section(p), 0, top; rtol=1e-13)[1] / norm
+            norm = quadgk(jüttner, 0, top; rtol = 1e-13)[1]
+            average = quadgk(p -> jüttner(p) * p * bremsstrahlung_cross_section(p), 0, top; rtol = 1e-13)[1] /
+                      norm
             return (average / (16 / 3 * sqrt(8θ / π)) - 1) / θ
         end
         slope = 2 * excess(1e-3) - excess(2e-3)
@@ -304,12 +353,13 @@ using QuadGK: quadgk
         # the four constants pinned: Gould's electron-electron coefficient of his eqs.
         # (18) and (22), three times smaller than DREAM's of his eq. (41) as printed, and DREAM's 19/24
         @test Runes2P.GOULD_ELECTRON_CORRECTION == 5 / (24 * sqrt(2)) * (44 - 3π^2)
-        @test Runes2P.DREAM_GOULD_ELECTRON_CORRECTION ≈ 3 * Runes2P.GOULD_ELECTRON_CORRECTION rtol = 1e-15
+        @test Runes2P.DREAM_GOULD_ELECTRON_CORRECTION ≈
+              3 * Runes2P.GOULD_ELECTRON_CORRECTION rtol = 1e-15
         @test Runes2P.DREAM_GOULD_ION_CORRECTION == 19 / 24
         @test abs(slope - Runes2P.DREAM_GOULD_ION_CORRECTION) > 0.3
     end
 
-    @testset "the 4BN stopping power against 3BN and ESTAR (item 7)" begin
+    @testset "the 4BN stopping power against 3BN and ESTAR" begin
         # 4BN, the radiative energy-loss cross section φ = (1/E₀)∫k dσ_k of H. W. Koch and J. W.
         # Motz, Rev. Mod. Phys. 31, 920 (1959), against the integral of their differential cross
         # section 3BN (Table I, p. 925; Born, no screening) over the photon energy, in units of
@@ -318,20 +368,25 @@ using QuadGK: quadgk
             k = E0 - E
             ε0, ε = log((E0 + p0) / (E0 - p0)), 2atanh(p / E)
             L = 2log((E0 * E + p0 * p - 1) / k)
-            return (p / p0) / k * (4 / 3 - 2 * E0 * E * (p^2 + p0^2) / (p^2 * p0^2) + ε0 * E / p0^3 + ε * E0 / p^3 -
-                                   ε * ε0 / (p0 * p) +
-                                   L * (8 * E0 * E / (3p0 * p) + k^2 * (E0^2 * E^2 + p0^2 * p^2) / (p0^3 * p^3) +
-                                        k / (2p0 * p) * ((E0 * E + p0^2) / p0^3 * ε0 - (E0 * E + p^2) / p^3 * ε +
-                                                         2k * E0 * E / (p^2 * p0^2))))
+            return (p / p0) / k *
+                   (4 / 3 - 2 * E0 * E * (p^2 + p0^2) / (p^2 * p0^2) + ε0 * E / p0^3 +
+                    ε * E0 / p^3 -
+                    ε * ε0 / (p0 * p) +
+                    L * (8 * E0 * E / (3p0 * p) +
+                     k^2 * (E0^2 * E^2 + p0^2 * p^2) / (p0^3 * p^3) +
+                     k / (2p0 * p) *
+                     ((E0 * E + p0^2) / p0^3 * ε0 - (E0 * E + p^2) / p^3 * ε +
+                      2k * E0 * E / (p^2 * p0^2))))
         end
         for p0 in (0.3, 1.0, 3.0)
             E0 = sqrt(1 + p0^2)
             # over the final momentum p = p₀(1 − s²), with k = E₀ − E(p) and dk = (p/E) dp: the
             # logarithm of k at k → 0 becomes s ln s, smooth for the quadrature
-            integrand(s) = (p = p0 * (1 - s^2); E = sqrt(1 + p^2); (E0 - E) * bn3(E0, p0, E, p) * p / E * 2p0 * s)
-            integral = quadgk(integrand, 0, 1; rtol=1e-12)[1] / E0
+            integrand(s) = (p = p0 * (1 - s^2); E = sqrt(1 + p^2);
+                (E0 - E) * bn3(E0, p0, E, p) * p / E * 2p0 * s)
+            integral = quadgk(integrand, 0, 1; rtol = 1e-12)[1] / E0
             @test integral ≈ bremsstrahlung_cross_section(p0) rtol = 1e-9
-            @test !(integral ≈ bremsstrahlung_cross_section(p0; constant=:dream))
+            @test !(integral ≈ bremsstrahlung_cross_section(p0; constant = :dream))
         end
         # the radiative stopping power of hydrogen of NIST ESTAR (M. J. Berger et al., ESTAR,
         # https://physics.nist.gov/Star, exported 2026-10-12) at 10 and 22.4 keV, where the
@@ -339,10 +394,12 @@ using QuadGK: quadgk
         # lies below the exact one (Koch and Motz, p. 926): ESTAR is at most a few percent above
         # 4BN with 4/3, and lies below the form with DREAM's 1
         mc2 = 0.51099895                                   # MeV
-        to_estar = 6.02214076e23 / 1.00794 * Constants.FINE_STRUCTURE_CONSTANT * (Constants.CLASSICAL_ELECTRON_RADIUS * 100)^2 * mc2
+        to_estar = 6.02214076e23 / 1.00794 * Constants.FINE_STRUCTURE_CONSTANT *
+                   (Constants.CLASSICAL_ELECTRON_RADIUS * 100)^2 * mc2
         for (T, estar) in ((0.010, 9.702e-4), (0.0224, 1.012e-3))
             p = sqrt((1 + T / mc2)^2 - 1)
-            stopping(constant) = to_estar * sqrt(1 + p^2) * bremsstrahlung_cross_section(p; constant)
+            stopping(constant) = to_estar * sqrt(1 + p^2) *
+                                 bremsstrahlung_cross_section(p; constant)
             @test 1.0 < estar / stopping(:koch_motz) < 1.06
             @test estar / stopping(:dream) < 1.0
         end

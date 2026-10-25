@@ -1,6 +1,6 @@
 # Terms of radial transport next to the Fokker-Planck term that holds the radial operator:
-# the loss through the edge of the plasma as the rate of a scalar unknown, and a prescribed
-# loss rate.
+# the loss through the edge of the plasma as the rate of a scalar unknown,
+# and a prescribed loss rate.
 
 """
     RadialEdgeLossTerm(kinetic, operator; coefficient=1)
@@ -16,19 +16,22 @@ them during the run.
 """
 struct RadialEdgeLossTerm{T} <: EquationTerm
     kinetic::Symbol
-    operator::AdvectionDiffusion{T,T}
+    operator::AdvectionDiffusion{T, T}
     coefficient::Float64
 end
-RadialEdgeLossTerm(kinetic::Symbol, operator::AdvectionDiffusion; coefficient::Real=1.0) =
+function RadialEdgeLossTerm(kinetic::Symbol, operator::AdvectionDiffusion; coefficient::Real = 1.0)
     RadialEdgeLossTerm(kinetic, operator, Float64(coefficient))
+end
 
 dependencies(term::RadialEdgeLossTerm) = [term.kinetic]
 is_linear(::RadialEdgeLossTerm) = true
 
 function validate(term::RadialEdgeLossTerm, layout, row)
     id = unknown_id(layout, term.kinetic)
-    layout.kinds[id] === :kinetic || throw(ArgumentError("RadialEdgeLossTerm needs a kinetic unknown"))
-    layout.kinds[row] === :scalar || throw(ArgumentError("RadialEdgeLossTerm adds to a scalar unknown"))
+    layout.kinds[id] === :kinetic ||
+        throw(ArgumentError("RadialEdgeLossTerm needs a kinetic unknown"))
+    layout.kinds[row] === :scalar ||
+        throw(ArgumentError("RadialEdgeLossTerm adds to a scalar unknown"))
     _same_momentum_grids(term.operator.grid, kinetic_grid(layout, id)) ||
         throw(DimensionMismatch("the grid of the operator does not match $(term.kinetic)"))
     return nothing
@@ -38,7 +41,8 @@ function rhs!(out, term::RadialEdgeLossTerm, u, layout, row, t)
     id = unknown_id(layout, term.kinetic)
     f = kinetic_array(u, layout, id)
     edge = radial_cell_count(layout) + 1
-    out[first(unknown_range(layout, row))] += term.coefficient * radial_particle_flux(term.operator, f, edge)
+    out[first(unknown_range(layout, row))] += term.coefficient *
+                                              radial_particle_flux(term.operator, f, edge)
     return out
 end
 
@@ -55,10 +59,12 @@ function add_jacobian!(J, term::RadialEdgeLossTerm, u, layout, row, t)
     distance = _r_edge_distance(op)
     r = first(unknown_range(layout, row))
     @inbounds for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
-        A = op.advection_r[i, j, nr+1]
-        rate = (A > 0 ? A : zero(A)) + op.diffusion_r_r[i, j, nr+1] / distance
+
+        A = op.advection_r[i, j, nr + 1]
+        rate = (A > 0 ? A : zero(A)) + op.diffusion_r_r[i, j, nr + 1] / distance
         _add_entry!(J, r, _kinetic_index(layout, id, nr, i, j),
-                    term.coefficient * m.p_widths[i] * m.xi_widths[j] * op.jacobian_r_faces[i, j, nr+1] * rate)
+            term.coefficient * m.p_widths[i] * m.xi_widths[j] *
+            op.jacobian_r_faces[i, j, nr + 1] * rate)
     end
     return J
 end
@@ -85,7 +91,9 @@ struct LossRateTerm <: EquationTerm
     unknown::Symbol
     rate::Vector{Float64}
 end
-LossRateTerm(unknown::Symbol, rate::AbstractVector{<:Real}) = LossRateTerm(unknown, collect(Float64, rate))
+function LossRateTerm(unknown::Symbol, rate::AbstractVector{<:Real})
+    LossRateTerm(unknown, collect(Float64, rate))
+end
 
 dependencies(term::LossRateTerm) = [term.unknown]
 is_linear(::LossRateTerm) = true

@@ -1,6 +1,7 @@
-# Kinetic grids with a momentum grid per radius: shared detection, accessors,
-# operators that need the same cell counts refusing others, and the knock-on operator on
-# different momentum grids at different radii.
+# Kinetic grids with a momentum grid per radius: shared detection, accessors, operators
+# that need the same cell counts refusing others, and the knock-on operator on different
+# momentum grids at different radii.
+
 # an assertion on allocations holds for optimised code alone: it is skipped, and reported
 # as broken, in a development run at -O0 or -O1
 const OPTIMIZED = Base.JLOptions().opt_level >= 2
@@ -8,7 +9,7 @@ const OPTIMIZED = Base.JLOptions().opt_level >= 2
 @testset "momentum grid per radius" begin
     rad = RadialGrid(uniform_r_faces(3, 0.6))
     m1 = MomentumGrid(biuniform_p_faces(24, 8, 0.0, 0.6, 4.0), uniform_xi_faces(10))
-    m2 = MomentumGrid(uniform_p_faces(18, 0.0, 3.5), -cos.(range(0, π; length=13)))
+    m2 = MomentumGrid(uniform_p_faces(18, 0.0, 3.5), -cos.(range(0, π; length = 13)))
     m3 = MomentumGrid(uniform_p_faces(30, 0.0, 5.0), uniform_xi_faces(8))
 
     @testset "shared grids" begin
@@ -23,8 +24,10 @@ const OPTIMIZED = Base.JLOptions().opt_level >= 2
             @test momentum_grid(g) === momentum_grid(g, 2)
             for ir in 1:3
                 @test phase_space_jacobian(g, ir) == phase_space_jacobian(single, ir)
-                @test phase_space_jacobian_p_faces(g, ir) == phase_space_jacobian_p_faces(single, ir)
-                @test phase_space_jacobian_xi_faces(g, ir) == phase_space_jacobian_xi_faces(single, ir)
+                @test phase_space_jacobian_p_faces(g, ir) ==
+                      phase_space_jacobian_p_faces(single, ir)
+                @test phase_space_jacobian_xi_faces(g, ir) ==
+                      phase_space_jacobian_xi_faces(single, ir)
             end
             @test phase_space_jacobian_r_faces(g) == phase_space_jacobian_r_faces(single)
         end
@@ -41,7 +44,8 @@ const OPTIMIZED = Base.JLOptions().opt_level >= 2
         @test radial_cell_count(g) == 3
         for (ir, m) in enumerate((m1, m2, m3))
             @test momentum_grid(g, ir) === m
-            expected = [2π * p^2 * rad.spatial_jacobian[ir] for p in m.p_centers, _ in m.xi_centers]
+            expected = [2π * p^2 * rad.spatial_jacobian[ir]
+                        for p in m.p_centers, _ in m.xi_centers]
             @test phase_space_jacobian(g, ir) ≈ expected rtol = 1e-15
             np, nxi = momentum_cell_count(m), pitch_cell_count(m)
             @test size(phase_space_jacobian_p_faces(g, ir)) == (np + 1, nxi)
@@ -58,9 +62,9 @@ const OPTIMIZED = Base.JLOptions().opt_level >= 2
         # the pitch faces may differ between radii (test_per_radius_pitch_grids.jl), the cell
         # counts and the p faces may not
         @test_throws ArgumentError AdvectionDiffusion(g)
-        plasma = PlasmaState(cold_electron_temperature=fill(100.0, 3),
-                             ions=[IonSpecies("D", 1, 1, fill(1e20, 3))],
-                             electric_field=fill(1.0, 3), magnetic_field=fill(5.0, 3))
+        plasma = PlasmaState(cold_electron_temperature = fill(100.0, 3),
+            ions = [IonSpecies("D", 1, 1, fill(1e20, 3))],
+            electric_field = fill(1.0, 3), magnetic_field = fill(5.0, 3))
         @test_throws ArgumentError fokker_planck_operator(g, plasma)
         # the message names the reason, not the accessor that failed
         @test_throws "the same cell counts and the same p faces" AdvectionDiffusion(g)
@@ -80,14 +84,15 @@ const OPTIMIZED = Base.JLOptions().opt_level >= 2
                 mK, mP = momentum_grid(gK, ir), momentum_grid(gP, ir)
                 f = [exp(-p / 0.8) * (1.2 + ξ) for p in mP.p_centers, ξ in mP.xi_centers]
                 df = zeros(momentum_cell_count(mK), pitch_cell_count(mK))
-                apply_at_radius!(df, op, f, n_tot[ir], ir; scale=0.5)
+                apply_at_radius!(df, op, f, n_tot[ir], ir; scale = 0.5)
                 # reference: shared grids with the momentum grids of radius ir
-                reference = KnockOnOperator(cylindrical_grid(mK, rad), cylindrical_grid(mP, rad),
-                                            cutoffs[ir]; method)
+                reference = KnockOnOperator(
+                    cylindrical_grid(mK, rad), cylindrical_grid(mP, rad),
+                    cutoffs[ir]; method)
                 f3 = zeros(momentum_cell_count(mP), pitch_cell_count(mP), 3)
                 f3[:, :, ir] .= f
                 df3 = zeros(momentum_cell_count(mK), pitch_cell_count(mK), 3)
-                apply!(df3, reference, f3, n_tot; scale=0.5)
+                apply!(df3, reference, f3, n_tot; scale = 0.5)
                 @test df == df3[:, :, ir]
             end
             # radii 1 and 3 have the same grids and cutoff and share their kernels
@@ -95,7 +100,8 @@ const OPTIMIZED = Base.JLOptions().opt_level >= 2
             @test energy_kernel(op, 1) !== energy_kernel(op, 2)
             @test length(op.cache) == 2
             @test_throws ArgumentError apply!(zeros(24, 10, 3), op, zeros(30, 8, 3), n_tot)
-            @test_throws DimensionMismatch apply_at_radius!(zeros(3, 3), op, zeros(30, 8), 1e20, 1)
+            @test_throws DimensionMismatch apply_at_radius!(
+                zeros(3, 3), op, zeros(30, 8), 1e20, 1)
             df1, f1 = zeros(24, 10), ones(30, 8)
             apply_at_radius!(df1, op, f1, 1e20, 1)
             @test (@allocated apply_at_radius!(df1, op, f1, 1e20, 1)) == 0 skip = !OPTIMIZED

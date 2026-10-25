@@ -1,8 +1,8 @@
-# Progress log of a run. A run reports while it is going: a header that
-# identifies it, an entry at milestones of the simulated time, at the ends of a segment
-# and after a silence, and the events of the run when they happen. The size of the log is
-# bounded whatever the number of steps: about 120 milestone entries, the entries of the
-# silence guard, and a few lines per kind of event between two entries.
+# Progress log of a run. A run reports while it is going: a header that identifies it, an
+# entry at milestones of the simulated time, at the ends of a segment and after a silence,
+# and the events of the run when they happen. The size of the log is bounded whatever the
+# number of steps: about 120 milestone entries, the entries of the silence guard, and a few
+# lines per kind of event between two entries.
 
 using Logging: Logging
 using Printf: @sprintf
@@ -68,34 +68,41 @@ mutable struct ProgressLog <: Logging.AbstractLogger
     last_entry::Float64
     last_attempt::Int
     last_intervals::Int
-    event_counts::Dict{String,Int}
+    event_counts::Dict{String, Int}
     requested::Threads.Atomic{Bool}
     entries::Int
 end
 
-function ProgressLog(; file::Union{Nothing,AbstractString}=nothing, io::IO=stdout,
-                     color::Bool=file === nothing && io isa Base.TTY,
-                     milestones=DEFAULT_MILESTONES, guard_minutes=DEFAULT_GUARD_MINUTES, events_shown::Integer=3,
-                     state::Bool=true, on_signal::Bool=true,
-                     request_file::Union{Nothing,AbstractString}=nothing)
+function ProgressLog(; file::Union{Nothing, AbstractString} = nothing, io::IO = stdout,
+        color::Bool = file === nothing && io isa Base.TTY,
+        milestones = DEFAULT_MILESTONES, guard_minutes = DEFAULT_GUARD_MINUTES, events_shown::Integer = 3,
+        state::Bool = true, on_signal::Bool = true,
+        request_file::Union{Nothing, AbstractString} = nothing)
     milestones = sort!(collect(Float64, milestones))
-    all(m -> 0 < m <= 1, milestones) || throw(ArgumentError("the milestones are fractions in (0, 1]"))
-    isempty(guard_minutes) && throw(ArgumentError("the guard needs at least one silence limit"))
-    all(>(0), guard_minutes) || throw(ArgumentError("the silence limits of the guard must be positive"))
+    all(m -> 0 < m <= 1, milestones) ||
+        throw(ArgumentError("the milestones are fractions in (0, 1]"))
+    isempty(guard_minutes) &&
+        throw(ArgumentError("the guard needs at least one silence limit"))
+    all(>(0), guard_minutes) ||
+        throw(ArgumentError("the silence limits of the guard must be positive"))
     events_shown >= 0 || throw(ArgumentError("events_shown must not be negative"))
     if file !== nothing
         mkpath(dirname(abspath(file)))
         io = open(file, "a")
     end
-    return ProgressLog(io, file !== nothing, color, milestones, 60.0 .* collect(Float64, guard_minutes),
-                       Int(events_shown), state, on_signal, request_file === nothing ? "" : String(request_file),
-                       1, 1, time(), time(), 0, 0, Dict{String,Int}(), Threads.Atomic{Bool}(false), 0)
+    return ProgressLog(
+        io, file !== nothing, color, milestones, 60.0 .* collect(Float64, guard_minutes),
+        Int(events_shown), state, on_signal, request_file === nothing ? "" :
+                                             String(request_file),
+        1, 1, time(), time(), 0, 0, Dict{String, Int}(), Threads.Atomic{Bool}(false), 0)
 end
 
-describe(log::ProgressLog) =
+function describe(log::ProgressLog)
     SettingsRecord("type" => "ProgressLog", "milestones" => copy(log.milestones),
-                   "guard_minutes" => log.guard_seconds ./ 60, "events_shown" => log.events_shown,
-                   "state" => log.state, "on_signal" => log.on_signal, "request_file" => log.request_file)
+        "guard_minutes" => log.guard_seconds ./ 60, "events_shown" => log.events_shown,
+        "state" => log.state, "on_signal" => log.on_signal, "request_file" =>
+            log.request_file)
+end
 
 Base.close(log::ProgressLog) = (log.owns_io && isopen(log.io) && close(log.io); nothing)
 
@@ -114,7 +121,10 @@ function _duration(seconds::Real)
     return @sprintf("%d d %02d h", total ÷ 86400, (total % 86400) ÷ 3600)
 end
 
-_bytes(bytes::Real) = bytes < 1024^3 ? @sprintf("%.0f MB", bytes / 1024^2) : @sprintf("%.2f GB", bytes / 1024^3)
+function _bytes(bytes::Real)
+    bytes < 1024^3 ? @sprintf("%.0f MB", bytes / 1024^2) :
+    @sprintf("%.2f GB", bytes / 1024^3)
+end
 
 _number(x::Bool) = string(x)
 _number(x::Integer) = string(x)
@@ -126,7 +136,8 @@ const MAX_VALUES_SHOWN = 8
 # the values of an array in a line: all of a short one, the range and the ends of a long one
 function _values(values::AbstractArray{<:Real})
     isempty(values) && return "none"
-    length(values) <= MAX_VALUES_SHOWN && ndims(values) <= 1 && return join((_number(v) for v in values), " ")
+    length(values) <= MAX_VALUES_SHOWN && ndims(values) <= 1 &&
+        return join((_number(v) for v in values), " ")
     smallest, largest = extrema(values)
     shape = join(size(values), " × ")
     return "$shape values from $(_number(smallest)) to $(_number(largest)), " *
@@ -137,13 +148,17 @@ _values(values::AbstractVector{<:AbstractString}) = join(values, ", ")
 _text(value) = value isa AbstractArray ? _values(value) : _number(value)
 
 # the values of a record in one line, the type and empty texts left out
-_in_line(record::AbstractDict) =
-    join(("$key = $(_text(record[key]))" for key in sort!(collect(keys(record)))
-          if key != "type" && !(record[key] isa AbstractDict) && record[key] != ""), ", ")
+function _in_line(record::AbstractDict)
+    join(
+        ("$key = $(_text(record[key]))"
+        for key in sort!(collect(keys(record)))
+        if key != "type" && !(record[key] isa AbstractDict) && record[key] != ""),
+        ", ")
+end
 
 # a record as indented lines `key = value`, the type first, records in it indented further
-function _print_record(io::IO, record::AbstractDict, indent::AbstractString; skip=())
-    names = sort!(collect(keys(record)); by=name -> (name != "type", name))
+function _print_record(io::IO, record::AbstractDict, indent::AbstractString; skip = ())
+    names = sort!(collect(keys(record)); by = name -> (name != "type", name))
     for name in names
         name in skip && continue
         value = record[name]
@@ -171,12 +186,15 @@ _section(io::IO, title) = println(io, SECTION, " ", title, " ", SECTION)
 
 function _paint(log::ProgressLog, level::Logging.LogLevel, text::AbstractString)
     log.color || return text
-    code = level >= Logging.Error ? "\e[1;31m" : level >= Logging.Warn ? "\e[1;33m" : "\e[1;36m"
+    code = level >= Logging.Error ? "\e[1;31m" :
+           level >= Logging.Warn ? "\e[1;33m" : "\e[1;36m"
     return code * text * "\e[0m"
 end
 
-_level_name(level::Logging.LogLevel) =
-    level >= Logging.Error ? "ERROR" : level >= Logging.Warn ? "WARNING" : level >= Logging.Info ? "info" : "debug"
+function _level_name(level::Logging.LogLevel)
+    level >= Logging.Error ? "ERROR" :
+    level >= Logging.Warn ? "WARNING" : level >= Logging.Info ? "info" : "debug"
+end
 
 # ---------------------------------------------------------------------------------------
 # the logger interface: messages of @info, @warn and @error inside a run
@@ -185,15 +203,18 @@ Logging.min_enabled_level(::ProgressLog) = Logging.Info
 Logging.shouldlog(::ProgressLog, level, _module, group, id) = true
 Logging.catch_exceptions(::ProgressLog) = true
 
-function Logging.handle_message(log::ProgressLog, level::Logging.LogLevel, message, _module, group, id, file,
-                                line; kwargs...)
-    details = isempty(kwargs) ? "" : " (" * join(("$key = $(_text(value))" for (key, value) in kwargs), ", ") * ")"
+function Logging.handle_message(
+        log::ProgressLog, level::Logging.LogLevel, message, _module, group, id, file,
+        line; kwargs...)
+    details = isempty(kwargs) ? "" :
+              " (" * join(("$key = $(_text(value))" for (key, value) in kwargs), ", ") * ")"
     _write_line(log, level, string(message) * details)
     return nothing
 end
 
 function _write_line(log::ProgressLog, level::Logging.LogLevel, text::AbstractString)
-    println(log.io, "[", _timestamp(), "] ", _paint(log, level, _level_name(level)), ": ", text)
+    println(
+        log.io, "[", _timestamp(), "] ", _paint(log, level, _level_name(level)), ": ", text)
     flush(log.io)
     return nothing
 end
@@ -209,7 +230,8 @@ function log_event!(log::ProgressLog, kind::AbstractString, level::Logging.LogLe
     count = get(log.event_counts, kind, 0) + 1
     log.event_counts[kind] = count
     if count <= log.events_shown
-        note = count == log.events_shown ? " (further events of this kind are counted in the next entry)" : ""
+        note = count == log.events_shown ?
+               " (further events of this kind are counted in the next entry)" : ""
         _write_line(log, level, kind * ": " * message * note)
     end
     return nothing
@@ -233,7 +255,8 @@ function _describe_grid_line(name, grid::AbstractDict)
     end
     grids = grid["momentum_grids"]
     counts = [length(grids["radius_$ir"]["p_faces"]) - 1 for ir in 1:length(grids)]
-    return text * ", a momentum grid per radius with $(minimum(counts)) to $(maximum(counts)) momentum cells"
+    return text *
+           ", a momentum grid per radius with $(minimum(counts)) to $(maximum(counts)) momentum cells"
 end
 
 """
@@ -244,27 +267,37 @@ machine, segment), then the solver settings, then the physics and grid settings.
 """
 function write_header(log::ProgressLog, settings::AbstractDict)
     io = log.io
-    code, environment, segment = _record(settings, "code"), _record(settings, "environment"), _record(settings, "segment")
+    code, environment, segment = _record(settings, "code"),
+    _record(settings, "environment"), _record(settings, "segment")
     run = _record(settings, "run")
     println(io, RULE)
-    println(io, "Runes2P run", haskey(run, "name") ? " \"$(run["name"])\"" : "", ", segment ", get(segment, "index", 1))
-    println(io, "  code        Runes2P ", get(code, "package_version", "unknown"), ", commit ", get(code, "commit", "unknown"),
-            get(code, "commit_known", false) ? (get(code, "tree_clean", false) ? " (clean tree)" : " (changed tree)") : "",
-            ", branch ", get(code, "branch", "unknown"))
-    println(io, "  julia       ", get(code, "julia_version", "unknown"), " on ", get(environment, "hostname", "unknown"),
-            " (", get(environment, "cpu_model", "unknown"), "), ", get(environment, "julia_threads", "?"),
-            " Julia threads, ", get(environment, "blas_threads", "?"), " BLAS threads (",
-            get(environment, "blas_libraries", "unknown"), ")")
+    println(io, "Runes2P run", haskey(run, "name") ? " \"$(run["name"])\"" : "",
+        ", segment ", get(segment, "index", 1))
+    println(io, "  code        Runes2P ", get(code, "package_version", "unknown"),
+        ", commit ", get(code, "commit", "unknown"),
+        get(code, "commit_known", false) ?
+        (get(code, "tree_clean", false) ? " (clean tree)" : " (changed tree)") : "",
+        ", branch ", get(code, "branch", "unknown"))
+    println(io, "  julia       ", get(code, "julia_version", "unknown"),
+        " on ", get(environment, "hostname", "unknown"),
+        " (", get(environment, "cpu_model", "unknown"),
+        "), ", get(environment, "julia_threads", "?"),
+        " Julia threads, ", get(environment, "blas_threads", "?"), " BLAS threads (",
+        get(environment, "blas_libraries", "unknown"), ")")
     println(io, "  started     ", get(environment, "start_time", "unknown"),
-            haskey(environment, "slurm_job_id") ? ", Slurm job $(environment["slurm_job_id"])" : "")
+        haskey(environment, "slurm_job_id") ? ", Slurm job $(environment["slurm_job_id"])" :
+        "")
     if get(segment, "resumed", false)
-        println(io, "  resumed     from ", segment["resumed_from"], " at t = ", _number(segment["start_time"]), " s, ",
-                get(segment, "settings_changed", false) ?
-                "changed sections: " * join(segment["changed_sections"], ", ") : "settings unchanged",
-                get(segment, "commit_changed", false) ? ", commit changed from $(segment["previous_commit"])" : "")
+        println(io, "  resumed     from ", segment["resumed_from"],
+            " at t = ", _number(segment["start_time"]), " s, ",
+            get(segment, "settings_changed", false) ?
+            "changed sections: " * join(segment["changed_sections"], ", ") :
+            "settings unchanged",
+            get(segment, "commit_changed", false) ?
+            ", commit changed from $(segment["previous_commit"])" : "")
     end
     println(io, "  setup hash  ", get(settings, "setup_hash", "unknown"),
-            get(settings, "complete", true) ? "" : " (the record of the run is not complete)")
+        get(settings, "complete", true) ? "" : " (the record of the run is not complete)")
     _section(io, "solver")
     _print_record(io, _record(settings, "solver"), "  ")
     _section(io, "time")
@@ -272,12 +305,14 @@ function write_header(log::ProgressLog, settings::AbstractDict)
     if haskey(time_record, "times")
         times = time_record["times"]
         intervals = length(times) > 1 ? diff(times) : [0.0]
-        println(io, "  ", length(times), " time points from t = ", _number(first(times)), " to ", _number(last(times)),
-                " s, intervals from ", _number(minimum(intervals)), " to ", _number(maximum(intervals)), " s")
+        println(io, "  ", length(times), " time points from t = ",
+            _number(first(times)), " to ", _number(last(times)),
+            " s, intervals from ", _number(minimum(intervals)), " to ", _number(maximum(intervals)), " s")
     end
     stepper = get(time_record, "stepper", SettingsRecord())
-    println(io, "  ", get(time_record, "save_count", 0), " save times, stepper ", get(stepper, "type", "unknown"),
-            isempty(_in_line(stepper)) ? "" : " with " * _in_line(stepper))
+    println(io, "  ", get(time_record, "save_count", 0),
+        " save times, stepper ", get(stepper, "type", "unknown"),
+        isempty(_in_line(stepper)) ? "" : " with " * _in_line(stepper))
     for name in ("checkpoint", "stop", "log")
         record = _record(settings, name)
         get(record, "type", "none") == "none" && continue
@@ -287,11 +322,13 @@ function write_header(log::ProgressLog, settings::AbstractDict)
     layout = _record(settings, "layout")
     for name in get(layout, "order", String[])
         unknown = layout["unknowns"][name]
+        #! format: off
         println(io, "  ", name, ": ", unknown["kind"], haskey(unknown, "grid") ? " on $(unknown["grid"])" : "",
                 get(unknown, "components", 1) > 1 ? ", $(unknown["components"]) components" : "", ", scale ",
                 _number(unknown["scale"]), ", ", sum(unknown["sizes"]), " entries",
                 haskey(unknown, "lower_limit_tolerance") ? ", lower limit with tolerance $(_number(unknown["lower_limit_tolerance"]))" : "",
                 haskey(unknown, "lower_limit_value") ? " at $(_number(unknown["lower_limit_value"]))" : "")
+        #! format: on
     end
     println(io, "  ", get(layout, "unknown_count", "?"), " entries of the state in all")
     grids = _record(settings, "grids")
@@ -301,7 +338,8 @@ function write_header(log::ProgressLog, settings::AbstractDict)
     _section(io, "system")
     _print_record(io, _record(_record(settings, "system"), "equations"), "  ")
     println(io, "  time_scale = ", _number(get(_record(settings, "system"), "time_scale", NaN)))
-    isempty(_record(settings, "updates")) || (println(io, "  updates:"); _print_record(io, settings["updates"], "    "))
+    isempty(_record(settings, "updates")) ||
+        (println(io, "  updates:"); _print_record(io, settings["updates"], "    "))
     if !isempty(_record(settings, "prescribed"))
         _section(io, "prescribed")
         _print_record(io, settings["prescribed"], "  ")
@@ -332,6 +370,7 @@ function _kinetic_moments(u::AbstractVector, layout::UnknownLayout, id::Integer)
         volume = grid.radial_grid.spatial_jacobian[ir]
         total = 0.0
         for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
+
             total += jacobian[i, j] * m.p_widths[i] * m.xi_widths[j] * f[i, j]
         end
         densities[ir] = total / volume
@@ -348,7 +387,7 @@ end
 
 # the state per unknown, with the error estimate of the last accepted step per unknown
 # when the stepper has one (`errors`, NaN for an unknown without a check)
-function _write_state(io::IO, u::AbstractVector, layout::UnknownLayout, errors=nothing)
+function _write_state(io::IO, u::AbstractVector, layout::UnknownLayout, errors = nothing)
     for (id, unknown) in enumerate(layout.unknowns)
         name, kind = String(unknown.name), layout.kinds[id]
         error_text = errors === nothing || isnan(errors[id]) ? "" :
@@ -356,16 +395,22 @@ function _write_state(io::IO, u::AbstractVector, layout::UnknownLayout, errors=n
         if kind === :kinetic
             moments = _kinetic_moments(u, layout, id)
             println(io, "    ", name, ": density [m^-3] ", _values(moments.densities))
-            println(io, "    ", " "^length(name), "  current density [A/m^2] ", _values(moments.currents),
-                    ", total current [A] ", _number(moments.total_current))
+            println(io, "    ", " "^length(name),
+                "  current density [A/m^2] ", _values(moments.currents),
+                ", total current [A] ", _number(moments.total_current))
             println(io, "    ", " "^length(name), "  negative cells ", moments.negative,
-                    moments.negative == 0 ? "" : " (smallest value $(_number(moments.smallest)), largest $(_number(moments.largest)))",
-                    error_text)
+                moments.negative == 0 ? "" :
+                " (smallest value $(_number(moments.smallest)), largest $(_number(moments.largest)))",
+                error_text)
         elseif kind === :radial
-            values = [radial_view(u, layout, id, ir)[c] for c in 1:unknown.components, ir in 1:radial_cell_count(layout)]
-            println(io, "    ", name, ": ", unknown.components == 1 ? _values(vec(values)) : _values(values), error_text)
+            values = [radial_view(u, layout, id, ir)[c]
+                      for c in 1:unknown.components, ir in 1:radial_cell_count(layout)]
+            println(io, "    ", name, ": ",
+                unknown.components == 1 ? _values(vec(values)) : _values(values),
+                error_text)
         else
-            println(io, "    ", name, ": ", _number(only(scalar_view(u, layout, id))), error_text)
+            println(io, "    ", name, ": ",
+                _number(only(scalar_view(u, layout, id))), error_text)
         end
     end
     return nothing
@@ -375,6 +420,7 @@ end
 function _negative_cells(u::AbstractVector, layout::UnknownLayout)
     negative = 0
     for (id, kind) in enumerate(layout.kinds), ir in 1:radial_cell_count(layout)
+
         kind === :kinetic || continue
         negative += count(<(0), kinetic_view(u, layout, id, ir))
     end
@@ -392,12 +438,14 @@ start`, `segment end`, `on demand`), `u` is the state at the time `t`, `interval
 number of intervals of `times` done, `stats` the statistics of the segment, `errors` the
 error estimate per unknown of the last accepted step when the stepper has one.
 """
-function write_entry(log::ProgressLog, reason::AbstractString, u::AbstractVector, layout::UnknownLayout, t::Real,
-                     times::AbstractVector, interval::Integer, stats; errors=nothing)
+function write_entry(log::ProgressLog, reason::AbstractString,
+        u::AbstractVector, layout::UnknownLayout, t::Real,
+        times::AbstractVector, interval::Integer, stats; errors = nothing)
     io = log.io
     now = time()
     span = last(times) - first(times)
     fraction = span > 0 ? (t - first(times)) / span : 1.0
+    #! format: off
     println(io, "[", _timestamp(), "] ", _paint(log, Logging.Info, "progress"), " ", @sprintf("%7.3f", 100 * fraction),
             " %  t = ", @sprintf("%.6e", t), " s of ", @sprintf("%.6e", last(times)), " s, time point ", interval + 1,
             " of ", length(times), "  (", reason, ")")
@@ -438,11 +486,16 @@ function write_entry(log::ProgressLog, reason::AbstractString, u::AbstractVector
             _duration(now - log.last_entry), " since the last entry, estimate for the ", remaining,
             " time points left: ", remaining == 0 ? "none" : _duration(estimate))
     println(io, "  memory  ", _bytes(Sys.maxrss()), " at most resident, ", _bytes(Base.gc_live_bytes()), " live in Julia")
+    #! format: on
     hidden = [(kind, count) for (kind, count) in log.event_counts if count > 0]
     if !isempty(hidden)
         println(io, "  events  since the last entry: ",
-                join(("$count × $kind" * (count > log.events_shown ? " ($(count - log.events_shown) not shown)" : "")
-                      for (kind, count) in sort!(hidden)), ", "))
+            join(
+                ("$count × $kind" *
+                 (count > log.events_shown ? " ($(count - log.events_shown) not shown)" :
+                  "")
+                for (kind, count) in sort!(hidden)),
+                ", "))
     end
     if log.state
         println(io)
@@ -458,7 +511,10 @@ function write_entry(log::ProgressLog, reason::AbstractString, u::AbstractVector
     log.entries += 1
     return nothing
 end
-write_entry(::Nothing, reason, u, layout, t, times, interval, stats; errors=nothing) = nothing
+function write_entry(
+        ::Nothing, reason, u, layout, t, times, interval, stats; errors = nothing)
+    nothing
+end
 
 """
     start_log!(log, settings, u, layout, t, times, interval, stats)
@@ -467,7 +523,8 @@ Begin the log of a segment: the header and the entry of the segment start. With
 `on_signal`, SIGUSR1 asks for an entry from now on, until [`integrate`](@ref) returns and
 puts Julia's own report back.
 """
-function start_log!(log::ProgressLog, settings::AbstractDict, u, layout, t, times, interval, stats)
+function start_log!(
+        log::ProgressLog, settings::AbstractDict, u, layout, t, times, interval, stats)
     now = time()
     log.started = log.last_entry = now
     log.last_attempt, log.last_intervals, log.guard_index, log.entries = 0, interval, 1, 0
@@ -476,7 +533,9 @@ function start_log!(log::ProgressLog, settings::AbstractDict, u, layout, t, time
     span = last(times) - first(times)
     fraction = span > 0 ? (t - first(times)) / span : 1.0
     # the milestones behind a resumed segment are not written again
+    #! format: off
     log.next_milestone = something(findfirst(>(fraction), log.milestones), length(log.milestones) + 1)
+    #! format: on
     write_header(log, settings)
     write_entry(log, "segment start", u, layout, t, times, interval, stats)
     log.on_signal && (Profile.peek_report[] = () -> (log.requested[] = true; nothing))
@@ -489,7 +548,7 @@ function _requested!(log::ProgressLog)
     requested = log.requested[]
     log.requested[] = false
     if !isempty(log.request_file) && isfile(log.request_file)
-        rm(log.request_file; force=true)
+        rm(log.request_file; force = true)
         requested = true
     end
     return requested
@@ -501,13 +560,17 @@ end
 Called by [`integrate`](@ref) after every accepted step: writes the entry of a
 milestone passed, of a request by signal or of the silence guard, whichever applies.
 """
-function report_progress!(log::ProgressLog, u, layout, t, times, interval, stats; errors=nothing)
+function report_progress!(
+        log::ProgressLog, u, layout, t, times, interval, stats; errors = nothing)
     log.on_signal && yield()      # the task that receives the signal runs here
     span = last(times) - first(times)
     fraction = span > 0 ? (t - first(times)) / span : 1.0
     reason = nothing
-    if log.next_milestone <= length(log.milestones) && fraction >= log.milestones[log.next_milestone]
+    if log.next_milestone <= length(log.milestones) &&
+       fraction >= log.milestones[log.next_milestone]
+        #! format: off
         log.next_milestone = something(findfirst(>(fraction), log.milestones), length(log.milestones) + 1)
+        #! format: on
         reason = "milestone"
     end
     _requested!(log) && (reason = "on demand")
@@ -515,10 +578,13 @@ function report_progress!(log::ProgressLog, u, layout, t, times, interval, stats
         log.guard_index = min(log.guard_index + 1, length(log.guard_seconds))
         reason = "silence"
     end
-    reason === nothing || write_entry(log, reason, u, layout, t, times, interval, stats; errors)
+    reason === nothing ||
+        write_entry(log, reason, u, layout, t, times, interval, stats; errors)
     return nothing
 end
-report_progress!(::Nothing, u, layout, t, times, interval, stats; errors=nothing) = nothing
+function report_progress!(::Nothing, u, layout, t, times, interval, stats; errors = nothing)
+    nothing
+end
 
 """
     report_step!(log, u, layout, t, times, interval, stats; errors=nothing)
@@ -527,7 +593,8 @@ Called by [`integrate`](@ref) after every failed or rejected step: the guard and
 request by signal are served with the state of the last accepted step, so that a
 stretch of failed steps is not silent.
 """
-function report_step!(log::ProgressLog, u, layout, t, times, interval, stats; errors=nothing)
+function report_step!(
+        log::ProgressLog, u, layout, t, times, interval, stats; errors = nothing)
     log.on_signal && yield()      # the task that receives the signal runs here
     reason = nothing
     if _requested!(log)
@@ -536,7 +603,8 @@ function report_step!(log::ProgressLog, u, layout, t, times, interval, stats; er
         log.guard_index = min(log.guard_index + 1, length(log.guard_seconds))
         reason = "silence"
     end
-    reason === nothing || write_entry(log, reason, u, layout, t, times, interval, stats; errors)
+    reason === nothing ||
+        write_entry(log, reason, u, layout, t, times, interval, stats; errors)
     return nothing
 end
-report_step!(::Nothing, u, layout, t, times, interval, stats; errors=nothing) = nothing
+report_step!(::Nothing, u, layout, t, times, interval, stats; errors = nothing) = nothing

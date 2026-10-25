@@ -1,0 +1,140 @@
+# The full test suite: one job per group of test/groups.toml, on pull requests that are ready
+# for review and on pushes to dev and main, and a summary job over the groups.
+name: Full suite
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+
+# a newer commit of a pull request cancels the older run; every push to dev and main finishes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  RUNES2P_JACOBIAN_CHUNK_SIZE: "8"
+
+jobs:
+  # the indices 1 to n of the groups of test/groups.toml, for the matrix, and the ADAS cache,
+  # filled once here for all groups
+  setup:
+    name: Test groups
+    if: github.event_name == 'push' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      indices: ${{ steps.groups.outputs.indices }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Count the groups
+        id: groups
+        run: |
+          python3 -c "import json, tomllib; n = len(tomllib.load(open('test/groups.toml', 'rb'))['group']); print('indices=' + json.dumps(list(range(1, n + 1))))" >> "$GITHUB_OUTPUT"
+      # the OpenADAS ADF11 files, which the repository does not carry: the high-density hydrogen
+      # files from the cache of DREAM's repository at the commit that the code cites, the other
+      # files from OpenADAS
+      - name: Restore the ADAS cache
+        id: adas
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/Runes2P/adas
+          key: adas-${{ hashFiles('scripts/fetch_adas.py') }}
+          lookup-only: true
+      - name: Check out the ADAS cache of DREAM
+        if: steps.adas.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: chalmersplasmatheory/DREAM
+          ref: 93d27e1763827e19dafb1fe790e99c2688ad6d62
+          path: dream-adas
+          sparse-checkout: tools/cache
+      - name: Fill the ADAS cache
+        if: steps.adas.outputs.cache-hit != 'true'
+        run: python3 scripts/fetch_adas.py --cache "$HOME/.cache/Runes2P/adas" --dream-cache dream-adas/tools/cache
+      - name: Save the ADAS cache
+        if: steps.adas.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/Runes2P/adas
+          key: adas-${{ hashFiles('scripts/fetch_adas.py') }}
+
+  # one group, run with --index at the default optimisation level, where the allocation
+  # checks and the bit-for-bit regression values hold
+  groups:
+    name: Group ${{ matrix.index }}
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    # actions: write lets julia-actions/cache delete the depot caches of earlier runs
+    permissions:
+      contents: read
+      actions: write
+    strategy:
+      fail-fast: false
+      matrix:
+        index: ${{ fromJSON(needs.setup.outputs.indices) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.13.1"
+      # one depot cache for all groups, which share the test environment
+      - uses: julia-actions/cache@v2
+        with:
+          include-matrix: false
+      - name: Set the ADAS cache directory
+        run: echo "RUNES2P_ADAS_CACHE=$HOME/.cache/Runes2P/adas" >> "$GITHUB_ENV"
+      - name: Restore the ADAS cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/Runes2P/adas
+          key: adas-${{ hashFiles('scripts/fetch_adas.py') }}
+          fail-on-cache-miss: true
+      # the test environment and the reference data of the comparison tests (lazy artifacts,
+      # kept in the cached depot)
+      - name: Install the test environment
+        run: |
+          julia --project=test -e 'using Pkg; Pkg.instantiate(); Pkg.Artifacts.ensure_all_artifacts_installed("test/Artifacts.toml"; include_lazy=true)'
+      - name: Run the group
+        run: julia --project=test test/runtests.jl --index ${{ matrix.index }} --results "results/group-${{ matrix.index }}.toml"
+      - name: Upload the summary of the group
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ matrix.index }}
+          path: results/
+          if-no-files-found: ignore
+
+  # a table of the counts of every group, and the result of the suite as one check
+  summary:
+    name: Full suite
+    needs: [setup, groups]
+    if: always() && needs.setup.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: results-*
+          path: results
+          merge-multiple: true
+      - name: Write the table of the groups
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import glob, tomllib
+          print("| Group | Passed | Failed | Errored | Broken | Minutes |")
+          print("|---|---|---|---|---|---|")
+          for path in sorted(glob.glob("results/*.toml"), key=lambda p: int(p.split("-")[-1].split(".")[0])):
+              r = tomllib.load(open(path, "rb"))
+              print(f"| {r['label']} | {r['passed']} | {r['failed']} | {r['errored']} | {r['broken']} | {r['elapsed_seconds'] / 60:.1f} |")
+          EOF
+      - name: Fail unless every group passed
+        if: needs.groups.result != 'success'
+        run: |
+          echo "a group of the full suite did not pass: ${{ needs.groups.result }}"
+          exit 1

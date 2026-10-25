@@ -25,11 +25,13 @@ using Random
 
     @testset "isotropic f is steady under pitch-angle scattering" begin
         op = AdvectionDiffusion(g)
-        for k in 1:pitch_cell_count(g)+1, i in 1:momentum_cell_count(g)
+        for k in 1:(pitch_cell_count(g) + 1), i in 1:momentum_cell_count(g)
+
             op.diffusion_xi_xi[i, k, :] .= (1 - mom.xi_faces[k]^2) / 2
         end
-        f = [exp(-mom.p_centers[i]) for i in 1:momentum_cell_count(g), _ in 1:pitch_cell_count(g),
-                                        _ in 1:radial_cell_count(g)]
+        f = [exp(-mom.p_centers[i])
+             for i in 1:momentum_cell_count(g), _ in 1:pitch_cell_count(g),
+        _ in 1:radial_cell_count(g)]
         df = zeros(size(g))
         apply!(df, op, f)
         @test maximum(abs, df) < 1e-14
@@ -39,36 +41,39 @@ using Random
         θ = 0.1
         errs = Float64[]
         for n in (40, 80, 160)
-            gm = cylindrical_grid(MomentumGrid(uniform_p_faces(n, 0.0, 2.0), uniform_xi_faces(2)),
-                                  RadialGrid(uniform_r_faces(1, 1.0)))
-            op = AdvectionDiffusion(gm; scheme=:central)
+            gm = cylindrical_grid(
+                MomentumGrid(uniform_p_faces(n, 0.0, 2.0), uniform_xi_faces(2)),
+                RadialGrid(uniform_r_faces(1, 1.0)))
+            op = AdvectionDiffusion(gm; scheme = :central)
             op.diffusion_p_p .= 1
-            for k in 1:n+1
+            for k in 1:(n + 1)
                 op.advection_p[k, :, :] .= -momentum_grid(gm).p_faces[k] / θ  # Γ = 0 for f ∝ exp(-p²/2θ)
             end
             op.advection_p[end, :, :] .= 0
             op.diffusion_p_p[end, :, :] .= 0
-            f = [exp(-momentum_grid(gm).p_centers[i]^2 / (2θ)) for i in 1:n, _ in 1:2, _ in 1:1]
+            f = [exp(-momentum_grid(gm).p_centers[i]^2 / (2θ))
+                 for i in 1:n, _ in 1:2, _ in 1:1]
             df = zeros(size(gm))
             apply!(df, op, f)
-            push!(errs, maximum(abs, df[1:n÷2, :, :]))
+            push!(errs, maximum(abs, df[1:(n ÷ 2), :, :]))
         end
-        rates = log2.(errs[1:end-1] ./ errs[2:end])
+        rates = log2.(errs[1:(end - 1)] ./ errs[2:end])
         @test all(rates .> 1.8)
     end
 
     @testset "absorbing radial wall removes particles" begin
-        op = AdvectionDiffusion(g; r_boundary=:absorbing)
+        op = AdvectionDiffusion(g; r_boundary = :absorbing)
         op.diffusion_r_r .= 0.3
         f = ones(size(g))
         df = zeros(size(g))
         apply!(df, op, f)
         # only the outermost cell changes; loss equals the diffusive wall flux
-        @test maximum(abs, df[:, :, 1:end-1]) < 1e-14
+        @test maximum(abs, df[:, :, 1:(end - 1)]) < 1e-14
         loss = _conservation_residual(g, df)
-        wall = sum(phase_space_jacobian_r_faces(g)[i, j, end] * mom.p_widths[i] * mom.xi_widths[j] * 0.3 /
+        wall = sum(phase_space_jacobian_r_faces(g)[i, j, end] * mom.p_widths[i] *
+                   mom.xi_widths[j] * 0.3 /
                    (rad.r_faces[end] - rad.r_centers[end])
-                   for i in 1:momentum_cell_count(g), j in 1:pitch_cell_count(g))
+        for i in 1:momentum_cell_count(g), j in 1:pitch_cell_count(g))
         @test loss ≈ -wall
     end
 end
