@@ -6,9 +6,18 @@ These rules hold for every contribution, by people and by coding agents alike.
 
 - Development happens on the branch `dev`.
   Pull requests go to `dev`.
-- `main` is updated from `dev` by the maintainer only.
+- `main` and `dev` change only through pull requests, and only the maintainer merges them.
+  `main` is updated from `dev`.
 - Open a pull request as a draft while it is in progress.
   The lint, the format check, the component tests and the docs build run on every push; the full suite runs once the pull request is marked ready, and again on every push after that.
+- Five checks are required for a merge: Markdown lint, Format check, Component tests, Documentation build and Full suite.
+- A pull request into `dev` must be up to date with `dev`.
+- `dev` takes merge commits or squash merges, no rebase merges.
+  `main` takes merge commits only.
+- A pull request whose commits are mostly review rounds may suggest a squash merge.
+  Its description then ends with the `Co-Authored-By` lines of its commits, since a squash merge keeps only the description.
+- A pull request whose checks pass needs no comment about them, since GitHub shows them.
+  After a failed check, the author comments once the fixes are in: what failed and what fixed it.
 
 ## Running the tests
 

@@ -30,7 +30,7 @@ jobs:
     outputs:
       indices: ${{ steps.groups.outputs.indices }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Count the groups
         id: groups
         run: |
@@ -40,14 +40,14 @@ jobs:
       # files from OpenADAS
       - name: Restore the ADAS cache
         id: adas
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ~/.cache/Runes2P/adas
           key: adas-${{ hashFiles('scripts/fetch_adas.py') }}
           lookup-only: true
       - name: Check out the ADAS cache of DREAM
         if: steps.adas.outputs.cache-hit != 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: chalmersplasmatheory/DREAM
           ref: 93d27e1763827e19dafb1fe790e99c2688ad6d62
@@ -58,7 +58,7 @@ jobs:
         run: python3 scripts/fetch_adas.py --cache "$HOME/.cache/Runes2P/adas" --dream-cache dream-adas/tools/cache
       - name: Save the ADAS cache
         if: steps.adas.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ~/.cache/Runes2P/adas
           key: adas-${{ hashFiles('scripts/fetch_adas.py') }}
@@ -79,18 +79,18 @@ jobs:
       matrix:
         index: ${{ fromJSON(needs.setup.outputs.indices) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@v2
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
         with:
           version: "1.13.1"
       # one depot cache for all groups, which share the test environment
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
         with:
           include-matrix: false
       - name: Set the ADAS cache directory
         run: echo "RUNES2P_ADAS_CACHE=$HOME/.cache/Runes2P/adas" >> "$GITHUB_ENV"
       - name: Restore the ADAS cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ~/.cache/Runes2P/adas
           key: adas-${{ hashFiles('scripts/fetch_adas.py') }}
@@ -104,7 +104,7 @@ jobs:
         run: julia --project=test test/runtests.jl --index ${{ matrix.index }} --results "results/group-${{ matrix.index }}.toml"
       - name: Upload the summary of the group
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: results-${{ matrix.index }}
           path: results/
@@ -118,7 +118,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: results-*
           path: results

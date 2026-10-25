@@ -131,7 +131,8 @@ include("test_pitch_accuracy_helpers.jl")
         # which is upwind without diffusion, 0.30, 0.23, 0.15, 0.087 (first order); TCDF
         # 0.13 at 1x; central goes negative. On a uniform grid van Albada's order falls to
         # 1.1 between 64 and 128 cells: the limiter clips the extremum of the profile.
-        va = [pitch_advection_error(pitch_biuniform_theta_faces(k), :van_albada) for k in (2, 4)]
+        va = [pitch_advection_error(pitch_biuniform_theta_faces(k), :van_albada)
+              for k in (2, 4)]
         @test log2(va[1] / va[2]) > 1.5
         fitted = pitch_advection_error(pitch_biuniform_theta_faces(4), :exponential_fitting)
         @test fitted ≈ pitch_advection_error(pitch_biuniform_theta_faces(4), :upwind) rtol = 1e-10

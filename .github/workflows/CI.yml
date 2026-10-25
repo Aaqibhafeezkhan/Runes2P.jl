@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Lint the changed lines of the pull request
@@ -37,19 +37,28 @@ jobs:
         run: git ls-files -z -- '*.md' | xargs -0 python3 scripts/lint_markdown.py
 
   # the format check: JuliaFormatter 2.14.0 with the .JuliaFormatter.toml of the root changes
-  # nothing; format(".") of that version formats a checkout
+  # nothing; format(".") of that version formats a checkout. The step formats the checkout of
+  # the run and fails with the files and lines that changed.
   format:
     name: Format check
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@v2
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
         with:
           version: "1.13.1"
       - name: Check the format
         run: |
-          julia -e 'using Pkg; Pkg.add(name="JuliaFormatter", version="2.14.0"); using JuliaFormatter; format("."; overwrite=false) || (println("run JuliaFormatter 2.14.0: format(\".\")"); exit(1))'
+          julia -e 'using Pkg; Pkg.add(name="JuliaFormatter", version="2.14.0"); using JuliaFormatter; format(".")'
+          if ! git diff --quiet; then
+            git diff -z --name-only | while IFS= read -r -d '' file; do
+              echo "::error file=$file::not formatted: run JuliaFormatter 2.14.0, format(\".\") at the root"
+            done
+            git diff --stat
+            git diff
+            exit 1
+          fi
 
   # the group `component` of test/groups.toml at -O0, which compiles faster
   component:
@@ -61,11 +70,11 @@ jobs:
       contents: read
       actions: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@v2
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
         with:
           version: "1.13.1"
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       # the OpenADAS ADF11 files, which the repository does not carry: the high-density hydrogen
       # files from the cache of DREAM's repository at the commit that the code cites, the other
       # files from OpenADAS; a fresh fill is saved at once, so that a failing test keeps it
@@ -73,13 +82,13 @@ jobs:
         run: echo "RUNES2P_ADAS_CACHE=$HOME/.cache/Runes2P/adas" >> "$GITHUB_ENV"
       - name: Restore the ADAS cache
         id: adas
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ~/.cache/Runes2P/adas
           key: adas-${{ hashFiles('scripts/fetch_adas.py') }}
       - name: Check out the ADAS cache of DREAM
         if: steps.adas.outputs.cache-hit != 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: chalmersplasmatheory/DREAM
           ref: 93d27e1763827e19dafb1fe790e99c2688ad6d62
@@ -90,7 +99,7 @@ jobs:
         run: python3 scripts/fetch_adas.py --cache "$RUNES2P_ADAS_CACHE" --dream-cache dream-adas/tools/cache
       - name: Save the ADAS cache
         if: steps.adas.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ~/.cache/Runes2P/adas
           key: adas-${{ hashFiles('scripts/fetch_adas.py') }}
@@ -112,11 +121,11 @@ jobs:
       contents: read
       actions: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: julia-actions/setup-julia@v2
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
         with:
           version: "1.13.1"
-      - uses: julia-actions/cache@v2
+      - uses: julia-actions/cache@v3
       - name: Install the documentation environment
         run: julia --project=docs -e 'using Pkg; Pkg.instantiate()'
       - name: Build the documentation
