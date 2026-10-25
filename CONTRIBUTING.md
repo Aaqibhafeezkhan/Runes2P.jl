@@ -14,6 +14,9 @@ These rules hold for every contribution, by people and by coding agents alike.
   The full suite runs on `dev` once a week.
 - Five checks are required for a merge: Markdown lint, Format check, Component tests, Documentation build and Full suite.
 - A pull request into `dev` must be up to date with `dev`.
+- A pull request into `dev` needs the approval of its latest push by the maintainer; a later push dismisses it.
+  Coding agents never approve or merge a pull request.
+- GitHub deletes the branch of a merged pull request.
 - `dev` takes merge commits or squash merges, no rebase merges.
   `main` takes merge commits only.
 - A pull request merges with a merge commit by default, which keeps its signed commits and suits stacked pull requests.
