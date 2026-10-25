@@ -74,6 +74,9 @@ jobs:
       - uses: julia-actions/setup-julia@v3
         with:
           version: "1.13.1"
+      # the CPU and the LLVM target of the runner, for results whose last bits depend on them
+      - name: Name the CPU
+        run: julia -e 'using InteractiveUtils; versioninfo()'
       - uses: julia-actions/cache@v3
       # the OpenADAS ADF11 files, which the repository does not carry: the high-density hydrogen
       # files from the cache of DREAM's repository at the commit that the code cites, the other

@@ -14,8 +14,12 @@ These rules hold for every contribution, by people and by coding agents alike.
 - A pull request into `dev` must be up to date with `dev`.
 - `dev` takes merge commits or squash merges, no rebase merges.
   `main` takes merge commits only.
-- A pull request whose commits are mostly review rounds may suggest a squash merge.
-  Its description then ends with the `Co-Authored-By` lines of its commits, since a squash merge keeps only the description.
+- A pull request whose commits are mostly review rounds may suggest a squash merge, with a proposed squash message.
+  Its subject has at most 72 characters, including the ` (#n)` that GitHub appends; its body has at most 6 lines, or about 12 above the size target below.
+  GitHub pre-fills a `Co-authored-by` line for each co-author of the squashed commits; they stay below the proposed message.
+- A pull request aims at about 500 changed lines in `src/` and `ext/`; tests, reference data and documentation do not count.
+  Above that, its description says why the change cannot be split.
+  The usual split is a series of pull requests that each pass the full suite on their own, for example the data layout, then the operator, then the solver wiring with its tests.
 - A pull request whose checks pass needs no comment about them, since GitHub shows them.
   After a failed check, the author comments once the fixes are in: what failed and what fixed it.
 

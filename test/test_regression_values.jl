@@ -1,10 +1,23 @@
 # Regression values for shared-grid results (collision frequencies, Fokker-Planck and
 # knock-on applications) that a restructuring of the code must not change. Each case is
 # reduced to (sum, sum of absolute values, maximum absolute value). Pure-Julia results are
-# compared bit for bit; the `:blas` knock-on results use OpenBLAS, whose last bits depend on
-# the CPU and the thread count, so they are compared to 1e-13. If a later change legitimately
-# reorders a summation, relax that entry alone and state the reason in a comment at it.
+# compared bit for bit at -O2, the level of the stored values; the `:blas` knock-on results
+# use OpenBLAS, whose last bits depend on the CPU and the thread count, so they are compared
+# to 1e-13. With `RUNES2P_REGRESSION_RTOL` set, as the Full suite of CI sets it, the
+# pure-Julia results are compared to that relative tolerance instead: on a runner of CI the
+# last bits can differ from those of the machine that stored the values. A pure-Julia entry
+# that differs at -O2 is logged with its relative deviation, also when it passes. If a later
+# change legitimately reorders a summation, relax that entry alone and state the reason in a
+# comment at it.
 using LinearAlgebra: BLAS
+
+# the relative tolerance of the pure-Julia entries at -O2, or `nothing` for bit for bit
+const REGRESSION_RTOL = let value = get(ENV, "RUNES2P_REGRESSION_RTOL", "")
+    rtol = isempty(value) ? nothing : parse(Float64, value)
+    rtol === nothing || (rtol > 0 && isfinite(rtol)) ||
+        error("RUNES2P_REGRESSION_RTOL = $value: a relative tolerance is positive and finite")
+    rtol
+end
 
 function regression_cases()
     ions = [IonSpecies("D", 1, 1, [1e20, 8e19]), IonSpecies("Ar", 18, 2, [1e18, 3e18])]
@@ -100,17 +113,29 @@ const REGRESSION_VALUES = Dict(
     try
         cases = regression_cases()
         @test Set(first.(cases)) == Set(keys(REGRESSION_VALUES))
+        optimized = Base.JLOptions().opt_level >= 2
         for (key, value) in cases
             x = collect(Float64, vec(value isa Number ? [value] : value))
             summary = (sum(x), sum(abs, x), maximum(abs, x))
-            if endswith(key, "_blas")
-                @test all(isapprox.(summary, REGRESSION_VALUES[key]; rtol = 1e-13))
-            else
-                # bit for bit at the optimisation level of the stored values; below -O2 the
-                # sums run in another order and agree to round-off
-                @test Base.JLOptions().opt_level >= 2 ?
-                      isequal(summary, REGRESSION_VALUES[key]) :
-                      all(isapprox.(summary, REGRESSION_VALUES[key]; rtol = 1e-12))
+            expected = REGRESSION_VALUES[key]
+            @testset "$key" begin
+                if endswith(key, "_blas")
+                    @test all(isapprox.(summary, expected; rtol = 1e-13))
+                elseif !optimized
+                    # below -O2 the sums run in another order and agree to round-off
+                    @test all(isapprox.(summary, expected; rtol = 1e-12))
+                else
+                    if !isequal(summary, expected)
+                        deviation = abs.(summary .- expected) ./
+                                    max.(abs.(expected), floatmin())
+                        @info "regression value differs" key summary expected deviation
+                    end
+                    if REGRESSION_RTOL === nothing
+                        @test isequal(summary, expected)
+                    else
+                        @test all(isapprox.(summary, expected; rtol = REGRESSION_RTOL))
+                    end
+                end
             end
         end
     finally

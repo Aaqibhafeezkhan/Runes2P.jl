@@ -74,6 +74,10 @@ Two kinds of assertion hold for optimised code alone:
 - Below `-O2` an assertion on allocations is skipped and reported as broken (`skip = !OPTIMIZED` in the test files).
 - Below `-O2` the stored values of `test_regression_values.jl` are compared to 1e-12 in place of bit for bit, since the sums run in another order.
 
+At `-O2` the pure-Julia entries of `test_regression_values.jl` are compared bit for bit, or to the tolerance of `RUNES2P_REGRESSION_RTOL` where it is set.
+Such an entry that differs is logged with its relative deviation, also when it passes.
+The `:blas` entries are compared to 1e-13 at every level.
+
 ## Environment variables
 
 | Variable | Default | Use |
@@ -81,6 +85,7 @@ Two kinds of assertion hold for optimised code alone:
 | `RUNES2P_ADAS_CACHE` | `~/.cache/Runes2P/adas` | the directory of the OpenADAS ADF11 files |
 | `RUNES2P_CHIANTI_DIR` | `~/chianti` | the CHIANTI database, for the regeneration test of the table of CHIANTI's cross sections |
 | `RUNES2P_JACOBIAN_CHUNK_SIZE` | none | the upper limit of the chunk size of the dual numbers of the sparse Jacobians |
+| `RUNES2P_REGRESSION_RTOL` | none, bit for bit | the relative tolerance of the pure-Julia regression values at `-O2`; the Full suite of CI sets `1e-13` |
 
 - `scripts/fetch_adas.py` fills the ADAS cache.
   No ADAS data is in the repository.

@@ -18,6 +18,9 @@ concurrency:
 
 env:
   RUNES2P_JACOBIAN_CHUNK_SIZE: "8"
+  # the pure-Julia regression values of test_regression_values.jl to 1e-13, not bit for
+  # bit: the last bits on a runner can differ from those of the machine that stored them
+  RUNES2P_REGRESSION_RTOL: "1e-13"
 
 jobs:
   # the indices 1 to n of the groups of test/groups.toml, for the matrix, and the ADAS cache,
@@ -64,7 +67,7 @@ jobs:
           key: adas-${{ hashFiles('scripts/fetch_adas.py') }}
 
   # one group, run with --index at the default optimisation level, where the allocation
-  # checks and the bit-for-bit regression values hold
+  # checks and the stored regression values hold
   groups:
     name: Group ${{ matrix.index }}
     needs: setup
@@ -83,6 +86,9 @@ jobs:
       - uses: julia-actions/setup-julia@v3
         with:
           version: "1.13.1"
+      # the CPU and the LLVM target of the runner, for results whose last bits depend on them
+      - name: Name the CPU
+        run: julia -e 'using InteractiveUtils; versioninfo()'
       # one depot cache for all groups, which share the test environment
       - uses: julia-actions/cache@v3
         with:
