@@ -6,6 +6,7 @@ These rules hold for every contribution, by people and by coding agents alike.
 
 - Development happens on the branch `dev`.
   Pull requests go to `dev`.
+- A suggestion for branch names: `<type>/<topic>`, with the type one of `fix`, `feat`, `docs`, `ci`, `test`, `perf` or `chore`, for example `fix/pmax-boundary`.
 - `main` and `dev` change only through pull requests, and only the maintainer merges them.
   `main` is updated from `dev`.
 - Open a pull request as a draft while it is in progress.
