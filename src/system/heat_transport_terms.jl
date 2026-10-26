@@ -14,7 +14,7 @@ Radial heat diffusion of the cold electrons, `(1/V') ∂_r (V' χ ∂_r T)` [W/m
 eV, for the row of their temperature. The flux through the face between two cells is
 `V' χ (T_k − T_{k−1})/Δr` with the distance `Δr` of the two centres, and `χ` at the face
 takes the density and the temperature interpolated linearly between the two cells
-(DREAM's `deltaRadialFlux`). No heat crosses the axis. One of two models:
+(DREAM's `deltaRadialFlux`). No heat crosses the first face. One of two models:
 
 - a diffusivity `D` [m²/s], `χ = 3/2 e D n` (DREAM's
   `src/Equations/Fluid/HeatTransportDiffusion.cpp:85-87`): `diffusion`
@@ -150,7 +150,7 @@ function _heat_conductivity(term::HeatTransportTerm, level, q, n, T)
            level^2 * n * sqrt(theta) * (1 - 5 * theta / 8)
 end
 
-# V' times the heat flux χ ∂_r T through face k (1 the axis, nr + 1 the edge)
+# V' times the heat flux χ ∂_r T through face k (1 the first face, nr + 1 the edge)
 function _heat_flux(term::HeatTransportTerm, rg::RadialGrid, levels, q, T, n, k)
     nr = radial_cell_count(rg)
     zero_flux = zero(eltype(T)) * zero(eltype(n))
