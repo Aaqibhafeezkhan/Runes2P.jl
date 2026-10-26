@@ -15,7 +15,7 @@ the flux, `0 = (1/r) ∂_r (r ∂_r ψ) − 2π μ₀ j`. `V'` is the spatial Ja
 grid (`r` in a cylinder).
 
 The gradient at a face between two cells is the difference of the cell values over the
-distance of the centres. No flux passes the axis. The gradient at the edge of the plasma
+distance of the centres. No flux passes the first face. The gradient at the edge of the plasma
 is `(ψ_edge − ψ_N)/(a − r_N)`, with the scalar unknown `edge_poloidal_flux` and the last
 cell `N` (DREAM's `AmperesLawDiffusionTerm` and `AmperesLawBoundaryAtRMax`).
 """
@@ -45,7 +45,7 @@ function validate(term::PoloidalFluxDiffusionTerm, layout, row)
     return nothing
 end
 
-# V' times the gradient of the flux at the radial face k (1 the axis, nr + 1 the edge)
+# V' times the gradient of the flux at the radial face k (1 the first face, nr + 1 the edge)
 Base.@propagate_inbounds function _flux_gradient(rg::RadialGrid, psi, psi_edge, k)
     nr = radial_cell_count(rg)
     k == 1 && return zero(eltype(psi)) * zero(psi_edge)

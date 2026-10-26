@@ -407,7 +407,7 @@ radial profile on the faces ([`radial_values`](@ref)), or `diffusion_at`, a func
 that returns one, such as a [`PiecewiseConstant`](@ref) transport history: its switch times
 must be time points of the run ([`forced_time_points`](@ref)). The flux through
 the face between two cells is `V' D (n_k − n_{k−1})/Δr` with the distance of the centres, as
-for the heat ([`HeatTransportTerm`](@ref)); nothing crosses the axis.
+for the heat ([`HeatTransportTerm`](@ref)); nothing crosses the first face.
 
 - `states = :charged` (default) diffuses the charge states `Z0 ≥ 1`, DREAM's charged
   diffusion; `:all` the neutrals too.
