@@ -38,7 +38,7 @@ Boundary conditions:
   removes particles through `p = 0` as in DREAM). With `:quick` and
   `:upwind_second_order` the scheme's own face value at `p = 0` replaces `f₁`, as in
   DREAM's `AdvectionTerm`; the limiters give `f₁` there (mirrored ghost cells).
-- `r = 0`: no flux, because 𝒱' vanishes there.
+- First radial face: no flux.
 - `p = p_min > 0` (`p_lower_boundary`): `:zero_flux`, or `:prescribed` with the flux `Γᵖ`
   through the face given in `op.p_flux_at_lower_boundary[j, ir]` (positive into the
   domain, independent of `f`), or `:interface`: the face is shared with the grid of
@@ -112,7 +112,7 @@ The scheme can differ per direction (`p_scheme`, `xi_scheme`, `r_scheme`). `sche
 `scheme` the radial scheme is `:central` unless `r_scheme` names one.
 
 A four-point scheme in r gives the face value of the radial advection.
-The radial diffusion is central. Ghost cells as in DREAM: mirrored at the axis, zero beyond
+The radial diffusion is central. Ghost cells as in DREAM: mirrored at the first face, zero beyond
 the edge of the plasma. The flux through the edge is the upwind outflow. It needs one pitch
 grid at all radii, and with fewer than three radii the face value is central.
 """
@@ -388,7 +388,7 @@ Base.@propagate_inbounds function _xi_four_point_face(
 end
 
 # Four-point face value on r face `k` for pitch grids that are the same on both sides,
-# mirrored at the axis and zero beyond the edge (DREAM AD_BC_MIRRORED and AD_BC_DIRICHLET)
+# mirrored at the first face and zero beyond the edge (DREAM AD_BC_MIRRORED and AD_BC_DIRICHLET)
 Base.@propagate_inbounds function _r_four_point_face(
         op::AdvectionDiffusion, f, state, A, i, j, k)
     rg = op.grid.radial_grid

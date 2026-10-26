@@ -71,7 +71,7 @@ Particles per second that cross the radial face `face` (between the radii `face 
 of [`total_particles`](@ref): the content of the radii inside the face falls by this flux
 and by nothing else when only radial transport acts. Face `radii + 1` is the edge of the
 plasma, where the flux is the loss of the plasma (zero with `r_boundary = :zero_flux`). The
-flux through the first face, the axis, is zero.
+flux through the first face is zero.
 """
 function radial_particle_flux(op::AdvectionDiffusion, f::AbstractArray{<:Any, 3}, face::Integer)
     nr = radial_cell_count(op.grid)
