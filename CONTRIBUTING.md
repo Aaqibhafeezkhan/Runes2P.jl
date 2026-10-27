@@ -8,6 +8,8 @@ These rules hold for every contribution, by people and by coding agents alike.
   Pull requests go to `dev`.
 - `main` and `dev` change only through pull requests, and only the maintainer merges them.
   `main` is updated from `dev`.
+- A suggestion for branch names: `<type>/<topic>`, with the type one of `fix`, `feat`, `docs`, `ci`, `test`, `perf` or `chore`.
+  The topic is a few lowercase words joined by hyphens, for example `fix/pmax-boundary`.
 - Open a pull request as a draft while it is in progress.
   The lint, the format check, the component tests and the docs build run on every push to a pull request; the full suite runs once the pull request is marked ready, and again on every push after that.
   A merge into `dev` or `main` runs these checks again, on `dev` with the deployment of the docs in place of the docs build.
