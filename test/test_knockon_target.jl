@@ -102,6 +102,18 @@ end
         @test_throws ArgumentError set_cutoff!(knock.operator, -1.0)
         residual!(F, u0, u0, system, 1e-6, 1e-6)
         @test knock.preparations[] == before + 1
+        # a cutoff update that follows the plasma (the cooling plasma of the checkpoint
+        # case), with the start state unchanged: a new preparation exactly when it moves
+        update = KnockOnCutoffUpdate(knock.operator, t -> _checkpoint_plasma(t; nr = 2))
+        moves = 0
+        for t in (0.0, 2e-4, 4e-4, 6e-4, 8e-4)
+            prepared = knock.preparations[]
+            moved = Runes2P.apply_update!(update, u0, layout, t)
+            residual!(F, u0, u0, system, 1e-6, 1e-6)
+            @test knock.preparations[] == prepared + moved
+            moves += moved
+        end
+        @test moves >= 2
     end
 
     @testset "a resume inside an interval of the step controller" begin
