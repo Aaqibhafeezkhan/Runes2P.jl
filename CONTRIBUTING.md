@@ -81,9 +81,9 @@ The header of `docs/make.jl` gives the command of a live local preview.
 - Public names, the keywords of their methods and the fields of their types are ASCII, which `test/test_names.jl` checks.
   A local variable may use the Greek symbol of a cited formula.
   A name that becomes exported, public, a keyword or a field users read is renamed to ASCII in every use.
-- The same kind of unknown has the same keyword in every constructor, and a switch of type `Bool` never shares a name with an unknown.
+- The same kind of unknown has the same keyword in every constructor, and a switch of type `Bool` among the keywords users see never shares a name with an unknown.
+- A key of a settings record changes only with the output format, so a keyword that is such a key keeps its name even where the rule above would rename it; a field may be named differently from its key.
 - Established short forms stay, such as `dt`, `p_max`, `p_cutoff` and `xi`, and `p` for a momentum in argument names.
-- A key of a settings record changes only with the output format; a field or keyword may be named differently from its key.
 - When a choice is in doubt, the clearer name wins, even if it is longer.
 
 ## Physics values and their sources
