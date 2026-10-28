@@ -206,7 +206,7 @@ function _rebuild_coefficients!(term::FokkerPlanckTerm, u, layout, t)
     try
         set_fokker_planck_coefficients!(
             term.operator, plasma, term.settings; synchrotron = term.synchrotron,
-            electric_field = field)
+            field_in_coefficients = field)
     catch
         reset_key!(term.plasma_key)
         rethrow()
@@ -318,7 +318,7 @@ function _dual_coefficients!(term::FokkerPlanckTerm, u, layout, t)
     op = _dual_operator!(term, eltype(dual.cold_electron_temperature))
     set_fokker_planck_coefficients!(
         op, dual, term.settings; synchrotron = term.synchrotron,
-        electric_field = term.electric_field === nothing)
+        field_in_coefficients = term.electric_field === nothing)
     return op, with_ions
 end
 

@@ -150,7 +150,7 @@ function _loss_operators(term::KineticEnergyLossTerm, grid, plasma)
     C === Float64 || (collisions = similar_coefficients(collisions, C))
     set_fokker_planck_coefficients!(
         collisions, plasma, term.source.settings; synchrotron = term.source.synchrotron,
-        electric_field = false)
+        field_in_coefficients = false)
     return (collisions, free)
 end
 

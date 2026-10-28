@@ -22,7 +22,7 @@ The terms of OPEN-ADAS do not allow the data to be redistributed with a modellin
 No file is part of the repository, and `scripts/fetch_adas.py` fills the cache on a machine with internet access.
 No equation term takes the charge-exchange coefficients.
 
-[`adas_coefficient`](@ref) evaluates a coefficient at the electron density ``n`` and temperature ``T`` with DREAM's interpolation (`src/ADASRateInterpolator.cpp`).
+[`adas_coefficient`](@ref) evaluates a coefficient at the free-electron density ``n`` and the temperature ``T`` with DREAM's interpolation (`src/ADASRateInterpolator.cpp`).
 Inside the table it is the bicubic interpolation of ``\log_{10}`` of the coefficient in ``\log_{10} n`` and ``\log_{10} T``, with the node derivatives of natural cubic splines, as GSL's bicubic interpolation.
 Outside the table, `extrapolation = :dream` continues the bilinear interpolation of the edge cell linearly.
 The value jumps at the table edge between nodes, where the bicubic and the bilinear interpolations differ.
