@@ -12,13 +12,13 @@ neighbours: the cell of the same pitch at each neighbouring radius, or with diff
 pitch grids the cells that overlap it. Needs the same cell counts and p faces at all radii.
 
 `electric_field` names the radial unknown of the electric field [V/m] when the field is an
-unknown of the system. The advection of every face is then that of the
-operator, which holds the collisions, plus the field of the radius times the coefficients
-of a unit field ([`set_unit_field_coefficients!`](@ref)), inside the scheme. The operator
-must not hold the field of a prescribed plasma as well
-([`fokker_planck_operator`](@ref)`(...; electric_field = false)`). The term is bilinear in
-the distribution and the field, and its stored block holds the column of the field of each
-radius, which is DREAM's Jacobian of its `ElectricFieldTerm`.
+unknown of the system. The advection of every face is then that of the operator, which holds
+the collisions, plus the field of the radius times the coefficients of a unit field
+([`set_unit_field_coefficients!`](@ref)), inside the scheme. The operator must not hold the
+field of a prescribed plasma as well ([`fokker_planck_operator`](@ref)`(...;
+field_in_coefficients = false)`). The term is bilinear in the distribution and the field,
+and its stored block holds the column of the field of each radius, which is DREAM's Jacobian
+of its `ElectricFieldTerm`.
 
 `plasma` is the source of the plasma that the collision coefficients follow: a
 [`PlasmaSource`](@ref), a [`PlasmaState`](@ref) or a function of time that returns
@@ -30,7 +30,7 @@ synchrotron loss for an operator built otherwise (on by default, a choice of thi
 see the docs page *Choices of this package*). The rebuild happens when the plasma values
 of any radius differ from those of the last rebuild ([`update_key!`](@ref)), not at every
 new time, and rebuilds all radii. Without `plasma` the coefficients of `operator` are
-fixed. [`PrescribedFokkerPlanckTerm`](@ref) builds such a term from a function of time.
+fixed. [`prescribed_fokker_planck_term`](@ref) builds such a term from a function of time.
 
 With a plasma that reads unknowns ([`PlasmaFromUnknowns`](@ref)) the term depends on them
 and is not linear. `lagged` names the part of that plasma taken at the start of the step;
@@ -139,7 +139,7 @@ function FokkerPlanckTerm(
         source !== nothing && get(source, :electric_field, true) &&
             any(!iszero, source.plasma.electric_field) &&
             throw(ArgumentError("the operator holds the electric field of its plasma, and the term would add the " *
-                                "unknown $electric_field to it: build the operator with electric_field = false"))
+                                "unknown $electric_field to it: build the operator with field_in_coefficients = false"))
         set_unit_field_coefficients!(operator)
     end
     stored = if jacobian in (:exact, :frozen_limiter)
@@ -534,9 +534,9 @@ function jacobian_correction_product!(out, term::FokkerPlanckTerm, u, v, layout,
 end
 
 """
-    PrescribedFokkerPlanckTerm(unknown, operator::AdvectionDiffusion, plasma_at;
-                               settings=nothing, synchrotron=nothing, jacobian=:exact,
-                               electric_field=nothing)
+    prescribed_fokker_planck_term(unknown, operator::AdvectionDiffusion, plasma_at;
+                                  settings=nothing, synchrotron=nothing, jacobian=:exact,
+                                  electric_field=nothing)
 
 A [`FokkerPlanckTerm`](@ref) whose collision coefficients follow a plasma prescribed in
 time (such as a cooling plasma with `T(t)` prescribed): `plasma_at(t)` returns the
@@ -548,7 +548,7 @@ when the plasma values change ([`refresh_coefficients!`](@ref)).
 With `electric_field`, the name of the unknown of the field, the field of the prescribed
 plasma is left out of the coefficients, and the term takes the field of the state.
 """
-function PrescribedFokkerPlanckTerm(
+function prescribed_fokker_planck_term(
         unknown::Symbol, operator::AdvectionDiffusion, plasma_at;
         settings::Union{Nothing, CollisionSettings} = nothing, synchrotron::Union{
             Nothing, Bool} = nothing,

@@ -2,7 +2,7 @@
 # (reference/dream/cases/kinetic_ionization.py): deuterium and deposited argon at 20 and
 # 10 eV, an f_hot with a tail of 1e-3 at 300 eV, DREAM's kinetic ionization above 3 thermal
 # momenta next to its fluid ADAS rate (`ions.cpp:280`, Runes2P's IonRateTerm without
-# `kinetic`). One backward-Euler step of 1e-9 s: the change of the charge states over the
+# `kinetic_ionization`). One backward-Euler step of 1e-9 s: the change of the charge states over the
 # step is dt times the rates at the state of the end of the step, which Runes2P evaluates on
 # DREAM's state. The same cross sections, moment and threshold in both codes, so the rates
 # agree to round-off and DREAM's Newton tolerance. Needs the ADF11 cache.
@@ -32,7 +32,7 @@ using HDF5
         region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor = data["threshold"]))
         # DREAM's form and fits of the cross sections
         kinetic = KineticIonizationTerm(
-            composition, :f, grid; region, cross_section_form = :dream)
+            composition, :f, grid; region, ionization_cross_section_form = :dream)
         fluid = IonRateTerm(composition)
         # the state of the end of the step
         u = zeros(length(layout))

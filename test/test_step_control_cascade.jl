@@ -34,7 +34,7 @@ function cascade_case(; np = 40, nxi = 6)
     layout = UnknownLayout(grid.radial_grid, [KineticUnknown(:f, grid; scale = n)])
     system = EquationSystem(layout,
         [Equation(:f, TimeDerivative(),
-            PrescribedFokkerPlanckTerm(:f, operator, plasma_at;
+            prescribed_fokker_planck_term(:f, operator, plasma_at;
                 settings = CollisionSettings(mode = :full)))])
     theta = CASCADE_T0 / Constants.ELECTRON_REST_ENERGY
     f0 = [n * exp(-(sqrt(1 + p^2) - 1) / theta)

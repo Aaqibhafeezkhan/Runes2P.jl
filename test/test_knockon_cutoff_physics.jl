@@ -38,7 +38,7 @@
         layout = UnknownLayout(g.radial_grid, [KineticUnknown(:f, g; scale = 1e12)])
         system = EquationSystem(layout,
             [Equation(:f, TimeDerivative(),
-                PrescribedFokkerPlanckTerm(:f, operator, plasma_at; settings),
+                prescribed_fokker_planck_term(:f, operator, plasma_at; settings),
                 KnockOnTerm(:f, knockon; target_density = [density_],
                     treatment = :explicit))])
         u0 = zeros(length(layout))

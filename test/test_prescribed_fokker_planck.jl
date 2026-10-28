@@ -11,7 +11,7 @@ function _test_plasma(temperature; density = 1e20, field = 1.0, nr = 1)
         magnetic_field = fill(5.0, nr))
 end
 
-@testset "PrescribedFokkerPlanckTerm and set_fokker_planck_coefficients!" begin
+@testset "prescribed_fokker_planck_term and set_fokker_planck_coefficients!" begin
     mom = MomentumGrid(uniform_p_faces(20, 0.0, 1.0), uniform_xi_faces(6))
     g = cylindrical_grid(mom, RadialGrid(uniform_r_faces(1, 1.0)))
     settings = CollisionSettings(mode = :full)
@@ -47,7 +47,7 @@ end
         layout2 = UnknownLayout(g.radial_grid, [KineticUnknown(:f, g; scale = 1.0)])
         static_system = EquationSystem(
             layout1, [Equation(:f, TimeDerivative(), FokkerPlanckTerm(:f, op_static))])
-        prescribed_term = PrescribedFokkerPlanckTerm(:f, op_prescribed, plasma_at; settings)
+        prescribed_term = prescribed_fokker_planck_term(:f, op_prescribed, plasma_at; settings)
         prescribed_system = EquationSystem(layout2, [Equation(:f, TimeDerivative(), prescribed_term)])
 
         u0 = rand(Xoshiro(1), length(layout1))
@@ -68,7 +68,7 @@ end
         plasma_from_one(t) = t >= 1 ? _test_plasma(300.0 - 1e3 * (t - 1)) :
                              throw(ArgumentError("no plasma state before t = 1"))
         op = AdvectionDiffusion(g; scheme = :central, p_upper_boundary = :f_zero)
-        term = PrescribedFokkerPlanckTerm(:f, op, plasma_from_one; settings)
+        term = prescribed_fokker_planck_term(:f, op, plasma_from_one; settings)
         layout = UnknownLayout(g.radial_grid, [KineticUnknown(:f, g; scale = 1.0)])
         @test_throws ArgumentError EquationSystem(layout, [Equation(:f, TimeDerivative(), term)])
         system = EquationSystem(layout, [Equation(:f, TimeDerivative(), term)]; initial_time = 1.0)
@@ -79,7 +79,7 @@ end
     @testset "EquationSystem Jacobian" begin
         plasma_at(t) = _test_plasma(300.0 - 1e5 * t)  # an arbitrary time dependence
         op = AdvectionDiffusion(g; scheme = :central, p_upper_boundary = :f_zero)
-        term = PrescribedFokkerPlanckTerm(:f, op, plasma_at; settings)
+        term = prescribed_fokker_planck_term(:f, op, plasma_at; settings)
         layout = UnknownLayout(g.radial_grid, [KineticUnknown(:f, g; scale = 1.0)])
         system = EquationSystem(layout, [Equation(:f, TimeDerivative(), term)])
         u = rand(Xoshiro(2), length(layout))
@@ -99,7 +99,7 @@ end
 
     @testset "validate delegates to FokkerPlanckTerm" begin
         op = AdvectionDiffusion(g; scheme = :central, p_upper_boundary = :f_zero)
-        term = PrescribedFokkerPlanckTerm(:f, op, t -> _test_plasma(100.0); settings)
+        term = prescribed_fokker_planck_term(:f, op, t -> _test_plasma(100.0); settings)
         wrong_layout = UnknownLayout(g.radial_grid, [ScalarUnknown(:f)])
         @test_throws ArgumentError Runes2P.validate(term, wrong_layout, 1)
     end

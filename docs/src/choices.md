@@ -49,7 +49,7 @@ Its weight in the friction rises in a cubic smooth step from ``(1 - w) p_0`` to 
 
 | Choice | Value |
 |---|---|
-| cross sections of [`ionization_cross_section`](@ref), [`KineticIonizationTerm`](@ref) and the friction of [`CollisionSettings`](@ref) | `form = :chianti`, `cross_section_form = :chianti`, `ionization_cross_section_form = :chianti` ([`chianti_cross_section`](@ref)) |
+| cross sections of [`ionization_cross_section`](@ref), [`KineticIonizationTerm`](@ref) and the friction of [`CollisionSettings`](@ref) | `form = :chianti`, and `ionization_cross_section_form = :chianti` of the term and of the settings ([`chianti_cross_section`](@ref)) |
 | energy above which CHIANTI's cross section follows the relativistic Bethe form | [`CHIANTI_MATCHING_ENERGY`](@ref) = 100 keV |
 | factor of the window of the weight between the continued fit and the Bethe form | [`CHIANTI_MATCHING_WIDTH`](@ref) = 2 |
 | weight of the relativistic rise of each shell and transition of [`chianti_cross_section`](@ref) | ``1 - 1/u``, ``u = \beta^2/\beta_I^2`` |

@@ -27,11 +27,11 @@ The channels of this row:
 | exchange with the ions | [`IonEnergyExchangeTerm`](@ref) with `side = :electrons` |
 | secondaries of the kinetic ionization | [`SecondaryHeatingTerm`](@ref) |
 | friction of fluid runaways | [`RunawayFluidEnergyTransferTerm`](@ref) |
-| collisions of the runaway grid with the cold electrons | [`FreeElectronEnergyTransferTerm`](@ref) |
+| collisions of the runaway grid with the cold electrons | [`free_electron_energy_transfer_term`](@ref) |
 
 [`IonEnergyExchangeTerm`](@ref) with `side = :ions` is the same exchange in the row of the ion energies, so the two sides are antisymmetric.
 [`RunawayFluidEnergyTransferTerm`](@ref) is DREAM's heating by runaways without a runaway grid, the power ``e c\, E_c\, n_\mathrm{re}``: runaways at the speed of light against the friction of the critical field ``E_c``, with the Coulomb logarithm at ``p = 20\, m_e c``.
-With a runaway grid, [`FreeElectronEnergyTransferTerm`](@ref) takes its place: the energy moment of the electron-electron collisions of that grid.
+With a runaway grid, [`free_electron_energy_transfer_term`](@ref) takes its place: the energy moment of the electron-electron collisions of that grid.
 
 The channels other than [`SecondaryHeatingTerm`](@ref) are those of DREAM's equation of ``T_\mathrm{cold}`` (`src/Settings/Equations/T_cold.cpp`, DREAM v26.5), and [`RadiatedPowerTerm`](@ref) takes DREAM's radiation with `radiation = :dream` and `bremsstrahlung_corrections = :dream`.
 With a hot-tail grid, DREAM adds the collisional transfer from the hot-tail distribution, except in its fully kinetic mode (`collfreq_mode` FULL), where it leaves the transfer out.
@@ -94,7 +94,7 @@ A relative error ``\varepsilon`` of ``W_\mathrm{tot}`` becomes a relative error 
 
 so the temperature is lost to cancellation when ``W_\mathrm{tot}`` is much larger than ``W_\mathrm{cold}``.
 Keeping the runaways out keeps this ratio small.
-The runaway grid enters the row through two channels only: [`FreeElectronEnergyTransferTerm`](@ref) for its collisions with the cold electrons, and [`InterfaceEnergyFluxTerm`](@ref) for the electrons that it receives.
+The runaway grid enters the row through two channels only: [`free_electron_energy_transfer_term`](@ref) for its collisions with the cold electrons, and [`InterfaceEnergyFluxTerm`](@ref) for the electrons that it receives.
 
 ### The field work on the hot region
 
@@ -114,7 +114,7 @@ L = -\frac{1}{V'} \sum_{ij} w_i\, m_e c^2 (\gamma_i - 1)\, \left[C_a f - C_b f\r
 with the envelope ``w`` of the region.
 
 - `part = :free_electrons`: ``C_a`` the electron-electron collisions ([`electron_electron_operator`](@ref)), ``C_b = 0``.
-  This is the energy that `f` gives to the free cold electrons, [`FreeElectronEnergyTransferTerm`](@ref).
+  This is the energy that `f` gives to the free cold electrons, [`free_electron_energy_transfer_term`](@ref).
 - `part = :sinks`: ``C_a`` all collisions without the field, ``C_b`` their electron-electron part.
   This is the energy that leaves the electrons by the friction on bound electrons, bremsstrahlung and synchrotron radiation.
 

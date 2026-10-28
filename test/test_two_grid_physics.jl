@@ -9,8 +9,8 @@
 
 @testset "avalanche on two grids" begin
     temperature, density, over_critical = 100.0, 1e20, 20.0
-    coulomb_log = relativistic_coulomb_logarithm(temperature, density)
-    critical_electric_field = critical_field(density, coulomb_log)
+    coulomb_logarithm = relativistic_coulomb_logarithm(temperature, density)
+    critical_electric_field = critical_field(density, coulomb_logarithm)
     field = over_critical * critical_electric_field
     critical = critical_momentum(field, critical_electric_field)
     p_faces = biuniform_p_faces(120, 60, 0.0, 0.6, 100.0)

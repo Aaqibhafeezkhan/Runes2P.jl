@@ -25,7 +25,7 @@ const SCHUR_TEST_GMRES = Base.require(Runes2P, :Krylov).gmres
         ions = [IonSpecies("D", 1, 1, fill(ne, radii))],
         electric_field = zeros(radii), magnetic_field = fill(5.0, radii))
     settings = CollisionSettings(mode = :full, screening = :complete, coulomb_logarithm = :thermal)
-    operator = fokker_planck_operator(grid, plasma, settings; electric_field = false)
+    operator = fokker_planck_operator(grid, plasma, settings; field_in_coefficients = false)
     minus(name) = LinearTerm(name; coefficient = -1)
     collision_time = thermal_collision_time(ne, T, thermal_coulomb_logarithm(T, ne))
 

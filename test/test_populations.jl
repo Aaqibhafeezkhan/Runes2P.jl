@@ -171,7 +171,7 @@ end
         (:tcdf, :extrapolated_flux_consistent))
         operator = fokker_planck_operator(
             runaway, plasma, settings; scheme, p_upper_boundary = boundary,
-            electric_field = false, synchrotron = false)
+            field_in_coefficients = false, synchrotron = false)
         term = FokkerPlanckTerm(:runaway_distribution, operator; electric_field = :electric_field)
         layout = UnknownLayout(rad,
             [RadialUnknown(:electric_field),
@@ -275,17 +275,17 @@ end
     # with the magnitude S of the source, the knock-on production K on both grids and the
     # flux Φ₀ through p = 0 (negative: a loss).
     @testset "particle budget" begin
-        coulomb_log = relativistic_coulomb_logarithm(temperature, bulk_density)
-        critical_electric_field = critical_field(bulk_density, coulomb_log)
+        coulomb_logarithm = relativistic_coulomb_logarithm(temperature, bulk_density)
+        critical_electric_field = critical_field(bulk_density, coulomb_logarithm)
         critical = critical_momentum(maximum(field), critical_electric_field)
         window = cutoff_window(thermal_momentum(temperature), critical)
         cutoff = choose_cutoff(hot_m.p_faces, window.lower, window.upper).p_cutoff
         hot_operator = fokker_planck_operator(
             hot, plasma, settings; p_upper_boundary = :interface,
-            electric_field = false, synchrotron = false)
+            field_in_coefficients = false, synchrotron = false)
         runaway_operator = fokker_planck_operator(
             runaway, plasma, settings; p_lower_boundary = :interface,
-            electric_field = false, synchrotron = false)
+            field_in_coefficients = false, synchrotron = false)
         hot_term = FokkerPlanckTerm(:hot_tail_distribution, hot_operator; electric_field = :electric_field)
         runaway_term = FokkerPlanckTerm(
             :runaway_distribution, runaway_operator; electric_field = :electric_field)
@@ -434,8 +434,8 @@ end
             MomentumGrid(biuniform_p_faces(110, 80, 0.0, 0.4, 2.0), uniform_xi_faces(14)),
             single)
         m = momentum_grid(grid)
-        coulomb_log = relativistic_coulomb_logarithm(temperature, free_density)
-        critical_electric_field = critical_field(free_density, coulomb_log)
+        coulomb_logarithm = relativistic_coulomb_logarithm(temperature, free_density)
+        critical_electric_field = critical_field(free_density, coulomb_logarithm)
         collision_time = thermal_collision_time(free_density, temperature,
             thermal_coulomb_logarithm(temperature, free_density))
         settings = CollisionSettings(mode = :full, screening = :complete,

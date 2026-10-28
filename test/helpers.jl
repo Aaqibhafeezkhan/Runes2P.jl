@@ -189,7 +189,7 @@ function _checkpoint_case(; treatment = :explicit, with_density = true)
     radial.diffusion_r_r .= 50.0
     knockon = KnockOnOperator(grid, grid, 0.45)
     terms = (
-        PrescribedFokkerPlanckTerm(:f, op, plasma_at; settings = CollisionSettings(mode = :full)),
+        prescribed_fokker_planck_term(:f, op, plasma_at; settings = CollisionSettings(mode = :full)),
         FokkerPlanckTerm(:f, radial),
         KnockOnTerm(:f, knockon; target_density = fill(1e20, nr), treatment))
     unknowns = Any[KineticUnknown(:f, grid; scale = 1e20)]

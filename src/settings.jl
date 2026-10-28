@@ -597,7 +597,7 @@ end
 function settings_fields(::Type{<:RadiatedPowerTerm})
     (
         described = (:plasma, :temperature, :density, :radiation, :extrapolation,
-            :bremsstrahlung_corrections, :ions, :kinetic),
+            :bremsstrahlung_corrections, :ions, :kinetic_ionization),
         derived = (:tables,))
 end
 
@@ -609,8 +609,8 @@ function describe(term::RadiatedPowerTerm, context::DescriptionContext)
     record["extrapolation"] = String(term.extrapolation)
     record["bremsstrahlung_corrections"] = String(term.bremsstrahlung_corrections)
     term.ions === nothing || (record["ions"] = String(term.ions))
-    term.kinetic === nothing ||
-        (record["kinetic_ionization"] = describe(term.kinetic, context))
+    term.kinetic_ionization === nothing ||
+        (record["kinetic_ionization"] = describe(term.kinetic_ionization, context))
     # the ADF11 files of each element, by name: the cache itself is not part of the record
     #! format: off
     record["adf11_files"] = SettingsRecord(element => SettingsRecord(String(class) => basename(getproperty(tables, class).source)
@@ -621,7 +621,9 @@ function describe(term::RadiatedPowerTerm, context::DescriptionContext)
 end
 
 function settings_fields(::Type{<:IonRateTerm})
-    (described = (:composition, :ions, :temperature, :density, :extrapolation, :kinetic),
+    (
+        described = (:composition, :ions, :temperature, :density, :extrapolation,
+            :kinetic_ionization),
         derived = (:tables,))
 end
 
@@ -633,8 +635,8 @@ function describe(term::IonRateTerm, context::DescriptionContext)
     for field in (:ions, :temperature, :density, :extrapolation)
         record[String(field)] = String(getfield(term, field))
     end
-    term.kinetic === nothing ||
-        (record["kinetic_ionization"] = describe(term.kinetic, context))
+    term.kinetic_ionization === nothing ||
+        (record["kinetic_ionization"] = describe(term.kinetic_ionization, context))
     # the ADF11 files of each element, by name: the cache itself is not part of the record
     #! format: off
     record["adf11_files"] = SettingsRecord(name => SettingsRecord(String(class) => basename(getproperty(tables, class).source)
@@ -757,18 +759,19 @@ function _describe_radial_level(level, in_time::Bool, faces, context)
 end
 
 function settings_fields(::Type{<:SecondaryHeatingTerm})
-    (described = (:kinetic, :temperature, :cut, :spectrum, :widths), derived = (:energies,))
+    (described = (:kinetic_ionization, :temperature, :cut, :spectrum, :widths),
+        derived = (:energies,))
 end
 
 function describe(term::SecondaryHeatingTerm, context::DescriptionContext)
     record = _term_record(term)
-    record["kinetic_ionization"] = describe(term.kinetic, context)
+    record["kinetic_ionization"] = describe(term.kinetic_ionization, context)
     record["temperature"] = String(term.temperature)
     record["cut"] = String(term.cut)
     record["spectrum"] = String(term.spectrum)
     #! format: off
     term.spectrum === :opal &&
-        (record["widths"] = SettingsRecord(name => width for (name, width) in zip(term.kinetic.composition.names, term.widths)))
+        (record["widths"] = SettingsRecord(name => width for (name, width) in zip(term.kinetic_ionization.composition.names, term.widths)))
     #! format: on
     return record
 end
@@ -814,7 +817,9 @@ function describe(term::ExternalAvalancheTerm, context::DescriptionContext)
 end
 
 function settings_fields(::Type{<:KineticIonizationTerm})
-    (described = (:composition, :kinetic, :grid, :ions, :envelopes, :cross_section_form),
+    (
+        described = (:composition, :kinetic, :grid, :ions, :envelopes,
+            :ionization_cross_section_form),
         derived = (:rates, :weights))
 end
 
@@ -825,10 +830,10 @@ function describe(term::KineticIonizationTerm, context::DescriptionContext)
     record["kinetic"] = String(term.kinetic)
     record["grid"] = grid_name!(context, term.grid)
     record["ions"] = String(term.ions)
-    record["cross_sections"] = term.cross_section_form === :chianti ?
+    record["cross_sections"] = term.ionization_cross_section_form === :chianti ?
                                "CHIANTI (Dere 2007) continued by the relativistic Bethe form above 100 keV, " *
                                "DREAM's form for elements without CHIANTI data" :
-                               term.cross_section_form === :dream ?
+                               term.ionization_cross_section_form === :dream ?
                                "Burgess-Chidichimo with Garland's extension, DREAM's fits" :
                                "Burgess-Chidichimo with the Bethe term over beta^2, refitted"
     return _describe_region!(record, term.envelopes, context)

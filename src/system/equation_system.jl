@@ -69,7 +69,7 @@ control of the adaptive steppers ([`StepDoubling`](@ref), [`StepController`](@re
 The construction evaluates the implicit `:sparse` terms once, at the state `initial_state`
 (the zero state by default) and the time `initial_time`, for the structure of the stored
 Jacobian. Set `initial_time` to the start of the run when a term is defined only on the
-run's time interval (the `plasma_at` of a [`PrescribedFokkerPlanckTerm`](@ref)), and
+run's time interval (the `plasma_at` of a [`prescribed_fokker_planck_term`](@ref)), and
 `initial_state` to the initial state when a term needs a valid state, such as a
 Fokker-Planck term whose plasma reads the temperature from an unknown
 ([`PlasmaFromUnknowns`](@ref)).
@@ -901,9 +901,9 @@ function _check_plasma_pairings(equations)
                                     "momenta and the friction of bound_friction = :ionization_split at " *
                                     "$(settings.ionization_threshold) (ionization_threshold of CollisionSettings), so f " *
                                     "pays for other ionizations than it causes: give both the same factor"))
-            k.cross_section_form === settings.ionization_cross_section_form ||
+            k.ionization_cross_section_form === settings.ionization_cross_section_form ||
                 throw(ArgumentError("the kinetic ionization of $(owner.unknown) takes the cross sections of the form " *
-                                    ":$(k.cross_section_form) and the friction of bound_friction = :ionization_split " *
+                                    ":$(k.ionization_cross_section_form) and the friction of bound_friction = :ionization_split " *
                                     "the form :$(settings.ionization_cross_section_form), so f pays for other " *
                                     "ionizations than it causes: give both the same form"))
             # where the system books the sinks of f, the energy of the secondaries that f pays
@@ -912,16 +912,16 @@ function _check_plasma_pairings(equations)
                 term -> term isa KineticEnergyLossTerm && term.source === owner &&
                         term.part === :sinks,
                 (term for equation in equations for term in equation.terms))
-            books_sinks && !any(heating -> heating.kinetic === k, heatings) &&
+            books_sinks && !any(heating -> heating.kinetic_ionization === k, heatings) &&
                 throw(ArgumentError("the Fokker-Planck term of $(owner.unknown) takes bound_friction = " *
                                     ":ionization_split and its sinks leave the electrons (KineticEnergyLossTerm with " *
                                     "part = :sinks), and the system has no SecondaryHeatingTerm of its kinetic " *
                                     "ionization: the energy of the secondaries, which join the cold electrons through " *
-                                    "the closure, would be lost. Add SecondaryHeatingTerm(kinetic) to the row of the " *
-                                    "temperature"))
+                                    "the closure, would be lost. Add SecondaryHeatingTerm(kinetic_ionization) to the " *
+                                    "row of the temperature"))
             widths = merge(SECONDARY_SPECTRUM_WIDTHS, settings.secondary_widths)
             for heating in heatings
-                heating.kinetic === k || continue
+                heating.kinetic_ionization === k || continue
                 heating.cut === :none ||
                     throw(ArgumentError("the heating by secondaries of the kinetic ionization of $(owner.unknown) takes " *
                                         "cut = :$(heating.cut), while the friction of bound_friction = " *
@@ -1025,7 +1025,7 @@ function _check_ion_pairings(equations)
     radiations = [term for term in terms if term isa RadiatedPowerTerm]
     kinetics = [term for term in terms if term isa KineticIonizationTerm]
     for owner in [rates; radiations]
-        k = owner.kinetic
+        k = owner.kinetic_ionization
         k === nothing && continue
         any(t -> t === k, kinetics) ||
             throw(ArgumentError("the $(nameof(typeof(owner))) splits the ionization with a KineticIonizationTerm that " *
@@ -1042,11 +1042,11 @@ function _check_ion_pairings(equations)
     for rate in rates, radiation in radiations
 
         radiation.ions === rate.ions || continue
-        radiation.kinetic === rate.kinetic ||
+        radiation.kinetic_ionization === rate.kinetic_ionization ||
             throw(ArgumentError("the IonRateTerm and the RadiatedPowerTerm of the ion densities $(rate.ions) split the " *
                                 "ionization differently (one with a kinetic part, the other with another or none), so " *
                                 "the binding energy is charged at another rate than the rate equations take: give " *
-                                "both the same kinetic keyword"))
+                                "both the same kinetic_ionization keyword"))
         radiation.extrapolation === rate.extrapolation ||
             throw(ArgumentError("the IonRateTerm and the RadiatedPowerTerm of the ion densities $(rate.ions) take the " *
                                 "extrapolations :$(rate.extrapolation) and :$(radiation.extrapolation) of the ADAS " *
@@ -1094,7 +1094,8 @@ function _check_ion_pairings(equations)
     end
     for term in terms
         term isa SecondaryHeatingTerm || continue
-        _temperature_source(term.kinetic) in (nothing, (:unknown, term.temperature)) ||
+        _temperature_source(term.kinetic_ionization) in
+        (nothing, (:unknown, term.temperature)) ||
             throw(ArgumentError("the heating by secondaries reads the temperature $(term.temperature) and the threshold " *
                                 "of its kinetic ionization another one: give both the same temperature unknown"))
     end

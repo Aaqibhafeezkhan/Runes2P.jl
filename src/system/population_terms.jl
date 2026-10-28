@@ -252,7 +252,7 @@ Base.@propagate_inbounds Base.getindex(a::PerturbedField{T}, ir::Int) where {T} 
 boundary of its grid, per volume, added to the row of a radial unknown with one component:
 the electrons that leave the grid at `p_max`. `source` holds the coefficients of the flux:
 the Fokker-Planck term of `kinetic` ([`FokkerPlanckTerm`](@ref) or
-[`PrescribedFokkerPlanckTerm`](@ref)) or its operator. The flux is that of the boundary
+[`prescribed_fokker_planck_term`](@ref)) or its operator. The flux is that of the boundary
 condition of the operator at `p_max`, so the term and the operator count the same
 particles. With a term that takes the electric field as an unknown, the flux holds the
 field of the state.

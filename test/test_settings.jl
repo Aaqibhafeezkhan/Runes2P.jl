@@ -66,7 +66,7 @@ function _settings_case(;
     radial.diffusion_r_r .= diffusion
     knockon = KnockOnOperator(grid, grid, cutoff)
     terms = (
-        PrescribedFokkerPlanckTerm(:f, op, plasma_at; settings = CollisionSettings(mode = :full)),
+        prescribed_fokker_planck_term(:f, op, plasma_at; settings = CollisionSettings(mode = :full)),
         FokkerPlanckTerm(:f, radial),
         KnockOnTerm(:f, knockon; target_density = fill(1e20, nr), treatment))
     layout = UnknownLayout(grid.radial_grid, [KineticUnknown(:f, grid; scale = 1e20)])

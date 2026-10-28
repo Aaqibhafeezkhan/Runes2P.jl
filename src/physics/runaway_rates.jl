@@ -6,34 +6,36 @@
 # MIT licensed, see THIRD_PARTY_NOTICES.md.
 
 """
-    dreicer_field(density, temperature, coulomb_log)
+    dreicer_field(density, temperature, coulomb_logarithm)
 
 Dreicer field `E_D = E_c(mₑc²/T)` [V/m] for an electron density `density` [m⁻³], a
-temperature `temperature` [eV] and the thermal Coulomb logarithm `coulomb_log`, with
+temperature `temperature` [eV] and the thermal Coulomb logarithm `coulomb_logarithm`, with
 `E_c` the Connor-Hastie critical field ([`critical_field`](@ref)). Electrons with
 `E > E_D` all run away; the Dreicer rate is a function of `E/E_D`.
 """
-function dreicer_field(density, temperature, coulomb_log)
-    critical_field(density, coulomb_log) * Constants.ELECTRON_REST_ENERGY / temperature
+function dreicer_field(density, temperature, coulomb_logarithm)
+    critical_field(density, coulomb_logarithm) * Constants.ELECTRON_REST_ENERGY /
+    temperature
 end
 
 """
-    thermal_collision_time(density, temperature, coulomb_log)
+    thermal_collision_time(density, temperature, coulomb_logarithm)
 
 Thermal electron collision time `τ_ee = β_th³ / (lnΛ_T n 4π r₀² c)` [s] with
 `β_th = √(2T/mₑc²)`, the time scale of the Connor-Hastie rate (DREAM
 `RunawayFluid::tauEETh`).
 """
-function thermal_collision_time(density, temperature, coulomb_log)
+function thermal_collision_time(density, temperature, coulomb_logarithm)
     beta_thermal = thermal_momentum(temperature)
     return beta_thermal^3 /
-           (coulomb_log * density * 4pi * Constants.CLASSICAL_ELECTRON_RADIUS^2 *
+           (coulomb_logarithm * density * 4pi * Constants.CLASSICAL_ELECTRON_RADIUS^2 *
             Constants.SPEED_OF_LIGHT)
 end
 
 """
     connor_hastie_rate(density, temperature, electric_field, effective_charge;
-                       thermal_coulomb_log, relativistic_coulomb_log=thermal_coulomb_log,
+                       thermal_coulomb_logarithm,
+                       relativistic_coulomb_logarithm=thermal_coulomb_logarithm,
                        corrections=true, undetermined_factor=1)
 
 Connor-Hastie Dreicer runaway rate [m⁻³ s⁻¹]: the rate at which electrons cross the
@@ -55,13 +57,13 @@ simulations"); a kinetic rate is expected to agree in scaling rather than exactl
 Ported from DREAM `ConnorHastie::RunawayRate`.
 """
 function connor_hastie_rate(density, temperature, electric_field, effective_charge;
-        thermal_coulomb_log, relativistic_coulomb_log = thermal_coulomb_log,
+        thermal_coulomb_logarithm, relativistic_coulomb_logarithm = thermal_coulomb_logarithm,
         corrections::Bool = true, undetermined_factor = 1)
     field = abs(electric_field)
-    critical = critical_field(density, relativistic_coulomb_log)
+    critical = critical_field(density, relativistic_coulomb_logarithm)
     field > critical || return zero(float(field))
-    dreicer = dreicer_field(density, temperature, thermal_coulomb_log)
-    collision_time = thermal_collision_time(density, temperature, thermal_coulomb_log)
+    dreicer = dreicer_field(density, temperature, thermal_coulomb_logarithm)
+    collision_time = thermal_collision_time(density, temperature, thermal_coulomb_logarithm)
     over_critical = field / critical
     over_dreicer = field / dreicer
 

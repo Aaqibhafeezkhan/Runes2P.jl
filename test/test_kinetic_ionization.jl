@@ -27,7 +27,7 @@ function _ionization_case(; factor = 5.0, temperatures = [20.0, 10.0], n_M = 5e1
             KineticUnknown(:f, grid; scale = 1e19)])
     region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor))
     kinetic = KineticIonizationTerm(
-        KINETIC_IONIZATION_COMPOSITION, :f, grid; region, cross_section_form = form)
+        KINETIC_IONIZATION_COMPOSITION, :f, grid; region, ionization_cross_section_form = form)
     u = zeros(length(layout))
     argon = zeros(19, 2)
     argon[1:6, :] .= [1e17, 3e17, 5e17, 2e17, 1e17, 5e16]
@@ -162,30 +162,33 @@ end
             # is negative there for populated argon states
             for factor in (2.0, 3.0, 4.9)
                 _, low, _ = _ionization_case(; factor)
-                @test_throws "is refused" IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic = low)
+                @test_throws "is refused" IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic_ionization = low)
                 prescribed = PlasmaState(; cold_electron_temperature = [20.0, 10.0],
                     ions = [IonSpecies("D", 1, 1, [1e19, 1e19]),
                         IonSpecies("Ar", 18, 1, [1e18, 1e18])],
                     electric_field = zeros(2), magnetic_field = zeros(2))
-                @test_throws "is refused" RadiatedPowerTerm(prescribed; ions = :ion_densities, kinetic = low)
+                @test_throws "is refused" RadiatedPowerTerm(
+                    prescribed; ions = :ion_densities, kinetic_ionization = low)
             end
             # a threshold at a fixed momentum does not follow the temperature
             _, fixed, _ = _ionization_case()
             fixed_region = KineticIonizationTerm(KINETIC_IONIZATION_COMPOSITION, :f,
                 fixed.grid; region = MomentumRegion(0.05))
-            @test_throws "ThermalMomentum" IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic = fixed_region)
+            @test_throws "ThermalMomentum" IonRateTerm(
+                KINETIC_IONIZATION_COMPOSITION; kinetic_ionization = fixed_region)
             # the minimum per form: 7 with CHIANTI's cross sections, 5 with DREAM's
             @test Runes2P.MINIMUM_SPLIT_THRESHOLD_FACTORS ==
                   Dict(:chianti => 7.0, :dream => 5.0, :bethe => 5.0)
             for factor in (5.0, 6.9)
                 _, chianti, _ = _ionization_case(; factor, form = :chianti)
-                @test_throws "is refused" IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic = chianti)
+                @test_throws "is refused" IonRateTerm(
+                    KINETIC_IONIZATION_COMPOSITION; kinetic_ionization = chianti)
             end
             _, chianti, _ = _ionization_case(; factor = 7.0, form = :chianti)
-            @test IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic = chianti) isa
+            @test IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic_ionization = chianti) isa
                   IonRateTerm
             _, dream, _ = _ionization_case(; factor = 5.0, form = :dream)
-            @test IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic = dream) isa
+            @test IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic_ionization = dream) isa
                   IonRateTerm
             for factor in (5.0, 7.0)
                 layout, kinetic, u = _ionization_case(; factor)
@@ -196,7 +199,7 @@ end
                 # the closure: the cold electrons are those of the Maxwellian below the threshold
                 n_cold = [5e19 * (1 - s.fraction) for s in splits]
                 unknown_values(u, layout, 2) .= n_cold
-                paired = IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic)
+                paired = IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic_ionization = kinetic)
                 dream = IonRateTerm(KINETIC_IONIZATION_COMPOSITION)
                 kinetic_part = Runes2P.rhs!(zeros(n), kinetic, u, layout, 1, 0.0)
                 for (fluid, exact) in ((paired, true), (dream, false))
@@ -246,7 +249,7 @@ end
             unknown_values(u, layout, 2) .= 4.5e19
             equations = [
                 Equation(:ion_densities, TimeDerivative(),
-                    IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic),
+                    IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic_ionization = kinetic),
                     kinetic),
                 # the closure of the cold density: a kinetic ionization needs it
                 population_equations(KINETIC_IONIZATION_COMPOSITION)...,
@@ -275,13 +278,13 @@ end
                 electric_field = zeros(2), magnetic_field = zeros(2))
             full = radiated_power(RadiatedPowerTerm(prescribed; ions = :ion_densities), u, layout, 0.0).binding
             split = radiated_power(
-                RadiatedPowerTerm(prescribed; ions = :ion_densities, kinetic),
+                RadiatedPowerTerm(prescribed; ions = :ion_densities, kinetic_ionization = kinetic),
                 u, layout, 0.0).binding
             @test all(split .< full)
             # the direct block of the radiated power with the split, the temperature column
             # through the moving threshold included, against the forward-mode Jacobian
             n = length(u)
-            term = RadiatedPowerTerm(prescribed; ions = :ion_densities, kinetic)
+            term = RadiatedPowerTerm(prescribed; ions = :ion_densities, kinetic_ionization = kinetic)
             entries = Runes2P.sparsity!(Tuple{Int, Int}[], term, layout, 3)
             J = sparse(first.(entries), last.(entries), zeros(length(entries)), n, n)
             add_local_jacobian!(J, term, u, layout, 3, 0.0)
@@ -365,7 +368,8 @@ end
                         E = (sqrt(1 + p^2) - 1) * Constants.ELECTRON_REST_ENERGY
                         v = Constants.SPEED_OF_LIGHT * p / sqrt(1 + p^2)
                         expected += states[k] * envelope[i] * v *
-                                    ionization_cross_section(name, Z0, p; form = kinetic.cross_section_form) *
+                                    ionization_cross_section(name, Z0, p;
+                                        form = kinetic.ionization_cross_section_form) *
                                     Constants.ELEMENTARY_CHARGE *
                                     mean_secondary_energy(width, E, ionization_energy(name, Z0), Inf) *
                                     kinetic.weights[ir][i, j] * f[i, j]
@@ -579,7 +583,7 @@ end
         settings = CollisionSettings(;
             mode = :full, bound_friction = :ionization_split, ionization_threshold = 5.0)
         op = fokker_planck_operator(
-            grid, plasma, settings; electric_field = false, synchrotron = false)
+            grid, plasma, settings; field_in_coefficients = false, synchrotron = false)
         reference = Runes2P.CollisionModel(plasma, settings)
         @test all(op.advection_p[k, 1, 1] ==
                   -m.p_faces[k] * slowing_down_frequency(reference, 1, m.p_faces[k])
@@ -788,8 +792,9 @@ end
         @test_throws "the same factor" check(fp(7.0), k5)
         @test_throws "the same form" check(fp(5.0),
             KineticIonizationTerm(composition, :f, grid; region = region(5),
-                cross_section_form = :bethe))
-        @test_throws ArgumentError KineticIonizationTerm(composition, :f, grid; cross_section_form = :other)
+                ionization_cross_section_form = :bethe))
+        @test_throws ArgumentError KineticIonizationTerm(
+            composition, :f, grid; ionization_cross_section_form = :other)
         @test_throws "has none" Runes2P._check_plasma_pairings([Equation(:f, TimeDerivative(), fp(5.0))])
         @test_throws "ThermalMomentum" check(fp(5.0),
             KineticIonizationTerm(composition, :f, grid; region = MomentumRegion(0.1)))
@@ -809,7 +814,7 @@ end
         booked(heat...) = [Equation(:f, TimeDerivative(), source),
             Equation(:ion_densities, TimeDerivative(), k5), sinks, heat...,
             closure...]
-        @test_throws "SecondaryHeatingTerm(kinetic)" Runes2P._check_plasma_pairings(booked())
+        @test_throws "SecondaryHeatingTerm(kinetic_ionization)" Runes2P._check_plasma_pairings(booked())
         @test Runes2P._check_plasma_pairings(booked(heating)) === nothing
         @test_throws "cut = :none" Runes2P._check_plasma_pairings(system(threshold))
         @test_throws "different widths" Runes2P._check_plasma_pairings(system(other))

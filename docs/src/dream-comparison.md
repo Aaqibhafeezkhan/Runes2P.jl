@@ -102,7 +102,7 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 | prescribed cold temperature | `ColdElectronTemperature.TYPE_PRESCRIBED` | ✅ implemented: [`PrescribedPlasma`](@ref) |
 | self-consistent cold temperature | `TYPE_SELFCONSISTENT` | ✅ implemented: [`thermal_energy_equation`](@ref), [`PlasmaFromUnknowns`](@ref) |
 | ohmic heating | `Tcold_ohmic` | ✅ implemented: [`ohmic_heating_term`](@ref) |
-| collisional heating by ``f_\mathrm{hot}`` and ``f_\mathrm{re}`` | `Tcold_fhot_coll`, `Tcold_fre_coll` | ✅ implemented: [`FreeElectronEnergyTransferTerm`](@ref), [`KineticEnergyLossTerm`](@ref) |
+| collisional heating by ``f_\mathrm{hot}`` and ``f_\mathrm{re}`` | `Tcold_fhot_coll`, `Tcold_fre_coll` | ✅ implemented: [`free_electron_energy_transfer_term`](@ref), [`KineticEnergyLossTerm`](@ref) |
 | collisional heating by fluid runaways | `CollisionalEnergyTransferREFluidTerm` | ✅ implemented: [`RunawayFluidEnergyTransferTerm`](@ref) |
 | line radiation, ionization energy, Gould's bremsstrahlung | `RECOMBINATION_RADIATION_NEGLECTED` | ✅ implemented: `radiation = :dream` of [`RadiatedPowerTerm`](@ref), with `bremsstrahlung_corrections = :dream` |
 | recombination radiation | `RECOMBINATION_RADIATION_INCLUDED` | ✅ implemented: `radiation = :recombination` of [`RadiatedPowerTerm`](@ref), with the energy of the recombined state at every radius |
@@ -236,7 +236,7 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 - A smooth window of partial screening above the excitation energy, `screening_window` of [`CollisionSettings`](@ref).
 - The friction of the ionization on ``f``, `bound_friction = :ionization_split` of [`CollisionSettings`](@ref).
 - The heating of the cold electrons by the secondaries of the kinetic ionization, [`SecondaryHeatingTerm`](@ref).
-- The split of the ionization at the threshold of the kinetic ionization, with the fluid coefficient of the cold electrons below it ([`fluid_ionization_coefficient`](@ref), `kinetic` of [`IonRateTerm`](@ref)).
+- The split of the ionization at the threshold of the kinetic ionization, with the fluid coefficient of the cold electrons below it ([`fluid_ionization_coefficient`](@ref), `kinetic_ionization` of [`IonRateTerm`](@ref)).
 - CHIANTI's cross sections of the kinetic ionization continued by the relativistic Bethe form, and DREAM's form with the factor ``1/β^2`` (`form = :chianti`, `:bethe` of [`ionization_cross_section`](@ref)).
 - The knock-on pitch integrated over each pair of momentum cells and averaged over the primary pitch cell ([`MollerPitchKernel`](@ref)).
 - An implicit knock-on term, `treatment = :implicit` of [`KnockOnTerm`](@ref).
@@ -278,7 +278,7 @@ The reasons of the defaults that are choices of this package are on [Choices of 
 | radiated power of the ions | line and recombination radiation, the binding energy of ionization and recombination | line radiation, the ionization loss and Gould's bremsstrahlung, `radiation = :dream` of [`RadiatedPowerTerm`](@ref) (with `bremsstrahlung_corrections = :dream` for DREAM's corrections) |
 | relativistic corrections of Gould's bremsstrahlung, the coefficients of ``T/m_ec^2`` | electron-ion ``11/24`` of the erratum ([`GOULD_ION_CORRECTION`](@ref)), electron-electron ``5(44 - 3\pi^2)/(24\sqrt{2})``, the ratio of eqs. (22) and (18) ([`GOULD_ELECTRON_CORRECTION`](@ref)), of R. J. Gould, Astrophys. J. 238, 1026 (1980), [doi:10.1086/158068](https://doi.org/10.1086/158068), erratum Astrophys. J. 243, 677 (1981), [doi:10.1086/158634](https://doi.org/10.1086/158634) | ``19/24`` and ``5(44 - 3\pi^2)/(8\sqrt{2})``, `bremsstrahlung_corrections = :dream` |
 | cross sections of the kinetic ionization | CHIANTI's for H, D, T, Ne and Ar, DREAM's for the other elements | DREAM's fits, `form = :dream` |
-| ionization at the hot threshold | the fluid coefficient below the threshold, `kinetic` of [`IonRateTerm`](@ref) | the whole ADAS rate next to the kinetic term, [`IonRateTerm`](@ref) without `kinetic` |
+| ionization at the hot threshold | the fluid coefficient below the threshold, `kinetic_ionization` of [`IonRateTerm`](@ref) | the whole ADAS rate next to the kinetic term, [`IonRateTerm`](@ref) without `kinetic_ionization` |
 | Coulomb logarithm among the ions | the ion-ion logarithm of the NRL Plasma Formulary (A. S. Richardson, NRL/PU/6770--19-652, Naval Research Laboratory, 2019) with the temperature of each species | one logarithm with ``T_e``, `ion_coulomb_logarithm = :dream` of [`IonEnergyExchangeTerm`](@ref) |
 | ion masses | nuclear masses of H, D and T, standard atomic weights otherwise | standard atomic weights up to ``Z = 40``, ``2.3\,Z`` u beyond, `mass_table = :dream` |
 | charge states in the collisions of ``f`` | those of the start of the step, `lagged = :ions` | those of the iterate with their Jacobian columns, `lagged = ()` |

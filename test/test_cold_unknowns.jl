@@ -71,7 +71,7 @@ end
 function _cold_reference(
         g, f0, times; lag = 0.0, plasma_at = t -> _cold_base(max(t - lag, 0.0)))
     layout = UnknownLayout(g.radial_grid, [KineticUnknown(:f, g; scale = 1e20)])
-    term = PrescribedFokkerPlanckTerm(:f,
+    term = prescribed_fokker_planck_term(:f,
         AdvectionDiffusion(g; scheme = :exponential_fitting, p_upper_boundary = :f_zero),
         plasma_at; settings = COLD_SETTINGS)
     system = EquationSystem(layout, [Equation(:f, TimeDerivative(), term)]; time_scale = 1e-6)

@@ -40,8 +40,8 @@ const DREAM_RUNAWAY_RATE_DATA = reference_file("dream_runaway_rates.h5")
             ("connor_hastie_corrected", true))
             reference = read(h5[variant]["gammaDreicer"])
             rates = [connor_hastie_rate(densities[k], temperatures[k], fields[k], 1.0;
-                         thermal_coulomb_log = thermal[k],
-                         relativistic_coulomb_log = relativistic[k], corrections)
+                         thermal_coulomb_logarithm = thermal[k],
+                         relativistic_coulomb_logarithm = relativistic[k], corrections)
                      for k in eachindex(fields)]
             # the rate spans 24 orders of magnitude over these cases
             @test rates ≈ reference rtol = 1e-6

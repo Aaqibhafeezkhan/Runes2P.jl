@@ -85,18 +85,18 @@ The remaining options have no counterpart in DREAM.
   ([`SECONDARY_SPECTRUM_WIDTHS`](@ref), `secondary_widths`). With the momentum faces of each radius given to the model
   (`CollisionModel(plasma, settings; faces)`, as `set_fokker_planck_coefficients!` does), the
   ionization part is tabulated once per momentum grid and charge state at the faces.
-- `ionization_threshold`: the factor of the thermal momentum `p₀ = factor √(2T/mₑc²)` at
-  the threshold of the kinetic ionization, which the region of the
+- `ionization_threshold`: the factor of the thermal momentum `p₀ = factor √(2T/mₑc²)` at the
+  threshold of the kinetic ionization, which the region of the
   [`KineticIonizationTerm`](@ref) of the system takes as well; 0 (the default) for a kinetic
   ionization over the whole grid. Below the threshold the ionization is that of the cold
   electrons, whose binding energy the cold electrons pay ([`RadiatedPowerTerm`](@ref) with
-  `kinetic`), so `f` pays none there. The envelope `e(p)` of the faces is a cubic smooth step
-  from `(1 − ionization_threshold_width) p₀` to `(1 + ionization_threshold_width) p₀`, a
-  numerical width that keeps the coefficients smooth when the threshold crosses a face. The
-  default is 0.1 (a choice of this package; see the docs page *Choices of this package*); DREAM
-  has no counterpart.
-  With `screened_diffusion = :maxwellian` the energy diffusion `Θγν_s` takes the split as well,
-  as it takes the Bethe term.
+  `kinetic_ionization`), so `f` pays none there. The envelope `e(p)` of the faces is a cubic
+  smooth step from `(1 − ionization_threshold_width) p₀` to
+  `(1 + ionization_threshold_width) p₀`, a numerical width that keeps the coefficients smooth
+  when the threshold crosses a face. The default is 0.1 (a choice of this package; see the docs
+  page *Choices of this package*); DREAM has no counterpart. With `screened_diffusion =
+  :maxwellian` the energy diffusion `Θγν_s` takes the split as well, as it takes the Bethe
+  term.
 - `secondary_widths`: widths `Ē` [eV] of the secondary spectrum per element, added to
   [`SECONDARY_SPECTRUM_WIDTHS`](@ref) for `:ionization_split`.
 - `secondary_spectrum`: the spectrum of the secondaries of `⟨E_s⟩_j`: `:beb` (the default, a
@@ -107,7 +107,7 @@ The remaining options have no counterpart in DREAM.
   ([`mean_secondary_energy`](@ref)).
 - `ionization_cross_section_form`: the `form` of [`ionization_cross_section`](@ref) in the
   friction of `bound_friction = :ionization_split`: `:chianti` (the default),
-  `:dream` or `:bethe`. A system pairs it with the `cross_section_form` of its
+  `:dream` or `:bethe`. A system pairs it with the `ionization_cross_section_form` of its
   [`KineticIonizationTerm`](@ref), so `f` pays for the ionizations that term counts.
 """
 Base.@kwdef struct CollisionSettings

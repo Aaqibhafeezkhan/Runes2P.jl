@@ -1,6 +1,6 @@
 # A cooling plasma (a thermal quench in the slide-away regime): the
 # temperature decays exponentially from `T` to `T_final` over `t_end`, the collision
-# coefficients follow it (PrescribedFokkerPlanckTerm), the field is `e_over_ec` times the
+# coefficients follow it (prescribed_fokker_planck_term), the field is `e_over_ec` times the
 # critical field at the initial temperature. With `nr=` > 1 the radii are coupled by
 # Rechester-Rosenbluth radial diffusion of strength `dbb=` (δB/B, with the major radius
 # folded in as in DREAM's examples/SPI/SPI_ITER.py; `dbb=0` decouples them) and f = 0 at
@@ -42,7 +42,7 @@ end
 settings = collision_settings_from_switches()
 schemes = scheme_switches()
 op = AdvectionDiffusion(grid; schemes...)
-terms = EquationTerm[PrescribedFokkerPlanckTerm(
+terms = EquationTerm[prescribed_fokker_planck_term(
     :f, op, plasma_at; settings, jacobian = jacobian_switch())]
 
 # radial diffusion D_rr = π R (δB/B)² |v_∥| (DREAM RechesterRosenbluthTransport, cylindrical

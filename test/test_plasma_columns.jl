@@ -201,7 +201,7 @@ using ForwardDiff: ForwardDiff
         shifted(t) = base(max(t - dt, 0.0))
         reference_system = EquationSystem(reference_layout,
             [Equation(:f, TimeDerivative(),
-                PrescribedFokkerPlanckTerm(:f,
+                prescribed_fokker_planck_term(:f,
                     AdvectionDiffusion(g; scheme = :exponential_fitting, p_upper_boundary = :f_zero),
                     shifted; settings),
                 FieldParticleTerm(:f, FieldParticleOperator(g, base(0.0), settings); plasma = shifted))];

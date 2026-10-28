@@ -371,7 +371,7 @@ distribution(layout, grid, u) = reshape(u[1:(end - 1)], size(grid))
                 electric_field = zeros(6), magnetic_field = fill(5.0, 6))
             layout = UnknownLayout(grid.radial_grid, [KineticUnknown(:f, grid)])
             system = EquationSystem(layout,
-                [Equation(:f, TimeDerivative(), PrescribedFokkerPlanckTerm(:f, shared, t -> bulk))])
+                [Equation(:f, TimeDerivative(), prescribed_fokker_planck_term(:f, shared, t -> bulk))])
             update = RechesterRosenbluthUpdate(shared, history; major_radius)
             @test_throws "rebuild clears it" integrate(system, vec(f0), times; updates = (update,))
         end

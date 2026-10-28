@@ -35,7 +35,7 @@ it at a ten-thousandth of the Dreicer field (5 critical fields at 10 eV), 1.7e-5
 thousandth.
 
 `operator` holds coefficients built without a field, by `fokker_planck_operator(...;
-electric_field = false)` or from a plasma without a field, knows its plasma
+field_in_coefficients = false)` or from a plasma without a field, knows its plasma
 (`coefficient_source`) and has no radial transport.
 
 - For a flux limiter, the operator is that with the limiter frozen at the Maxwellian, which
@@ -71,7 +71,7 @@ function kinetic_conductivity(
     plasma = source.plasma
     get(source, :electric_field, true) && any(!iszero, plasma.electric_field) &&
         throw(ArgumentError("the coefficients of the operator hold an electric field: the linear response needs " *
-                            "the operator without it (electric_field = false)"))
+                            "the operator without it (field_in_coefficients = false)"))
     (any(!iszero, operator.advection_r) || any(!iszero, operator.diffusion_r_r)) &&
         throw(ArgumentError("the operator holds radial transport: the linear response is that of the operator in " *
                             "momentum space, radius by radius"))

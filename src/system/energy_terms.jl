@@ -194,7 +194,7 @@ function sparsity!(entries, term::EnergyMomentTerm, layout, row)
 end
 
 """
-    total_energy_equation(distribution, grid; region, total=:total_electron_energy,
+    total_energy_equation(kinetic, grid; region, total_energy=:total_electron_energy,
                           energy=:cold_thermal_energy)
 
 The algebraic equation of the total energy of the electrons in the fully kinetic mode:
@@ -203,25 +203,26 @@ The algebraic equation of the total energy of the electrons in the fully kinetic
 W_\\mathrm{tot} = W_\\mathrm{cold} + \\sum_{p > p_0} m_e c^2 (γ − 1) f\\, ΔV,
 ```
 
-the energy `energy` of the cold electrons and that of the electrons of `distribution` on `grid` in
-the hot region `region` ([`EnergyMomentTerm`](@ref)), the region of the hot density. The row
-of the temperature then holds the time derivative of `total` (`TimeDerivative(total)`) with
-the channels that leave or enter the electrons: the work of the field on all of them
-(`E j_ohm + E j_hot` in the fully kinetic mode, where `j_ohm = j(f) − j_hot + E(σ − σ_num)`
-already leaves out the hot current, so the two products count each electron once), the
-radiated power of the ions, the heat transport and the exchange with the ions. The
-collisional transfer from the hot electrons to the cold ones, the electrons that cross the
-threshold, and the threshold that moves with the temperature are then exact for any time
-stepper, since the time derivative acts on the energy of the hot region itself. DREAM's
-fully kinetic mode has none of them (`T_cold.cpp:313-321`).
+the energy `energy` of the cold electrons and that of the kinetic unknown `kinetic` on
+`grid` in the hot region `region` ([`EnergyMomentTerm`](@ref)), the region of the hot
+density. The row of the temperature then holds the time derivative of `total_energy`
+(`TimeDerivative(total_energy)`) with the channels that leave or enter the electrons: the
+work of the field on all of them (`E j_ohm + E j_hot` in the fully kinetic mode, where
+`j_ohm = j(f) − j_hot + E(σ − σ_num)` already leaves out the hot current, so the two
+products count each electron once), the radiated power of the ions, the heat transport and
+the exchange with the ions. The collisional transfer from the hot electrons to the cold
+ones, the electrons that cross the threshold, and the threshold that moves with the
+temperature are then exact for any time stepper, since the time derivative acts on the
+energy of the hot region itself. DREAM's fully kinetic mode has none of them
+(`T_cold.cpp:313-321`).
 
 Every other change of the energy of the hot region is charged to the cold electrons, since
 `W_cold = W_tot − W_hot`. The row must therefore list each term of the equation of
-`distribution` that moves energy out of the electrons: [`KineticEnergyLossTerm`](@ref) with
+`kinetic` that moves energy out of the electrons: [`KineticEnergyLossTerm`](@ref) with
 `part = :sinks` for the bremsstrahlung, the synchrotron loss and the friction on bound
 electrons, `MomentumBoundaryFluxTerm(...; weight = :energy)` for an outflow at `p_max`, and
 [`InterfaceEnergyFluxTerm`](@ref) for the runaway grid. The system refuses a row that misses
-one of them, and it refuses radial transport of `distribution` and knock-on secondaries on
+one of them, and it refuses radial transport of `kinetic` and knock-on secondaries on
 its grid, which have no such term: their energy would come out of the cold electrons of
 the radius where it is moved. The sinks take no flux through `p_max`, whose energy is the
 boundary term's alone. The sinks term is required by the settings of the collisions
@@ -229,14 +230,14 @@ boundary term's alone. The sinks term is required by the settings of the collisi
 synchrotron loss of zero still needs the term, so that the row stays closed when the field
 of the plasma changes.
 
-`total` takes its initial value from the row, after the energy of the cold electrons.
+`total_energy` takes its initial value from the row, after the energy of the cold electrons.
 """
 function total_energy_equation(
-        distribution::Symbol, grid::KineticGrid; region::MomentumRegion,
-        total::Symbol = :total_electron_energy, energy::Symbol = :cold_thermal_energy)
-    return Equation(total, Algebraic(), LinearTerm(energy),
-        EnergyMomentTerm(distribution, grid; region),
-        LinearTerm(total; coefficient = -1); initial_value = :from_equation)
+        kinetic::Symbol, grid::KineticGrid; region::MomentumRegion,
+        total_energy::Symbol = :total_electron_energy, energy::Symbol = :cold_thermal_energy)
+    return Equation(total_energy, Algebraic(), LinearTerm(energy),
+        EnergyMomentTerm(kinetic, grid; region),
+        LinearTerm(total_energy; coefficient = -1); initial_value = :from_equation)
 end
 
 """

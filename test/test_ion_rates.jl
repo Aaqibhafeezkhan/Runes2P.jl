@@ -98,7 +98,7 @@ end
 
         @testset "coronal equilibrium three ways" begin
             for (n_e, T) in ((1e20, 3.0), (1e20, 30.0), (1e19, 300.0))
-                coronal = coronal_equilibrium(term, 2, n_e, T; density = 1e18)
+                coronal = coronal_equilibrium(term, 2, n_e, T; species_density = 1e18)
                 @test sum(coronal) ≈ 1e18 rtol = 1e-12
                 # the null vector of the rate matrix
                 null = vec(nullspace(ion_rate_matrix(term, 2, n_e, T) ./ (n_e * 1e-14)))
@@ -119,7 +119,8 @@ end
             for (ir, T) in enumerate(temperatures)
                 argon = final[unknown_range(layout, 1, ir)[species_components(RATE_COMPOSITION, "Ar")]]
                 @test maximum(abs, argon -
-                                   coronal_equilibrium(term, 2, n_e, T; density = 1e18)) <=
+                                   coronal_equilibrium(
+                    term, 2, n_e, T; species_density = 1e18)) <=
                       1e-9 * 1e18
             end
         end

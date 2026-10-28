@@ -213,7 +213,7 @@ end
         @test default.lagged == (:ion_densities,) && Runes2P._lags_ions(default)
         @test fp.lagged == ()      # the case asks for the implicit charge states
         # a plasma without ion unknowns, and lagged coefficients, lag no group by name
-        prescribed = PrescribedFokkerPlanckTerm(:f, fp.operator,
+        prescribed = prescribed_fokker_planck_term(:f, fp.operator,
             Runes2P.plasma_values(fp.plasma.prescribed, nothing, nothing, 0.0);
             settings = fp.settings)
         @test prescribed.lagged == ()

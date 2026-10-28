@@ -202,8 +202,8 @@ end
 
 """
     IonRateTerm(composition; ions=:ion_densities, temperature=:cold_electron_temperature,
-                density=:cold_electron_density, kinetic=nothing, extrapolation=:dream,
-                directory=adas_cache_directory())
+                density=:cold_electron_density, kinetic_ionization=nothing,
+                extrapolation=:dream, directory=adas_cache_directory())
 
 The ionization and recombination of the charge states of `composition`
 ([`IonComposition`](@ref)) by the cold electrons, in the rows of the ion densities `ions`
@@ -228,15 +228,15 @@ residual, with the derivatives of the coefficients through ForwardDiff in place 
 one-sided differences, and without DREAM's floors on the density (1 m⁻³) and the
 coefficients (1e-40) in the columns of the temperature and the density.
 
-`kinetic`, a [`KineticIonizationTerm`](@ref) of the same system, splits the ionization at
-the threshold of its region: the electrons of `f` above the threshold
-ionize through the cross sections of that term, and the cold electrons below it through
-the fluid coefficient of [`fluid_ionization_coefficient`](@ref), the ADAS rate less the
-part of the Maxwellian above the threshold. No electron is counted twice. The threshold is a
-multiple of the thermal momentum of at least the factor of
-[`MINIMUM_SPLIT_THRESHOLD_FACTORS`](@ref) for the form of its cross sections. Without
-`kinetic` the fluid rate is the whole ADAS rate, which next to a kinetic ionization term
-is DREAM's choice (`ions.cpp:280`): the Maxwellian tail above the threshold ionizes twice.
+`kinetic_ionization`, a [`KineticIonizationTerm`](@ref) of the same system, splits the
+ionization at the threshold of its region: the electrons of `f` above the threshold ionize
+through the cross sections of that term, and the cold electrons below it through the fluid
+coefficient of [`fluid_ionization_coefficient`](@ref), the ADAS rate less the part of the
+Maxwellian above the threshold. No electron is counted twice. The threshold is a multiple of
+the thermal momentum of at least the factor of [`MINIMUM_SPLIT_THRESHOLD_FACTORS`](@ref) for
+the form of its cross sections. Without `kinetic_ionization` the fluid rate is the whole
+ADAS rate, which next to a kinetic ionization term is DREAM's choice (`ions.cpp:280`): the
+Maxwellian tail above the threshold ionizes twice.
 """
 struct IonRateTerm{K} <: EquationTerm
     composition::IonComposition
@@ -245,23 +245,25 @@ struct IonRateTerm{K} <: EquationTerm
     density::Symbol
     extrapolation::Symbol
     tables::Vector{NamedTuple}   # per species: the ADF11 tables of its element
-    kinetic::K                   # nothing, or the KineticIonizationTerm of the electrons above the threshold
+    kinetic_ionization::K        # nothing, or the KineticIonizationTerm of the electrons above the threshold
 end
 
 function IonRateTerm(c::IonComposition; ions::Symbol = :ion_densities,
         temperature::Symbol = :cold_electron_temperature,
-        density::Symbol = :cold_electron_density, kinetic = nothing, extrapolation::Symbol = :dream,
+        density::Symbol = :cold_electron_density, kinetic_ionization = nothing, extrapolation::Symbol = :dream,
         directory::AbstractString = adas_cache_directory())
     extrapolation in (:dream, :clamp_density) ||
         throw(ArgumentError("extrapolation must be :dream or :clamp_density, not $extrapolation"))
-    kinetic === nothing || kinetic isa KineticIonizationTerm ||
-        throw(ArgumentError("kinetic must be a KineticIonizationTerm or nothing"))
-    kinetic === nothing || kinetic.composition == c ||
+    kinetic_ionization === nothing || kinetic_ionization isa KineticIonizationTerm ||
+        throw(ArgumentError("kinetic_ionization must be a KineticIonizationTerm or nothing"))
+    kinetic_ionization === nothing || kinetic_ionization.composition == c ||
         throw(ArgumentError("the kinetic ionization of the split has another ion composition"))
-    kinetic === nothing || _check_split_threshold(kinetic, "an IonRateTerm")
+    kinetic_ionization === nothing ||
+        _check_split_threshold(kinetic_ionization, "an IonRateTerm")
     tables = NamedTuple[_element_tables(name, Z, directory)
                         for (name, Z) in zip(c.names, c.nuclear_charges)]
-    return IonRateTerm(c, ions, temperature, density, extrapolation, tables, kinetic)
+    return IonRateTerm(
+        c, ions, temperature, density, extrapolation, tables, kinetic_ionization)
 end
 
 # the ADF11 tables of the element of a species, checked against its nuclear charge
@@ -278,8 +280,8 @@ end
 
 function dependencies(term::IonRateTerm)
     unique([term.ions; term.temperature; term.density;
-            term.kinetic === nothing ? Symbol[] :
-            collect(Symbol, _region_unknowns(term.kinetic.envelopes))])
+            term.kinetic_ionization === nothing ? Symbol[] :
+            collect(Symbol, _region_unknowns(term.kinetic_ionization.envelopes))])
 end
 
 function validate(term::IonRateTerm, layout, row)
@@ -321,8 +323,8 @@ function rhs!(out, term::IonRateTerm, u, layout, row, t)
     for ir in 1:radial_cell_count(layout)
         n = radial_view(u, layout, row, ir)
         rows = unknown_range(layout, row, ir)
-        split = term.kinetic === nothing ? nothing :
-                threshold_split(term.kinetic, ir, u, layout, t)
+        split = term.kinetic_ionization === nothing ? nothing :
+                threshold_split(term.kinetic_ionization, ir, u, layout, t)
         for s in 1:length(c)
             components = species_components(c, s)
             _add_ion_rates!(out, view(rows, components), term, s,
@@ -353,39 +355,42 @@ function sparsity!(entries, term::IonRateTerm, layout, row)
 end
 
 """
-    ion_rate_matrix(term::IonRateTerm, s, n_e, T)
+    ion_rate_matrix(term::IonRateTerm, s, free_electron_density, temperature)
 
-The matrix `A` of the rates of species `s` at the electron density `n_e` [m⁻³] and
-temperature `T` [eV], `dn/dt = A n` for the densities `n` of its charge states
-([`IonRateTerm`](@ref)). Its columns sum to zero.
+The matrix `A` of the rates of species `s` at the free-electron density
+`free_electron_density` [m⁻³] and the temperature `temperature` [eV], `dn/dt = A n` for the
+densities `n` of its charge states ([`IonRateTerm`](@ref)). Its columns sum to zero.
 """
-function ion_rate_matrix(term::IonRateTerm, s::Integer, n_e, T)
+function ion_rate_matrix(term::IonRateTerm, s::Integer, free_electron_density, temperature)
     Z = term.composition.nuclear_charges[s]
-    A = zeros(typeof(float(n_e * T)), Z + 1, Z + 1)
+    A = zeros(typeof(float(free_electron_density * temperature)), Z + 1, Z + 1)
     for j in 0:Z
         unit = zeros(Z + 1)
         unit[j + 1] = 1
-        _add_ion_rates!(view(A, :, j + 1), 1:(Z + 1), term, s, unit, n_e, T)
+        _add_ion_rates!(view(A, :, j + 1), 1:(Z + 1), term, s, unit,
+            free_electron_density, temperature)
     end
     return A
 end
 
 """
-    coronal_equilibrium(term::IonRateTerm, s, n_e, T; density=1)
+    coronal_equilibrium(term::IonRateTerm, s, free_electron_density, temperature;
+                        species_density=1)
 
-The densities of the charge states of species `s` in coronal equilibrium at the electron
-density `n_e` [m⁻³] and temperature `T` [eV], with the total `density`: the steady state of
+The densities of the charge states of species `s` in coronal equilibrium at the
+free-electron density `free_electron_density` [m⁻³] and the temperature `temperature` [eV],
+with the total density of the species `species_density`: the steady state of
 the rates of [`IonRateTerm`](@ref), where the flow between neighbouring states vanishes,
 `n_{j+1}/n_j = I_j/R_{j+1}`. The ratios are multiplied in log space, so states far from the
 dominant one underflow to 0 and the large ratios at the extremes of the temperature do not
 overflow (DREAM multiplies the ratios directly, `src/Settings/IonEquilibrium.cpp:100-137`).
 """
-function coronal_equilibrium(
-        term::IonRateTerm, s::Integer, n_e::Real, T::Real; density::Real = 1.0)
+function coronal_equilibrium(term::IonRateTerm, s::Integer, free_electron_density::Real,
+        temperature::Real; species_density::Real = 1.0)
     tables = term.tables[s]
     Z = term.composition.nuclear_charges[s]
     coefficient(table, Z0) = adas_coefficient(
-        table, Z0, n_e, T; extrapolation = term.extrapolation)
+        table, Z0, free_electron_density, temperature; extrapolation = term.extrapolation)
     logs = zeros(Z + 1)
     for j in 0:(Z - 1)
         logs[j + 2] = logs[j + 1] + log(coefficient(tables.scd, j)) -
@@ -393,7 +398,7 @@ function coronal_equilibrium(
     end
     largest = maximum(logs)
     weights = exp.(logs .- largest)
-    return density .* weights ./ sum(weights)
+    return species_density .* weights ./ sum(weights)
 end
 
 """
