@@ -37,10 +37,11 @@ with [`jacobian_correction_product!`](@ref) supplying the difference to the exac
 
 A term defined outside the package adds its methods under the qualified names
 (`Runes2P.dependencies(term::MyTerm) = ...`, `function Runes2P.rhs!(out, term::MyTerm, ...)`).
-`validate` is not exported, since only the construction of an [`EquationSystem`](@ref)
-calls it and the name is common to many packages; the other functions are exported for
-calls. [`add_local_jacobian!`](@ref) and [`lags_in_ode_form`](@ref), which a term
-implements, are declared `public` and not exported.
+The functions that callers use are exported. [`validate`](@ref), whose name is common to
+many packages, [`add_local_jacobian!`](@ref), [`lags_in_ode_form`](@ref) and the plasma
+columns of a term ([`has_plasma_columns`](@ref), [`plasma_column_sparsity!`](@ref),
+[`add_plasma_columns!`](@ref)), which a term implements and the system calls, are declared
+`public` and not exported.
 """
 abstract type EquationTerm end
 
@@ -95,6 +96,15 @@ Add the product `(∂ rhs_term / ∂u) v` of a `:matrix_free` [`EquationTerm`](@
 [`coupling`](@ref)) to `out`.
 """
 function jacobian_vector_product! end
+
+"""
+    validate(term, layout, row[, t])
+
+Check `term` against the layout `layout` of its system, in the equation of the unknown `row`,
+and throw an `ArgumentError` when it does not fit; run when an [`EquationSystem`](@ref) is
+built, with its initial time `t` for terms that evaluate a function of time. The default
+accepts every term.
+"""
 validate(::EquationTerm, layout, row) = nothing
 # with the initial time of the system, for terms that evaluate a function of time
 validate(term::EquationTerm, layout, row, t) = validate(term, layout, row)

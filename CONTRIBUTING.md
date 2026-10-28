@@ -76,13 +76,13 @@ The header of `docs/make.jl` gives the command of a live local preview.
   Settled spellings include `coulomb_logarithm`, `kinetic_ionization`, `ionization_cross_section_form`, `free_electron_density` and `temperature`.
 - A function that builds a term or another type has a lowercase name, such as `ohmic_heating_term`; a name in CamelCase is a type.
 - What users call is exported, also the functions of the term interface that a new term adds methods to and that callers use, such as `rhs!` and `dependencies`.
-  A function that only a new term or operator implements or calls is declared `public`, such as `add_local_jacobian!` and `lags_in_ode_form`.
-  `validate`, which only the construction of an `EquationSystem` calls, stays internal and is extended under its qualified name; the rest stays internal too.
+  A function that only a new term or operator implements or calls is declared `public`, such as `validate`, `add_local_jacobian!` and `lags_in_ode_form`; the rest stays internal.
 - Public names, the keywords of their methods and the fields of their types are ASCII, which `test/test_names.jl` checks.
   A local variable may use the Greek symbol of a cited formula.
   A name that becomes exported, public, a keyword or a field users read is renamed to ASCII in every use.
 - The same kind of unknown has the same keyword in every constructor, and a switch of type `Bool` among the keywords users see never shares a name with an unknown.
-- A key of a settings record changes only with the output format, so a keyword that is such a key keeps its name even where the rule above would rename it; a field may be named differently from its key.
+- A key of a settings record changes only with the output format, so a keyword that is such a key keeps its name even where the rule above would rename it.
+  A field may be named differently from its key.
 - Established short forms stay, such as `dt`, `p_max`, `p_cutoff` and `xi`, and `p` for a momentum in argument names.
 - When a choice is in doubt, the clearer name wins, even if it is longer.
 

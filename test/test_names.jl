@@ -4,6 +4,8 @@
 # the source files are not scanned.
 using Test
 using Runes2P
+# the packages of the extensions, so that their methods are checked as well
+using HDF5, Interpolations, SciMLBase
 
 ascii_name(name) = all(isascii, String(name))
 
@@ -14,10 +16,13 @@ function public_objects()
         name === :Runes2P && continue
         push!(objects, name => getfield(Runes2P, name))
     end
+    for name in names(Runes2P.Constants)
+        name === :Constants || push!(objects, name => getfield(Runes2P.Constants, name))
+    end
     return objects
 end
 
-# the methods of `f` defined in Runes2P, its submodules or its extensions (when loaded)
+# the methods of `f` defined in Runes2P, its submodules or its extensions
 function own_methods(f)
     root(m) = String(nameof(Base.moduleroot(parentmodule(m))))
     return [m for m in methods(f) if startswith(root(m), "Runes2P")]
@@ -36,6 +41,7 @@ end
         bad = Tuple{Symbol, Symbol}[]
         for (name, object) in objects
             (object isa Function || object isa Type) || continue
+            # Base.kwarg_decl lists the keywords of a method (internal to Julia, stable to 1.13)
             for m in own_methods(object), keyword in Base.kwarg_decl(m)
 
                 ascii_name(keyword) || push!(bad, (name, keyword))
