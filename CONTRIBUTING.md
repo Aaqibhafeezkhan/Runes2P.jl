@@ -32,7 +32,7 @@ These rules hold for every contribution, by people and by coding agents alike.
   The usual split is a series of pull requests into `dev` that each pass the full suite on their own, or the steps of an integration branch.
   For example: the data layout, then the operator, then the solver wiring with its tests.
 - A larger change may collect its steps on an integration branch `feat/<topic>` off `dev`; the steps are branches of the other types (`fix/…`, `perf/…`, `test/…`, `docs/…`, `chore/…`) with pull requests into it.
-  A step runs the checks of `CI.yml`, its author runs the component tests, `test/test_regression_values.jl` at `-O2` and the test files of the code it changes, and it merges with a merge commit once these pass.
+  A step runs the checks of `CI.yml`, its author runs `test/test_regression_values.jl` at `-O2` and the test files of the code it changes, and it merges with a merge commit once these pass.
   The full suite runs on the integration branch by hand every few steps, and on its pull request into `dev`, which the maintainer reviews and merges.
 - A pull request whose checks pass needs no comment about them, since GitHub shows them.
   After a failed check, the author comments once the fixes are in: what failed and what fixed it.
