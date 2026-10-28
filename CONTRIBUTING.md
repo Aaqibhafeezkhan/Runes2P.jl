@@ -86,6 +86,21 @@ The header of `docs/make.jl` gives the command of a live local preview.
 - Established short forms stay, such as `dt`, `p_max`, `p_cutoff` and `xi`, and `p` for a momentum in argument names.
 - When a choice is in doubt, the clearer name wins, even if it is longer.
 
+## Code style
+
+These rules hold for `src/` and `ext/`, where the physics and the numerics are read and checked; tests and scripts may be denser.
+The formatter sets the layout only, so the reviews check these rules.
+
+- Control flow is written with `if`.
+  `cond && action` and `cond || action` are not used for a side effect, an assignment or a `throw`.
+  The one exception is a check of an argument at the start of a function, such as `length(x) == n || throw(DimensionMismatch("..."))`.
+- One statement per line: no `;` between statements, and no assignment inside an expression.
+- A conditional expression `a ? b : c` chooses between two simple values on one line and is never nested.
+- An intermediate quantity gets a name, the name of the physical quantity where there is one, instead of a long chain of calls or broadcasts.
+  A line that transcribes a cited formula may stay one expression, so that it can be compared with its source.
+- A comprehension or generator has one level; a nested one, or a `map` or `foreach` whose function takes more than one line, is written as a loop.
+- No composition of functions (`∘`) or chains of `|>` in the physics and the numerics.
+
 ## Physics values and their sources
 
 - Every physics-relevant value in the code is cited in the docstring next to it.
