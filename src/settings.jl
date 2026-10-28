@@ -456,7 +456,7 @@ end
 function settings_fields(::Type{<:KnockOnOperator})
     (described = (:knockon, :primary, :method, :pitch_options, :p_cutoff),
         derived = (:kernels, :cache, :primary_weights, :knockon_row,
-            :gathered_weights, :slice_products))
+            :gathered_weights, :slice_products, :revision))
 end
 
 """
@@ -646,7 +646,7 @@ end
 
 function settings_fields(::Type{<:KnockOnTerm})
     (described = (:primary, :operator, :target_density, :treatment),
-        derived = (:lagged, :prepared, :prepared_from, :preparations))
+        derived = (:lagged, :prepared, :prepared_from, :preparations, :prepared_revision))
 end
 
 function settings_fields(::Type{<:IonDiffusionTerm})

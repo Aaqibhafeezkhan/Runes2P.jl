@@ -1,7 +1,8 @@
 # The knock-on term with a target density that is an unknown and changes during the run:
 # the lagged primary (:explicit_primary) against the implicit term, with an error of first
-# order in the step; the kernel applied once per start state; a resume inside an interval
-# of the step controller; the SciML path without the stored Jacobian of a lagged term.
+# order in the step; the kernel applied once per start state and again after a change of
+# the cutoff; a resume inside an interval of the step controller; the SciML path without
+# the stored Jacobian of a lagged term.
 using SciMLBase: SciMLBase
 using HDF5
 
@@ -76,6 +77,43 @@ end
         solution = integrate(system, u0, collect(range(0.0, 1e-4; length = 6)); stepper = FixedSteps())
         attempts = length(solution.statistics.accepted)
         @test attempts <= knock.preparations[] - before <= attempts + 1
+    end
+
+    @testset "a cutoff change prepares the source again" begin
+        system, layout, u0, knock = _target_case(; treatment = :explicit_primary)
+        F = zeros(length(u0))
+        residual!(F, u0, u0, system, 1e-6, 1e-6)
+        before = knock.preparations[]
+        # the same cutoff changes nothing, and the source stays
+        set_cutoff!(knock.operator, copy(knock.operator.p_cutoff))
+        residual!(F, u0, u0, system, 1e-6, 1e-6)
+        @test knock.preparations[] == before
+        # a new cutoff with the start state unchanged: the source of the new kernels
+        set_cutoff!(knock.operator, 0.3)
+        residual!(F, u0, u0, system, 1e-6, 1e-6)
+        @test knock.preparations[] == before + 1
+        fresh_system, _, _, fresh = _target_case(; treatment = :explicit_primary)
+        set_cutoff!(fresh.operator, 0.3)
+        G = zeros(length(u0))
+        residual!(G, u0, u0, fresh_system, 1e-6, 1e-6)
+        @test fresh.lagged == knock.lagged
+        @test G == F
+        # a refused cutoff leaves the operator, and the source stays
+        @test_throws ArgumentError set_cutoff!(knock.operator, -1.0)
+        residual!(F, u0, u0, system, 1e-6, 1e-6)
+        @test knock.preparations[] == before + 1
+        # a cutoff update that follows the plasma (the cooling plasma of the checkpoint
+        # case), with the start state unchanged: a new preparation exactly when it moves
+        update = KnockOnCutoffUpdate(knock.operator, t -> _checkpoint_plasma(t; nr = 2))
+        moves = 0
+        for t in (0.0, 2e-4, 4e-4, 6e-4, 8e-4)
+            prepared = knock.preparations[]
+            moved = Runes2P.apply_update!(update, u0, layout, t)
+            residual!(F, u0, u0, system, 1e-6, 1e-6)
+            @test knock.preparations[] == prepared + moved
+            moves += moved
+        end
+        @test moves >= 2
     end
 
     @testset "a resume inside an interval of the step controller" begin

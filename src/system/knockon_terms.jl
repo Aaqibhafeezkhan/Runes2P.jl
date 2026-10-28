@@ -15,9 +15,9 @@ momentum grids at different radii.
 - `:explicit_primary` (default, DREAM's Boltzmann operator `MollerBoltzmannOperator`): the
   primary distribution at the previous time level, the target density at the new one. The
   term is then the target density times a source fixed for the step, evaluated once per
-  residual from the state at the start of the step ([`prepare_step!`](@ref)), and its
-  Jacobian is the column of the target density at each radius. With a prescribed target
-  density it is the same as `:explicit`.
+  start state of a step ([`prepare_step!`](@ref)) and again after a change of the cutoff
+  ([`set_cutoff!`](@ref)), and its Jacobian is the column of the target density at each
+  radius. With a prescribed target density it is the same as `:explicit`.
 - `:explicit`: the whole term at the previous time level, target density included.
 - `:implicit`: the whole term at the new time level, matrix-free, since it couples all cells
   of a radius. Every Krylov iteration of [`GMRES`](@ref) applies the operator once, and the
@@ -35,6 +35,7 @@ struct KnockOnTerm{T, D} <: EquationTerm
     prepared::Base.RefValue{Bool}
     prepared_from::Vector{Matrix{T}}       # the primary of the last preparation, per radius
     preparations::Base.RefValue{Int}       # the applications of the kernel by prepare_step!
+    prepared_revision::Base.RefValue{Int}  # the operator's revision at the last preparation
 end
 
 function KnockOnTerm(primary::Symbol, operator::KnockOnOperator{T}; target_density,
@@ -50,7 +51,7 @@ function KnockOnTerm(primary::Symbol, operator::KnockOnOperator{T}; target_densi
              Matrix{T}[]
     prepared_from = [similar(source) for source in lagged]
     return KnockOnTerm(primary, operator, target_density, treatment,
-        lagged, Ref(false), prepared_from, Ref(0))
+        lagged, Ref(false), prepared_from, Ref(0), Ref(0))
 end
 
 # the primary lagged and the target density an unknown: the term is the target density
@@ -106,11 +107,12 @@ _target_density(term::KnockOnTerm, u, layout, ir) = term.target_density[ir]
 
 # The kernel is O(N_p²) per radius: it is applied once per start state, not at every
 # residual of the Newton iteration and its line search. The primary of the last
-# preparation is kept, and a residual at the same start state reuses the source.
+# preparation is kept, and a residual at the same start state reuses the source, unless a
+# cutoff of the operator has changed since (`set_cutoff!` counts its revision).
 function prepare_step!(term::KnockOnTerm, u_old, layout, row, t)
     _lagged_primary(term) || return nothing
     primary = unknown_id(layout, term.primary)
-    if term.prepared[]
+    if term.prepared[] && term.prepared_revision[] == term.operator.revision
         same = true
         for ir in 1:radial_cell_count(layout)
             _same_primary(term.prepared_from[ir], kinetic_view(u_old, layout, primary, ir)) ||
@@ -127,6 +129,7 @@ function prepare_step!(term::KnockOnTerm, u_old, layout, row, t)
     end
     term.preparations[] += 1
     term.prepared[] = true
+    term.prepared_revision[] = term.operator.revision
     return nothing
 end
 
