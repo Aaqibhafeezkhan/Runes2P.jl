@@ -367,8 +367,14 @@ function unknown_view(u::AbstractVector, layout::UnknownLayout, name::Symbol)
     scalar_view(u, layout, unknown_id(layout, name))
 end
 
-# declared before physics/plasma_source.jl, which reads it (the include order of
+# declared here, before physics/plasma_source.jl, which reads it (the include order of
 # test_include_order.jl); its method is in system/terms.jl, with LayoutRadialValues
+"""
+    unknown_values(u, layout, id)
+
+[`LayoutRadialValues`](@ref) of the radial unknown `id`, which has one component, in the
+state `u`. Unlike [`unknown_view`](@ref), it takes the unknown by id and spans all radii.
+"""
 function unknown_values end
 
 """

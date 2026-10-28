@@ -220,12 +220,6 @@ Base.size(a::LayoutRadialValues) = (length(a.offsets),)
 Base.@propagate_inbounds Base.getindex(a::LayoutRadialValues, ir::Int) = a.state[a.offsets[ir] + 1]
 Base.@propagate_inbounds Base.setindex!(a::LayoutRadialValues, x, ir::Int) = (a.state[a.offsets[ir] + 1] = x)
 
-"""
-    unknown_values(u, layout, id)
-
-[`LayoutRadialValues`](@ref) of the radial unknown `id`, which has one component, in the
-state `u`. Unlike [`unknown_view`](@ref), it takes the unknown by id and spans all radii.
-"""
 function unknown_values(u::AbstractVector, layout::UnknownLayout, id::Integer)
     layout.kinds[id] === :radial && layout.sizes[id, 1] == 1 ||
         throw(ArgumentError("$(layout.unknowns[id].name) is not a radial unknown with one component"))
