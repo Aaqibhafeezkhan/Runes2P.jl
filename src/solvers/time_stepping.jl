@@ -965,9 +965,11 @@ function _controller_estimate!(
     started = time_ns()
     if bdf2
         # variable-step BDF2, u - a u_n + b u_{n-1} = c h f(u), as a backward-Euler residual
-        # with the reference a u_n - b u_{n-1} and the step c h (ω = h / h_{n-1})
-        ω = h / state.previous_step
-        a, b, c = (1 + ω)^2 / (1 + 2ω), ω^2 / (1 + 2ω), (1 + ω) / (1 + 2ω)
+        # with the reference a u_n - b u_{n-1} and the step c h (step_ratio = h / h_{n-1})
+        step_ratio = h / state.previous_step
+        a = (1 + step_ratio)^2 / (1 + 2 * step_ratio)
+        b = step_ratio^2 / (1 + 2 * step_ratio)
+        c = (1 + step_ratio) / (1 + 2 * step_ratio)
         @. state.reference = a * u_old - b * state.previous
         result = newton_solve!(u, u_old, run.ws, t_next, c * h; reference = state.reference)
     else
@@ -985,8 +987,8 @@ function _controller_estimate!(
         # the extrapolation through the two last backward-Euler states is the forward-Euler
         # predictor with the derivative of the last step; the implicit solution differs
         # from it by h² u'', twice the local error
-        ratio = h / state.previous_step
-        @. state.half = u_old + ratio * (u_old - state.previous)
+        step_ratio = h / state.previous_step
+        @. state.half = u_old + step_ratio * (u_old - state.previous)
         error = _controller_errors!(state, run.layout, u, u, state.half, 0.5)
     else
         # Milne's device: the quadratic extrapolation P through the last three accepted
@@ -997,8 +999,8 @@ function _controller_estimate!(
         l1 = -h * (h + h1 + h2) / (h1 * h2)
         l2 = h * (h + h1) / (h2 * (h1 + h2))
         @. state.half = l0 * u_old + l1 * state.previous + l2 * state.previous2
-        ρ = h * (h + h1) / ((h + h1 + h2) * (2h + h1) + h * (h + h1))
-        error = _controller_errors!(state, run.layout, u, u, state.half, ρ)
+        error_factor = h * (h + h1) / ((h + h1 + h2) * (2h + h1) + h * (h + h1))
+        error = _controller_errors!(state, run.layout, u, u, state.half, error_factor)
     end
     return (error, result, wall, bdf2 ? 2 : 1)
 end

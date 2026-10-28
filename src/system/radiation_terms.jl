@@ -257,11 +257,16 @@ function _radiated_power(
     end
     if !recombination && T > 0
         theta = T / Constants.ELECTRON_REST_ENERGY
-        a, κ = term.bremsstrahlung_corrections === :gould ?
-               (GOULD_ION_CORRECTION, GOULD_ELECTRON_CORRECTION) :
-               (DREAM_GOULD_ION_CORRECTION, DREAM_GOULD_ELECTRON_CORRECTION)
+        if term.bremsstrahlung_corrections === :gould
+            ion_correction = GOULD_ION_CORRECTION
+            electron_correction = GOULD_ELECTRON_CORRECTION
+        else
+            ion_correction = DREAM_GOULD_ION_CORRECTION
+            electron_correction = DREAM_GOULD_ELECTRON_CORRECTION
+        end
         radiation += GOULD_BREMSSTRAHLUNG_PREFACTOR * sqrt(T) *
-                     (ion_sum + (a * ion_sum + κ * n_e) * theta)
+                     (ion_sum +
+                      (ion_correction * ion_sum + electron_correction * n_e) * theta)
     end
     return (radiation = n_e * radiation, binding = n_e * binding)
 end
