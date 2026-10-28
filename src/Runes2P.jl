@@ -186,6 +186,7 @@ export CheckpointSettings, StoredState, read_checkpoint, write_checkpoint, read_
 export StopCondition, stop_reason, run_status, exit_status
 export ProgressLog
 
-public add_local_jacobian!, plasma_columns, lags_in_ode_form, is_local
+public add_local_jacobian!, plasma_columns, lags_in_ode_form, is_local, validate,
+       has_plasma_columns, plasma_column_sparsity!, add_plasma_columns!
 
 end # module Runes2P

@@ -70,6 +70,22 @@ The header of `docs/make.jl` gives the command of a live local preview.
 - Every public name (exported or declared `public`) has a docstring of its own.
   A docstring is a string literal: a LaTeX backslash is written twice (`\\partial`), formulas go into math (```` ```math ```` blocks, ``` ``…`` ``` inline), and `@ref` links point to documented names only.
 
+## Names
+
+- A public name (exported or declared `public`) has one meaning, and a concept has one spelling in the names, keywords and fields that users see.
+  Settled spellings include `coulomb_logarithm`, `kinetic_ionization`, `ionization_cross_section_form`, `free_electron_density` and `temperature`.
+- A function that builds a term or another type has a lowercase name, such as `ohmic_heating_term`; a name in CamelCase is a type.
+- What users call is exported, also the functions of the term interface that a new term adds methods to and that callers use, such as `rhs!` and `dependencies`.
+  A function that only a new term or operator implements or calls is declared `public`, such as `validate`, `add_local_jacobian!` and `lags_in_ode_form`; the rest stays internal.
+- Public names, the keywords of their methods and the fields of their types are ASCII, which `test/test_names.jl` checks.
+  A local variable may use the Greek symbol of a cited formula.
+  A name that becomes exported, public, a keyword or a field users read is renamed to ASCII in every use.
+- The same kind of unknown has the same keyword in every constructor, and a switch of type `Bool` among the keywords users see never shares a name with an unknown.
+- A key of a settings record changes only with the output format, so a keyword that is such a key keeps its name even where the rule above would rename it.
+  A field may be named differently from its key.
+- Established short forms stay, such as `dt`, `p_max`, `p_cutoff` and `xi`, and `p` for a momentum in argument names.
+- When a choice is in doubt, the clearer name wins, even if it is longer.
+
 ## Physics values and their sources
 
 - Every physics-relevant value in the code is cited in the docstring next to it.
