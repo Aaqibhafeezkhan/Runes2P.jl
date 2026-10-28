@@ -50,12 +50,12 @@ end
         # grid. The gradient at the edge is one-sided: c (a + r_N) in place of 2 c a
         c = 0.37
         u = zeros(length(layout))
-        radial_values(u, layout, row) .= c .* rad.r_centers .^ 2
+        unknown_values(u, layout, row) .= c .* rad.r_centers .^ 2
         u[only(unknown_range(layout, unknown_id(layout, :edge_poloidal_flux)))] = c *
                                                                                   minor_radius^2
         du = zeros(length(layout))
         rhs!(du, term, u, layout, row, 0.0)
-        values = radial_values(du, layout, row)
+        values = unknown_values(du, layout, row)
         @test values[1:(nr - 1)] ≈ fill(2 * 4c, nr - 1) rtol = 1e-12
         edge_gradient = c * (minor_radius + rad.r_centers[nr])
         expected = (minor_radius * edge_gradient - rad.r_faces[nr] * 2c * rad.r_faces[nr]) /
@@ -74,7 +74,7 @@ end
         Runes2P.validate(current, layout, current_row)
         @test jacobian_assembly(current) === :direct
         fill!(u, 0)
-        radial_values(u, layout, unknown_id(layout, :total_current_density)) .= 2e6
+        unknown_values(u, layout, unknown_id(layout, :total_current_density)) .= 2e6
         fill!(du, 0)
         rhs!(du, current, u, layout, current_row, 0.0)
         @test du[only(unknown_range(layout, current_row))] ≈ -π * minor_radius^2 * 2e6 rtol = 1e-13
@@ -113,9 +113,9 @@ end
                         LinearTerm(:electric_field; coefficient = 1e6),
                         LinearTerm(:total_current_density; coefficient = -1))]))
             u = zeros(length(layout))
-            radial_values(u, layout, unknown_id(layout, :electric_field)) .= 1.5
-            radial_values(u, layout, unknown_id(layout, :total_current_density)) .= j
-            radial_values(u, layout, unknown_id(layout, :poloidal_flux)) .= initial.poloidal_flux
+            unknown_values(u, layout, unknown_id(layout, :electric_field)) .= 1.5
+            unknown_values(u, layout, unknown_id(layout, :total_current_density)) .= j
+            unknown_values(u, layout, unknown_id(layout, :poloidal_flux)) .= initial.poloidal_flux
             for name in (:plasma_current, :edge_poloidal_flux, :wall_poloidal_flux)
                 u[only(unknown_range(layout, unknown_id(layout, name)))] = getproperty(initial, name)
             end
@@ -211,10 +211,10 @@ end
             field = [bessel_j(0, k * r) for r in rad.r_centers]
             initial = initial_poloidal_flux(rad, conductivity .* field; wall_radius)
             u0 = zeros(length(layout))
-            radial_values(u0, layout, unknown_id(layout, :electric_field)) .= field
-            radial_values(u0, layout, unknown_id(layout, :total_current_density)) .= conductivity .*
-                                                                                     field
-            radial_values(u0, layout, unknown_id(layout, :poloidal_flux)) .= initial.poloidal_flux
+            unknown_values(u0, layout, unknown_id(layout, :electric_field)) .= field
+            unknown_values(u0, layout, unknown_id(layout, :total_current_density)) .= conductivity .*
+                                                                                      field
+            unknown_values(u0, layout, unknown_id(layout, :poloidal_flux)) .= initial.poloidal_flux
             for name in (:plasma_current, :edge_poloidal_flux, :wall_poloidal_flux)
                 u0[only(unknown_range(layout, unknown_id(layout, name)))] = getproperty(initial, name)
             end
@@ -235,12 +235,12 @@ end
             end
             # the state keeps the algebraic equations
             final = solution.states[:, end]
-            @test radial_values(final, layout, unknown_id(layout, :total_current_density)) ≈
+            @test unknown_values(final, layout, unknown_id(layout, :total_current_density)) ≈
                   conductivity .*
-                  radial_values(final, layout, unknown_id(layout, :electric_field)) rtol = 1e-9
+                  unknown_values(final, layout, unknown_id(layout, :electric_field)) rtol = 1e-9
             @test current_at(steps + 1) ≈
                   sum(cross_section_weights(rad) .*
-                      radial_values(final, layout, unknown_id(layout, :total_current_density))) rtol = 1e-9
+                      unknown_values(final, layout, unknown_id(layout, :total_current_density))) rtol = 1e-9
             wall_flux = final[only(unknown_range(layout, unknown_id(layout, :wall_poloidal_flux)))]
             edge_flux = final[only(unknown_range(layout, unknown_id(layout, :edge_poloidal_flux)))]
             @test wall_flux == 0
@@ -273,9 +273,9 @@ end
         final = solution.states[:, end]
         @test final[only(unknown_range(layout, unknown_id(layout, :wall_poloidal_flux)))] ≈
               loop_voltage * 1e-3 rtol = 1e-12
-        @test radial_values(final, layout, unknown_id(layout, :poloidal_flux)) ≈
+        @test unknown_values(final, layout, unknown_id(layout, :poloidal_flux)) ≈
               fill(loop_voltage * 1e-3, 8) rtol = 1e-10
-        @test radial_values(final, layout, unknown_id(layout, :electric_field)) ≈
+        @test unknown_values(final, layout, unknown_id(layout, :electric_field)) ≈
               fill(loop_voltage / 2π, 8) rtol = 1e-9
         # a loop voltage that rises in time: backward Euler takes the voltage at
         # the end of each step, so the flux at the wall is Σ V(t_k) Δt

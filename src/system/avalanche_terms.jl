@@ -137,13 +137,13 @@ end
 # the shape of radius ir with the pitch of the sign of the field
 function _rp_shape(term::RosenbluthPutvinskiSourceTerm, u, layout, ir)
     term.electric_field === nothing && return term.positive[ir]
-    E = radial_values(u, layout, unknown_id(layout, term.electric_field))[ir]
+    E = unknown_values(u, layout, unknown_id(layout, term.electric_field))[ir]
     return E >= 0 ? term.positive[ir] : term.negative[ir]
 end
 
 function rhs!(out, term::RosenbluthPutvinskiSourceTerm, u, layout, row, t)
-    n_re = radial_values(u, layout, unknown_id(layout, term.runaway_density))
-    n_tot = radial_values(u, layout, unknown_id(layout, term.total_density))
+    n_re = unknown_values(u, layout, unknown_id(layout, term.runaway_density))
+    n_tot = unknown_values(u, layout, unknown_id(layout, term.total_density))
     for ir in 1:radial_cell_count(layout)
         kinetic_view(out, layout, row, ir) .+= n_re[ir] * n_tot[ir] .*
                                                _rp_shape(term, u, layout, ir)
@@ -154,7 +154,7 @@ end
 function add_jacobian!(J, term::RosenbluthPutvinskiSourceTerm, u, layout, row, t)
     re, tot = unknown_id(layout, term.runaway_density),
     unknown_id(layout, term.total_density)
-    n_re, n_tot = radial_values(u, layout, re), radial_values(u, layout, tot)
+    n_re, n_tot = unknown_values(u, layout, re), unknown_values(u, layout, tot)
     for ir in 1:radial_cell_count(layout)
         shape = _rp_shape(term, u, layout, ir)
         c_re, c_tot = first(unknown_range(layout, re, ir)),

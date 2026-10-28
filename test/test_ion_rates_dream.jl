@@ -42,8 +42,8 @@ using HDF5
         deposit_neutrals!(
             u0, layout, composition, "D" => data["deposit_deuterium"] * background,
             "Ar" => data["deposit_argon"] * background)
-        radial_values(u0, layout, 2) .= background
-        radial_values(u0, layout, 3) .= data["temperature"]
+        unknown_values(u0, layout, 2) .= background
+        unknown_values(u0, layout, 3) .= data["temperature"]
         system = EquationSystem(layout, equations; time_scale = 1e-7, initial_state = u0)
         solution = integrate(system, u0, times; stepper = FixedSteps())
         @test run_status(solution) === :finished
@@ -60,7 +60,7 @@ using HDF5
             # each argon state on the scale of the argon density
             @test maximum(abs, permutedims(ions[2].charge_state_densities) .- argon) <=
                   1e-8 * data["deposit_argon"] * background
-            @test radial_values(solution.states[:, k], layout, 2) ≈ data["n_cold"][:, k] rtol = 1e-8
+            @test unknown_values(solution.states[:, k], layout, 2) ≈ data["n_cold"][:, k] rtol = 1e-8
         end
     end
 end

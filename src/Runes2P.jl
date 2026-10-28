@@ -119,7 +119,7 @@ export mean_excitation_energy, ion_size
 export add_electric_field!, add_slowing_down!, add_pitch_scattering!, add_energy_diffusion!
 export add_synchrotron!, fokker_planck_operator, zero_coefficients!,
        set_fokker_planck_coefficients!
-export set_unit_field_coefficients!, LayoutRadialValues, radial_values, with_electric_field
+export set_unit_field_coefficients!, LayoutRadialValues, unknown_values, with_electric_field
 export SparseJacobian, jacobian, jacobian!, operator_matrix, stencil_pattern,
        sparse_ad_backend
 export check_stencil_pattern

@@ -26,9 +26,9 @@
             RadialUnknown(:electric_field), KineticUnknown(:f, grid; scale = 1e19)])
     term = RosenbluthPutvinskiSourceTerm(:f, grid)
     u = zeros(length(layout))
-    radial_values(u, layout, 1) .= [3e15, 1e16]
-    radial_values(u, layout, 2) .= [1.5e20, 1.2e20]
-    radial_values(u, layout, 3) .= [2.0, -1.5]
+    unknown_values(u, layout, 1) .= [3e15, 1e16]
+    unknown_values(u, layout, 2) .= [1.5e20, 1.2e20]
+    unknown_values(u, layout, 3) .= [2.0, -1.5]
     f_id = unknown_id(layout, :f)
     source = Runes2P.rhs!(zeros(length(u)), term, u, layout, f_id, 0.0)
 
@@ -270,27 +270,28 @@ end
             prescribed; p_cutoff = 0.8, ions = :ion_densities, settings = dream_settings)
         u = zeros(length(layout))
         set_ion_densities!(u, layout, prescribed)
-        radial_values(u, layout, 1) .= [1e16, 3e15]
-        radial_values(u, layout, 2) .= [sum(1 .*
-                                            prescribed.ions[1].charge_state_densities[:, ir]) +
-                                        18 * sum(argon[:, ir]) for ir in 1:2]
-        radial_values(u, layout, 3) .= [60.0, 0.05]      # above and below the effective critical field
-        radial_values(u, layout, 4) .= [5.0, 3.0]
-        radial_values(u, layout, 5) .= [free_electron_density(prescribed, ir) for ir in 1:2]
+        unknown_values(u, layout, 1) .= [1e16, 3e15]
+        unknown_values(u, layout, 2) .= [sum(1 .*
+                                             prescribed.ions[1].charge_state_densities[:, ir]) +
+                                         18 * sum(argon[:, ir]) for ir in 1:2]
+        unknown_values(u, layout, 3) .= [60.0, 0.05]      # above and below the effective critical field
+        unknown_values(u, layout, 4) .= [5.0, 3.0]
+        unknown_values(u, layout, 5) .= [free_electron_density(prescribed, ir)
+                                         for ir in 1:2]
         out = Runes2P.rhs!(zeros(length(u)), term, u, layout, 1, 0.0)
-        rates = radial_values(out, layout, 1) ./ radial_values(u, layout, 1)
+        rates = unknown_values(out, layout, 1) ./ unknown_values(u, layout, 1)
         # the match: below the fluid rate and the external rate where both are positive, the
         # fluid rate where it is negative
         local_plasma(ir) = PlasmaState(;
-            cold_electron_temperature = [radial_values(u, layout, 4)[ir]],
-            cold_electron_density = [radial_values(u, layout, 5)[ir]],
-            electric_field = [radial_values(u, layout, 3)[ir]], magnetic_field = [2.5],
+            cold_electron_temperature = [unknown_values(u, layout, 4)[ir]],
+            cold_electron_density = [unknown_values(u, layout, 5)[ir]],
+            electric_field = [unknown_values(u, layout, 3)[ir]], magnetic_field = [2.5],
             ions = [IonSpecies(s.name, s.nuclear_charge, s.charge_state_densities[:, ir:ir])
                     for s in prescribed.ions])
         fluid = [first(fluid_avalanche_growth_rate(
-                     local_plasma(ir), 1, radial_values(u, layout, 2)[ir];
+                     local_plasma(ir), 1, unknown_values(u, layout, 2)[ir];
                      settings = dream_settings)) for ir in 1:2]
-        external = radial_values(u, layout, 2) .* rosenbluth_putvinski_rate(0.8)
+        external = unknown_values(u, layout, 2) .* rosenbluth_putvinski_rate(0.8)
         @test fluid[1] > 0 && fluid[2] < 0
         @test rates[1] ≈ (external[1]^-2 + fluid[1]^-2)^-0.5 rtol = 1e-12
         @test rates[1] < min(external[1], fluid[1])

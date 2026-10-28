@@ -55,8 +55,8 @@ using QuadGK: quadgk
                     IonEnergyExchangeTerm(prescribed; side = :ions, ions...))]
             u0 = zeros(length(layout))
             set_ion_densities!(u0, layout, prescribed)
-            radial_values(u0, layout, 2) .= free_electron_density(prescribed, 1)
-            radial_values(u0, layout, 3) .= 30.0
+            unknown_values(u0, layout, 2) .= free_electron_density(prescribed, 1)
+            unknown_values(u0, layout, 3) .= 30.0
             set_ion_thermal_energy!(u0, layout, prescribed, 3.0; ions = :ion_densities)
             system = EquationSystem(layout, equations; time_scale = 1e-7, initial_state = u0)
             times = collect(range(0.0, 2e-6; length = 41))
@@ -68,7 +68,7 @@ using QuadGK: quadgk
                                radial_view(u, layout, 1, 1)[2 + Z0 + 1]
             for Z0 in 0:10) +
                            e * ionization_energy("D", 0) * radial_view(u, layout, 1, 1)[2]
-            energy(u) = only(radial_values(u, layout, 4)) +
+            energy(u) = only(unknown_values(u, layout, 4)) +
                         sum(radial_view(u, layout, 5, 1)) + potential(u)
             radiated = 0.0
             balance = Float64[]
@@ -116,8 +116,8 @@ using QuadGK: quadgk
                 Equation(:cold_electron_temperature, TimeDerivative(:cold_thermal_energy),
                     RadiatedPowerTerm(prescribed; radiation = :dream))]
             u0 = zeros(length(layout))
-            radial_values(u0, layout, 1) .= n
-            radial_values(u0, layout, 2) .= T0
+            unknown_values(u0, layout, 1) .= n
+            unknown_values(u0, layout, 2) .= T0
             system = EquationSystem(layout, equations; time_scale = 1e-3, initial_state = u0)
             mc2 = Constants.ELECTRON_REST_ENERGY
             a = (Runes2P.GOULD_ION_CORRECTION + Runes2P.GOULD_ELECTRON_CORRECTION) / mc2
@@ -129,7 +129,7 @@ using QuadGK: quadgk
                     system, u0, collect(range(0.0, t_end; length = steps + 1));
                     stepper = FixedSteps(),
                     solver = NewtonSolver(residual_tolerance = 1e-12))
-                abs(only(radial_values(solution.states[:, end], layout, 2)) -
+                abs(only(unknown_values(solution.states[:, end], layout, 2)) -
                     exact(t_end)) / exact(t_end)
             end
             @test exact(t_end) < 0.5T0
@@ -157,7 +157,7 @@ using QuadGK: quadgk
                     RadialUnknown(:cold_electron_temperature),
                     KineticUnknown(:f, grid)])
             u = zeros(length(layout))
-            radial_values(u, layout, 2) .= T
+            unknown_values(u, layout, 2) .= T
             for factor in (3.0, 5.0)
                 kinetic = KineticIonizationTerm(composition, :f, grid;
                     region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor)))

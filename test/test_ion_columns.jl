@@ -29,14 +29,14 @@ function _column_case(; nr = 2)
         magnetic_field = zeros(nr))
     u = zeros(length(layout))
     set_ion_densities!(u, layout, ions)
-    radial_values(u, layout, 2) .= [free_electron_density(ions, ir) for ir in 1:nr]
-    radial_values(u, layout, 3) .= [20.0, 8.0]
-    radial_values(u, layout, 4) .= [1.5, 2.0]
-    radial_values(u, layout, 5) .= 1e6
+    unknown_values(u, layout, 2) .= [free_electron_density(ions, ir) for ir in 1:nr]
+    unknown_values(u, layout, 3) .= [20.0, 8.0]
+    unknown_values(u, layout, 4) .= [1.5, 2.0]
+    unknown_values(u, layout, 5) .= 1e6
     for ir in 1:nr
         radial_view(u, layout, 6, ir) .= [2e3, 5e2]
     end
-    radial_values(u, layout, 7) .= 1e16
+    unknown_values(u, layout, 7) .= 1e16
     return layout, prescribed, u
 end
 

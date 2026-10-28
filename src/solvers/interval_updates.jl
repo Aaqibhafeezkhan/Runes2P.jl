@@ -115,7 +115,7 @@ function apply_update!(update::KnockOnCutoffUpdate, u, layout, t)
     radial_cell_count(plasma) == nr ||
         throw(DimensionMismatch("plasma and knock-on grid radii differ"))
     if update.electric_field !== nothing
-        field = radial_values(u, layout, unknown_id(layout, update.electric_field))
+        field = unknown_values(u, layout, unknown_id(layout, update.electric_field))
         plasma = with_electric_field(plasma, collect(Float64, field))
     end
     temperatures = Float64.(plasma.cold_electron_temperature)

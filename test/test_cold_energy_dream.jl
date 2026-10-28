@@ -53,17 +53,17 @@ using HDF5
                 ohmic_heating_term(), radiation,
                 transport)]
         u0 = zeros(length(layout))
-        radial_values(u0, layout, 1) .= data["field"]
-        radial_values(u0, layout, 3) .= T_dream[:, 1]
-        radial_values(u0, layout, 4) .= n_free
+        unknown_values(u0, layout, 1) .= data["field"]
+        unknown_values(u0, layout, 3) .= T_dream[:, 1]
+        unknown_values(u0, layout, 4) .= n_free
         system = EquationSystem(layout, equations; time_scale = 1e-5, initial_state = u0)
         solution = integrate(system, u0, times; stepper = FixedSteps())
-        T = reduce(hcat, radial_values(solution.states[:, k], layout, 3)
+        T = reduce(hcat, unknown_values(solution.states[:, k], layout, 3)
         for k in eachindex(times))
         # the channels at the end of the first step (DREAM: the sum of the row is zero, so a
         # heating is negative)
         state = solution.states[:, 2]
-        channel(term) = radial_values(
+        channel(term) = unknown_values(
             Runes2P.rhs!(zeros(length(state)), term, state, layout, 3, times[2]), layout, 3)
         parts = radiated_power(radiation, state, layout, times[2])
         @test channel(ohmic_heating_term()) ≈ -data["Tcold_ohmic"][:, 1] rtol = 1e-8

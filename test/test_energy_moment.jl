@@ -25,9 +25,9 @@ using QuadGK: quadgk
             RadialUnknown(:energy; scale = 1e3)])
     u = zeros(length(layout))
     kinetic_array(u, layout, 1) .= f
-    radial_values(u, layout, 2) .= temperatures
+    unknown_values(u, layout, 2) .= temperatures
     moment(term) = (out = zeros(length(u)); Runes2P.rhs!(out, term, u, layout, 3, 0.0);
-        radial_values(out, layout, 3))
+        unknown_values(out, layout, 3))
 
     @testset "a relativistic Maxwellian" begin
         e = Constants.ELEMENTARY_CHARGE

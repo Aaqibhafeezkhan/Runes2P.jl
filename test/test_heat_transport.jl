@@ -17,12 +17,12 @@ const BESSEL_J0_FIRST_ZERO = 2.404825557695773
     end
     function heat_rhs(term, layout, T, n; t = 0.0)
         u = zeros(length(layout))
-        radial_values(u, layout, 1) .= T
-        radial_values(u, layout, 2) .= n
+        unknown_values(u, layout, 1) .= T
+        unknown_values(u, layout, 2) .= n
         Runes2P.validate(term, layout, 1)
         out = zeros(length(u))
         Runes2P.rhs!(out, term, u, layout, 1, t)
-        return radial_values(out, layout, 1), u
+        return unknown_values(out, layout, 1), u
     end
 
     @testset "the lowest Bessel mode" begin
@@ -110,9 +110,9 @@ const BESSEL_J0_FIRST_ZERO = 2.404825557695773
                 RadialUnknown(:cold_thermal_energy; scale = THERMAL_ENERGY_FACTOR * 1e21)])
         T, n = [900.0, 600.0, 250.0, 60.0], [3e19, 2.5e19, 2e19, 1e19]
         u = zeros(length(layout))
-        radial_values(u, layout, 1) .= T
-        radial_values(u, layout, 2) .= n
-        radial_values(u, layout, 3) .= THERMAL_ENERGY_FACTOR .* n .* T
+        unknown_values(u, layout, 1) .= T
+        unknown_values(u, layout, 2) .= n
+        unknown_values(u, layout, 3) .= THERMAL_ENERGY_FACTOR .* n .* T
         for term in (HeatTransportTerm(; diffusion = r -> 1 + 4r, edge = :constant_gradient_dream),
             HeatTransportTerm(;
             delta_b_over_b = 1e-3, major_radius = 1.7, safety_factor = r -> 1 + 3r^2,
@@ -156,8 +156,8 @@ const BESSEL_J0_FIRST_ZERO = 2.404825557695773
                 RadialUnknown(:cold_thermal_energy; scale = THERMAL_ENERGY_FACTOR * 1e21)])
         # the radial unknowns are stored radius by radius: set them by name
         start = zeros(length(layout))
-        radial_values(start, layout, 1) .= [500.0, 300.0, 100.0]
-        radial_values(start, layout, 2) .= 1e19
+        unknown_values(start, layout, 1) .= [500.0, 300.0, 100.0]
+        unknown_values(start, layout, 2) .= 1e19
         history = PiecewiseConstant([1e-3, 1e-5], [1e-4])
         term = HeatTransportTerm(; delta_b_over_b_at = history, major_radius = 1.7, edge = :absorbing)
         @test forced_time_points(term) == [1e-4]
@@ -172,7 +172,7 @@ const BESSEL_J0_FIRST_ZERO = 2.404825557695773
         u0 = start
         @test_throws "not a time point" integrate(system, u0, [0.0, 1.5e-4, 3e-4]; stepper = FixedSteps())
         solution = integrate(system, u0, [0.0, 1e-4, 2e-4]; stepper = FixedSteps())
-        T_end = radial_values(solution.states[:, end], layout, 1)
+        T_end = unknown_values(solution.states[:, end], layout, 1)
         @test T_end[3] < 100 && T_end[1] < 500     # the heat flows out through the edge
         # the record names the history
         record = describe(term, Runes2P.DescriptionContext())

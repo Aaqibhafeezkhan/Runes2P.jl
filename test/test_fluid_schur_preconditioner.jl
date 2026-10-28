@@ -66,10 +66,10 @@ const SCHUR_TEST_GMRES = Base.require(Runes2P, :Krylov).gmres
         field = 1e-2 .* profile
         sigma = braams_karney_conductivity(plasma, 1)
         initial = initial_poloidal_flux(radial, sigma .* field; wall_radius = 0.3)
-        radial_values(u0, layout, unknown_id(layout, :electric_field)) .= field
-        radial_values(u0, layout, unknown_id(layout, :total_current_density)) .= sigma .*
-                                                                                 field
-        radial_values(u0, layout, unknown_id(layout, :poloidal_flux)) .= initial.poloidal_flux
+        unknown_values(u0, layout, unknown_id(layout, :electric_field)) .= field
+        unknown_values(u0, layout, unknown_id(layout, :total_current_density)) .= sigma .*
+                                                                                  field
+        unknown_values(u0, layout, unknown_id(layout, :poloidal_flux)) .= initial.poloidal_flux
         for name in (:plasma_current, :edge_poloidal_flux, :wall_poloidal_flux)
             u0[only(unknown_range(layout, unknown_id(layout, name)))] = getproperty(initial, name)
         end
@@ -200,10 +200,10 @@ const SCHUR_TEST_GMRES = Base.require(Runes2P, :Krylov).gmres
         u0 = zeros(length(layout))
         set_ion_densities!(u0, layout, background)
         deposit_neutrals!(u0, layout, composition, "D" => 1e17, "Ar" => 1e17)
-        radial_values(u0, layout, 3) .= temperatures
+        unknown_values(u0, layout, 3) .= temperatures
         n_free = [free_electron_density(ion_densities(u0, layout, composition), ir)
                   for ir in 1:nr]
-        radial_values(u0, layout, 2) .= n_free
+        unknown_values(u0, layout, 2) .= n_free
         for ir in 1:nr
             m = momentum_grid(ion_grid, ir)
             shape = [exp(-p^2 / (sqrt(1 + p^2) + 1) /

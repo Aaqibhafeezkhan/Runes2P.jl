@@ -236,7 +236,7 @@ end
         end
         # the field alone
         v = zeros(length(layout))
-        radial_values(v, layout, unknown_id(layout, :electric_field)) .= [1.0, 1.0]
+        unknown_values(v, layout, unknown_id(layout, :electric_field)) .= [1.0, 1.0]
         up, down = zeros(length(layout)), zeros(length(layout))
         rhs!(up, u .+ 1e-5 .* v, system, 0.0)
         rhs!(down, u .- 1e-5 .* v, system, 0.0)
@@ -394,7 +394,7 @@ end
             knockons = cell_sum(hot, produced[1], ir) + cell_sum(runaway, produced[2], ir)
             through_zero = momentum_flux(
                 hot_operator, kinetic_array(state, layout, hot_id), 1, ir;
-                electric_field = radial_values(state, layout, unknown_id(layout, :electric_field)))
+                electric_field = unknown_values(state, layout, unknown_id(layout, :electric_field)))
             magnitude = value(state, :particle_source, ir)
             # the full collision mode has no flux through p = 0
             @test knockons > 0 && through_zero <= 0

@@ -57,11 +57,11 @@ function _cold_initial_state(g, f0)
         u = zeros(length(layout))
         kinetic_array(u, layout, unknown_id(layout, :f)) .= f0
         #! format: off
-        radial_values(u, layout, unknown_id(layout, :cold_electron_temperature)) .= _cold_temperature(0.0)
+        unknown_values(u, layout, unknown_id(layout, :cold_electron_temperature)) .= _cold_temperature(0.0)
         names = [x.name for x in layout.unknowns]
         :cold_electron_density in names &&
-            (radial_values(u, layout, unknown_id(layout, :cold_electron_density)) .= _cold_density(0.0))
-        :electric_field in names && (radial_values(u, layout, unknown_id(layout, :electric_field)) .= [20.0, 15.0])
+            (unknown_values(u, layout, unknown_id(layout, :cold_electron_density)) .= _cold_density(0.0))
+        :electric_field in names && (unknown_values(u, layout, unknown_id(layout, :electric_field)) .= [20.0, 15.0])
         #! format: on
         u
     end
@@ -106,21 +106,21 @@ end
         Runes2P.rhs!(zeros(length(layout)), term, u, layout, 1, 0.0)
         @test term.rebuilds[] == count
         hotter = copy(u)
-        radial_values(hotter, layout, unknown_id(layout, :cold_electron_temperature)) .*= 1.1
+        unknown_values(hotter, layout, unknown_id(layout, :cold_electron_temperature)) .*= 1.1
         Runes2P.rhs!(zeros(length(layout)), term, hotter, layout, 1, 0.0)
         @test term.rebuilds[] == count + 1
         # a temperature at the floor is a domain error, and the zero state needs the initial state
         cold = copy(u)
-        radial_values(cold, layout, unknown_id(layout, :cold_electron_temperature)) .= 0.0
+        unknown_values(cold, layout, unknown_id(layout, :cold_electron_temperature)) .= 0.0
         @test_throws DomainError plasma_values(term.plasma, cold, layout, 0.0)
         # the default floor is 0.5 eV: a temperature at it is refused, one above
         # it is taken, and a source with a lower floor follows DREAM below it
         @test term.plasma.temperature_floor == 0.5
-        radial_values(cold, layout, unknown_id(layout, :cold_electron_temperature)) .= 0.5
+        unknown_values(cold, layout, unknown_id(layout, :cold_electron_temperature)) .= 0.5
         @test_throws DomainError plasma_values(term.plasma, cold, layout, 0.0)
-        radial_values(cold, layout, unknown_id(layout, :cold_electron_temperature)) .= 0.51
+        unknown_values(cold, layout, unknown_id(layout, :cold_electron_temperature)) .= 0.51
         @test all(==(0.51), plasma_values(term.plasma, cold, layout, 0.0).cold_electron_temperature)
-        radial_values(cold, layout, unknown_id(layout, :cold_electron_temperature)) .= 0.1
+        unknown_values(cold, layout, unknown_id(layout, :cold_electron_temperature)) .= 0.1
         low = PlasmaFromUnknowns(
             term.plasma.prescribed; temperature = term.plasma.temperature,
             density = term.plasma.density,
@@ -216,7 +216,7 @@ end
                     LinearTerm(:cold_electron_density; coefficient = -1)),
                 thermal_energy_equation()]
             u = u0(layout)
-            radial_values(u, layout, unknown_id(layout, :cold_electron_density)) .= _cold_density(0.0)
+            unknown_values(u, layout, unknown_id(layout, :cold_electron_density)) .= _cold_density(0.0)
             set_thermal_energy!(u, layout)
             return EquationSystem(layout, equations; time_scale = 1e-6, initial_state = u),
             u
@@ -225,7 +225,7 @@ end
         layout = system.layout
         W_id, T_id = unknown_id(layout, :cold_thermal_energy),
         unknown_id(layout, :cold_electron_temperature)
-        @test radial_values(u_start, layout, W_id) == thermal(0.0)
+        @test unknown_values(u_start, layout, W_id) == thermal(0.0)
         solution = integrate(system, u_start, times; stepper = FixedSteps())
         @test all(solution.statistics.accepted)
         reference = _cold_reference(g, f0, times)
@@ -234,8 +234,8 @@ end
         @test f ≈ reference.states rtol = 1e-8
         for k in eachindex(times)
             state = solution.states[:, k]
-            @test radial_values(state, layout, T_id) ≈ _cold_temperature(times[k]) rtol = 1e-10
-            @test radial_values(state, layout, W_id) ≈ thermal(times[k]) rtol = 1e-10
+            @test unknown_values(state, layout, T_id) ≈ _cold_temperature(times[k]) rtol = 1e-10
+            @test unknown_values(state, layout, W_id) ≈ thermal(times[k]) rtol = 1e-10
         end
         # the zero state has no temperature: the prototype needs the state
         @test_throws ArgumentError EquationSystem(layout, system.equations; time_scale = 1e-6)
@@ -259,7 +259,7 @@ end
         result = newton_solve!(u_trial, u_sink, NewtonWorkspace(sink), times[2], dt)
         @test result.status !== :converged
         @test all(>=(0.5),
-            radial_values(u_trial, sink.layout, unknown_id(sink.layout, :cold_electron_temperature)))
+            unknown_values(u_trial, sink.layout, unknown_id(sink.layout, :cold_electron_temperature)))
     end
 
     @testset "the plasma columns against central differences" begin
@@ -275,7 +275,7 @@ end
             u = u0(layout)
             kinetic_array(u, layout, 1) .*= 1 .+ 0.2 .* rand(rng, size(f0)...)
             T_id = unknown_id(layout, :cold_electron_temperature)
-            radial_values(u, layout, T_id) .*= [1.1, 0.9]
+            unknown_values(u, layout, T_id) .*= [1.1, 0.9]
             J = jacobian_prototype(system)
             jacobian!(J, system, u, 3e-5)
             names = Runes2P.source_dependencies(term.plasma)
@@ -351,8 +351,8 @@ end
                     minus(:cold_electron_temperature)),
                 Equation(:ohmic_current_density, Algebraic(), term, minus(:ohmic_current_density))]
             u = zeros(length(layout))
-            radial_values(u, layout, 1) .= [20.0, 15.0]
-            radial_values(u, layout, 2) .= [100.0, 60.0]
+            unknown_values(u, layout, 1) .= [20.0, 15.0]
+            unknown_values(u, layout, 2) .= [100.0, 60.0]
             system = EquationSystem(layout, equations; initial_state = u)
             F = zeros(length(u))
             rhs!(F, u, system, 0.0)
@@ -364,7 +364,7 @@ end
                          test_particle_conductivity_fraction(effective_charge(base, ir)) :
                          1)
                         for (ir, T) in enumerate([100.0, 60.0])] .* [20.0, 15.0]
-            @test radial_values(F, layout, 3) ≈ expected rtol = 1e-14
+            @test unknown_values(F, layout, 3) ≈ expected rtol = 1e-14
             J = jacobian_prototype(system)
             jacobian!(J, system, u, 0.0)
             for ir in 1:2
@@ -383,7 +383,7 @@ end
             # Newton steps with the column of the temperature in the fluid block
             solution = integrate(system, u, [0.0, 1e-6, 2e-6])
             @test all(solution.statistics.accepted)
-            @test radial_values(solution.states[:, end], layout, 3) ≈
+            @test unknown_values(solution.states[:, end], layout, 3) ≈
                   [braams_karney_conductivity(T, effective_charge(base, ir), free_electron_density(base, ir)) *
                    (kinetic === :dream_fit ?
                     1 - test_particle_conductivity_fraction(effective_charge(base, ir)) :

@@ -29,8 +29,8 @@ function validate(term::ProductTerm, layout, row)
 end
 
 function rhs!(out, term::ProductTerm, u, layout, row, t)
-    a = radial_values(u, layout, unknown_id(layout, term.first))
-    b = radial_values(u, layout, unknown_id(layout, term.second))
+    a = unknown_values(u, layout, unknown_id(layout, term.first))
+    b = unknown_values(u, layout, unknown_id(layout, term.second))
     @inbounds for ir in 1:radial_cell_count(layout)
         out[first(unknown_range(layout, row, ir))] += term.coefficient * a[ir] * b[ir]
     end
@@ -89,9 +89,9 @@ density must already hold its value.
 function set_thermal_energy!(
         u::AbstractVector, layout::UnknownLayout; energy::Symbol = :cold_thermal_energy,
         temperature::Symbol = :cold_electron_temperature, density::Symbol = :cold_electron_density)
-    W = radial_values(u, layout, unknown_id(layout, energy))
-    T = radial_values(u, layout, unknown_id(layout, temperature))
-    n = radial_values(u, layout, unknown_id(layout, density))
+    W = unknown_values(u, layout, unknown_id(layout, energy))
+    T = unknown_values(u, layout, unknown_id(layout, temperature))
+    n = unknown_values(u, layout, unknown_id(layout, density))
     for ir in eachindex(W)
         W[ir] = THERMAL_ENERGY_FACTOR * n[ir] * T[ir]
     end
@@ -320,9 +320,9 @@ const RUNAWAY_FLUID_ENERGY_PREFACTOR = 4π * Constants.CLASSICAL_ELECTRON_RADIUS
 
 function rhs!(out, term::RunawayFluidEnergyTransferTerm, u, layout, row, t)
     plasma = _term_plasma(plasma_values(term.plasma, u, layout, t), term.ions, u, layout)
-    n_re = radial_values(u, layout, unknown_id(layout, term.runaway_density))
-    T = radial_values(u, layout, unknown_id(layout, term.temperature))
-    n = radial_values(u, layout, unknown_id(layout, term.density))
+    n_re = unknown_values(u, layout, unknown_id(layout, term.runaway_density))
+    T = unknown_values(u, layout, unknown_id(layout, term.temperature))
+    n = unknown_values(u, layout, unknown_id(layout, term.density))
     for ir in 1:radial_cell_count(layout)
         lnL = coulomb_logarithm(:electron_electron, term.coulomb_logarithm,
             20.0, T[ir], free_electron_density(plasma, ir))

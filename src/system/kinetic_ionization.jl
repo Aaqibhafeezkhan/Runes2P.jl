@@ -154,7 +154,7 @@ function add_jacobian!(J, term::KineticIonizationTerm, u, layout, row, t)
             nothing
         else
             D = ForwardDiff.Dual{PlasmaColumnTag, Float64, 1}
-            T = radial_values(u, layout, unknown_id(layout, only(temperature)))[ir]
+            T = unknown_values(u, layout, unknown_id(layout, only(temperature)))[ir]
             p0 = term.envelopes.region.limit.factor *
                  sqrt(2 * D(T, ForwardDiff.Partials((1.0,))) /
                       Constants.ELECTRON_REST_ENERGY)
@@ -224,7 +224,7 @@ function threshold_split(term::KineticIonizationTerm, ir, u, layout, t)
     temperature = _region_unknowns(term.envelopes)
     isempty(temperature) &&
         throw(ArgumentError("the split of the ionization needs a region whose threshold follows the temperature unknown"))
-    T = radial_values(u, layout, unknown_id(layout, only(temperature)))[ir]
+    T = unknown_values(u, layout, unknown_id(layout, only(temperature)))[ir]
     m = momentum_grid(term.grid, ir)
     theta = T / Constants.ELECTRON_REST_ENERGY
     W = vec(sum(term.weights[ir]; dims = 2))
@@ -486,7 +486,7 @@ end
 
 function _radius_temperature(term::SecondaryHeatingTerm, u, layout, ir)
     isempty(_region_temperature_name(term)) ? 0.0 :
-    radial_values(u, layout, unknown_id(layout, only(_region_temperature_name(term))))[ir]
+    unknown_values(u, layout, unknown_id(layout, only(_region_temperature_name(term))))[ir]
 end
 
 function rhs!(out, term::SecondaryHeatingTerm, u, layout, row, t)
@@ -592,6 +592,6 @@ function ionization_energy_flows(
         return (potential = potential, secondaries = nothing)
     heating = SecondaryHeatingTerm(kinetic; widths, spectrum)
     row = unknown_id(layout, heating.temperature)
-    secondaries = radial_values(rhs!(zeros(length(u)), heating, u, layout, row, t), layout, row)
+    secondaries = unknown_values(rhs!(zeros(length(u)), heating, u, layout, row, t), layout, row)
     return (potential = potential, secondaries = collect(secondaries))
 end

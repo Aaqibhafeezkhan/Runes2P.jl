@@ -26,8 +26,8 @@ using SparseArrays: findnz
             RadialUnknown(:cold_electron_density; scale = 1e19)])
     u = zeros(length(layout))
     kinetic_array(u, layout, 1) .= f
-    radial_values(u, layout, 2) .= T0
-    radial_values(u, layout, 3) .= n
+    unknown_values(u, layout, 2) .= T0
+    unknown_values(u, layout, 3) .= n
     fp(lagged) = FokkerPlanckTerm(:runaway,
         AdvectionDiffusion(grid; scheme = :exponential_fitting, p_upper_boundary = :f_zero);
         plasma = PlasmaFromUnknowns(base), settings, lagged)
@@ -90,7 +90,7 @@ using SparseArrays: findnz
         @test Runes2P.dependencies(term) == [:runaway]
         Runes2P.prepare_step!(term, u, layout, 2, 0.0)
         hotter = copy(u)
-        radial_values(hotter, layout, 2) .= 2T0
+        unknown_values(hotter, layout, 2) .= 2T0
         power(state) = Runes2P.rhs!(zeros(length(u)), term, state, layout, 2, 0.0)[first(Runes2P.unknown_range(
             layout, 2, 1))]
         @test power(hotter) == power(u)
@@ -108,7 +108,7 @@ using SparseArrays: findnz
         state = zeros(length(flat))
         kinetic_array(state, flat, 1) .= 1e14
         # the radial unknowns come before the kinetic ones in the state: read them by name
-        flux(weight) = only(radial_values(
+        flux(weight) = only(unknown_values(
             Runes2P.rhs!(
                 zeros(length(state)), MomentumBoundaryFluxTerm(:runaway, op; weight),
                 state, flat, 2, 0.0),
@@ -136,7 +136,7 @@ using SparseArrays: findnz
         kinetic_array(w, two, 2) .= 1e13
         term = InterfaceEnergyFluxTerm(interface)
         Runes2P.validate(term, two, 3)
-        out = only(radial_values(Runes2P.rhs!(zeros(length(w)), term, w, two, 3, 0.0), two, 3))
+        out = only(unknown_values(Runes2P.rhs!(zeros(length(w)), term, w, two, 3, 0.0), two, 3))
         crossing = interface_flux(interface, w, two, 1)
         @test crossing != 0
         @test out ≈ -energy_of(momentum_grid(hot).p_centers[end]) * crossing rtol = 1e-13

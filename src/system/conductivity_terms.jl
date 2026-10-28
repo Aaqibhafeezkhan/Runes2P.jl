@@ -399,8 +399,8 @@ end
 function _add_state_conductivity!(out, term::ConductivityTerm, u, layout, row, t)
     model = term.model
     base = _term_plasma(plasma_values(model.plasma.prescribed, u, layout, t), model.plasma.ions, u, layout)
-    temperature = radial_values(u, layout, unknown_id(layout, model.plasma.temperature))
-    field = radial_values(u, layout, unknown_id(layout, term.electric_field))
+    temperature = unknown_values(u, layout, unknown_id(layout, model.plasma.temperature))
+    field = unknown_values(u, layout, unknown_id(layout, term.electric_field))
     for ir in 1:radial_cell_count(layout)
         T = temperature[ir]
         _value(T) > model.plasma.temperature_floor ||

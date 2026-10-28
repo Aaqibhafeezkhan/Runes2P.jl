@@ -50,9 +50,9 @@
                 nonnegative = true)])
     function state(T_e, T_i)
         u = zeros(length(layout))
-        radial_values(u, layout, 1) .= T_e
-        radial_values(u, layout, 2) .= n_e
-        radial_values(u, layout, 3) .= THERMAL_ENERGY_FACTOR * n_e * T_e
+        unknown_values(u, layout, 1) .= T_e
+        unknown_values(u, layout, 2) .= n_e
+        unknown_values(u, layout, 3) .= THERMAL_ENERGY_FACTOR * n_e * T_e
         set_ion_thermal_energy!(u, layout, plasma, T_i)
         return u
     end
@@ -121,8 +121,8 @@
                 RadialUnknown(:cold_electron_density),
                 RadialUnknown(:ion_thermal_energy; components = 2, nonnegative = true)])
         v = zeros(length(small))
-        radial_values(v, small, 1) .= 10.0
-        radial_values(v, small, 2) .= 1e20
+        unknown_values(v, small, 1) .= 10.0
+        unknown_values(v, small, 2) .= 1e20
         set_ion_thermal_energy!(v, small, cold, [1000.0, 900.0])
         received(kind; ion_ion = true) = Runes2P.rhs!(zeros(length(v)),
             IonEnergyExchangeTerm(cold; side = :ions, ion_ion, ion_coulomb_logarithm = kind),

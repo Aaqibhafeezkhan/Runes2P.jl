@@ -220,12 +220,12 @@ Base.@propagate_inbounds Base.getindex(a::LayoutRadialValues, ir::Int) = a.state
 Base.@propagate_inbounds Base.setindex!(a::LayoutRadialValues, x, ir::Int) = (a.state[a.offsets[ir] + 1] = x)
 
 """
-    radial_values(u, layout, id)
+    unknown_values(u, layout, id)
 
 [`LayoutRadialValues`](@ref) of the radial unknown `id`, which has one component, in the
-state `u`.
+state `u`. Unlike [`unknown_view`](@ref), it takes the unknown by id and spans all radii.
 """
-function radial_values(u::AbstractVector, layout::UnknownLayout, id::Integer)
+function unknown_values(u::AbstractVector, layout::UnknownLayout, id::Integer)
     layout.kinds[id] === :radial && layout.sizes[id, 1] == 1 ||
         throw(ArgumentError("$(layout.unknowns[id].name) is not a radial unknown with one component"))
     return LayoutRadialValues(u, layout.radius_offsets[id])
@@ -233,7 +233,7 @@ end
 
 # the electric field of the state for a term: nothing when the term has none as an unknown
 _field_values(::Nothing, u, layout) = nothing
-_field_values(name::Symbol, u, layout) = radial_values(u, layout, unknown_id(layout, name))
+_field_values(name::Symbol, u, layout) = unknown_values(u, layout, unknown_id(layout, name))
 
 function _equally_spaced(offsets)
     for k in 3:length(offsets)

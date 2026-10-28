@@ -75,13 +75,13 @@ import ForwardDiff
             density_row([n]), thermal_energy_equation(), total_energy_equation(:f, grid; region)]
         u0 = zeros(length(layout))
         kinetic_array(u0, layout, 1) .= f0
-        radial_values(u0, layout, 2) .= T0
-        radial_values(u0, layout, 3) .= n
+        unknown_values(u0, layout, 2) .= T0
+        unknown_values(u0, layout, 3) .= n
         system = EquationSystem(layout, equations; time_scale = 1e-7, initial_state = u0)
         dt = 5e-8
         solution = integrate(system, u0, [0.0, dt]; stepper = FixedSteps())
-        W_cold = [radial_values(solution.states[:, k], layout, 4)[1] for k in 1:2]
-        W_tot = [radial_values(solution.states[:, k], layout, 5)[1] for k in 1:2]
+        W_cold = [unknown_values(solution.states[:, k], layout, 4)[1] for k in 1:2]
+        W_tot = [unknown_values(solution.states[:, k], layout, 5)[1] for k in 1:2]
         # the total holds (no source in the row of the temperature), and the cold electrons
         # gain what the tail loses
         @test W_tot[2] ≈ W_tot[1] rtol = 1e-10
@@ -90,7 +90,7 @@ import ForwardDiff
             zeros(length(u0)), EnergyMomentTerm(:f, grid; region), solution.states[:, 1],
             layout, 5, 0.0)[Runes2P.unknown_range(layout, 5, 1)]) rtol = 1e-12
         f1 = kinetic_array(solution.states[:, 2], layout, 1)
-        T1 = radial_values(solution.states[:, 2], layout, 2)[1]
+        T1 = unknown_values(solution.states[:, 2], layout, 2)[1]
         p_th = 5 * sqrt(2 * T1 / Constants.ELECTRON_REST_ENERGY)
         V = phase_space_jacobian(grid, 1)
         friction = sum(4π * n * r0^2 * me * c^3 *
@@ -204,8 +204,8 @@ import ForwardDiff
             kinetic_view(u, layout, 1, ir) .= [1e16 * exp(-((p - 0.38) / 0.05)^2)
                                                for p in m.p_centers, _ in 1:2]
         end
-        radial_values(u, layout, 2) .= T0
-        radial_values(u, layout, 3) .= n
+        unknown_values(u, layout, 2) .= T0
+        unknown_values(u, layout, 3) .= n
         loss(boundary) = Runes2P.rhs!(zeros(length(u)),
             KineticEnergyLossTerm(fp(boundary); part = :sinks, region = nothing),
             u, layout, 2, 0.0)[Runes2P.unknown_range(layout, 2, 1)]
@@ -244,16 +244,16 @@ import ForwardDiff
             density_row([n]), thermal_energy_equation(), total_energy_equation(:f, grid; region)]
         u0 = zeros(length(layout))
         kinetic_array(u0, layout, 1) .= hot
-        radial_values(u0, layout, 2) .= T0
-        radial_values(u0, layout, 3) .= n
+        unknown_values(u0, layout, 2) .= T0
+        unknown_values(u0, layout, 3) .= n
         # the temperature is determined through W_tot ← W_cold ← T although the threshold is fixed
         system = EquationSystem(layout, equations; initial_state = u0)
         times = collect(range(0.0, 1e-3; length = 11))
         solution = integrate(system, u0, times; stepper = FixedSteps())
         W = solution.states[:, 1]
-        @test radial_values(W, layout, 5)[1] / radial_values(W, layout, 4)[1] > 90
+        @test unknown_values(W, layout, 5)[1] / unknown_values(W, layout, 4)[1] > 90
         for (k, t) in enumerate(times)
-            @test radial_values(solution.states[:, k], layout, 2)[1] ≈
+            @test unknown_values(solution.states[:, k], layout, 2)[1] ≈
                   T0 - P * t / (THERMAL_ENERGY_FACTOR * n) rtol = 1e-7
         end
         # without the chain, nothing would determine the temperature: its row holds the
@@ -329,13 +329,13 @@ import ForwardDiff
               for p in momentum_grid(grid).p_centers, _ in 1:6, _ in 1:1]
         f0 .*= n / density(grid, f0)[1]
         kinetic_array(u0, layout, unknown_id(layout, :f)) .= f0
-        radial_values(u0, layout, unknown_id(layout, :electric_field)) .= E0
-        radial_values(u0, layout, unknown_id(layout, :cold_electron_temperature)) .= T0
-        radial_values(u0, layout, unknown_id(layout, :cold_electron_density)) .= n
+        unknown_values(u0, layout, unknown_id(layout, :electric_field)) .= E0
+        unknown_values(u0, layout, unknown_id(layout, :cold_electron_temperature)) .= T0
+        unknown_values(u0, layout, unknown_id(layout, :cold_electron_density)) .= n
         system = EquationSystem(layout, equations; time_scale = 1e-6, initial_state = u0)
         times = collect(range(0.0, 2e-5; length = 21))     # about 4 collision times per step
         solution = integrate(system, u0, times; stepper = FixedSteps())
-        value(k, name) = only(radial_values(solution.states[:, k], layout, unknown_id(layout, name)))
+        value(k, name) = only(unknown_values(solution.states[:, k], layout, unknown_id(layout, name)))
         rate = (value(21, :total_electron_energy) - value(11, :total_electron_energy)) /
                (times[21] - times[11])
         T_mid = value(16, :cold_electron_temperature)
@@ -358,7 +358,7 @@ import ForwardDiff
         changed = copy(solution.states[:, 21])
         kinetic_array(changed, layout, unknown_id(layout, :f)) .= df
         row = unknown_id(layout, :hot_electron_density)
-        work = only(radial_values(
+        work = only(unknown_values(
             Runes2P.rhs!(zeros(length(changed)),
                 EnergyMomentTerm(:f, grid; region), changed, layout, row,
                 times[end]),

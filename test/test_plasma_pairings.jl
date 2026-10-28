@@ -228,8 +228,8 @@
                             LinearTerm(:cold_electron_temperature; coefficient = -1))]
                     u0 = zeros(length(lay))
                     set_ion_densities!(u0, lay, [IonSpecies("D", 1, 1, fill(1e19, nr))])
-                    radial_values(u0, lay, 2) .= 1e19
-                    radial_values(u0, lay, 3) .= 5.0
+                    unknown_values(u0, lay, 2) .= 1e19
+                    unknown_values(u0, lay, 3) .= 5.0
                     sys = EquationSystem(lay, eqs; time_scale = 1e-7, initial_state = u0)
                     ws = NewtonWorkspace(sys)
                     entries = reduce(vcat,
@@ -250,7 +250,7 @@
                 u = copy(u0)
                 @test newton_solve!(u, u0, NewtonWorkspace(sys), 0.0, 1e-7).status ===
                       :converged
-                @test radial_values(u, sys.layout, 3) ≈ fill(0.3, nr)
+                @test unknown_values(u, sys.layout, 3) ≈ fill(0.3, nr)
             end
             # 9: the fluid terms say what to do with a plasma from the unknowns
             @test_throws "keywords temperature, density and ions" RadiatedPowerTerm(PlasmaFromUnknowns(prescribed))
