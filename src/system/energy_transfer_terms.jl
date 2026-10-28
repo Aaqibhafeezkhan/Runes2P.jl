@@ -68,13 +68,13 @@ function KineticEnergyLossTerm(source::FokkerPlanckTerm; part::Symbol = :free_el
 end
 
 """
-    FreeElectronEnergyTransferTerm(source::FokkerPlanckTerm)
+    free_electron_energy_transfer_term(source::FokkerPlanckTerm)
 
 The power that the electrons of the unknown of `source` give to the free cold electrons by
 collisions: [`KineticEnergyLossTerm`](@ref) with `part = :free_electrons`, the transfer from
 the runaway grid to the cold electrons.
 """
-function FreeElectronEnergyTransferTerm(source::FokkerPlanckTerm)
+function free_electron_energy_transfer_term(source::FokkerPlanckTerm)
     KineticEnergyLossTerm(source; part = :free_electrons)
 end
 
@@ -150,7 +150,7 @@ function _loss_operators(term::KineticEnergyLossTerm, grid, plasma)
     C === Float64 || (collisions = similar_coefficients(collisions, C))
     set_fokker_planck_coefficients!(
         collisions, plasma, term.source.settings; synchrotron = term.source.synchrotron,
-        electric_field = false)
+        field_in_coefficients = false)
     return (collisions, free)
 end
 

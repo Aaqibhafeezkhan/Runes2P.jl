@@ -279,7 +279,7 @@ end
             ions = [IonSpecies("D", 1, 1, fill(1e19, 2))],
             electric_field = zeros(2), magnetic_field = fill(5.0, 2))
         settings = CollisionSettings(mode = :superthermal, screening = :complete)
-        prescribed = PrescribedFokkerPlanckTerm(:hot_tail_distribution,
+        prescribed = prescribed_fokker_planck_term(:hot_tail_distribution,
             AdvectionDiffusion(hot; p_upper_boundary = :interface), t -> plasma;
             settings)
         upper = fokker_planck_operator(runaway, plasma, settings; p_lower_boundary = :interface)

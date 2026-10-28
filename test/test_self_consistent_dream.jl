@@ -106,12 +106,12 @@ const DREAM_SELF_CONSISTENT_DATA = reference_file("dream_self_consistent_field.h
                   data[:ohmic_current_density][:, 1] rtol = 1e-11
             hot_operator = fokker_planck_operator(
                 hot, plasma, settings; synchrotron = true, scheme = :central,
-                p_upper_boundary = :interface, electric_field = false)
+                p_upper_boundary = :interface, field_in_coefficients = false)
             # DREAM's default at the p_max of the runaway grid: BC_PHI_CONST
             runaway_operator = fokker_planck_operator(
                 runaway, plasma, settings; synchrotron = true, scheme = :central,
                 p_lower_boundary = :interface, p_upper_boundary = :constant_flux,
-                electric_field = false)
+                field_in_coefficients = false)
             hot_term = FokkerPlanckTerm(:hot_tail_distribution, hot_operator; electric_field = :electric_field)
             runaway_term = FokkerPlanckTerm(
                 :runaway_distribution, runaway_operator; electric_field = :electric_field)

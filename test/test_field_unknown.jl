@@ -58,7 +58,7 @@ end
             grid, plasma, settings; scheme, p_upper_boundary, synchrotron = true)
         free = fokker_planck_operator(
             grid, plasma, settings; scheme, p_upper_boundary, synchrotron = true,
-            electric_field = false)
+            field_in_coefficients = false)
         # the operator without the field holds the collisions and the radiation alone
         without_field = fokker_planck_operator(
             grid, with_electric_field(plasma, zeros(3)), settings; scheme,
@@ -98,7 +98,7 @@ end
 
     @testset "term and stored Jacobian ($scheme)" for scheme in (:central, :exponential_fitting, :tcdf)
         free = fokker_planck_operator(
-            grid, plasma, settings; scheme, electric_field = false)
+            grid, plasma, settings; scheme, field_in_coefficients = false)
         prescribed = fokker_planck_operator(grid, plasma, settings; scheme)
         layout, system, term = field_system(free)
         @test dependencies(term) == [:hot_tail_distribution, :electric_field]
@@ -161,7 +161,7 @@ end
 
     @testset "approximate Jacobian modes with the field ($jacobian)" for jacobian in (:frozen_limiter, :upwind)
         free = fokker_planck_operator(
-            grid, plasma, settings; scheme = :tcdf, electric_field = false)
+            grid, plasma, settings; scheme = :tcdf, field_in_coefficients = false)
         layout, system, term = field_system(free; jacobian)
         @test jacobian_kind(term) === :approximate
         f_id, field_id = unknown_id(layout, :hot_tail_distribution),
@@ -198,7 +198,7 @@ end
     @testset "a run with the field as an unknown" begin
         times = collect(range(0, 2e-5; length = 11))
         prescribed = fokker_planck_operator(grid, plasma, settings)
-        free = fokker_planck_operator(grid, plasma, settings; electric_field = false)
+        free = fokker_planck_operator(grid, plasma, settings; field_in_coefficients = false)
         alone = UnknownLayout(rad, [KineticUnknown(:hot_tail_distribution, grid; scale = 1e16)])
         reference = integrate(
             EquationSystem(alone,
@@ -244,7 +244,7 @@ end
         layout = UnknownLayout(rad,
             [RadialUnknown(:electric_field), KineticUnknown(:hot_tail_distribution, grid)])
         operator = AdvectionDiffusion(grid; scheme = :exponential_fitting, p_upper_boundary = :f_zero)
-        term = PrescribedFokkerPlanckTerm(
+        term = prescribed_fokker_planck_term(
             :hot_tail_distribution, operator, plasma_at; settings,
             electric_field = :electric_field)
         system = EquationSystem(layout,
@@ -288,7 +288,7 @@ end
         alone = EquationSystem(
             UnknownLayout(rad, [KineticUnknown(:hot_tail_distribution, grid)]),
             [Equation(:hot_tail_distribution, TimeDerivative(),
-                PrescribedFokkerPlanckTerm(:hot_tail_distribution,
+                prescribed_fokker_planck_term(:hot_tail_distribution,
                     AdvectionDiffusion(grid; scheme = :exponential_fitting,
                         p_upper_boundary = :f_zero),
                     with_field; settings))])
@@ -300,7 +300,7 @@ end
 
     @testset "the operator must not hold the field as well" begin
         with_field = fokker_planck_operator(grid, plasma, settings)
-        @test_throws "electric_field = false" FokkerPlanckTerm(
+        @test_throws "field_in_coefficients = false" FokkerPlanckTerm(
             :hot_tail_distribution, with_field;
             electric_field = :electric_field)
         # a plasma without a field, or coefficients set by hand, are accepted
@@ -366,9 +366,10 @@ end
         function operators(; electric_field)
             (
                 fokker_planck_operator(
-                    hot, plasma, settings; p_upper_boundary = :interface, electric_field),
+                    hot, plasma, settings; p_upper_boundary = :interface,
+                    field_in_coefficients = electric_field),
                 fokker_planck_operator(runaway, plasma, settings;
-                    p_lower_boundary = :interface, electric_field))
+                    p_lower_boundary = :interface, field_in_coefficients = electric_field))
         end
         function system_of(; unknown_field)
             hot_operator, runaway_operator = operators(; electric_field = !unknown_field)

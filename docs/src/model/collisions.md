@@ -36,7 +36,7 @@ The interpolation of ``f`` to the faces is the scheme of the operator (see [Posi
 
 An electric field that is an unknown of the system does not enter the coefficients.
 The operator then holds the coefficients of a unit field ([`set_unit_field_coefficients!`](@ref)), and the [`FokkerPlanckTerm`](@ref) multiplies them by the field of each radius.
-A plasma that changes in time rebuilds the coefficients through [`set_fokker_planck_coefficients!`](@ref), with the scheme and the boundary conditions kept ([`PrescribedFokkerPlanckTerm`](@ref)).
+A plasma that changes in time rebuilds the coefficients through [`set_fokker_planck_coefficients!`](@ref), with the scheme and the boundary conditions kept ([`prescribed_fokker_planck_term`](@ref)).
 With a plasma read from the unknowns ([`PlasmaFromUnknowns`](@ref)) the term is nonlinear, and its keyword `lagged` selects the part of the plasma taken at the start of the step.
 The default `lagged = :ions` is a choice of this package (see [Choices of this package](../choices.md)).
 

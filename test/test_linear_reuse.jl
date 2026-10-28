@@ -19,7 +19,7 @@ function reuse_case(scheme; radii = 1)
     operator = AdvectionDiffusion(g; scheme, p_upper_boundary = :f_zero)
     system = EquationSystem(layout,
         [Equation(:f, TimeDerivative(),
-            PrescribedFokkerPlanckTerm(:f, operator, plasma_at))])
+            prescribed_fokker_planck_term(:f, operator, plasma_at))])
     return system, vec(f0)
 end
 

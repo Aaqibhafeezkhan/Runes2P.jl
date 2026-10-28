@@ -34,7 +34,7 @@ using SparseArrays: findnz
 
     @testset "the friction of runaways on the cold electrons" begin
         # v F_s = 4π n r₀² mₑc³ lnΛ_ee(p) γ/p per superthermal electron on cold free electrons
-        term = FreeElectronEnergyTransferTerm(fp(:ions))
+        term = free_electron_energy_transfer_term(fp(:ions))
         Runes2P.validate(term, layout, 2)
         power = Runes2P.rhs!(zeros(length(u)), term, u, layout, 2, 0.0)[first(Runes2P.unknown_range(
             layout, 2, 1))]
@@ -57,7 +57,7 @@ using SparseArrays: findnz
         system(lagged, collisions = fp(lagged)) = EquationSystem(layout,
             [Equation(:runaway, TimeDerivative(), collisions),
                 Equation(:cold_electron_temperature, Algebraic(),
-                    FreeElectronEnergyTransferTerm(collisions),
+                    free_electron_energy_transfer_term(collisions),
                     LinearTerm(:cold_electron_temperature; coefficient = -1e3)),
                 Equation(:cold_electron_density, Algebraic(), PrescribedValueTerm([n]),
                     LinearTerm(:cold_electron_density; coefficient = -1))];
@@ -86,7 +86,7 @@ using SparseArrays: findnz
                   ((F_up .- F_down) ./ (2h))[first(Runes2P.unknown_range(layout, 2, 1))] rtol = 1e-6
         end
         # lagged: the plasma of the start of the step, so a changed temperature changes nothing
-        term = FreeElectronEnergyTransferTerm(fp(:all))
+        term = free_electron_energy_transfer_term(fp(:all))
         @test Runes2P.dependencies(term) == [:runaway]
         Runes2P.prepare_step!(term, u, layout, 2, 0.0)
         hotter = copy(u)

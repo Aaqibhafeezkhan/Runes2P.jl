@@ -31,7 +31,7 @@ end
         op = AdvectionDiffusion(g; scheme, p_upper_boundary = :f_zero)
         return EquationSystem(layout,
             [Equation(:f, TimeDerivative(),
-                PrescribedFokkerPlanckTerm(:f, op, plasma_at; settings, jacobian))])
+                prescribed_fokker_planck_term(:f, op, plasma_at; settings, jacobian))])
     end
     function dense_jacobian(scheme; frozen = false)
         op = AdvectionDiffusion(g; scheme, p_upper_boundary = :f_zero)

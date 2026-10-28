@@ -13,14 +13,15 @@
 # where Dreicer generation becomes strong.
 
 """
-    thermal_momentum(T)
+    thermal_momentum(temperature)
 
-Thermal momentum `√(2T/mₑc²)` in units of `mₑc` for a temperature `T` in eV.
+Thermal momentum `√(2T/mₑc²)` in units of `mₑc` for the temperature `temperature` (`T`) in
+eV.
 """
-thermal_momentum(T) = sqrt(2 * T / Constants.ELECTRON_REST_ENERGY)
+thermal_momentum(temperature) = sqrt(2 * temperature / Constants.ELECTRON_REST_ENERGY)
 
 """
-    critical_field(density, coulomb_log)
+    critical_field(density, coulomb_logarithm)
 
 Connor-Hastie critical field `E_c = n e³ lnΛ / (4π ε₀² mₑ c²)` [V/m] (Connor and Hastie, Nucl.
 Fusion 15, 415 (1975), doi:10.1088/0029-5515/15/3/007) for an electron density `n` [m⁻³]
@@ -29,8 +30,8 @@ free electrons, and without screening the free plus the bound electrons (Hesslow
 Nucl. Fusion 59, 084004 (2019), doi:10.1088/1741-4326/ab26c2; DREAM's `Ec_free` and
 `Ec_tot`, `src/Equations/RunawayFluid.cpp:208-209`).
 """
-function critical_field(density, coulomb_log)
-    density * coulomb_log * Constants.ELEMENTARY_CHARGE^3 /
+function critical_field(density, coulomb_logarithm)
+    density * coulomb_logarithm * Constants.ELEMENTARY_CHARGE^3 /
     (4pi * Constants.VACUUM_PERMITTIVITY^2 * Constants.ELECTRON_MASS *
      Constants.SPEED_OF_LIGHT^2)
 end

@@ -217,12 +217,13 @@ function _adf11_block(table::ADF11Table, Z0)
 end
 
 """
-    adas_coefficient(table, Z0, n, T; extrapolation=:dream)
+    adas_coefficient(table, Z0, free_electron_density, temperature; extrapolation=:dream)
 
 The coefficient of `table` ([`ADF11Table`](@ref)) for the ion of charge `Z0` at the
-electron density `n` [m⁻³] and temperature `T` [eV], in m³/s (W m³ for `:plt` and
-`:prb`). Zero where the class has no such charge state (recombination of the neutral,
-ionization of the bare nucleus) and at `n ≤ 0` or `T ≤ 0`, as in DREAM.
+free-electron density `free_electron_density` (`n`) [m⁻³] and the temperature `temperature`
+(`T`) [eV], in m³/s (W m³ for `:plt` and `:prb`). Zero where the class has no such charge
+state (recombination of the neutral, ionization of the bare nucleus) and at `n ≤ 0` or
+`T ≤ 0`, as in DREAM.
 
 The coefficients are those of ADAS (H. P. Summers, The ADAS User Manual, version 2.6 (2004), http://www.adas.ac.uk, with the data of OpenADAS, https://open.adas.ac.uk).
 The interpolation is DREAM's (`src/ADASRateInterpolator.cpp`): GSL's bicubic interpolation of
@@ -236,13 +237,15 @@ this package; see the docs page *Choices of this package*).
 Derivatives with respect to `n` and `T` are exact through ForwardDiff, in place of DREAM's
 one-sided differences.
 """
-function adas_coefficient(
-        table::ADF11Table, Z0::Integer, n, T; extrapolation::Symbol = :dream)
+function adas_coefficient(table::ADF11Table, Z0::Integer, free_electron_density,
+        temperature; extrapolation::Symbol = :dream)
     extrapolation in (:dream, :clamp_density) ||
         throw(ArgumentError("extrapolation must be :dream or :clamp_density, not $extrapolation"))
     b = _adf11_block(table, Z0)
-    (b == 0 || n <= 0 || T <= 0) && return zero(float(n * T))
-    return exp10(_adf11_log_value(table, b, log10(n), log10(T), extrapolation))
+    (b == 0 || free_electron_density <= 0 || temperature <= 0) &&
+        return zero(float(free_electron_density * temperature))
+    return exp10(_adf11_log_value(
+        table, b, log10(free_electron_density), log10(temperature), extrapolation))
 end
 
 # log₁₀ of the coefficient of block b at x = log₁₀ n, y = log₁₀ T: bicubic inside the table,

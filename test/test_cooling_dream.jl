@@ -55,7 +55,7 @@ end
                 operator = AdvectionDiffusion(g; scheme, p_upper_boundary = :f_zero)
                 system = EquationSystem(layout,
                     [Equation(:f, TimeDerivative(),
-                        PrescribedFokkerPlanckTerm(
+                        prescribed_fokker_planck_term(
                             :f, operator, plasma_at; settings, synchrotron = false))])
                 solution = integrate(system, vec(f0), times; save_times)
                 @test all(solution.statistics.accepted)

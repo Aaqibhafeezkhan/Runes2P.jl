@@ -23,10 +23,10 @@
         @test_throws "misses the change of the electron-electron part" check(
             fp(:ions), field_particle(from_unknowns))
         # a prescribed plasma on both: the same kind of source
-        @test check(PrescribedFokkerPlanckTerm(:f, operator(), base; settings), field_particle(base)) ===
+        @test check(prescribed_fokker_planck_term(:f, operator(), base; settings), field_particle(base)) ===
               nothing
         @test_throws "different sources" check(
-            PrescribedFokkerPlanckTerm(:f, operator(), base; settings),
+            prescribed_fokker_planck_term(:f, operator(), base; settings),
             field_particle(nothing))
         @test_throws "different sources" check(FokkerPlanckTerm(:f, operator(); settings), field_particle(base))
         # one of the two following the unknowns, the other one fixed
@@ -132,8 +132,8 @@
                 temperature; factor))
             # the split at 7 thermal momenta, the minimum with CHIANTI's cross sections
             k = KineticIonizationTerm(c, :f, g; region = region(7))
-            rate = IonRateTerm(c; kinetic = k)
-            radiation = RadiatedPowerTerm(prescribed; ions = :ion_densities, kinetic = k)
+            rate = IonRateTerm(c; kinetic_ionization = k)
+            radiation = RadiatedPowerTerm(prescribed; ions = :ion_densities, kinetic_ionization = k)
             closure = population_equations(c)
             ions(terms...) = Equation(:ion_densities, TimeDerivative(), terms...)
             temperature(terms...) = Equation(:cold_electron_temperature, TimeDerivative(), terms...)
@@ -143,7 +143,7 @@
             # 1: the kinetic part of the split is a term of the system, of the same ions
             @test_throws "not a term of the system" paired(ions(rate), temperature(radiation))
             @test_throws "same ion unknown" Runes2P._check_plasma_pairings([
-                ions(IonRateTerm(c; ions = :other_ions, kinetic = k), k), population_equations(
+                ions(IonRateTerm(c; ions = :other_ions, kinetic_ionization = k), k), population_equations(
                     c; ions = :other_ions)..., closure...])
             # 2: the binding energy at the rate of the rate equations
             @test_throws "split the ionization differently" paired(ions(rate, k),
@@ -156,7 +156,7 @@
                 Equation(:n_hot, Algebraic(), DensityMomentTerm(:f, g; region = region(5))))
             # 4: the threshold reads the temperature of the rates
             hot = KineticIonizationTerm(c, :f, g; region = region(7; temperature = :other_temperature))
-            @test_throws ArgumentError paired(ions(IonRateTerm(c; kinetic = hot), hot))
+            @test_throws ArgumentError paired(ions(IonRateTerm(c; kinetic_ionization = hot), hot))
             @test_throws ArgumentError paired(ions(rate, k),
                 temperature(radiation, SecondaryHeatingTerm(k; temperature = :other)))
             # 5: no kinetic ionization without the closure of the cold density
@@ -276,7 +276,7 @@
             @test_throws "different thresholds" paired(base_system..., sinks(region(5)))
             # 12: the rates and the binding energy from the same extrapolation of the tables
             @test_throws "extrapolations" paired(
-                ions(IonRateTerm(c; kinetic = k, extrapolation = :clamp_density), k),
+                ions(IonRateTerm(c; kinetic_ionization = k, extrapolation = :clamp_density), k),
                 temperature(radiation))
         end
     end

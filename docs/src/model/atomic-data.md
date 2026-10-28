@@ -22,7 +22,7 @@ The terms of OPEN-ADAS do not allow the data to be redistributed with a modellin
 No file is part of the repository, and `scripts/fetch_adas.py` fills the cache on a machine with internet access.
 No equation term takes the charge-exchange coefficients.
 
-[`adas_coefficient`](@ref) evaluates a coefficient at the electron density ``n`` and temperature ``T`` with DREAM's interpolation (`src/ADASRateInterpolator.cpp`).
+[`adas_coefficient`](@ref) evaluates a coefficient at the free-electron density ``n`` and the temperature ``T`` with DREAM's interpolation (`src/ADASRateInterpolator.cpp`).
 Inside the table it is the bicubic interpolation of ``\log_{10}`` of the coefficient in ``\log_{10} n`` and ``\log_{10} T``, with the node derivatives of natural cubic splines, as GSL's bicubic interpolation.
 Outside the table, `extrapolation = :dream` continues the bilinear interpolation of the edge cell linearly.
 The value jumps at the table edge between nodes, where the bicubic and the bilinear interpolations differ.
@@ -89,7 +89,7 @@ The cross sections are tabulated at the cell centres of the momentum grid of eac
 
 ### Cross sections
 
-[`ionization_cross_section`](@ref) has three forms, chosen by `cross_section_form` of the term and `ionization_cross_section_form` of [`CollisionSettings`](@ref).
+[`ionization_cross_section`](@ref) has three forms, chosen by `ionization_cross_section_form` of the term and of [`CollisionSettings`](@ref).
 
 `:dream` is DREAM's form with DREAM's parameters [`KINETIC_IONIZATION_FITS`](@ref), fitted to the SCD coefficients at zero density.
 At low energies it is the formula of A. Burgess and M. C. Chidichimo, Monthly Notices of the Royal Astronomical Society 203, 1269 (1983), [doi:10.1093/mnras/203.4.1269](https://doi.org/10.1093/mnras/203.4.1269).
@@ -144,8 +144,8 @@ The MeV asymptotes and the calculations of Bao and Li check the model.
 ### Split at the hot threshold
 
 A kinetic ionization above a threshold next to the full ADAS rate of the cold electrons counts the Maxwellian tail above the threshold twice.
-That is DREAM's pairing (`src/Settings/Equations/ions.cpp`), and [`IonRateTerm`](@ref) without `kinetic` reproduces it.
-With `kinetic`, the term splits the ionization at the threshold of the [`KineticIonizationTerm`](@ref).
+That is DREAM's pairing (`src/Settings/Equations/ions.cpp`), and [`IonRateTerm`](@ref) without `kinetic_ionization` reproduces it.
+With `kinetic_ionization`, the term splits the ionization at the threshold of the [`KineticIonizationTerm`](@ref).
 [`Runes2P.threshold_split`](@ref) takes the Maxwellian at the cold temperature on the grid of the term and gives the fraction ``f_>`` of its density above the threshold and its rate coefficient ``A_>`` from the cross sections.
 The cold electrons below the threshold ionize at the coefficient of [`fluid_ionization_coefficient`](@ref):
 
@@ -160,7 +160,7 @@ It is negative where the cross sections give more ionization above the threshold
 It can turn negative when the threshold lies below the ionization energy of a populated state: then all of its ionization lies above the threshold.
 The split takes a threshold ``p_0 = k\, p_{\mathrm{th}}``, with the thermal momentum ``p_{\mathrm{th}} = \sqrt{2T/m_e c^2}`` (``T`` in energy units) of the temperature unknown ([`ThermalMomentum`](@ref)), so that the fluid coefficient follows the temperature.
 It refuses factors ``k`` below [`MINIMUM_SPLIT_THRESHOLD_FACTORS`](@ref): 7 with `:chianti`, 5 with `:dream` and `:bethe`, a choice of this package.
-[`RadiatedPowerTerm`](@ref) with `kinetic` takes the binding energy of the cold electrons at the same split coefficient.
+[`RadiatedPowerTerm`](@ref) with `kinetic_ionization` takes the binding energy of the cold electrons at the same split coefficient.
 
 Checks:
 

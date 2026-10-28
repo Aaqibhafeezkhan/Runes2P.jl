@@ -202,7 +202,7 @@ using QuadGK: quadgk
         else
             term = IonRateTerm(IonComposition(["D" => 1, "Ar" => 18]))
             n_e = 1e16
-            fraction(T) = coronal_equilibrium(term, 2, n_e, T; density = 1.0)
+            fraction(T) = coronal_equilibrium(term, 2, n_e, T; species_density = 1.0)
             mean_charge(T) = sum((0:18) .* fraction(T))
             function peak(z)
                 grid = 10 .^ range(log10(5.0), log10(3000.0); length = 1201)

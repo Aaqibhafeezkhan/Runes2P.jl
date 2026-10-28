@@ -101,7 +101,7 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
         grid = conductivity_grid(; cells, pitch_cells, T)
         plasma = conductivity_plasma(; Z, T, cold_fraction)
         operator = fokker_planck_operator(grid, plasma, settings; scheme, p_upper_boundary,
-            electric_field = false)
+            field_in_coefficients = false)
         return only(kinetic_conductivity(operator; density = get(kwargs, :density, [1e20]),
             pitch_rule = get(kwargs, :pitch_rule, :linear)))
     end
@@ -144,7 +144,7 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
               discrete(; scheme = :exponential_fitting) rtol = 1e-14
         constant_flux = fokker_planck_operator(
             conductivity_grid(), conductivity_plasma(), CONDUCTIVITY_SETTINGS;
-            p_upper_boundary = :constant_flux, electric_field = false)
+            p_upper_boundary = :constant_flux, field_in_coefficients = false)
         kinetic_conductivity(constant_flux; density = [1e20])
         @test constant_flux.p_upper_boundary === :constant_flux
         @test discrete(; pitch_rule = :cell_center) / values[1] ≈
@@ -163,7 +163,7 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
             electric_field = zeros(2), magnetic_field = zeros(2))
         both = kinetic_conductivity(fokker_planck_operator(
             radii, plasma, CONDUCTIVITY_SETTINGS; scheme = :central,
-            electric_field = false))
+            field_in_coefficients = false))
         @test both ≈ [values[1], values[2]] rtol = 1e-8
     end
 
@@ -185,7 +185,7 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
             ratio(settings) = only(kinetic_conductivity(fokker_planck_operator(
                 conductivity_grid(; T), plasma, settings;
                 scheme = :central,
-                electric_field = false))) / fit
+                field_in_coefficients = false))) / fit
             window = ratio(CollisionSettings(mode = :full, screening = :partial, coulomb_logarithm = :thermal))
             dream = ratio(CollisionSettings(
                 mode = :full, screening = :partial, coulomb_logarithm = :thermal,
@@ -225,7 +225,7 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
             single = conductivity_plasma(; T = 10.0)
 
             bulk(t) = conductivity_plasma(; T = 10.0 * exp(-t))
-            prescribed = PrescribedFokkerPlanckTerm(
+            prescribed = prescribed_fokker_planck_term(
                 :f, AdvectionDiffusion(grid), bulk; settings = CONDUCTIVITY_SETTINGS)
             model = ConductivityModel(single; kinetic = :discrete_operator, operator = prescribed)
             @test Runes2P.is_time_dependent(model)
@@ -245,7 +245,8 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
         # the pitch rule of the model is that of the current moment of its equation
         let grid = conductivity_grid(; cells = 20, T = 10.0),
             single = conductivity_plasma(; T = 10.0),
-            operator = fokker_planck_operator(grid, single, CONDUCTIVITY_SETTINGS; electric_field = false),
+            operator = fokker_planck_operator(
+                grid, single, CONDUCTIVITY_SETTINGS; field_in_coefficients = false),
             layout = UnknownLayout(grid.radial_grid,
                 [RadialUnknown(:electric_field), RadialUnknown(:ohmic_current_density),
                     KineticUnknown(:f, grid)])
@@ -349,7 +350,7 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
         grid = conductivity_grid(; cells = 120, T, minor_radius = 0.5)
         radial = grid.radial_grid
         plasma = conductivity_plasma(; T, ne)
-        operator = fokker_planck_operator(grid, plasma, CONDUCTIVITY_SETTINGS; electric_field = false)
+        operator = fokker_planck_operator(grid, plasma, CONDUCTIVITY_SETTINGS; field_in_coefficients = false)
         kinetic_term = FokkerPlanckTerm(:hot_tail_distribution, operator; electric_field = :electric_field)
         braams_karney = braams_karney_conductivity(plasma, 1)
         sigma_kinetic = only(kinetic_conductivity(operator))
@@ -414,14 +415,14 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
         # hot-tail operator takes f = 0 beyond its p_max, and the steady state of the two grids
         # has σ E as that of one grid.
         hot_operator = fokker_planck_operator(
-            grid, plasma, CONDUCTIVITY_SETTINGS; electric_field = false,
+            grid, plasma, CONDUCTIVITY_SETTINGS; field_in_coefficients = false,
             p_upper_boundary = :interface)
         @test only(kinetic_conductivity(hot_operator)) ≈ sigma_kinetic rtol = 1e-14
         runaway = runaway_grid(
             grid, uniform_p_faces(4, last(momentum_grid(grid, 1).p_faces), 1.0)[2:end],
             uniform_xi_faces(4))
         runaway_operator = fokker_planck_operator(
-            runaway, plasma, CONDUCTIVITY_SETTINGS; electric_field = false,
+            runaway, plasma, CONDUCTIVITY_SETTINGS; field_in_coefficients = false,
             p_lower_boundary = :interface)
         paired_hot_term = FokkerPlanckTerm(
             :hot_tail_distribution, hot_operator; electric_field = :electric_field)
@@ -489,7 +490,8 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
                         ConductivityTerm(:electric_field, ConductivityModel(plasma)),
                         minus(:total_current_density)))
             else
-                operator = fokker_planck_operator(grid, plasma, CONDUCTIVITY_SETTINGS; electric_field = false)
+                operator = fokker_planck_operator(
+                    grid, plasma, CONDUCTIVITY_SETTINGS; field_in_coefficients = false)
                 model = kind === :discrete ?
                         ConductivityModel(plasma; kinetic = :discrete_operator, operator) :
                         ConductivityModel(plasma; kinetic = :dream_fit)
@@ -553,7 +555,7 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
     @testset "correction and field-particle term" begin
         grid = conductivity_grid(; cells = 40)
         plasma = conductivity_plasma()
-        operator = fokker_planck_operator(grid, plasma, CONDUCTIVITY_SETTINGS; electric_field = false)
+        operator = fokker_planck_operator(grid, plasma, CONDUCTIVITY_SETTINGS; field_in_coefficients = false)
         restoring = FieldParticleTerm(:hot_tail_distribution,
             FieldParticleOperator(grid, plasma, CONDUCTIVITY_SETTINGS))
         layout = UnknownLayout(grid.radial_grid,

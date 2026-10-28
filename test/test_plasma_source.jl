@@ -64,7 +64,7 @@ end
         g = _source_grid()
         layout = UnknownLayout(g.radial_grid, [KineticUnknown(:f, g)])
         u = rand(Xoshiro(71), length(layout))
-        steady = PrescribedFokkerPlanckTerm(
+        steady = prescribed_fokker_planck_term(
             :f, AdvectionDiffusion(g; p_upper_boundary = :f_zero),
             t -> _source_plasma(10.0); settings = SOURCE_SETTINGS)
         @test steady isa FokkerPlanckTerm && Runes2P.has_plasma_source(steady)
@@ -72,7 +72,7 @@ end
             Runes2P.rhs!(zeros(length(layout)), steady, u, layout, 1, t)
         end
         @test steady.rebuilds[] == 1
-        cooling = PrescribedFokkerPlanckTerm(:f,
+        cooling = prescribed_fokker_planck_term(:f,
             AdvectionDiffusion(g; scheme = :exponential_fitting,
                 p_upper_boundary = :f_zero),
             _cooling(); settings = SOURCE_SETTINGS)
@@ -122,7 +122,7 @@ end
         # the conductivity of the discrete operator: one evaluation while neither the plasma
         # nor the operator changes
         nr2 = _source_grid()
-        operator = PrescribedFokkerPlanckTerm(
+        operator = prescribed_fokker_planck_term(
             :f, fokker_planck_operator(nr2, _source_plasma(10.0), SOURCE_SETTINGS),
             t -> _source_plasma(10.0); settings = SOURCE_SETTINGS)
         model = ConductivityModel(t -> _source_plasma(10.0); kinetic = :discrete_operator, operator)
@@ -132,7 +132,7 @@ end
         @test conductivity_at(term, 1e-6)[1] == -1.0
         cooling = ConductivityTerm(:E,
             ConductivityModel(_cooling(); kinetic = :discrete_operator,
-                operator = PrescribedFokkerPlanckTerm(:f,
+                operator = prescribed_fokker_planck_term(:f,
                     fokker_planck_operator(nr2, _source_plasma(10.0),
                         SOURCE_SETTINGS),
                     _cooling(); settings = SOURCE_SETTINGS)))
@@ -150,7 +150,7 @@ end
         fM .*= 1e20 ./ reshape(density(g, fM), 1, 1, :)
         E = 0.05
         function cooling_run(linear_solver)
-            fp = PrescribedFokkerPlanckTerm(
+            fp = prescribed_fokker_planck_term(
                 :f, AdvectionDiffusion(g; p_upper_boundary = :f_zero), _cooling(; E);
                 settings = SOURCE_SETTINGS)
             op = FieldParticleOperator(g, _source_plasma(10.0), SOURCE_SETTINGS)
@@ -208,7 +208,7 @@ end
         built = fokker_planck_operator(g, _source_plasma(10.0), custom; synchrotron = true)
         term = FokkerPlanckTerm(:f, built; plasma = _cooling())
         @test term.settings == custom && term.synchrotron
-        prescribed = PrescribedFokkerPlanckTerm(:f,
+        prescribed = prescribed_fokker_planck_term(:f,
             fokker_planck_operator(g, _source_plasma(10.0), custom; synchrotron = false),
             _cooling())
         @test prescribed.settings == custom && !prescribed.synchrotron
@@ -216,7 +216,7 @@ end
               CollisionSettings()
         # a conductivity model of the discrete operator that reads the bare operator of a
         # rebuilt term holds the coefficients of the last rebuild
-        fp = PrescribedFokkerPlanckTerm(
+        fp = prescribed_fokker_planck_term(
             :f, AdvectionDiffusion(g; p_upper_boundary = :f_zero), _cooling();
             settings = SOURCE_SETTINGS)
         conductivity(operator) = Equation(:ohmic_current_density, Algebraic(),
@@ -238,7 +238,7 @@ end
         # radial transport in a rebuilt operator is cleared by the rebuild
         with_transport = AdvectionDiffusion(g; p_upper_boundary = :f_zero)
         add_rechester_rosenbluth_diffusion!(with_transport, 1e-3; major_radius = 1.0)
-        transported = PrescribedFokkerPlanckTerm(:f, with_transport, _cooling(); settings = SOURCE_SETTINGS)
+        transported = prescribed_fokker_planck_term(:f, with_transport, _cooling(); settings = SOURCE_SETTINGS)
         @test_throws "radial transport" EquationSystem(layout,
             [Equation(:f, TimeDerivative(), transported),
                 field_rows..., conductivity(transported)])

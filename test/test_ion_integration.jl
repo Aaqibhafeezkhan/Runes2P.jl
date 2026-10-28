@@ -41,10 +41,10 @@
             AdvectionDiffusion(grid; scheme = :exponential_fitting, p_upper_boundary = :f_zero);
             plasma = source, settings = CollisionSettings(mode = :full, screening = :partial))
         kinetic = KineticIonizationTerm(composition, :f, grid; region)
-        radiation = RadiatedPowerTerm(prescribed; ions = :ion_densities, kinetic)
+        radiation = RadiatedPowerTerm(prescribed; ions = :ion_densities, kinetic_ionization = kinetic)
         equations = [
             Equation(:ion_densities, TimeDerivative(),
-                IonRateTerm(composition; kinetic), kinetic,
+                IonRateTerm(composition; kinetic_ionization = kinetic), kinetic,
                 IonDiffusionTerm(composition; diffusion = 1.0)),
             population_equations(composition; hot_density = :hot_electron_density)...,
             Equation(:hot_electron_density, Algebraic(),
@@ -161,12 +161,13 @@ function _neon_run(heating::Bool)
         settings = CollisionSettings(mode = :full, screening = :partial))
     kinetic = KineticIonizationTerm(composition, :f, grid; region)
     energy_terms = EquationTerm[
-        RadiatedPowerTerm(prescribed; ions = :ion_densities, kinetic),
+        RadiatedPowerTerm(prescribed; ions = :ion_densities, kinetic_ionization = kinetic),
         KineticEnergyLossTerm(fp; part = :sinks, region),
         MomentumBoundaryFluxTerm(:f, fp; weight = :energy, coefficient = -1)]
     heating && push!(energy_terms, SecondaryHeatingTerm(kinetic))
     equations = [
-        Equation(:ion_densities, TimeDerivative(), IonRateTerm(composition; kinetic), kinetic),
+        Equation(:ion_densities, TimeDerivative(),
+            IonRateTerm(composition; kinetic_ionization = kinetic), kinetic),
         population_equations(composition; hot_density = :hot_electron_density)...,
         Equation(:hot_electron_density, Algebraic(),
             DensityMomentTerm(:f, grid; region), minus(:hot_electron_density)),

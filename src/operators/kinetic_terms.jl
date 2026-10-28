@@ -156,7 +156,7 @@ end
     fokker_planck_operator(grid, plasma, settings; synchrotron=true,
                            scheme=:exponential_fitting, p_scheme=scheme, xi_scheme=scheme,
                            p_lower_boundary=:zero_flux, p_upper_boundary=:f_zero,
-                           r_boundary=:zero_flux, electric_field=true)
+                           r_boundary=:zero_flux, field_in_coefficients=true)
 
 Kinetic operator for the hot electrons: electric field, slowing down, pitch-angle
 scattering, energy diffusion (`:full` mode) and synchrotron losses. The default boundary
@@ -181,9 +181,9 @@ the operator of the runaway grid `p_lower_boundary = :interface` (a grid with
 `p_min > 0`, [`runaway_grid`](@ref)). The flux between the two is the
 [`MomentumInterfaceTerm`](@ref) of the equation system.
 
-`electric_field = false` leaves the field of the plasma out of the coefficients, for a
-field that is an unknown of the system: the operator holds the collisions
-and the coefficients of a unit field, and the term passes the field
+`field_in_coefficients = false` leaves the field of the plasma out of the coefficients, for
+a field that is an unknown of the system: the operator holds the collisions and the
+coefficients of a unit field, and the term passes the field
 ([`FokkerPlanckTerm`](@ref)`(...; electric_field = :electric_field)`).
 """
 function fokker_planck_operator(grid::KineticGrid, plasma::PlasmaState,
@@ -192,7 +192,7 @@ function fokker_planck_operator(grid::KineticGrid, plasma::PlasmaState,
         p_scheme::Symbol = scheme, xi_scheme::Symbol = scheme,
         p_lower_boundary::Symbol = :zero_flux,
         p_upper_boundary::Symbol = :f_zero, r_boundary::Symbol = :zero_flux,
-        electric_field::Bool = true)
+        field_in_coefficients::Bool = true)
     # DREAM replaces the electric-field advection by a diffusion term in the reduced
     # (pitch-averaged) equation; that form is not implemented. A grid with different cell
     # counts or p faces at different radii is refused by AdvectionDiffusion below.
@@ -201,7 +201,8 @@ function fokker_planck_operator(grid::KineticGrid, plasma::PlasmaState,
     op = AdvectionDiffusion(
         grid; scheme, p_scheme, xi_scheme, p_lower_boundary, p_upper_boundary, r_boundary)
     set_unit_field_coefficients!(op)
-    set_fokker_planck_coefficients!(op, plasma, settings; synchrotron, electric_field)
+    set_fokker_planck_coefficients!(
+        op, plasma, settings; synchrotron, field_in_coefficients)
     return op
 end
 
@@ -225,29 +226,31 @@ end
 
 """
     set_fokker_planck_coefficients!(op, plasma, settings=CollisionSettings(); synchrotron=true,
-                                    electric_field=true)
+                                    field_in_coefficients=true)
 
 Rebuild `op`'s coefficients in place from `plasma` and `settings`
 ([`zero_coefficients!`](@ref) then the same `add_*!` calls as
 [`fokker_planck_operator`](@ref)), for a Fokker-Planck term whose plasma state changes
-with time ([`PrescribedFokkerPlanckTerm`](@ref)). `op`'s scheme and
-boundary conditions are unchanged. `electric_field = false` leaves the field of the plasma
+with time ([`prescribed_fokker_planck_term`](@ref)). `op`'s scheme and
+boundary conditions are unchanged. `field_in_coefficients = false` leaves the field of the plasma
 out, for a field that is an unknown of the system. The synchrotron loss is on by default, as
 in [`fokker_planck_operator`](@ref).
 """
 function set_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaState,
         settings::CollisionSettings = CollisionSettings();
-        synchrotron::Bool = true, electric_field::Bool = true)
+        synchrotron::Bool = true, field_in_coefficients::Bool = true)
     radial_cell_count(plasma) == radial_cell_count(op.grid) ||
         throw(DimensionMismatch("plasma and grid radii differ"))
     zero_coefficients!(op)
     collisions = CollisionModel(plasma, settings;
         faces = [momentum_grid(op.grid, ir).p_faces for ir in 1:radial_cell_count(op.grid)])
-    electric_field && add_electric_field!(op, plasma)
+    field_in_coefficients && add_electric_field!(op, plasma)
     add_slowing_down!(op, collisions)
     add_pitch_scattering!(op, collisions)
     add_energy_diffusion!(op, collisions)
     synchrotron && add_synchrotron!(op, plasma)
-    op.coefficient_source[] = (; plasma, settings, synchrotron, electric_field)
+    # the key :electric_field is read by the settings record and the checks of the terms
+    op.coefficient_source[] = (;
+        plasma, settings, synchrotron, electric_field = field_in_coefficients)
     return op
 end

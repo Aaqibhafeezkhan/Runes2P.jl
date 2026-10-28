@@ -71,7 +71,7 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream, diffusivi
     # the cross sections of the kinetic ionization: DREAM's form and fits for compat = dream,
     # CHIANTI's continued by the Bethe theory for runes2p
     kinetic = KineticIonizationTerm(COMPOSITION, :f, grid; region,
-        cross_section_form = compat === :dream ? :dream : :chianti)
+        ionization_cross_section_form = compat === :dream ? :dream : :chianti)
     fluid_ions = (ions = :ion_densities,)
     # the exchange among the ions: DREAM's logarithm with T_e and DREAM's masses for compat =
     # dream, the NRL logarithm and the standard atomic weights for runes2p
@@ -79,7 +79,7 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream, diffusivi
                NamedTuple()
     # Gould's relativistic corrections of the bremsstrahlung: DREAM's for compat = dream
     gould = compat === :dream ? (bremsstrahlung_corrections = :dream,) : NamedTuple()
-    split = compat === :dream ? NamedTuple() : (kinetic = kinetic,)
+    split = compat === :dream ? NamedTuple() : (kinetic_ionization = kinetic,)
     external = ExternalAvalancheTerm(prescribed; p_cutoff = p_max, settings, fluid_ions...)
     internal = rosenbluth_putvinski_rate(P_CUT, p_max)
     nuclear(c) = Float64[Z for Z in c.nuclear_charges for _ in 0:Z]
@@ -105,7 +105,7 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream, diffusivi
         [
             # DREAM's fluid ionization takes the whole ADAS rate next to the kinetic one, so the tail of
             # the Maxwellian above the threshold ionizes twice (ions.cpp:280); Runes2P's split takes the
-            # cold electrons below the threshold alone (IonRateTerm with kinetic)
+            # cold electrons below the threshold alone (IonRateTerm with kinetic_ionization)
             Equation(:ion_densities, TimeDerivative(), IonRateTerm(COMPOSITION; split...), kinetic),
             population_equations(COMPOSITION; hot_density = :hot_electron_density,
                 runaway_density = :runaway_density)...,
