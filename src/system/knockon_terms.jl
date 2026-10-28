@@ -17,8 +17,7 @@ momentum grids at different radii.
   term is then the target density times a source fixed for the step, evaluated once per
   start state of a step ([`prepare_step!`](@ref)) and again after a change of the cutoff
   ([`set_cutoff!`](@ref)), and its Jacobian is the column of the target density at each
-  radius. With a prescribed target
-  density it is the same as `:explicit`.
+  radius. With a prescribed target density it is the same as `:explicit`.
 - `:explicit`: the whole term at the previous time level, target density included.
 - `:implicit`: the whole term at the new time level, matrix-free, since it couples all cells
   of a radius. Every Krylov iteration of [`GMRES`](@ref) applies the operator once, and the
@@ -36,7 +35,7 @@ struct KnockOnTerm{T, D} <: EquationTerm
     prepared::Base.RefValue{Bool}
     prepared_from::Vector{Matrix{T}}       # the primary of the last preparation, per radius
     preparations::Base.RefValue{Int}       # the applications of the kernel by prepare_step!
-    prepared_revision::Base.RefValue{Int}  # the revision of the operator at the last preparation
+    prepared_revision::Base.RefValue{Int}  # the operator's revision at the last preparation
 end
 
 function KnockOnTerm(primary::Symbol, operator::KnockOnOperator{T}; target_density,
