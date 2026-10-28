@@ -5,17 +5,18 @@ These rules hold for every contribution, by people and by coding agents alike.
 ## Branches and pull requests
 
 - Development happens on the branch `dev`.
-  Pull requests go to `dev`.
+  Pull requests go to `dev`, or to an integration branch (below).
 - `main` and `dev` change only through pull requests, and only the maintainer merges them.
   `main` is updated from `dev`.
-- A suggestion for branch names: `<type>/<topic>`, with the type one of `fix`, `feat`, `docs`, `ci`, `test`, `perf` or `chore`.
+- A suggestion for branch names: `<type>/<topic>`, with the type one of `fix`, `docs`, `ci`, `test`, `perf` or `chore`.
+  `feat/<topic>` names an integration branch only (below); a new feature in one pull request takes the type of its main change.
   The topic is a few lowercase words joined by hyphens, for example `fix/pmax-boundary`.
 - Open a pull request as a draft while it is in progress.
   The lint, the format check, the component tests and the docs build run on every push to a pull request.
   The full suite runs once a pull request into `dev` or `main` is marked ready, and again on every push after that.
-  A merge into `dev` or `main` runs these checks again, on `dev` with the deployment of the docs in place of the docs build.
+  A merge into `dev` or `main` runs the lint, the format check and the component tests again, on `dev` with the deployment of the docs in place of the docs build.
   The full suite runs on `dev` once a week.
-- Five checks are required for a merge: Markdown lint, Format check, Component tests, Documentation build and Full suite.
+- Five checks are required for a merge into `dev` or `main`: Markdown lint, Format check, Component tests, Documentation build and Full suite.
 - A pull request into `dev` must be up to date with `dev`.
 - A pull request into `dev` needs the approval of its latest push by the maintainer; a later push dismisses it.
   Coding agents never approve a pull request, and merge one only into an integration branch (below).
@@ -28,8 +29,9 @@ These rules hold for every contribution, by people and by coding agents alike.
   GitHub pre-fills a `Co-authored-by` line for each co-author of the squashed commits; they stay below the proposed message.
 - A pull request aims at about 500 changed lines in `src/` and `ext/`; tests, reference data and documentation do not count.
   Above that, its description says why the change cannot be split.
-  The usual split is a series of pull requests that each pass the full suite on their own, for example the data layout, then the operator, then the solver wiring with its tests.
-- A larger change may collect its steps on an integration branch `feat/<topic>` off `dev`; the steps are branches of another type (`fix/…`, `chore/…`) with pull requests into it.
+  The usual split is a series of pull requests into `dev` that each pass the full suite on their own, or the steps of an integration branch.
+  For example: the data layout, then the operator, then the solver wiring with its tests.
+- A larger change may collect its steps on an integration branch `feat/<topic>` off `dev`; the steps are branches of the other types (`fix/…`, `perf/…`, `test/…`, `docs/…`, `chore/…`) with pull requests into it.
   A step runs the checks of `CI.yml`, its author runs the component tests, `test/test_regression_values.jl` at `-O2` and the test files of the code it changes, and it merges with a merge commit once these pass.
   The full suite runs on the integration branch by hand every few steps, and on its pull request into `dev`, which the maintainer reviews and merges.
 - A pull request whose checks pass needs no comment about them, since GitHub shows them.
