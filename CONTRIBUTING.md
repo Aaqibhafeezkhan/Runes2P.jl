@@ -94,6 +94,7 @@ The formatter sets the layout only, so the reviews check these rules.
 
 - Control flow is written with `if`.
   `cond && action` and `cond || action` are not used for a side effect, an assignment or a `throw`.
+  An early return, such as `cond && return x`, is allowed anywhere.
   The one exception is a check of an argument at the start of a function, in either form, such as `length(x) == n || throw(DimensionMismatch("..."))`.
 - One statement per line: no `;` between statements, and no assignment inside an expression.
 - A conditional expression `a ? b : c` chooses between two simple values, short enough for one line, and is never nested.
