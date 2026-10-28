@@ -177,14 +177,15 @@ function _nrl_ion_logarithm(a, b, screening)
     Na, nZ2a, Wa, ma, nZa = a
     Nb, nZ2b, Wb, mb, nZb = b
     Ta, Tb = _species_temperature(a), _species_temperature(b)
-    μa, μb = ma / Constants.PROTON_MASS, mb / Constants.PROTON_MASS
+    mu_a, mu_b = ma / Constants.PROTON_MASS, mb / Constants.PROTON_MASS
     # a species without charged states takes the charge 1, the limit as its first ionization
     # appears (its exchange is zero there, its derivative is not)
     Za = _plain_value(nZa) > 0 ? nZ2a / nZa : one(nZ2a)
     Zb = _plain_value(nZb) > 0 ? nZ2b / nZb : one(nZ2b)
-    λ = 23 - log(Za * Zb * (μa + μb) / (μa * Tb + μb * Ta) * sqrt(screening))
+    logarithm = 23 -
+                log(Za * Zb * (mu_a + mu_b) / (mu_a * Tb + mu_b * Ta) * sqrt(screening))
     # cold, dense, highly charged ions take the formula below zero: the exchange keeps its sign
-    return max(λ, zero(λ))
+    return max(logarithm, zero(logarithm))
 end
 
 # the screening of the NRL logarithm, Σ_γ n_γ Z_γ²/T_γ over the ion species and the electrons,
