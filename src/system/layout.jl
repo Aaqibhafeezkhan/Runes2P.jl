@@ -367,6 +367,10 @@ function unknown_view(u::AbstractVector, layout::UnknownLayout, name::Symbol)
     scalar_view(u, layout, unknown_id(layout, name))
 end
 
+# declared before physics/plasma_source.jl, which reads it (the include order of
+# test_include_order.jl); its method is in system/terms.jl, with LayoutRadialValues
+function unknown_values end
+
 """
     unknown_scales(layout)
 
