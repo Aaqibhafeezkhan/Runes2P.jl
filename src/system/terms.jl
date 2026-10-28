@@ -39,7 +39,8 @@ A term defined outside the package adds its methods under the qualified names
 (`Runes2P.dependencies(term::MyTerm) = ...`, `function Runes2P.rhs!(out, term::MyTerm, ...)`).
 `validate` is not exported, since only the construction of an [`EquationSystem`](@ref)
 calls it and the name is common to many packages; the other functions are exported for
-calls.
+calls. [`add_local_jacobian!`](@ref) and [`lags_in_ode_form`](@ref), which a term
+implements, are declared `public` and not exported.
 """
 abstract type EquationTerm end
 
