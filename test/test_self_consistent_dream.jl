@@ -268,7 +268,7 @@ const DREAM_SELF_CONSISTENT_DATA = reference_file("dream_self_consistent_field.h
                         @test sum(step.statistics.newton_iterations) <= 8
                         step.states[:, end]
                     end
-                    fields = [collect(radial_values(state, layout, unknown_id(layout, :electric_field)))
+                    fields = [collect(unknown_values(state, layout, unknown_id(layout, :electric_field)))
                               for state in states]
                     @test fields[1] ≈ fields[2] rtol = 1e-8
                     fields[1]

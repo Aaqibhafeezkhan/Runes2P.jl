@@ -40,8 +40,8 @@ using HDF5
             radial_view(u, layout, 1, ir) .= n_i[ir, :, 2]
             kinetic_view(u, layout, 4, ir) .= f_hot[:, :, ir, 2]
         end
-        radial_values(u, layout, 2) .= data["n_cold"][:, 2]
-        radial_values(u, layout, 3) .= data["T_cold"][:, 2]
+        unknown_values(u, layout, 2) .= data["n_cold"][:, 2]
+        unknown_values(u, layout, 3) .= data["T_cold"][:, 2]
         # the hot density of DREAM is the moment of f above the threshold
         hot = DensityMomentTerm(:f, grid; region)
         n_hot = [Runes2P.rhs!(zeros(length(u)), hot, u, layout, 2, 0.0)[first(unknown_range(layout, 2, ir))]

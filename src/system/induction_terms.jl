@@ -58,7 +58,7 @@ end
 
 function rhs!(out, term::PoloidalFluxDiffusionTerm, u, layout, row, t)
     rg = layout.radial_grid
-    psi = radial_values(u, layout, unknown_id(layout, term.poloidal_flux))
+    psi = unknown_values(u, layout, unknown_id(layout, term.poloidal_flux))
     psi_edge = u[first(unknown_range(layout, unknown_id(layout, term.edge_poloidal_flux)))]
     @inbounds for ir in 1:radial_cell_count(rg)
         divergence = (_flux_gradient(rg, psi, psi_edge, ir + 1) -
@@ -123,7 +123,7 @@ cross_section_weights(rg::RadialGrid) = 2π .* rg.spatial_jacobian .* rg.r_width
 
 function rhs!(out, term::CrossSectionIntegralTerm, u, layout, row, t)
     rg = layout.radial_grid
-    values = radial_values(u, layout, unknown_id(layout, term.unknown))
+    values = unknown_values(u, layout, unknown_id(layout, term.unknown))
     total = zero(eltype(u))
     @inbounds for ir in 1:radial_cell_count(rg)
         total += 2π * rg.spatial_jacobian[ir] * rg.r_widths[ir] * values[ir]

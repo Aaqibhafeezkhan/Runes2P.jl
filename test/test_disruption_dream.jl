@@ -85,12 +85,12 @@ end
             # the largest difference over the radii and the steps, relative to the largest value of
             # DREAM over the radii at each step
             #! format: off
-            difference(name, ours) = maximum(maximum(abs, radial_values(solution.states[:, m], layout, unknown_id(layout, ours)) .-
+            difference(name, ours) = maximum(maximum(abs, unknown_values(solution.states[:, m], layout, unknown_id(layout, ours)) .-
                                                      start[name][:, m]) / maximum(abs, start[name][:, m])
                                              for m in 2:length(times))
             # per radius, relative to the largest value of DREAM at that radius over the phase: the
             # runaway density differs by 15 orders of magnitude between the radii
-            difference_per_radius(name, ours) = maximum(abs(radial_values(solution.states[:, m], layout, unknown_id(layout, ours))[ir] -
+            difference_per_radius(name, ours) = maximum(abs(unknown_values(solution.states[:, m], layout, unknown_id(layout, ours))[ir] -
                                                             start[name][ir, m]) / maximum(abs, start[name][ir, :])
                                                         for ir in 1:case.nr, m in 2:length(times))
             errors = Dict(name => difference(name, ours)

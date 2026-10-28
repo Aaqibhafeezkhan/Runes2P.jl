@@ -33,8 +33,8 @@ function _kinetic_ion_case(; lagged = (), temperatures = [5.0, 3.0],
         settings, lagged)
     u = zeros(length(layout))
     set_ion_densities!(u, layout, ions)
-    radial_values(u, layout, 2) .= [free_electron_density(ions, ir) for ir in 1:2]
-    radial_values(u, layout, 3) .= temperatures
+    unknown_values(u, layout, 2) .= [free_electron_density(ions, ir) for ir in 1:2]
+    unknown_values(u, layout, 3) .= temperatures
     theta = temperatures ./ Constants.ELECTRON_REST_ENERGY
     for ir in 1:2
         kinetic_view(u, layout, 4, ir) .= [1e19 * exp(-p^2 / (2theta[ir])) * (1 + 0.1xi)
@@ -250,7 +250,7 @@ end
         changed[unknown_range(layout, 1, 1)[3]] *= 2
         @test term_rhs(changed) == before
         warmer = copy(u)
-        radial_values(warmer, layout, 3)[1] *= 1.1
+        unknown_values(warmer, layout, 3)[1] *= 1.1
         @test term_rhs(warmer) != before
         # at the next step the ions of its start
         Runes2P.prepare_step!(fp, changed, layout, 4, 0.0)
@@ -357,7 +357,7 @@ end
             Equation(:f_hot, TimeDerivative(), fp), Equation(:f_re, TimeDerivative())]
         u = zeros(length(layout))
         set_ion_densities!(u, layout, ions)
-        radial_values(u, layout, 3) .= [5.0, 3.0]
+        unknown_values(u, layout, 3) .= [5.0, 3.0]
         for ir in 1:2
             # a Maxwellian of θ = 1e-5 (5 eV) with a density near 1e19
             kinetic_view(u, layout, 6, ir) .= [1e19 / (2π * 1e-5)^1.5 * exp(-p^2 / 2e-5)
@@ -369,7 +369,7 @@ end
         solution = integrate(system, u, [0.0, 1e-9])
         state = solution.states[:, end]
         # the densities of the grids from their moments, the free electrons from the ions
-        moment(name, row) = radial_values(
+        moment(name, row) = unknown_values(
             Runes2P.rhs!(
                 zeros(length(state)), DensityMomentTerm(name), state, layout, row, 0.0),
             layout, row)
@@ -390,10 +390,10 @@ end
             for lagged in ((), (:ion_densities,))
                 layout, fp, u = _kinetic_ion_case(; lagged, temperatures = [20.0, 10.0])
                 deposit_neutrals!(u, layout, KINETIC_COMPOSITION, "Ar" => 2e19)
-                radial_values(u, layout, 2) .= [free_electron_density(
-                                                    ion_densities(u, layout, KINETIC_COMPOSITION),
-                                                    ir)
-                                                for ir in 1:2]
+                unknown_values(u, layout, 2) .= [free_electron_density(
+                                                     ion_densities(u, layout, KINETIC_COMPOSITION),
+                                                     ir)
+                                                 for ir in 1:2]
                 equations = [
                     Equation(:ion_densities, TimeDerivative(), IonRateTerm(KINETIC_COMPOSITION)),
                     population_equations(KINETIC_COMPOSITION)...,
@@ -417,10 +417,10 @@ end
             # block of the 21 charge states in its fluid part
             layout, fp, u = _kinetic_ion_case(; temperatures = [20.0, 10.0])
             deposit_neutrals!(u, layout, KINETIC_COMPOSITION, "Ar" => 2e19)
-            radial_values(u, layout, 2) .= [free_electron_density(
-                                                ion_densities(u, layout, KINETIC_COMPOSITION),
-                                                ir)
-                                            for ir in 1:2]
+            unknown_values(u, layout, 2) .= [free_electron_density(
+                                                 ion_densities(u, layout, KINETIC_COMPOSITION),
+                                                 ir)
+                                             for ir in 1:2]
             equations = [
                 Equation(:ion_densities, TimeDerivative(), IonRateTerm(KINETIC_COMPOSITION)),
                 population_equations(KINETIC_COMPOSITION)...,

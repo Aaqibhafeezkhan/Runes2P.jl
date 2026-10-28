@@ -156,12 +156,12 @@ using QuadGK: quadgk
             RadialUnknown(:cold_electron_density; scale = 1e20)])
     u = zeros(length(layout))
     kinetic_array(u, layout, 1) .= f
-    radial_values(u, layout, 2) .= T0
-    radial_values(u, layout, 3) .= n_D + 2n_Ar
+    unknown_values(u, layout, 2) .= T0
+    unknown_values(u, layout, 3) .= n_D + 2n_Ar
     fp(settings; synchrotron = false, lagged = :ions) = FokkerPlanckTerm(:f,
         AdvectionDiffusion(grid; scheme = :exponential_fitting, p_upper_boundary = :f_zero);
         plasma = PlasmaFromUnknowns(base), settings, synchrotron, lagged)
-    loss(term) = only(radial_values(
+    loss(term) = only(unknown_values(
         Runes2P.rhs!(
             zeros(length(u)), term, u, layout, 2, 0.0), layout, 2))
 
@@ -249,14 +249,14 @@ using QuadGK: quadgk
             thermal_energy_equation(), total_energy_equation(:f, grid; region)]
         w = zeros(length(full))
         kinetic_array(w, full, 1) .= f
-        radial_values(w, full, 2) .= T0
-        radial_values(w, full, 3) .= n_D + 2n_Ar
+        unknown_values(w, full, 2) .= T0
+        unknown_values(w, full, 3) .= n_D + 2n_Ar
         system = EquationSystem(full, equations; time_scale = 1e-7, initial_state = w)
         dt = 1e-8
         solution = integrate(system, w, [0.0, dt]; stepper = FixedSteps())
-        W_cold = [only(radial_values(solution.states[:, k], full, 4)) for k in 1:2]
+        W_cold = [only(unknown_values(solution.states[:, k], full, 4)) for k in 1:2]
         state = solution.states[:, 2]
-        transfer = only(radial_values(
+        transfer = only(unknown_values(
             Runes2P.rhs!(
                 zeros(length(state)), free, state, full, 2, dt), full, 2))
         @test transfer > 0
@@ -281,7 +281,7 @@ using QuadGK: quadgk
             Runes2P.add_jacobian!(single, sinks, state, full, 2, dt)
             # the sinks hardly depend on the temperature and the density (bound electrons,
             # bremsstrahlung and synchrotron do not read them): an absolute tolerance from the loss
-            scale_of_loss = abs(only(radial_values(
+            scale_of_loss = abs(only(unknown_values(
                 Runes2P.rhs!(zeros(length(state)), sinks, state, full, 2, dt), full, 2))) /
                             scale
             @test single[T_row, column]≈(F_up[T_row]-F_down[T_row])/(2h) rtol=1e-5 atol=1e-6*scale_of_loss

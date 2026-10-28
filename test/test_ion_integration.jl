@@ -66,7 +66,7 @@
         deposit_neutrals!(u0, layout, composition, "D" => 2e18, "Ar" => 2e17)
         n_free = [free_electron_density(ion_densities(u0, layout, composition), ir)
                   for ir in 1:nr]
-        radial_values(u0, layout, 5) .= T0
+        unknown_values(u0, layout, 5) .= T0
         for ir in 1:nr
             m = momentum_grid(grid, ir)
             theta = T0[ir] / Constants.ELECTRON_REST_ENERGY
@@ -76,8 +76,8 @@
         end
         hot = Runes2P.rhs!(
             zeros(length(u0)), DensityMomentTerm(:f, grid; region), u0, layout, 3, 0.0)
-        radial_values(u0, layout, 3) .= radial_values(hot, layout, 3)
-        radial_values(u0, layout, 2) .= n_free .- radial_values(u0, layout, 3)
+        unknown_values(u0, layout, 3) .= unknown_values(hot, layout, 3)
+        unknown_values(u0, layout, 2) .= n_free .- unknown_values(u0, layout, 3)
         system = EquationSystem(layout, equations; time_scale = 1e-7, initial_state = u0)
         solution = integrate(system, u0, [0.0, 20e-6];
             stepper = StepController(; relative_tolerance = 1e-4,
@@ -102,16 +102,16 @@
         end
         # the closure and the constraint at the end
         ions = ion_densities(final, layout, composition)
-        moment(term, row) = radial_values(
+        moment(term, row) = unknown_values(
             Runes2P.rhs!(zeros(length(final)), term, final, layout, row, 20e-6),
             layout, row)
         n_hot = moment(DensityMomentTerm(:f, grid; region), 3)
         n_f = moment(DensityMomentTerm(:f), 2)
-        n_cold = radial_values(final, layout, 2)
+        n_cold = unknown_values(final, layout, 2)
         for ir in 1:nr
             @test n_cold[ir] ≈ free_electron_density(ions, ir) - n_hot[ir] rtol = 1e-9
             @test n_f[ir] ≈ n_cold[ir] + n_hot[ir] rtol = 1e-8
-            @test radial_values(final, layout, 3)[ir] ≈ n_hot[ir] rtol = 1e-8
+            @test unknown_values(final, layout, 3)[ir] ≈ n_hot[ir] rtol = 1e-8
         end
         # the electrons follow the ionization: the free electrons grew with the argon charge
         @test all(ir -> free_electron_density(ions, ir) > n_free[ir], 1:nr)
@@ -122,10 +122,10 @@
         # the total electron energy is the cold energy and that of f above the threshold, and it
         # fell by the radiated power and the binding energy
         energy_above = moment(EnergyMomentTerm(:f, grid; region), 7)
-        W_cold, W_tot = radial_values(final, layout, 6), radial_values(final, layout, 7)
+        W_cold, W_tot = unknown_values(final, layout, 6), unknown_values(final, layout, 7)
         @test W_tot ≈ W_cold .+ energy_above rtol = 1e-9
-        @test all(W_tot .< radial_values(solution.states[:, 1], layout, 7))
-        @test all(radial_values(final, layout, 5) .< T0)
+        @test all(W_tot .< unknown_values(solution.states[:, 1], layout, 7))
+        @test all(unknown_values(final, layout, 5) .< T0)
     end
 end
 
@@ -181,7 +181,7 @@ function _neon_run(heating::Bool)
     set_ion_densities!(u0, layout, background)
     deposit_neutrals!(u0, layout, composition, "Ne" => 2e19)
     n_free = free_electron_density(ion_densities(u0, layout, composition), 1)
-    radial_values(u0, layout, 5) .= T0
+    unknown_values(u0, layout, 5) .= T0
     m = momentum_grid(grid, 1)
     shape(T) = [exp(-p^2 / (sqrt(1 + p^2) + 1) / (T / Constants.ELECTRON_REST_ENERGY))
                 for p in m.p_centers, _ in 1:3]
@@ -190,8 +190,8 @@ function _neon_run(heating::Bool)
                                        1e-3 .* normalized(300.0))
     hot = Runes2P.rhs!(
         zeros(length(u0)), DensityMomentTerm(:f, grid; region), u0, layout, 3, 0.0)
-    radial_values(u0, layout, 3) .= radial_values(hot, layout, 3)
-    radial_values(u0, layout, 2) .= n_free .- radial_values(u0, layout, 3)
+    unknown_values(u0, layout, 3) .= unknown_values(hot, layout, 3)
+    unknown_values(u0, layout, 2) .= n_free .- unknown_values(u0, layout, 3)
     system = EquationSystem(layout, equations; time_scale = 1e-7, initial_state = u0)
     solution = integrate(system, u0, collect(range(0.0, 2e-6; length = 21)); stepper = FixedSteps())
     return solution, layout
@@ -202,8 +202,8 @@ end
         with, layout = _neon_run(true)
         without, _ = _neon_run(false)
         @test run_status(with) === :finished && run_status(without) === :finished
-        T_with = radial_values(with.states[:, end], layout, 5)[1]
-        T_without = radial_values(without.states[:, end], layout, 5)[1]
+        T_with = unknown_values(with.states[:, end], layout, 5)[1]
+        T_without = unknown_values(without.states[:, end], layout, 5)[1]
         @info "neon plasma with a 300 eV tail after 2 µs: T_cold $T_with eV with the heating by secondaries, " *
               "$T_without eV without"
         @test T_with > T_without

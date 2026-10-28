@@ -315,8 +315,8 @@ function _add_ion_rates!(out, rows, term::IonRateTerm, s, n, n_e, T, split = not
 end
 
 function rhs!(out, term::IonRateTerm, u, layout, row, t)
-    T = radial_values(u, layout, unknown_id(layout, term.temperature))
-    n_e = radial_values(u, layout, unknown_id(layout, term.density))
+    T = unknown_values(u, layout, unknown_id(layout, term.temperature))
+    n_e = unknown_values(u, layout, unknown_id(layout, term.density))
     c = term.composition
     for ir in 1:radial_cell_count(layout)
         n = radial_view(u, layout, row, ir)

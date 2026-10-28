@@ -52,9 +52,9 @@ using HDF5
         u0 = zeros(length(layout))
         set_ion_densities!(u0, layout, base)
         deposit_neutrals!(u0, layout, composition, "Ar" => data["argon"])
-        radial_values(u0, layout, 2) .= data["field"]
-        radial_values(u0, layout, 4) .= T_dream[:, 1]
-        radial_values(u0, layout, 5) .= n_dream[:, 1]
+        unknown_values(u0, layout, 2) .= data["field"]
+        unknown_values(u0, layout, 4) .= T_dream[:, 1]
+        unknown_values(u0, layout, 5) .= n_dream[:, 1]
         system = EquationSystem(layout, equations; time_scale = 1e-6, initial_state = u0)
         solution = integrate(system, u0, times; stepper = FixedSteps())
         @test run_status(solution) === :finished
@@ -63,8 +63,8 @@ using HDF5
               length(solution.statistics.accepted) == length(times) - 1
         for k in (2, 11, 51, length(times))
             state = solution.states[:, k]
-            @test radial_values(state, layout, 4) ≈ T_dream[:, k] rtol = 1e-7
-            @test radial_values(state, layout, 5) ≈ n_dream[:, k] rtol = 1e-8
+            @test unknown_values(state, layout, 4) ≈ T_dream[:, k] rtol = 1e-7
+            @test unknown_values(state, layout, 5) ≈ n_dream[:, k] rtol = 1e-8
             ions = ion_densities(state, layout, composition)
             @test permutedims(ions[1].charge_state_densities) ≈ ions_dream[:, 1:2, k] rtol = 1e-8
             @test maximum(abs, permutedims(ions[2].charge_state_densities) .-

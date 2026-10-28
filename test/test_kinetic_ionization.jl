@@ -33,7 +33,7 @@ function _ionization_case(; factor = 5.0, temperatures = [20.0, 10.0], n_M = 5e1
     argon[1:6, :] .= [1e17, 3e17, 5e17, 2e17, 1e17, 5e16]
     set_ion_densities!(u, layout, [
         IonSpecies("D", 1, [1e18 2e18; 4e19 3e19]), IonSpecies("Ar", 18, argon)])
-    radial_values(u, layout, 3) .= temperatures
+    unknown_values(u, layout, 3) .= temperatures
     # a relativistic Maxwellian of density n_M on the grid, with the weights of the term
     for ir in 1:2
         m = momentum_grid(grid, ir)
@@ -195,14 +195,14 @@ end
                 @test all(s -> 0 < s.fraction < 1e-6, splits)
                 # the closure: the cold electrons are those of the Maxwellian below the threshold
                 n_cold = [5e19 * (1 - s.fraction) for s in splits]
-                radial_values(u, layout, 2) .= n_cold
+                unknown_values(u, layout, 2) .= n_cold
                 paired = IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic)
                 dream = IonRateTerm(KINETIC_IONIZATION_COMPOSITION)
                 kinetic_part = Runes2P.rhs!(zeros(n), kinetic, u, layout, 1, 0.0)
                 for (fluid, exact) in ((paired, true), (dream, false))
                     du = Runes2P.rhs!(zeros(n), fluid, u, layout, 1, 0.0) .+ kinetic_part
                     for ir in 1:2
-                        T = radial_values(u, layout, 3)[ir]
+                        T = unknown_values(u, layout, 3)[ir]
                         rows = unknown_range(layout, 1, ir)
                         for s in 1:2
                             name = KINETIC_IONIZATION_COMPOSITION.names[s]
@@ -243,7 +243,7 @@ end
 
         @testset "the fluid rate's Jacobian with the split" begin
             layout, kinetic, u = _ionization_case()
-            radial_values(u, layout, 2) .= 4.5e19
+            unknown_values(u, layout, 2) .= 4.5e19
             equations = [
                 Equation(:ion_densities, TimeDerivative(),
                     IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic),
@@ -345,10 +345,10 @@ end
             widths = Dict{String, Float64}()
             row = 3
             Runes2P.validate(heating, layout, row)
-            Q = radial_values(Runes2P.rhs!(zeros(n), heating, u, layout, row, 0.0), layout, row)
+            Q = unknown_values(Runes2P.rhs!(zeros(n), heating, u, layout, row, 0.0), layout, row)
             # the heating against a direct sum over the cells, the states and the species
             for ir in 1:2
-                T = radial_values(u, layout, 3)[ir]
+                T = unknown_values(u, layout, 3)[ir]
                 m = momentum_grid(kinetic.grid, ir)
                 p0 = 5.0 * sqrt(2T / Constants.ELECTRON_REST_ENERGY)
                 cut = (sqrt(1 + p0^2) - 1) * Constants.ELECTRON_REST_ENERGY
@@ -427,12 +427,12 @@ end
                     KineticUnknown(:f, fast_grid; scale = 1e10)])
             fast = zeros(length(fast_layout))
             radial_view(fast, fast_layout, 1, 1)[1] = 1e18
-            radial_values(fast, fast_layout, 2) .= 10.0
+            unknown_values(fast, fast_layout, 2) .= 10.0
             cell = 32
             kinetic_view(fast, fast_layout, 3, 1)[cell, :] .= 1e10
             fast_kinetic = KineticIonizationTerm(argon_only, :f, fast_grid;
                 region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor = 5)))
-            heat(cut) = only(radial_values(
+            heat(cut) = only(unknown_values(
                 Runes2P.rhs!(zeros(length(fast)),
                     SecondaryHeatingTerm(fast_kinetic; cut, spectrum = :opal), fast,
                     fast_layout, 2, 0.0),
@@ -452,7 +452,7 @@ end
                 [ion_densities_unknown(IonComposition(["Fe" => 26])),
                     layout.unknowns[2:end]...])
             fe_state = zeros(length(fe_layout))
-            radial_values(fe_state, fe_layout, 3) .= radial_values(u, layout, 3)
+            unknown_values(fe_state, fe_layout, 3) .= unknown_values(u, layout, 3)
             for ir in 1:2
                 radial_view(fe_state, fe_layout, 1, ir)[1:3] .= 1e17
                 kinetic_view(fe_state, fe_layout, 4, ir) .= kinetic_view(u, layout, 4, ir)
@@ -642,7 +642,7 @@ end
             cold_electron_density = [1e19])
         u = zeros(length(layout))
         set_ion_densities!(u, layout, ions)
-        radial_values(u, layout, 2) .= 5.0
+        unknown_values(u, layout, 2) .= 5.0
         center, width = momentum(60.0), 0.15 * momentum(60.0)
         kinetic_view(u, layout, 3, 1) .= [1e16 * exp(-((p - center) / width)^2)
                                           for p in m.p_centers, _ in 1:2]
@@ -655,7 +655,7 @@ end
             settings = CollisionSettings(; mode = :superthermal, bremsstrahlung = :neglect, bound_friction)
             fp = FokkerPlanckTerm(:f, operator(); plasma = base, settings)
             loss = KineticEnergyLossTerm(fp; part = :sinks, coefficient = 1)
-            return only(radial_values(
+            return only(unknown_values(
                 Runes2P.rhs!(
                     zeros(length(u)), loss, u, layout, 2, 0.0), layout, 2))
         end
@@ -664,7 +664,7 @@ end
         # with the threshold of 5 thermal momenta at 0.5 eV (12.5 eV, 15 eV at the top of the
         # step of the faces) the bump lies above it: the same agreement
         cold = 0.5
-        radial_values(u, layout, 2) .= cold
+        unknown_values(u, layout, 2) .= cold
         region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor = 5))
         above = KineticIonizationTerm(composition, :f, grid; region)
         paid_above = sum(ionization_energy_flows(above, u, layout, 0.0)[k][1]
@@ -678,7 +678,9 @@ end
             ionization_threshold = 5.0)
         fp = FokkerPlanckTerm(:f, operator(); plasma = cold_base, settings)
         loss = KineticEnergyLossTerm(fp; part = :sinks, coefficient = 1)
-        @test only(radial_values(Runes2P.rhs!(zeros(length(u)), loss, u, layout, 2, 0.0), layout, 2)) ≈
+        @test only(unknown_values(
+            Runes2P.rhs!(
+                zeros(length(u)), loss, u, layout, 2, 0.0), layout, 2)) ≈
               paid_above rtol = 2e-2
     end
 

@@ -282,7 +282,8 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
                         LinearTerm(:ohmic_current_density; coefficient = -1))];
                 initial_time = 1.0)
             solution = integrate(system, zeros(length(layout)), [1.0, 1.5, 2.0])
-            current = radial_values(solution.states[:, end], layout, unknown_id(layout, :ohmic_current_density))
+            current = unknown_values(
+                solution.states[:, end], layout, unknown_id(layout, :ohmic_current_density))
             @test current ≈ model(2.0) .* [0.5, 2.0] rtol = 1e-12
             record = describe(system, DescriptionContext(; times = [1.0, 1.5, 2.0]))
             @test record["equations"]["ohmic_current_density"]["terms"]["term_1"]["model"]["conductivity"]["values"][
@@ -299,12 +300,12 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
         Runes2P.validate(term, layout, row)
         @test dependencies(term) == [:electric_field] && is_linear(term)
         u = [0.5, 0.0, 2.0, 0.0, 0.0]
-        radial_values(u, layout, unknown_id(layout, :electric_field)) .= [0.5, 2.0]
+        unknown_values(u, layout, unknown_id(layout, :electric_field)) .= [0.5, 2.0]
         du = zeros(length(layout))
         for t in (0.0, 1.0, 0.0)
             fill!(du, 0)
             rhs!(du, term, u, layout, row, t)
-            @test radial_values(du, layout, row) ≈ 2 .* following(t) .* [0.5, 2.0] rtol = 1e-14
+            @test unknown_values(du, layout, row) ≈ 2 .* following(t) .* [0.5, 2.0] rtol = 1e-14
             @test conductivity_at(term, t) == following(t)
         end
         @test (@allocated rhs!(du, term, u, layout, row, 0.0)) == 0
@@ -325,7 +326,7 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
         times = [0.0, 0.5, 1.0]
         solution = integrate(system, zeros(length(layout)), times)
         final = solution.states[:, end]
-        @test radial_values(final, layout, row) ≈ 2 .* following(1.0) .* [0.5, 2.0] rtol = 1e-12
+        @test unknown_values(final, layout, row) ≈ 2 .* following(1.0) .* [0.5, 2.0] rtol = 1e-12
         record = describe(system, DescriptionContext(; times))
         term_record = record["equations"]["ohmic_current_density"]["terms"]["term_1"]
         @test term_record["electric_field"] == "electric_field" &&
@@ -516,10 +517,10 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
             field = 1e-2 .* profile
             initial = initial_poloidal_flux(radial, braams_karney .* field)
             u0 = zeros(length(layout))
-            radial_values(u0, layout, unknown_id(layout, :electric_field)) .= field
-            radial_values(u0, layout, unknown_id(layout, :total_current_density)) .= braams_karney .*
-                                                                                     field
-            radial_values(u0, layout, unknown_id(layout, :poloidal_flux)) .= initial.poloidal_flux
+            unknown_values(u0, layout, unknown_id(layout, :electric_field)) .= field
+            unknown_values(u0, layout, unknown_id(layout, :total_current_density)) .= braams_karney .*
+                                                                                      field
+            unknown_values(u0, layout, unknown_id(layout, :poloidal_flux)) .= initial.poloidal_flux
             for name in (:plasma_current, :edge_poloidal_flux, :wall_poloidal_flux)
                 u0[only(unknown_range(layout, unknown_id(layout, name)))] = getproperty(initial, name)
             end

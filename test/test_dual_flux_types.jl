@@ -39,8 +39,8 @@ function _dual_flux_case(scheme)
         settings = CollisionSettings(; mode = :full, screening = :partial), lagged = ())
     u = zeros(length(layout))
     set_ion_densities!(u, layout, ions)
-    radial_values(u, layout, 2) .= [free_electron_density(ions, ir) for ir in 1:2]
-    radial_values(u, layout, 3) .= temperatures
+    unknown_values(u, layout, 2) .= [free_electron_density(ions, ir) for ir in 1:2]
+    unknown_values(u, layout, 3) .= temperatures
     theta = temperatures ./ Constants.ELECTRON_REST_ENERGY
     for ir in 1:2
         m = momentum_grid(grid, ir)

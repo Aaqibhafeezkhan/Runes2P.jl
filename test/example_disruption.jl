@@ -172,7 +172,7 @@ function initial_state(case, start)
         "j_tot" => :total_current_density, "W_cold" => :cold_thermal_energy)
     for (dream, ours) in names
         haskey(start, dream) &&
-            (radial_values(u, layout, unknown_id(layout, ours)) .= first_of(start[dream]))
+            (unknown_values(u, layout, unknown_id(layout, ours)) .= first_of(start[dream]))
     end
     for (dream, ours) in ("psi_edge" => :edge_poloidal_flux,
         "psi_wall" => :wall_poloidal_flux, "I_p" => :plasma_current)
@@ -187,7 +187,7 @@ function initial_state(case, start)
         radial_view(u, layout, energy_id, ir) .= energies[ir, :]
         kinetic_view(u, layout, unknown_id(layout, :f), ir) .= start["f_hot"][:, :, ir, 1]
     end
-    radial_values(u,
+    unknown_values(u,
         layout,
         unknown_id(layout, :free_electron_density)) .= [sum(free_electron_weights(COMPOSITION) .*
                                                             states[ir, :])
@@ -198,7 +198,7 @@ end
 # the values of a term of a radial row at the state u, per radius
 function _term_values(term, u, layout, row, t)
     out = Runes2P.rhs!(zeros(length(u)), term, u, layout, row, t)
-    return collect(radial_values(out, layout, row))
+    return collect(unknown_values(out, layout, row))
 end
 
 """
@@ -243,12 +243,12 @@ function budgets(case, solution)
     ψ_id, E_id, j_id = unknown_id(layout, :poloidal_flux),
     unknown_id(layout, :electric_field), unknown_id(layout, :total_current_density)
     wall = only(unknown_range(layout, unknown_id(layout, :wall_poloidal_flux)))
-    field_energy(u) = sum(weights .* (radial_values(u, layout, ψ_id) .- u[wall]) .*
-                          radial_values(u, layout, j_id))
+    field_energy(u) = sum(weights .* (unknown_values(u, layout, ψ_id) .- u[wall]) .*
+                          unknown_values(u, layout, j_id))
     field_work = 0.0
-    cold(u) = radial_values(u, layout, unknown_id(layout, :cold_electron_density))
+    cold(u) = unknown_values(u, layout, unknown_id(layout, :cold_electron_density))
     gap(u) = density(case.grid, kinetic_array(u, layout, f_id)) .- cold(u) .-
-             radial_values(u, layout, unknown_id(layout, :hot_electron_density))
+             unknown_values(u, layout, unknown_id(layout, :hot_electron_density))
     gap0 = gap(solution.states[:, 1])
     drift = 0.0
     for m in 2:length(solution.times)
@@ -268,15 +268,15 @@ function budgets(case, solution)
                                                  maximum(abs, exchange))
         worst[:diffusion] = max(worst[:diffusion],
             abs(sum(weights .* diffusion)) / sum(weights .* abs.(diffusion)))
-        W = radial_values(u, layout, unknown_id(layout, :cold_thermal_energy))
-        W_old = radial_values(solution.states[:, m - 1], layout, unknown_id(layout, :cold_thermal_energy))
+        W = unknown_values(u, layout, unknown_id(layout, :cold_thermal_energy))
+        W_old = unknown_values(solution.states[:, m - 1], layout, unknown_id(layout, :cold_thermal_energy))
         closure = (W .- W_old) ./ dt .- sum(parts)
         worst[:closure] = max(worst[:closure], maximum(abs, closure) /
                                                maximum(abs, (W .- W_old) ./ dt))
         drift = max(drift, maximum(abs, gap(u) .- gap0) / maximum(cold(u)))
-        j_mid = (radial_values(u, layout, j_id) .+
-                 radial_values(solution.states[:, m - 1], layout, j_id)) ./ 2
-        field_work += 4π * dt * sum(weights .* radial_values(u, layout, E_id) .* j_mid)
+        j_mid = (unknown_values(u, layout, j_id) .+
+                 unknown_values(solution.states[:, m - 1], layout, j_id)) ./ 2
+        field_work += 4π * dt * sum(weights .* unknown_values(u, layout, E_id) .* j_mid)
     end
     ΔW = field_energy(solution.states[:, end]) - field_energy(solution.states[:, 1])
     return (; species = worst[:species], exchange = worst[:exchange],

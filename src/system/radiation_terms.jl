@@ -263,8 +263,8 @@ function rhs!(out, term::RadiatedPowerTerm, u, layout, row, t)
     plasma = _term_plasma(plasma_values(term.plasma, u, layout, t), term.ions, u, layout)
     radial_cell_count(plasma) == radial_cell_count(layout) ||
         throw(DimensionMismatch("the plasma of the radiated power and the layout have different radii"))
-    T = radial_values(u, layout, unknown_id(layout, term.temperature))
-    n = radial_values(u, layout, unknown_id(layout, term.density))
+    T = unknown_values(u, layout, unknown_id(layout, term.temperature))
+    n = unknown_values(u, layout, unknown_id(layout, term.density))
     @inbounds for ir in 1:radial_cell_count(layout)
         split = term.kinetic === nothing ? nothing :
                 threshold_split(term.kinetic, ir, u, layout, t)
@@ -295,8 +295,8 @@ what recombination returns, which stays in the plasma.
 """
 function radiated_power(term::RadiatedPowerTerm, u, layout, t)
     plasma = _term_plasma(plasma_values(term.plasma, u, layout, t), term.ions, u, layout)
-    T = radial_values(u, layout, unknown_id(layout, term.temperature))
-    n = radial_values(u, layout, unknown_id(layout, term.density))
+    T = unknown_values(u, layout, unknown_id(layout, term.temperature))
+    n = unknown_values(u, layout, unknown_id(layout, term.density))
     parts = [_radiated_power(term, plasma, n[ir], T[ir], ir,
                  term.kinetic === nothing ? nothing :
                  threshold_split(term.kinetic, ir, u, layout, t))

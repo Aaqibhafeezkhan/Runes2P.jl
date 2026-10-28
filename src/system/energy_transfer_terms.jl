@@ -245,7 +245,7 @@ function add_jacobian!(J, term::KineticEnergyLossTerm, u, layout, row, t)
         df = _loss_change(ops, f)
         T_id = unknown_id(layout, only(temperature))
         D = ForwardDiff.Dual{PlasmaColumnTag, Float64, 1}
-        T = radial_values(u, layout, T_id)
+        T = unknown_values(u, layout, T_id)
         limit = term.envelopes.region.limit
         for ir in 1:nr
             m = momentum_grid(grid, ir)

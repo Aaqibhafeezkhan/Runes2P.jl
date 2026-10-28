@@ -27,8 +27,8 @@
             RadialUnknown(:cold_electron_density; scale = 1e19),
             RadialUnknown(:cold_thermal_energy; scale = THERMAL_ENERGY_FACTOR * 1e20)])
     u = zeros(length(layout))
-    radial_values(u, layout, 1) .= [20.0, 35.0, 8.0]
-    radial_values(u, layout, 2) .= [8e18, 1.5e19, 6e18]
+    unknown_values(u, layout, 1) .= [20.0, 35.0, 8.0]
+    unknown_values(u, layout, 2) .= [8e18, 1.5e19, 6e18]
     e = Constants.ELEMENTARY_CHARGE
     tables = read_adas("He"; directory)
 
@@ -40,9 +40,9 @@
             parts = radiated_power(term, u, layout, 0.0)
             out = zeros(length(u))
             Runes2P.rhs!(out, term, u, layout, 1, 0.0)
-            @test radial_values(out, layout, 1) ≈ .-(parts.radiation .+ parts.binding) rtol = 1e-14
+            @test unknown_values(out, layout, 1) ≈ .-(parts.radiation .+ parts.binding) rtol = 1e-14
             for ir in 1:radii
-                T, n = radial_values(u, layout, 1)[ir], radial_values(u, layout, 2)[ir]
+                T, n = unknown_values(u, layout, 1)[ir], unknown_values(u, layout, 2)[ir]
                 k(table, Z0) = adas_coefficient(table, Z0, n, T)
                 line = sum(densities[Z0 + 1, ir] * (k(tables.plt, Z0) +
                             (radiation === :recombination ? k(tables.prb, Z0) : 0))
@@ -78,7 +78,7 @@
         # the computed 1.6933e-38) hides their difference of 3e-4 at these temperatures;
         # the subtraction of the line part leaves a round-off of 1e-11 in the ratio
         for ir in 1:radii
-            T, n = radial_values(u, layout, 1)[ir], radial_values(u, layout, 2)[ir]
+            T, n = unknown_values(u, layout, 1)[ir], unknown_values(u, layout, 2)[ir]
             theta = T / Constants.ELECTRON_REST_ENERGY
             ion_sum = sum(densities[Z0 + 1, ir] * Z0^2 for Z0 in 0:2)
             ratio = (ion_sum * (1 + 19 / 24 * theta) +

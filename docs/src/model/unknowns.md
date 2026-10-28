@@ -42,7 +42,7 @@ Code reaches the entries only through the layout, never through offsets of its o
 
 - [`unknown_id`](@ref) turns a name into the integer id used in inner loops;
 - [`radial_view`](@ref), [`kinetic_view`](@ref) and [`scalar_view`](@ref) give type-stable views, also of vectors of dual numbers;
-- [`kinetic_array`](@ref) and [`radial_values`](@ref) present an unknown as a 3D array or a radial profile to the operators;
+- [`kinetic_array`](@ref) and [`unknown_values`](@ref) present an unknown as a 3D array or as its values over the radii to the operators;
 - [`unknown_range`](@ref), [`radius_block_range`](@ref) and [`scalar_block_range`](@ref) give index ranges, which the block preconditioners use.
 
 The layout is immutable.

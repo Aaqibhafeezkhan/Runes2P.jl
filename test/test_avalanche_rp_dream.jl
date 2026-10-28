@@ -24,9 +24,9 @@ using HDF5
         [RadialUnknown(:runaway_density), RadialUnknown(:total_electron_density),
             RadialUnknown(:electric_field), KineticUnknown(:f, grid)])
     u = zeros(length(layout))
-    radial_values(u, layout, 1) .= data["n_re"]
-    radial_values(u, layout, 2) .= data["n_tot"]
-    radial_values(u, layout, 3) .= data["E_field"]
+    unknown_values(u, layout, 1) .= data["n_re"]
+    unknown_values(u, layout, 2) .= data["n_tot"]
+    unknown_values(u, layout, 3) .= data["E_field"]
     term = RosenbluthPutvinskiSourceTerm(:f, grid; p_cutoff = data["p_cut"])
     source = Runes2P.rhs!(zeros(length(u)), term, u, layout, 4, 0.0)
 

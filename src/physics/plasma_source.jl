@@ -228,7 +228,7 @@ function plasma_values(source::PlasmaFromUnknowns, u, layout, t; ion_state = u)
     base = plasma_values(source.prescribed, u, layout, t)
     T = eltype(base.cold_electron_temperature)
     nr = radial_cell_count(base)
-    temperature = radial_values(u, layout, unknown_id(layout, source.temperature))
+    temperature = unknown_values(u, layout, unknown_id(layout, source.temperature))
     temperatures = Vector{T}(undef, nr)
     for ir in 1:nr
         value = _value(temperature[ir])
@@ -241,7 +241,7 @@ function plasma_values(source::PlasmaFromUnknowns, u, layout, t; ion_state = u)
     densities = if source.density === nothing
         base.cold_electron_density
     else
-        density = radial_values(u, layout, unknown_id(layout, source.density))
+        density = unknown_values(u, layout, unknown_id(layout, source.density))
         T[_value(density[ir]) for ir in 1:nr]
     end
     #! format: off

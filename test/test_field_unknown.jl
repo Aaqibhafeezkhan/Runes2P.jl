@@ -116,8 +116,8 @@ end
         rhs!(du, u, system, 0.0)
         expected = apply!(zeros(size(grid)), prescribed, kinetic_array(u, layout, f_id))
         @test kinetic_array(du, layout, f_id) ≈ expected rtol = 1e-12
-        @test all(abs.(radial_values(du, layout, field_id)) .< 1e-15)
-        @test radial_values(u, layout, field_id) == field
+        @test all(abs.(unknown_values(du, layout, field_id)) .< 1e-15)
+        @test unknown_values(u, layout, field_id) == field
         @test (@allocated rhs!(du, u, system, 0.0)) == 0
 
         # the stored Jacobian holds the column of the field: one more color, and the
@@ -146,7 +146,7 @@ end
         end
         # the field alone: the derivative is the operator of the unit field applied to f
         v = zeros(length(layout))
-        radial_values(v, layout, field_id) .= [1.0, 0.0, 0.0]
+        unknown_values(v, layout, field_id) .= [1.0, 0.0, 0.0]
         unit = AdvectionDiffusion(grid; scheme, p_upper_boundary = :f_zero)
         if scheme !== :tcdf && scheme !== :exponential_fitting
             add_electric_field!(unit, with_electric_field(plasma, [1.0, 0.0, 0.0]))
@@ -218,13 +218,13 @@ end
             @test all(solution.statistics.accepted)
             final = kinetic_array(solution.states[:, end], layout, f_id)
             @test final ≈ reshape(reference.states[:, end], size(grid)) rtol = 1e-10
-            @test radial_values(solution.states[:, end], layout, field_id) ≈ field rtol = 1e-13
+            @test unknown_values(solution.states[:, end], layout, field_id) ≈ field rtol = 1e-13
         end
         # a field that changes in time, as a function
         ramp(t) = field .* (1 + t / 1e-5)
         layout, system, _ = field_system(free; values = ramp)
         solution = integrate(system, u0, times)
-        @test radial_values(solution.states[:, end], layout, field_id) ≈ ramp(times[end]) rtol = 1e-13
+        @test unknown_values(solution.states[:, end], layout, field_id) ≈ ramp(times[end]) rtol = 1e-13
         ramped = kinetic_array(solution.states[:, end], layout, f_id)
         @test !isapprox(ramped, reshape(reference.states[:, end], size(grid)); rtol = 1e-6)
         record = describe(system, DescriptionContext(; times))
@@ -339,7 +339,7 @@ end
                 free(:ion_densities)])
         du = zeros(length(layout))
         rhs!(du, zeros(length(layout)), system, 2.0)
-        @test radial_values(du, layout, unknown_id(layout, :electric_field)) ==
+        @test unknown_values(du, layout, unknown_id(layout, :electric_field)) ==
               [2.0, 4.0, 6.0]
         @test du[only(unknown_range(layout, unknown_id(layout, :plasma_current)))] == 4.0
         @test is_linear(PrescribedValueTerm(1.0)) &&
@@ -354,9 +354,9 @@ end
             [free(:electric_field), free(:plasma_current),
                 hold(:ion_densities, 1.0)])
         @test describe(PrescribedValueTerm([1.0, 2.0, 3.0]))["values"] == [1.0, 2.0, 3.0]
-        values = radial_values(collect(1.0:length(layout)), layout, unknown_id(layout, :electric_field))
+        values = unknown_values(collect(1.0:length(layout)), layout, unknown_id(layout, :electric_field))
         @test length(values) == 3 && values isa LayoutRadialValues
-        @test_throws ArgumentError radial_values(
+        @test_throws ArgumentError unknown_values(
             zeros(length(layout)), layout, unknown_id(layout, :ion_densities))
     end
 
@@ -404,7 +404,7 @@ end
         reference_u = 1e16 .* rand(rng, length(reference_layout))
         copy_unknowns!(u, layout, reference_u, reference_layout)
         field_id = unknown_id(layout, :electric_field)
-        radial_values(u, layout, field_id) .= field
+        unknown_values(u, layout, field_id) .= field
         du, reference_du = zeros(length(layout)), zeros(length(reference_layout))
         rhs!(du, u, system, 0.0)
         rhs!(reference_du, reference_u, reference_system, 0.0)
@@ -433,7 +433,7 @@ end
             [RadialUnknown(:electric_field), KineticUnknown(:hot_tail_distribution, grid)])
         from_plasma = KnockOnCutoffUpdate(knockon, plasma_at)
         u = zeros(length(layout))
-        radial_values(u, layout, unknown_id(layout, :electric_field)) .= [30.0, 30.0, 30.0]
+        unknown_values(u, layout, unknown_id(layout, :electric_field)) .= [30.0, 30.0, 30.0]
         Runes2P.apply_update!(from_plasma, u, layout, 0.0)
         low_field = copy(knockon.p_cutoff)
         other = KnockOnOperator(grid, grid, momentum.p_faces[4])

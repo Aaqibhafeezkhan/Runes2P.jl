@@ -33,9 +33,9 @@ function _rate_state(layout; deuterium = 2.6e19, argon = 2.6e19,
     set_ion_densities!(u, layout,
         [IonSpecies("D", 1, 1, fill(deuterium, nr)), IonSpecies("Ar", 18, zeros(19, nr))])
     deposit_neutrals!(u, layout, RATE_COMPOSITION, "D" => deuterium, "Ar" => argon)
-    radial_values(u, layout, 2) .= electron_density === nothing ? deuterium :
-                                   electron_density
-    radial_values(u, layout, 3) .= temperature
+    unknown_values(u, layout, 2) .= electron_density === nothing ? deuterium :
+                                    electron_density
+    unknown_values(u, layout, 3) .= temperature
     return u
 end
 
@@ -137,7 +137,7 @@ end
                 ions = ion_densities(state, layout, RATE_COMPOSITION)
                 @test sum(ions[1].charge_state_densities[:, ir]) ≈ 2 * 2.6e19 rtol = 1e-12
                 @test sum(ions[2].charge_state_densities[:, ir]) ≈ 2.6e19 rtol = 1e-12
-                @test radial_values(state, layout, 2)[ir] ≈ free_electron_density(ions, ir) rtol = 1e-12
+                @test unknown_values(state, layout, 2)[ir] ≈ free_electron_density(ions, ir) rtol = 1e-12
                 @test all(>=(-1e-10 * 2.6e19), ions[2].charge_state_densities)
             end
             # the electrons of the ionization: the hotter radius ionizes further

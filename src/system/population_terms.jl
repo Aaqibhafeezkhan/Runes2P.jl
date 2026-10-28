@@ -119,7 +119,7 @@ function _shape_at(term::ParticleSourceTerm, u, layout, t)
             throw(ArgumentError("a particle source with the temperature $(term.temperature) as an " *
                                 "unknown needs the state of the system"))
         temperatures = [_value(x)
-                        for x in radial_values(u, layout, unknown_id(layout, term.temperature))]
+                        for x in unknown_values(u, layout, unknown_id(layout, term.temperature))]
     else
         built && (term.temperature isa AbstractVector || term.time[] == time) &&
             return term.shape
@@ -157,7 +157,7 @@ end
 # the shapes in the number type of a temperature unknown that carries derivative parts, so
 # that the AD of rhs! holds the column of the temperature
 function _dual_shapes(term::ParticleSourceTerm, u, layout)
-    temperature = radial_values(u, layout, unknown_id(layout, term.temperature))
+    temperature = unknown_values(u, layout, unknown_id(layout, term.temperature))
     return [_source_shape!(zeros(eltype(temperature), size(term.shape[ir])),
                 term.shape_kind, term.grid, ir,
                 temperature[ir]) for ir in 1:radial_cell_count(term.grid)]
@@ -167,7 +167,7 @@ function rhs!(out, term::ParticleSourceTerm, u, layout, row, t)
     shapes = term.temperature isa Symbol && eltype(u) <: ForwardDiff.Dual ?
              _dual_shapes(term, u, layout) :
              _shape_at(term, u, layout, t)
-    magnitude = radial_values(u, layout, unknown_id(layout, term.source))
+    magnitude = unknown_values(u, layout, unknown_id(layout, term.source))
     for ir in 1:radial_cell_count(layout)
         added = kinetic_view(out, layout, row, ir)
         shape = shapes[ir]
@@ -192,8 +192,8 @@ function add_jacobian!(J, term::ParticleSourceTerm, u, layout, row, t)
     term.temperature isa Symbol || return J
     # the column of the temperature: S ∂g/∂T, the normalization included
     D = ForwardDiff.Dual{PlasmaColumnTag, Float64, 1}
-    temperature = radial_values(u, layout, unknown_id(layout, term.temperature))
-    magnitude = radial_values(u, layout, id)
+    temperature = unknown_values(u, layout, unknown_id(layout, term.temperature))
+    magnitude = unknown_values(u, layout, id)
     T_id = unknown_id(layout, term.temperature)
     for ir in 1:radial_cell_count(layout)
         shape = _source_shape!(

@@ -208,7 +208,7 @@ end
 
 The values of a radial unknown with one component over the radii, as a vector view of a
 state vector: `values[ir]` is the value at radius index `ir`. Operators take the electric
-field of the state in this form.
+field of the state in this form. [`unknown_values`](@ref) builds it.
 """
 struct LayoutRadialValues{T, V <: AbstractVector{T}, O <: AbstractVector{Int}} <:
        AbstractVector{T}
@@ -220,13 +220,7 @@ Base.size(a::LayoutRadialValues) = (length(a.offsets),)
 Base.@propagate_inbounds Base.getindex(a::LayoutRadialValues, ir::Int) = a.state[a.offsets[ir] + 1]
 Base.@propagate_inbounds Base.setindex!(a::LayoutRadialValues, x, ir::Int) = (a.state[a.offsets[ir] + 1] = x)
 
-"""
-    radial_values(u, layout, id)
-
-[`LayoutRadialValues`](@ref) of the radial unknown `id`, which has one component, in the
-state `u`.
-"""
-function radial_values(u::AbstractVector, layout::UnknownLayout, id::Integer)
+function unknown_values(u::AbstractVector, layout::UnknownLayout, id::Integer)
     layout.kinds[id] === :radial && layout.sizes[id, 1] == 1 ||
         throw(ArgumentError("$(layout.unknowns[id].name) is not a radial unknown with one component"))
     return LayoutRadialValues(u, layout.radius_offsets[id])
@@ -234,7 +228,7 @@ end
 
 # the electric field of the state for a term: nothing when the term has none as an unknown
 _field_values(::Nothing, u, layout) = nothing
-_field_values(name::Symbol, u, layout) = radial_values(u, layout, unknown_id(layout, name))
+_field_values(name::Symbol, u, layout) = unknown_values(u, layout, unknown_id(layout, name))
 
 function _equally_spaced(offsets)
     for k in 3:length(offsets)

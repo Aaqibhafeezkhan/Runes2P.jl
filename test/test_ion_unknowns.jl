@@ -95,15 +95,15 @@ end
         set_ion_densities!(u, layout, ions)
         out = Runes2P.rhs!(zeros(length(layout)), term, u, layout, 2, 0.0)
         n_free = [free_electron_density(ions, ir) for ir in 1:nr]
-        @test radial_values(out, layout, 2) ≈ n_free rtol = 1e-14
+        @test unknown_values(out, layout, 2) ≈ n_free rtol = 1e-14
         @test n_free ≈ fill(1e19 + 1.5e15, nr) rtol = 1e-14
         equations = [Equation(:ion_densities, TimeDerivative()),
             population_equations(ION_COMPOSITION; hot_density = :hot_electron_density)...,
             Equation(:hot_electron_density, Algebraic(), PrescribedValueTerm(1e17),
                 LinearTerm(:hot_electron_density; coefficient = -1))]
         system = EquationSystem(layout, equations)
-        radial_values(u, layout, 3) .= 1e17
-        radial_values(u, layout, 2) .= n_free .- 1e17
+        unknown_values(u, layout, 3) .= 1e17
+        unknown_values(u, layout, 2) .= n_free .- 1e17
         @test maximum(abs, Runes2P.rhs!(zeros(length(layout)), u, system, 0.0)) <
               1e-12 * 1e19
         # the direct Jacobian against the automatic one of its rhs
@@ -127,8 +127,8 @@ end
         u = zeros(length(layout))
         ions = _ion_species(nr)
         set_ion_densities!(u, layout, ions)
-        radial_values(u, layout, 3) .= [10.0, 20.0]
-        radial_values(u, layout, 2) .= 7e18
+        unknown_values(u, layout, 3) .= [10.0, 20.0]
+        unknown_values(u, layout, 2) .= 7e18
         plasma = plasma_values(source, u, layout, 0.0)
         @test plasma.ions[2].charge_state_densities == ions[2].charge_state_densities
         @test plasma.cold_electron_temperature == [10.0, 20.0] &&
@@ -147,7 +147,7 @@ end
                 RadialUnknown(:cold_electron_density),
                 RadialUnknown(:cold_electron_temperature)])
         wrong_state = zeros(length(wrong))
-        radial_values(wrong_state, wrong, 3) .= 10.0
+        unknown_values(wrong_state, wrong, 3) .= 10.0
         @test_throws ArgumentError plasma_values(source, wrong_state, wrong, 0.0)
         # a Fokker-Planck term takes the ions and lags only the group of its ions
         g = cylindrical_grid(
@@ -203,7 +203,7 @@ end
         # a step of the exchange between the neutral and the ion of deuterium (backward
         # Euler, rate 1e3/s over 1e-3 s): the difference falls by 1 + 2 k dt = 3, the sum
         # and the trace argon stay
-        radial_values(u, layout, 2) .= free_electron_density(_ion_species(nr), 1)
+        unknown_values(u, layout, 2) .= free_electron_density(_ion_species(nr), 1)
         solution = integrate(system, u, [0.0, 1e-3])
         final = solution.states[:, end]
         @test final[ions[1]] - final[ions[2]] ≈ (u[ions[1]] - u[ions[2]]) / 3 rtol = 1e-8
@@ -218,7 +218,7 @@ end
                 population_equations(ION_COMPOSITION)...])
         u = zeros(length(layout))
         set_ion_densities!(u, layout, _ion_species(1))
-        radial_values(u, layout, 2) .= free_electron_density(_ion_species(1), 1)
+        unknown_values(u, layout, 2) .= free_electron_density(_ion_species(1), 1)
         solution = integrate(system, u, [0.0, 1e-6])
         file = joinpath(mktempdir(), "ions.h5")
         write_output(file, solution)

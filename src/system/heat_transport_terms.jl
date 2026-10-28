@@ -185,8 +185,8 @@ function rhs!(out, term::HeatTransportTerm, u, layout, row, t)
     rg = layout.radial_grid
     levels = _heat_level_faces(term, rg, t)
     q = _heat_safety_factor_faces(term, rg)
-    T = radial_values(u, layout, unknown_id(layout, term.temperature))
-    n = radial_values(u, layout, unknown_id(layout, term.density))
+    T = unknown_values(u, layout, unknown_id(layout, term.temperature))
+    n = unknown_values(u, layout, unknown_id(layout, term.density))
     for ir in 1:radial_cell_count(rg)
         divergence = (_heat_flux(term, rg, levels, q, T, n, ir + 1) -
                       _heat_flux(term, rg, levels, q, T, n, ir)) /
@@ -216,8 +216,8 @@ The volume integral of the term is minus this flux.
 """
 function heat_flux_through_edge(term::HeatTransportTerm, u, layout, t)
     rg = layout.radial_grid
-    T = radial_values(u, layout, unknown_id(layout, term.temperature))
-    n = radial_values(u, layout, unknown_id(layout, term.density))
+    T = unknown_values(u, layout, unknown_id(layout, term.temperature))
+    n = unknown_values(u, layout, unknown_id(layout, term.density))
     return -term.coefficient * _heat_flux(term, rg, _heat_level_faces(term, rg, t),
         _heat_safety_factor_faces(term, rg), T, n,
         radial_cell_count(rg) + 1)

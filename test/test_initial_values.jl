@@ -20,9 +20,9 @@
         thermal_energy_equation()]
     function start(energy)
         u = zeros(length(layout))
-        radial_values(u, layout, 1) .= temperature
-        radial_values(u, layout, 2) .= density
-        radial_values(u, layout, 3) .= energy
+        unknown_values(u, layout, 1) .= temperature
+        unknown_values(u, layout, 2) .= density
+        unknown_values(u, layout, 3) .= energy
         return u
     end
     system = EquationSystem(layout, equations; initial_state = start(thermal))
@@ -35,11 +35,11 @@
         for energy in (zeros(2), 2 .* thermal)
             u = start(energy)
             @test fill_initial_values!(u, system, 0.0) == [:cold_thermal_energy]
-            @test radial_values(u, layout, W) ≈ thermal rtol = 1e-14
-            @test radial_values(u, layout, 1) == temperature
+            @test unknown_values(u, layout, W) ≈ thermal rtol = 1e-14
+            @test unknown_values(u, layout, 1) == temperature
             solution = integrate(system, start(energy), [0.0, 1e-6, 2e-6]; stepper = FixedSteps())
             for k in 1:3
-                @test radial_values(solution.states[:, k], layout, W) ≈ thermal rtol = 1e-12
+                @test unknown_values(solution.states[:, k], layout, W) ≈ thermal rtol = 1e-12
             end
             @test solution.settings["segment"]["initial_values_from_equations"] ==
                   ["cold_thermal_energy"]
@@ -50,7 +50,7 @@
         # a resume fills only the unknowns the stored layout lacks
         u = start(zeros(2))
         @test isempty(fill_initial_values!(u, system, 0.0; unknowns = Symbol[]))
-        @test radial_values(u, layout, W) == zeros(2)
+        @test unknown_values(u, layout, W) == zeros(2)
     end
 
     @testset "rows in any order" begin
@@ -68,16 +68,16 @@
             Equation(:cold_electron_temperature, TimeDerivative(:cold_thermal_energy),
                 PrescribedValueTerm(zeros(2)))]
         u = zeros(length(ordered))
-        radial_values(u, ordered, 1) .= temperature
-        radial_values(u, ordered, 2) .= density ./ 2
-        radial_values(u, ordered, 3) .= 1.0          # a placeholder the fill replaces
-        radial_values(u, ordered, 4) .= thermal
+        unknown_values(u, ordered, 1) .= temperature
+        unknown_values(u, ordered, 2) .= density ./ 2
+        unknown_values(u, ordered, 3) .= 1.0          # a placeholder the fill replaces
+        unknown_values(u, ordered, 4) .= thermal
         both = EquationSystem(ordered, rows; initial_state = u)
-        radial_values(u, ordered, 4) .= 0.0
+        unknown_values(u, ordered, 4) .= 0.0
         @test Set(fill_initial_values!(u, both, 0.0)) ==
               Set([:cold_thermal_energy, :cold_electron_density])
-        @test radial_values(u, ordered, 3) ≈ density rtol = 1e-14
-        @test radial_values(u, ordered, 4) ≈ thermal rtol = 1e-14
+        @test unknown_values(u, ordered, 3) ≈ density rtol = 1e-14
+        @test unknown_values(u, ordered, 4) ≈ thermal rtol = 1e-14
     end
 
     @testset "refusals" begin

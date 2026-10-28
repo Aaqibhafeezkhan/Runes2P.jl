@@ -85,8 +85,8 @@ using ForwardDiff: ForwardDiff
             for ir in 1:2
                 kinetic_view(u, layout, 1, ir) .= maxwellian(temperatures[ir])
             end
-            radial_values(u, layout, 2) .= [1e22, 2e22]
-            radial_values(u, layout, 3) .= temperatures
+            unknown_values(u, layout, 2) .= [1e22, 2e22]
+            unknown_values(u, layout, 3) .= temperatures
             system = EquationSystem(layout, equations; initial_state = u)
             J = jacobian_prototype(system)
             jacobian!(J, system, u, 0.0)
@@ -131,7 +131,7 @@ using ForwardDiff: ForwardDiff
                 kinetic_view(u, layout, 1, ir) .= maxwellian(temperatures[ir]) .*
                                                   (1 .+ 0.2 .* (1:4)')
             end
-            radial_values(u, layout, 2) .= temperatures
+            unknown_values(u, layout, 2) .= temperatures
             system = EquationSystem(layout, equations; initial_state = u)
             J = jacobian_prototype(system)
             jacobian!(J, system, u, 0.0)
@@ -188,7 +188,7 @@ using ForwardDiff: ForwardDiff
               :cold_electron_temperature in dependencies(field_particle)
         u0 = zeros(length(layout))
         kinetic_array(u0, layout, 1) .= f0
-        radial_values(u0, layout, 2) .= temperature(0.0)
+        unknown_values(u0, layout, 2) .= temperature(0.0)
         system = EquationSystem(layout,
             [Equation(:f, TimeDerivative(), fp, field_particle),
                 Equation(:cold_electron_temperature, Algebraic(),

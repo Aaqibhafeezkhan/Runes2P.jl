@@ -5,7 +5,7 @@
 # of the state
 function _state_limits(region::MomentumRegion, u, layout)
     limit = region.limit
-    temperature = radial_values(u, layout, unknown_id(layout, limit.temperature))
+    temperature = unknown_values(u, layout, unknown_id(layout, limit.temperature))
     return [limit.factor * sqrt(2 * temperature[ir] / Constants.ELECTRON_REST_ENERGY)
             for ir in eachindex(temperature)]
 end
@@ -235,7 +235,7 @@ function _add_threshold_column!(weight, J, envelopes, grid, u, layout, row, id)
     isempty(temperature) && return J
     T_id = unknown_id(layout, only(temperature))
     D = ForwardDiff.Dual{PlasmaColumnTag, Float64, 1}
-    T = radial_values(u, layout, T_id)
+    T = unknown_values(u, layout, T_id)
     limit = envelopes.region.limit
     for ir in 1:radial_cell_count(layout)
         m = momentum_grid(grid, ir)
