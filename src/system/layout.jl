@@ -373,7 +373,9 @@ end
     unknown_values(u, layout, id)
 
 [`LayoutRadialValues`](@ref) of the radial unknown `id`, which has one component, in the
-state `u`. Unlike [`unknown_view`](@ref), it takes the unknown by id and spans all radii.
+state `u`: its value at every radius, writable in place (`unknown_values(u, layout, id) .=
+values`). [`radial_view`](@ref) gives the components of an unknown at one radius, and
+[`unknown_view`](@ref) takes the unknown by name.
 """
 function unknown_values end
 

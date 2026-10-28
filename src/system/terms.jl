@@ -208,7 +208,7 @@ end
 
 The values of a radial unknown with one component over the radii, as a vector view of a
 state vector: `values[ir]` is the value at radius index `ir`. Operators take the electric
-field of the state in this form.
+field of the state in this form. [`unknown_values`](@ref) builds it.
 """
 struct LayoutRadialValues{T, V <: AbstractVector{T}, O <: AbstractVector{Int}} <:
        AbstractVector{T}
