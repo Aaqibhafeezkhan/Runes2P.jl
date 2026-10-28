@@ -239,6 +239,7 @@ mutable struct KnockOnOperator{T <: AbstractFloat}
     const knockon_row::Vector{T}       # scratch C[i, :] (knock-on ξ cells)
     const gathered_weights::Matrix{T}  # primary weights gathered per slice (primary ξ cells, primary p cells)
     slice_products::Matrix{T}          # Y (knock-on ξ cells, largest number of (slice, k) combinations)
+    revision::Int                      # the number of cutoff changes; a term that keeps a result of the kernels compares it
 end
 
 """
@@ -270,7 +271,7 @@ function KnockOnOperator(knockon::KineticGrid{T}, primary::KineticGrid{T},
         zeros(T, max_nxi_primary, max_np_primary),
         zeros(T, max_nxi_knockon),
         zeros(T, max_nxi_primary, method == :blas ? max_np_primary : 0),
-        zeros(T, max_nxi_knockon, 0))
+        zeros(T, max_nxi_knockon, 0), 0)
     set_cutoff!(op, p_cutoff)
     return op
 end
@@ -311,7 +312,8 @@ A rebuild costs a few operator applications; snapping the cutoff
 to momentum cell faces ([`choose_cutoff`](@ref)) keeps rebuilds rare when the cutoff
 follows the plasma.
 
-A `knockon_linear_operator` of `op` sees the new kernels.
+A `knockon_linear_operator` of `op` sees the new kernels, and a [`KnockOnTerm`](@ref) of
+`op` recomputes its lagged source at its next preparation.
 """
 function set_cutoff!(op::KnockOnOperator{T}, p_cutoff::Union{
         Real, AbstractVector}) where {T}
@@ -334,6 +336,8 @@ function set_cutoff!(op::KnockOnOperator{T}, p_cutoff::Union{
         end
     end
     merge!(op.cache, built)
+    # counted only once the kernels are built, so a failed call changes nothing
+    cutoffs == op.p_cutoff || (op.revision += 1)
     copyto!(op.p_cutoff, cutoffs)
     copyto!(op.kernels, kernels)
     # keep only the kernels in use

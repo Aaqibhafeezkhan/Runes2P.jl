@@ -35,6 +35,7 @@ struct KnockOnTerm{T, D} <: EquationTerm
     prepared::Base.RefValue{Bool}
     prepared_from::Vector{Matrix{T}}       # the primary of the last preparation, per radius
     preparations::Base.RefValue{Int}       # the applications of the kernel by prepare_step!
+    prepared_revision::Base.RefValue{Int}  # the revision of the operator at the last preparation
 end
 
 function KnockOnTerm(primary::Symbol, operator::KnockOnOperator{T}; target_density,
@@ -50,7 +51,7 @@ function KnockOnTerm(primary::Symbol, operator::KnockOnOperator{T}; target_densi
              Matrix{T}[]
     prepared_from = [similar(source) for source in lagged]
     return KnockOnTerm(primary, operator, target_density, treatment,
-        lagged, Ref(false), prepared_from, Ref(0))
+        lagged, Ref(false), prepared_from, Ref(0), Ref(0))
 end
 
 # the primary lagged and the target density an unknown: the term is the target density
@@ -106,11 +107,12 @@ _target_density(term::KnockOnTerm, u, layout, ir) = term.target_density[ir]
 
 # The kernel is O(N_p²) per radius: it is applied once per start state, not at every
 # residual of the Newton iteration and its line search. The primary of the last
-# preparation is kept, and a residual at the same start state reuses the source.
+# preparation is kept, and a residual at the same start state reuses the source, unless a
+# cutoff of the operator has changed since (`set_cutoff!` counts its revision).
 function prepare_step!(term::KnockOnTerm, u_old, layout, row, t)
     _lagged_primary(term) || return nothing
     primary = unknown_id(layout, term.primary)
-    if term.prepared[]
+    if term.prepared[] && term.prepared_revision[] == term.operator.revision
         same = true
         for ir in 1:radial_cell_count(layout)
             _same_primary(term.prepared_from[ir], kinetic_view(u_old, layout, primary, ir)) ||
@@ -127,6 +129,7 @@ function prepare_step!(term::KnockOnTerm, u_old, layout, row, t)
     end
     term.preparations[] += 1
     term.prepared[] = true
+    term.prepared_revision[] = term.operator.revision
     return nothing
 end
 
