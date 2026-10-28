@@ -17,11 +17,10 @@ function public_objects()
     return objects
 end
 
-# the methods of `f` defined in Runes2P or one of its submodules
+# the methods of `f` defined in Runes2P, its submodules or its extensions (when loaded)
 function own_methods(f)
-    return [m
-            for m in methods(f)
-            if parentmodule(m) === Runes2P || parentmodule(parentmodule(m)) === Runes2P]
+    root(m) = String(nameof(Base.moduleroot(parentmodule(m))))
+    return [m for m in methods(f) if startswith(root(m), "Runes2P")]
 end
 
 @testset "names that users see" begin
