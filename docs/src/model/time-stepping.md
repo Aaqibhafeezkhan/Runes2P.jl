@@ -33,7 +33,7 @@ The ion densities in the collisions of a [`FokkerPlanckTerm`](@ref) (`lagged`) a
 A lagged part is first-order accurate in the step, also under BDF2 ([`FokkerPlanckTerm`](@ref), [`StepController`](@ref)).
 
 The same system can be driven by OrdinaryDiffEq or NonlinearSolve through [`ode_function`](@ref).
-In that form there is no start of the step, so a lagged part is evaluated at the state itself, and `ode_function` passes no Jacobian for a system with such a term ([`lags_in_ode_form`](@ref)).
+In that form there is no start of the step, so a lagged part is evaluated at the state itself, and `ode_function` passes no Jacobian for a system with such a term ([`Runes2P.lags_in_ode_form`](@ref)).
 
 ## Newton iteration
 

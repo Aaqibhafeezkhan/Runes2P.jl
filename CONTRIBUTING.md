@@ -54,7 +54,7 @@ julia --project=docs -e 'using Pkg; Pkg.instantiate()'   # once
 julia --project=docs docs/make.jl
 ```
 
-The build is strict: an exported name without a docstring or an unresolved `@ref` link fails it.
+The build is strict: a public name (exported or declared `public`) without a docstring or an unresolved `@ref` link fails it.
 A new source file goes into the table `CATEGORIES` of `docs/make.jl`.
 The header of `docs/make.jl` gives the command of a live local preview.
 
@@ -67,7 +67,7 @@ The header of `docs/make.jl` gives the command of a live local preview.
 - Longer reasons go on the pages of the documentation, not into comments.
 - A value or default that neither DREAM's examples nor a cited reference fixes is marked "a choice of this package" where it is set.
   It gets a row on the docs page [Choices of this package](docs/src/choices.md).
-- Every exported name has a docstring of its own.
+- Every public name (exported or declared `public`) has a docstring of its own.
   A docstring is a string literal: a LaTeX backslash is written twice (`\\partial`), formulas go into math (```` ```math ```` blocks, ``` ``…`` ``` inline), and `@ref` links point to documented names only.
 
 ## Physics values and their sources

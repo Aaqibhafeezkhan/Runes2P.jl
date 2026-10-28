@@ -161,7 +161,7 @@ using QuadGK: quadgk
             for factor in (3.0, 5.0)
                 kinetic = KineticIonizationTerm(composition, :f, grid;
                     region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor)))
-                split = threshold_split(kinetic, 1, u, layout, 0.0)
+                split = Runes2P.threshold_split(kinetic, 1, u, layout, 0.0)
                 p0 = factor * sqrt(2theta)
                 x = (sqrt(1 + p0^2) - 1) / theta        # E_c/T
                 maxwellian(p) = p^2 * exp(-p^2 / (sqrt(1 + p^2) + 1) / theta)

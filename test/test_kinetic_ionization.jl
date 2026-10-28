@@ -6,6 +6,7 @@
 using SparseArrays: sparse
 using ForwardDiff
 using QuadGK: quadgk
+using Runes2P: add_local_jacobian!
 
 const KINETIC_IONIZATION_COMPOSITION = IonComposition(["D" => 1, "Ar" => 18])
 
@@ -189,7 +190,8 @@ end
             for factor in (5.0, 7.0)
                 layout, kinetic, u = _ionization_case(; factor)
                 n = length(u)
-                splits = [threshold_split(kinetic, ir, u, layout, 0.0) for ir in 1:2]
+                splits = [Runes2P.threshold_split(kinetic, ir, u, layout, 0.0)
+                          for ir in 1:2]
                 @test all(s -> 0 < s.fraction < 1e-6, splits)
                 # the closure: the cold electrons are those of the Maxwellian below the threshold
                 n_cold = [5e19 * (1 - s.fraction) for s in splits]

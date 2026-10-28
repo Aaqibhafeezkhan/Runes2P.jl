@@ -1,7 +1,7 @@
 # API reference of Runes2P, built and viewed locally:
 #   julia --project=docs docs/make.jl
 #   julia --project=docs -e 'using Revise, LiveServer; servedocs(include_dirs=["src", "ext"], skip_dirs=[joinpath("docs", "src", "api")], launch_browser=true)'
-# The build is strict: every exported name needs a docstring, and a broken `@ref` link
+# The build is strict: every public name needs a docstring, and a broken `@ref` link
 # fails it. In CI (CI=true) the URLs are pretty, and deploydocs publishes the build when a
 # GITHUB_TOKEN is set; locally it only reports that it does not deploy.
 using Documenter
@@ -13,11 +13,11 @@ const EXTENSIONS = [Base.get_extension(Runes2P, name)
                     for name in (:Runes2PHDF5Ext, :Runes2PInterpolationsExt, :Runes2PSciMLBaseExt)]
 any(isnothing, EXTENSIONS) && error("an extension of Runes2P did not load")
 
-# checkdocs = :exports only checks that the existing docstrings appear on a page: an
-# exported name without any docstring passes it unnoticed
+# checkdocs = :public only checks that the existing docstrings appear on a page: a public
+# name (exported or declared `public`) without any docstring passes it unnoticed
 let undocumented = Docs.undocumented_names(Runes2P)
     isempty(undocumented) ||
-        error("exported names without a docstring: ", join(sort(string.(undocumented)), ", "))
+        error("public names without a docstring: ", join(sort(string.(undocumented)), ", "))
 end
 
 const SOURCE = joinpath(dirname(@__DIR__), "src")
@@ -93,7 +93,7 @@ function source_files(directory)
           for file in files if endswith(file, ".jl")])
 end
 
-# Number of docstrings of Runes2P per source file, exported and internal, so that a page
+# Number of docstrings of Runes2P per source file, public and internal, so that a page
 # leaves out empty sections. Documenter's `Public` makes the same test of the binding.
 # Methods of functions of other modules (`Base.size(::KineticGrid)`) are documented in Runes2P
 # but not listed by `@autodocs`; they get a `@docs` block of their own, by signature.
@@ -111,7 +111,7 @@ function docstring_counts()
             continue
         end
         entry = get!(counts, file, [0, 0])
-        entry[Base.isexported(binding.mod, binding.var) ? 1 : 2] += 1
+        entry[Base.ispublic(binding.mod, binding.var) ? 1 : 2] += 1
     end
     return counts, foreign
 end
@@ -129,11 +129,11 @@ autodocs_block(file, public) = """
 
 # a file without docstrings gets no heading
 function file_section(file)
-    exported, internal = get(COUNTS, file, [0, 0])
+    public_count, internal = get(COUNTS, file, [0, 0])
     methods = get(FOREIGN, file, String[])
-    exported + internal + length(methods) == 0 && return ""
+    public_count + internal + length(methods) == 0 && return ""
     text = "## `src/$(file)`\n\n"
-    exported > 0 && (text *= "### Exported\n\n" * autodocs_block(file, true))
+    public_count > 0 && (text *= "### Public\n\n" * autodocs_block(file, true))
     isempty(methods) ||
         (text *= "### Methods of other modules\n\n```@docs\n" * join(methods, "\n") *
                  "\n```\n\n")
@@ -141,7 +141,7 @@ function file_section(file)
     return text
 end
 
-# the submodule of physical constants has a docstring of its own and no exports
+# the submodule of physical constants has a docstring of its own and no public names
 const CONSTANTS_SECTION = """
     ## `Runes2P.Constants`
 
@@ -219,7 +219,7 @@ makedocs(;
              "Comparison with DREAM" => "dream-comparison.md",
              "Reference data" => "reference-data.md",
              "API" => ["Overview" => "api-overview.md", API_PAGES..., "Extensions" => "extensions.md"]],
-    checkdocs = :exports,
+    checkdocs = :public,
     warnonly = false,
 )
 #! format: on

@@ -5,6 +5,7 @@
 # the stored Jacobian of a lagged term.
 using SciMLBase: SciMLBase
 using HDF5
+using Runes2P: lags_in_ode_form
 
 # the case of test_checkpoint.jl with the target density an unknown that decays in 1e-4 s
 function _target_case(; treatment)

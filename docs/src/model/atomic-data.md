@@ -146,7 +146,7 @@ The MeV asymptotes and the calculations of Bao and Li check the model.
 A kinetic ionization above a threshold next to the full ADAS rate of the cold electrons counts the Maxwellian tail above the threshold twice.
 That is DREAM's pairing (`src/Settings/Equations/ions.cpp`), and [`IonRateTerm`](@ref) without `kinetic` reproduces it.
 With `kinetic`, the term splits the ionization at the threshold of the [`KineticIonizationTerm`](@ref).
-[`threshold_split`](@ref) takes the Maxwellian at the cold temperature on the grid of the term and gives the fraction ``f_>`` of its density above the threshold and its rate coefficient ``A_>`` from the cross sections.
+[`Runes2P.threshold_split`](@ref) takes the Maxwellian at the cold temperature on the grid of the term and gives the fraction ``f_>`` of its density above the threshold and its rate coefficient ``A_>`` from the cross sections.
 The cold electrons below the threshold ionize at the coefficient of [`fluid_ionization_coefficient`](@ref):
 
 ```math
