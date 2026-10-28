@@ -49,9 +49,9 @@ struct KineticIonizationTerm{E} <: EquationTerm
     grid::KineticGrid{Float64}
     ions::Symbol
     envelopes::E
-    ionization_cross_section_form::Symbol # the form of ionization_cross_section
-    rates::Vector{Matrix{Float64}}     # per radius: v σ [m³/s] per momentum cell and component
-    weights::Vector{Matrix{Float64}}   # per radius: 𝒱' Δp Δξ / V' per cell, the weight of a density moment
+    ionization_cross_section_form::Symbol  # the form of ionization_cross_section
+    rates::Vector{Matrix{Float64}}         # per radius: v σ [m³/s] per momentum cell and component
+    weights::Vector{Matrix{Float64}}       # per radius: 𝒱' Δp Δξ / V' per cell, the weight of a density moment
 end
 
 function KineticIonizationTerm(
@@ -290,10 +290,10 @@ Runes2P's default hot region takes 7 for every form ([`ThermalMomentum`](@ref)).
 """
 const MINIMUM_SPLIT_THRESHOLD_FACTORS = Dict(:chianti => 7.0, :dream => 5.0, :bethe => 5.0)
 
-# refuses the split of the ionization at the threshold of `kinetic` below the minimum factor
+# refuses the split of the ionization at the threshold of `kinetic_ionization` below the minimum factor
 # of its form, MINIMUM_SPLIT_THRESHOLD_FACTORS; `owner` names the fluid term
-function _check_split_threshold(kinetic::KineticIonizationTerm, owner::AbstractString)
-    envelopes = kinetic.envelopes
+function _check_split_threshold(kinetic_ionization::KineticIonizationTerm, owner::AbstractString)
+    envelopes = kinetic_ionization.envelopes
     region = envelopes === nothing ? nothing : envelopes.region
     limit = region === nothing ? nothing : region.limit
     limit isa ThermalMomentum{Symbol} ||
@@ -301,7 +301,7 @@ function _check_split_threshold(kinetic::KineticIonizationTerm, owner::AbstractS
                             "threshold at a multiple of the thermal momentum of the temperature unknown " *
                             "(ThermalMomentum with the name of the unknown), so that the fluid coefficient " *
                             "(SCD − A_>)/(1 − f_>) follows the temperature"))
-    form = kinetic.ionization_cross_section_form
+    form = kinetic_ionization.ionization_cross_section_form
     minimum = MINIMUM_SPLIT_THRESHOLD_FACTORS[form]
     limit.factor >= minimum ||
         throw(ArgumentError("the split of the ionization of $owner at $(limit.factor) thermal momenta is refused with the " *
