@@ -12,13 +12,13 @@ The API reference is generated from the docstrings in `src/` and `ext/`.
 - [Extensions](extensions.md): HDF5 output and checkpoints, SciML functions, interpolated radial profiles.
 
 Each category has an overview page and subpages that group its source files.
-A subpage has one section per source file, with the exported names first and the internal ones after them.
+A subpage has one section per source file, with the public names first and the internal ones after them.
 The grouping is a table in `docs/make.jl`.
 A new source file that the table does not list appears on the subpage "Other" of its category.
 
 ## Building and viewing
 
-The build runs one Julia process and is strict: every exported name needs a docstring, and every `@ref` link must resolve.
+The build runs one Julia process and is strict: every public name needs a docstring, and every `@ref` link must resolve.
 
 ```
 julia --project=docs -e 'using Pkg; Pkg.instantiate()'

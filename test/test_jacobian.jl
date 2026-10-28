@@ -1,5 +1,6 @@
 using Random: Xoshiro
 using SparseArrays: findnz, nnz
+using Runes2P: is_local
 
 @testset "sparse Jacobian" begin
     rng = Xoshiro(2)

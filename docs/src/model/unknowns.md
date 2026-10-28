@@ -105,7 +105,7 @@ A few properties decide how a term enters the system and its Jacobian:
 
 A row that holds every cell of a radius, such as a density moment, would take one color per cell in the colored AD.
 Such terms assemble their block directly, and the coloring sees the other terms alone.
-A term whose rows read all charge states of a radius builds its block by one dual-number pass over a reduced layout ([`add_local_jacobian!`](@ref), [`local_layout`](@ref)).
+A term whose rows read all charge states of a radius builds its block by one dual-number pass over a reduced layout ([`Runes2P.add_local_jacobian!`](@ref), [`Runes2P.local_layout`](@ref)).
 The knock-on term with an implicit primary ([`KnockOnTerm`](@ref)) is matrix-free, since its block is dense per radius; with a lagged primary it assembles a sparse block directly.
 
 A term defined outside the package adds methods to these functions under their qualified names, `Runes2P.rhs!(out, term::MyTerm, ...)`.
@@ -141,7 +141,7 @@ The construction evaluates the sparse terms at `initial_state` and `initial_time
 A term that is defined only within the run's interval or at a physical state therefore builds without error.
 
 [`rhs!`](@ref)`(du, u, system, t)` is the ODE form for a general integrator.
-There a lagged part sees the state itself, so [`ode_function`](@ref) passes no Jacobian for a system with a lagged part ([`lags_in_ode_form`](@ref)).
+There a lagged part sees the state itself, so [`ode_function`](@ref) passes no Jacobian for a system with a lagged part ([`Runes2P.lags_in_ode_form`](@ref)).
 
 ### Tolerances
 
@@ -190,7 +190,7 @@ A prescribed source is compared once per time, so the evaluations of a term at o
 The derivatives with respect to the plasma unknowns enter the stored Jacobian as columns of their own ([`has_plasma_columns`](@ref)).
 [`dual_plasma`](@ref) seeds the temperature as partial 1, the density as partial 2 and the charge states after them.
 The coefficients at a radius depend only on the plasma of that radius, so one evaluation gives the derivatives at every radius.
-[`plasma_columns`](@ref) maps the partials to entries of the state, and [`plasma_column_sparsity!`](@ref) lists them in the pattern.
+[`Runes2P.plasma_columns`](@ref) maps the partials to entries of the state, and [`plasma_column_sparsity!`](@ref) lists them in the pattern.
 [`add_plasma_columns!`](@ref) applies the dual coefficients to ``f`` with the scheme's own face weights, so the plasma columns are exact also when the stored block in ``f`` is approximate.
 
 ### Lagged parts

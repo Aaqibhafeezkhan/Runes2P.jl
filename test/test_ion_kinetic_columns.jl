@@ -5,6 +5,7 @@
 # Newton iterations of a stiff ionization step with the ion group implicit and lagged.
 
 using SparseArrays: sparse, nnz
+using Runes2P: plasma_columns
 
 const KINETIC_COMPOSITION = IonComposition(["D" => 1, "Ar" => 18])
 

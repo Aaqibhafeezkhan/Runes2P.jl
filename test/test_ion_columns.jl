@@ -6,6 +6,7 @@
 # the flows between the charge states of the rate equations. Needs the ADF11 cache.
 using ForwardDiff
 using SparseArrays: sparse, nnz
+using Runes2P: add_local_jacobian!, local_layout
 
 const COLUMN_COMPOSITION = IonComposition(["D" => 1, "Ar" => 18])
 

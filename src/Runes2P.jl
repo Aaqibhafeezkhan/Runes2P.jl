@@ -99,11 +99,10 @@ export WeightedSumTerm, free_electron_weights, ion_densities_unknown, set_ion_de
        ion_densities
 export deposit_neutrals!, population_equations, IonRateTerm, ion_rate_matrix,
        coronal_equilibrium
-export with_state_ions, add_local_jacobian!, local_layout, plasma_columns
 export RosenbluthPutvinskiSourceTerm, rosenbluth_putvinski_rate, ExternalAvalancheTerm
-export KineticIonizationTerm, threshold_split, fluid_ionization_coefficient,
-       kinetic_ionization_rates, MINIMUM_SPLIT_THRESHOLD_FACTORS
-export IonDiffusionTerm, lags_in_ode_form
+export KineticIonizationTerm, fluid_ionization_coefficient, kinetic_ionization_rates,
+       MINIMUM_SPLIT_THRESHOLD_FACTORS
+export IonDiffusionTerm
 export SECONDARY_SPECTRUM_WIDTHS, mean_secondary_energy, beb_mean_secondary_energy,
        SecondaryHeatingTerm, ionization_energy_flows
 export ADF11Table, read_adf11, adas_coefficient, adf11_file_name, adas_cache_directory,
@@ -123,7 +122,7 @@ export add_synchrotron!, fokker_planck_operator, zero_coefficients!,
 export set_unit_field_coefficients!, LayoutRadialValues, radial_values, with_electric_field
 export SparseJacobian, jacobian, jacobian!, operator_matrix, stencil_pattern,
        sparse_ad_backend
-export is_local, check_stencil_pattern
+export check_stencil_pattern
 export xi_star, moller_cross_section, moller_flux, max_knockon_momentum, moller_total_rate
 export MollerEnergyKernel, MollerPitchKernel, pitch_cell_fraction
 export pitch_kernel_column!, pitch_kernel_column_split!, pitch_kernel_matrix!
@@ -179,12 +178,14 @@ export SolverStatistics, TimeSolution, TimeStepFailure, integrate, write_output
 export RunOptions, TimeStepper, FixedSteps, StepDoubling, StepController, Leg, time_points
 export OUTPUT_FORMAT_VERSION, DescriptionContext, run_settings, read_settings,
        settings_hash, settings_fields
-export code_version, run_environment, describe_prescribed_plasma, resolved_pitch_options
+export code_version, run_environment, describe_prescribed_plasma
 export IntervalUpdate, KnockOnCutoffUpdate, free_critical_momentum, total_critical_momentum
 export kinetic_energy, momentum_at_energy, cutoff_target, choose_cutoff_face
 export CheckpointSettings, StoredState, read_checkpoint, write_checkpoint, read_state,
        read_output
 export StopCondition, stop_reason, run_status, exit_status
-export ProgressLog, write_header, write_entry, log_event!
+export ProgressLog
+
+public add_local_jacobian!, local_layout, plasma_columns, lags_in_ode_form, is_local
 
 end # module Runes2P

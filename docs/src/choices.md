@@ -23,7 +23,7 @@ DREAM leaves the synchrotron loss out by default, which `synchrotron = false` re
 The properties of exponential fitting are on the page [Positivity and flux limiters](model/positivity.md#Exponential-fitting).
 DREAM's default is the central interpolation, `scheme = :central`.
 With `lagged = :ions` the charge-state densities enter the collisions of `f` at the start of the step, and the stored Jacobian has no columns of them.
-The lag makes the term first order in time under BDF2, and [`ode_function`](@ref) passes no Jacobian for a system with such a term ([`lags_in_ode_form`](@ref)).
+The lag makes the term first order in time under BDF2, and [`ode_function`](@ref) passes no Jacobian for a system with such a term ([`Runes2P.lags_in_ode_form`](@ref)).
 
 ## Collision frequencies
 
