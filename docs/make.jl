@@ -141,7 +141,7 @@ function file_section(file)
     return text
 end
 
-# the submodule of physical constants has a docstring of its own and no exports
+# the submodule of physical constants has a docstring of its own and no public names
 const CONSTANTS_SECTION = """
     ## `Runes2P.Constants`
 
