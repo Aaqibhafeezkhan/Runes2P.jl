@@ -1,8 +1,8 @@
 # The knock-on term with a target density that is an unknown and changes during the run:
 # the lagged primary (:explicit_primary) against the implicit term, with an error of first
 # order in the step; the kernel applied once per start state and again after a change of
-# the cutoff; a resume inside an interval
-# of the step controller; the SciML path without the stored Jacobian of a lagged term.
+# the cutoff; a resume inside an interval of the step controller; the SciML path without
+# the stored Jacobian of a lagged term.
 using SciMLBase: SciMLBase
 using HDF5
 

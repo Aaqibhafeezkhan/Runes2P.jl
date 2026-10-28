@@ -15,8 +15,9 @@ momentum grids at different radii.
 - `:explicit_primary` (default, DREAM's Boltzmann operator `MollerBoltzmannOperator`): the
   primary distribution at the previous time level, the target density at the new one. The
   term is then the target density times a source fixed for the step, evaluated once per
-  residual from the state at the start of the step ([`prepare_step!`](@ref)), and its
-  Jacobian is the column of the target density at each radius. With a prescribed target
+  start state of a step ([`prepare_step!`](@ref)) and again after a change of the cutoff
+  ([`set_cutoff!`](@ref)), and its Jacobian is the column of the target density at each
+  radius. With a prescribed target
   density it is the same as `:explicit`.
 - `:explicit`: the whole term at the previous time level, target density included.
 - `:implicit`: the whole term at the new time level, matrix-free, since it couples all cells

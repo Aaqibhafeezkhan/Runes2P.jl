@@ -239,7 +239,7 @@ mutable struct KnockOnOperator{T <: AbstractFloat}
     const knockon_row::Vector{T}       # scratch C[i, :] (knock-on ξ cells)
     const gathered_weights::Matrix{T}  # primary weights gathered per slice (primary ξ cells, primary p cells)
     slice_products::Matrix{T}          # Y (knock-on ξ cells, largest number of (slice, k) combinations)
-    revision::Int                      # the number of cutoff changes; a term that keeps a result of the kernels compares it
+    revision::Int                      # the number of cutoff changes
 end
 
 """
