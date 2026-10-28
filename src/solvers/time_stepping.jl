@@ -993,7 +993,7 @@ function _controller_estimate!(
     else
         # Milne's device: the quadratic extrapolation P through the last three accepted
         # states misses by h (h + h1)(h + h1 + h2) u'''/6, BDF2 by h² (h + h1)² u'''/(6 (2h + h1)),
-        # so the local error is ρ (u - P), with ρ = 2/11 at constant steps
+        # so the local error is error_factor (u - P), with error_factor = 2/11 at constant steps
         h1, h2 = state.previous_step, state.previous_step2
         l0 = (h + h1) * (h + h1 + h2) / (h1 * (h1 + h2))
         l1 = -h * (h + h1 + h2) / (h1 * h2)
