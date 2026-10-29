@@ -100,8 +100,8 @@ function choose_cutoff(p_faces::AbstractVector{T}, lower::Real, upper::Real;
     end
     isinf(upper) && return (p_cutoff = first(candidates), inside_window = true)
     target = log(sqrt(max(lower, first(faces)) * upper))
-    log_distance = abs.(log.(candidates) .- target)
-    return (p_cutoff = candidates[argmin(log_distance)],
+    log_distances = abs.(log.(candidates) .- target)
+    return (p_cutoff = candidates[argmin(log_distances)],
         inside_window = true)
 end
 
