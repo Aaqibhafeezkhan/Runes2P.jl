@@ -1,4 +1,4 @@
-<p align="center"><img alt="Runes2P" src="docs/src/assets/logo.svg" width="160"></p>
+<p align="center"><img alt="Runes2P" src="docs/src/assets/wordmark.svg" width="360"></p>
 
 # Runes2P
 

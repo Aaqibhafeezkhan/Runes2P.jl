@@ -1,3 +1,10 @@
+```@raw html
+<p align="center">
+  <img class="docs-light-only" alt="Runes2P" src="assets/wordmark.svg" width="360">
+  <img class="docs-dark-only" alt="Runes2P" src="assets/wordmark-dark.svg" width="360">
+</p>
+```
+
 # Runes2P
 
 ```@docs
