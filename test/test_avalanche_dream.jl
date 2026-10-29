@@ -32,7 +32,7 @@ const DREAM_AVALANCHE_KINETIC_DATA = reference_file("dream_avalanche_kinetic.h5"
         # the case script has its own physical constants
         @test field ≈
               20 *
-              critical_field(density, relativistic_coulomb_logarithm(temperature, density)) rtol = 1e-7
+              critical_field(density, relativistic_coulomb_logarithm(density, temperature)) rtol = 1e-7
 
         mom = MomentumGrid(read(h5["grid/p1_f"]), read(h5["grid/p2_f"]))
         @test mom.p_faces ≈ biuniform_p_faces(180, 60, 0.0, 0.6, 200.0) rtol = 1e-13

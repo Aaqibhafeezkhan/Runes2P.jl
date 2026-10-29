@@ -40,7 +40,7 @@ using SparseArrays: findnz
             layout, 2, 1))]
         V = phase_space_jacobian(grid, 1)
         friction = sum(4π * n * r0^2 * me * c^3 *
-                       coulomb_logarithm(:electron_electron, :energy_dependent, p, T0, n) *
+                       coulomb_logarithm(:electron_electron, :energy_dependent, p, n, T0) *
                        sqrt(1 + p^2) / p * V[i, j] * m.p_widths[i] * m.xi_widths[j] *
                        f[i, j, 1]
         for (i, p) in enumerate(m.p_centers), j in 1:4) / rad.spatial_jacobian[1]

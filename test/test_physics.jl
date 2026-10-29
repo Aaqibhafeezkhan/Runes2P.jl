@@ -19,7 +19,7 @@ end
             coulomb_logarithm = :relativistic, bremsstrahlung = :neglect)
         n, T = 1e20, 100.0
         Ec = 4π * Constants.CLASSICAL_ELECTRON_RADIUS^2 * Constants.SPEED_OF_LIGHT *
-             relativistic_coulomb_logarithm(T, n) * n *
+             relativistic_coulomb_logarithm(n, T) * n *
              Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT /
              Constants.ELEMENTARY_CHARGE
         mom = MomentumGrid(uniform_p_faces(20, 0.0, 50.0), [-1.0, 0.0, 0.999, 1.0])
@@ -86,6 +86,14 @@ end
         rates_van_albada = log2.(errs_van_albada[1:(end - 1)] ./ errs_van_albada[2:end])
         @test all(rates_van_albada .> 1.7)
         @test errs_van_albada[end] < 5e-4
+    end
+
+    @testset "Coulomb logarithms take the density first" begin
+        # by hand: 14.9 - ln(10^19/10^20)/2 + ln(10 eV/1 keV) = 14.9 - 1.5 ln 10, and
+        # 14.6 + ln(10/(10^19/10^20))/2 = 14.6 + ln 10; the swapped order gives about 73
+        @test thermal_coulomb_logarithm(1e20, 1e3) == 14.9
+        @test thermal_coulomb_logarithm(1e19, 10.0) ≈ 11.446122 rtol = 1e-7
+        @test relativistic_coulomb_logarithm(1e19, 10.0) ≈ 16.902585 rtol = 1e-7
     end
 
     @testset "collision frequency limits" begin
@@ -206,7 +214,7 @@ end
             σL = 64 * sqrt(2π) * Constants.VACUUM_PERMITTIVITY^2 *
                  (T * Constants.ELEMENTARY_CHARGE)^1.5 /
                  (sqrt(Constants.ELECTRON_MASS) * Constants.ELEMENTARY_CHARGE^2 * Z *
-                  thermal_coulomb_logarithm(T, ne))
+                  thermal_coulomb_logarithm(ne, T))
             return abs(j) / σL
         end
         # the cell-centre rule reproduces the linear rule once its ξ error is divided out

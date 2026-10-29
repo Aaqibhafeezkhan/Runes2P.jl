@@ -28,8 +28,8 @@ import ForwardDiff
             nu = Runes2P.p3_slowing_down_frequency_at_zero(model, 1)
             @test all(isfinite, ForwardDiff.partials(nu))
         end
-        @test coulomb_logarithm(:electron_electron, :energy_dependent, 0.0, 100.0, 1e19) ==
-              thermal_coulomb_logarithm(100.0, 1e19)
+        @test coulomb_logarithm(:electron_electron, :energy_dependent, 0.0, 1e19, 100.0) ==
+              thermal_coulomb_logarithm(1e19, 100.0)
     end
 
     @testset "transfer from a slowing-down tail" begin
@@ -94,7 +94,7 @@ import ForwardDiff
         p_th = 5 * sqrt(2 * T1 / Constants.ELECTRON_REST_ENERGY)
         V = phase_space_jacobian(grid, 1)
         friction = sum(4π * n * r0^2 * me * c^3 *
-                       coulomb_logarithm(:electron_electron, :energy_dependent, p, T1, n) *
+                       coulomb_logarithm(:electron_electron, :energy_dependent, p, n, T1) *
                        sqrt(1 + p^2) / p * V[i, j] * m.p_widths[i] * m.xi_widths[j] *
                        f1[i, j, 1]
         for (i, p) in enumerate(m.p_centers) if p > p_th for j in 1:2) /
@@ -340,7 +340,7 @@ import ForwardDiff
                (times[21] - times[11])
         T_mid = value(16, :cold_electron_temperature)
         @test value(21, :cold_electron_temperature) > T0
-        @test rate ≈ braams_karney_conductivity(T_mid, 1.0, n) * E0^2 rtol = 5e-2
+        @test rate ≈ braams_karney_conductivity(n, T_mid, 1.0) * E0^2 rtol = 5e-2
         # The gap between the work of the field on the hot region, which W_hot gains in the
         # discrete equation of f, and E j_hot, which the row of the temperature charges: with
         # the total energy as the unknown the difference heats the cold electrons spuriously.
@@ -385,7 +385,7 @@ import ForwardDiff
         term = RunawayFluidEnergyTransferTerm(plasma)
         Runes2P.validate(term, layout, 1)
         out = Runes2P.rhs!(zeros(3), term, u, layout, 1, 0.0)
-        lnL = coulomb_logarithm(:electron_electron, :energy_dependent, 20.0, T, n)
+        lnL = coulomb_logarithm(:electron_electron, :energy_dependent, 20.0, n, T)
         E_c = n * e^3 * lnL / (4π * Constants.VACUUM_PERMITTIVITY^2 * me * c^2)
         @test out[1] ≈ e * c * E_c * n_re rtol = 1e-6
         @test Runes2P._temperature_source(term) == (:unknown, :cold_electron_temperature)

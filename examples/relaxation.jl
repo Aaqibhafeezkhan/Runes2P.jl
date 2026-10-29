@@ -29,7 +29,7 @@ println("scheme p/ξ: ", op.p_scheme, "/", op.xi_scheme, ", Jacobian ",
     ", collisions ", settings.mode, ", E/E_c = ",
     round(
         plasma.electric_field[1] / critical_field(plasma.cold_electron_density[1],
-            thermal_coulomb_logarithm(plasma.cold_electron_temperature[1], plasma.cold_electron_density[1]));
+            thermal_coulomb_logarithm(plasma.cold_electron_density[1], plasma.cold_electron_temperature[1]));
         digits = 2))
 
 f0 = maxwellian(grid, number("T0", plasma.cold_electron_temperature[1]), plasma.cold_electron_density[1], nr)

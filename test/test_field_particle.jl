@@ -34,7 +34,7 @@ function _lorentz_conductivity(T, ne, Z)
     64 * sqrt(2π) * Constants.VACUUM_PERMITTIVITY^2 *
     (T * Constants.ELEMENTARY_CHARGE)^1.5 /
     (sqrt(Constants.ELECTRON_MASS) * Constants.ELEMENTARY_CHARGE^2 * Z *
-     thermal_coulomb_logarithm(T, ne))
+     thermal_coulomb_logarithm(ne, T))
 end
 
 # σ/σ_L from the linear response C f₁ = -E f_M, with C the test-particle operator plus the

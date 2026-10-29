@@ -13,7 +13,7 @@ function lorentz_conductivity(T, ne, Z)
     64 * sqrt(2π) * Constants.VACUUM_PERMITTIVITY^2 *
     (T * Constants.ELEMENTARY_CHARGE)^1.5 /
     (sqrt(Constants.ELECTRON_MASS) * Constants.ELEMENTARY_CHARGE^2 * Z *
-     thermal_coulomb_logarithm(T, ne))
+     thermal_coulomb_logarithm(ne, T))
 end
 
 function conductivity_plasma(;
@@ -69,7 +69,7 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
         plasma = conductivity_plasma(; Z = 4, T = 100.0, ne = 5e19)
         @test effective_charge(plasma, 1) ≈ 4 rtol = 1e-15
         sigma = braams_karney_conductivity(plasma, 1)
-        @test sigma == braams_karney_conductivity(100.0, effective_charge(plasma, 1), 5e19)
+        @test sigma == braams_karney_conductivity(5e19, 100.0, effective_charge(plasma, 1))
         theta = 100.0 * Constants.ELEMENTARY_CHARGE /
                 (Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT^2)
         @test sigma ≈
@@ -77,18 +77,18 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
               (32 / sqrt(2π)) rtol = 1e-5
         # Spitzer and Härm at low temperature
         for Z in (1, 2)
-            @test braams_karney_conductivity(1.0, Z, 1e20) /
+            @test braams_karney_conductivity(1e20, 1.0, Z) /
                   lorentz_conductivity(1.0, 1e20, Z) ≈
                   CONDUCTIVITY_SPITZER_HARM[Z] rtol = 4e-3
         end
         # it falls with the temperature over mc² at equal T^{3/2}/lnΛ
-        ratio(T) = braams_karney_conductivity(T, 1.0, 1e20) /
+        ratio(T) = braams_karney_conductivity(1e20, T, 1.0) /
                    lorentz_conductivity(T, 1e20, 1)
         @test ratio(1e4) < ratio(1e3) < ratio(10.0)
         @test ratio(1e3) / ratio(10.0) ≈
               1 - (7.4290 - 7.2736) / 7.4290 * (1e3 - 10) / 5109.9895 rtol = 1e-6
-        @test_throws DomainError braams_karney_conductivity(-1.0, 1.0, 1e20)
-        @test_throws DomainError braams_karney_conductivity(10.0, 0.0, 1e20)
+        @test_throws DomainError braams_karney_conductivity(1e20, -1.0, 1.0)
+        @test_throws DomainError braams_karney_conductivity(1e20, 10.0, 0.0)
         # DREAM's fit of the conductivity of its kinetic operator
         @test test_particle_conductivity_fraction(1) ≈ 0.5132 atol = 1e-4
         @test test_particle_conductivity_fraction(2) ≈ 0.6384 atol = 1e-4
@@ -124,7 +124,7 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
         # conductivity at Z = 1 (0.2957 with 320 momentum cells)
         values = Dict(Z => discrete(; Z) for Z in (1, 2, 4, 16))
         for Z in (1, 2, 4, 16)
-            braams_karney = braams_karney_conductivity(10.0, Z, 1e20)
+            braams_karney = braams_karney_conductivity(1e20, 10.0, Z)
             @test values[Z] / braams_karney ≈ test_particle_conductivity_fraction(Z) rtol = 2.5e-2
         end
         @test 0.29 < values[1] / lorentz_conductivity(10.0, 1e20, 1) < 0.30
@@ -354,10 +354,10 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
         kinetic_term = FokkerPlanckTerm(:hot_tail_distribution, operator; electric_field = :electric_field)
         braams_karney = braams_karney_conductivity(plasma, 1)
         sigma_kinetic = only(kinetic_conductivity(operator))
-        collision_time = thermal_collision_time(ne, T, thermal_coulomb_logarithm(T, ne))
+        collision_time = thermal_collision_time(ne, T, thermal_coulomb_logarithm(ne, T))
         # a ten-thousandth of the Dreicer field, 5 critical fields at 10 eV: the nonlinear
         # response adds 1.7e-7 of σ E to the steady current, 1.7e-5 at a thousandth
-        field = 1e-4 * dreicer_field(ne, T, thermal_coulomb_logarithm(T, ne))
+        field = 1e-4 * dreicer_field(ne, T, thermal_coulomb_logarithm(ne, T))
         minus(name) = LinearTerm(name; coefficient = -1)
         function run(model, times; field_particle = false)
             layout = UnknownLayout(radial,

@@ -151,7 +151,7 @@ function _heat_conductivity(term::HeatTransportTerm, level, q, n, T)
 end
 
 # V' times the heat flux χ ∂_r T through face k (1 the first face, nr + 1 the edge)
-function _heat_flux(term::HeatTransportTerm, rg::RadialGrid, levels, q, T, n, k)
+function _heat_flux(term::HeatTransportTerm, rg::RadialGrid, levels, q, n, T, k)
     nr = radial_cell_count(rg)
     zero_flux = zero(eltype(T)) * zero(eltype(n))
     k == 1 && return zero_flux
@@ -188,8 +188,8 @@ function rhs!(out, term::HeatTransportTerm, u, layout, row, t)
     T = unknown_values(u, layout, unknown_id(layout, term.temperature))
     n = unknown_values(u, layout, unknown_id(layout, term.density))
     for ir in 1:radial_cell_count(rg)
-        divergence = (_heat_flux(term, rg, levels, q, T, n, ir + 1) -
-                      _heat_flux(term, rg, levels, q, T, n, ir)) /
+        divergence = (_heat_flux(term, rg, levels, q, n, T, ir + 1) -
+                      _heat_flux(term, rg, levels, q, n, T, ir)) /
                      (rg.spatial_jacobian[ir] * rg.r_widths[ir])
         out[first(unknown_range(layout, row, ir))] += term.coefficient * divergence
     end
@@ -219,6 +219,6 @@ function heat_flux_through_edge(term::HeatTransportTerm, u, layout, t)
     T = unknown_values(u, layout, unknown_id(layout, term.temperature))
     n = unknown_values(u, layout, unknown_id(layout, term.density))
     return -term.coefficient * _heat_flux(term, rg, _heat_level_faces(term, rg, t),
-        _heat_safety_factor_faces(term, rg), T, n,
+        _heat_safety_factor_faces(term, rg), n, T,
         radial_cell_count(rg) + 1)
 end

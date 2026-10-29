@@ -275,7 +275,7 @@ end
     # with the magnitude S of the source, the knock-on production K on both grids and the
     # flux Φ₀ through p = 0 (negative: a loss).
     @testset "particle budget" begin
-        coulomb_logarithm = relativistic_coulomb_logarithm(temperature, bulk_density)
+        coulomb_logarithm = relativistic_coulomb_logarithm(bulk_density, temperature)
         critical_electric_field = critical_field(bulk_density, coulomb_logarithm)
         critical = critical_momentum(maximum(field), critical_electric_field)
         window = cutoff_window(thermal_momentum(temperature), critical)
@@ -434,10 +434,10 @@ end
             MomentumGrid(biuniform_p_faces(110, 80, 0.0, 0.4, 2.0), uniform_xi_faces(14)),
             single)
         m = momentum_grid(grid)
-        coulomb_logarithm = relativistic_coulomb_logarithm(temperature, free_density)
+        coulomb_logarithm = relativistic_coulomb_logarithm(free_density, temperature)
         critical_electric_field = critical_field(free_density, coulomb_logarithm)
         collision_time = thermal_collision_time(free_density, temperature,
-            thermal_coulomb_logarithm(temperature, free_density))
+            thermal_coulomb_logarithm(free_density, temperature))
         settings = CollisionSettings(mode = :full, screening = :complete,
             coulomb_logarithm = :relativistic, bremsstrahlung = :neglect)
         theta = temperature / Constants.ELECTRON_REST_ENERGY

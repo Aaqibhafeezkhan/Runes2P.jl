@@ -27,7 +27,7 @@ end
         t_table, T_table = read(h5["temperature/t"]), read(h5["temperature/T"])
         n, field, magnetic = read(h5["n"]), read(h5["E"]), read(h5["B"])
         # the case script evaluates the field with its own constants (1.2e-8 from Runes2P's)
-        @test field ≈ 20 * critical_field(n, thermal_coulomb_logarithm(T_table[1], n)) rtol = 1e-7
+        @test field ≈ 20 * critical_field(n, thermal_coulomb_logarithm(n, T_table[1])) rtol = 1e-7
         plasma_at(t) = PlasmaState(
             cold_electron_temperature = [cooling_table_value(t_table, T_table, t)],
             cold_electron_density = [n], ions = [IonSpecies("D", 1, 1, [n])],

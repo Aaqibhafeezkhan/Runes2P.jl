@@ -53,7 +53,7 @@ neutral argon (for the screening switches).
 function plasma_from_switches(nr; T = 1e3, n = 1e20, e_over_ec = 5.0, B = 5.0)
     T, n, B = number("T", T), number("n", n), number("B", B)
     E = has_argument("E") ? number("E", 0.0) :
-        number("e_over_ec", e_over_ec) * critical_field(n, thermal_coulomb_logarithm(T, n))
+        number("e_over_ec", e_over_ec) * critical_field(n, thermal_coulomb_logarithm(n, T))
     ions = [IonSpecies("D", 1, 1, fill(n, nr))]
     n_ar = number("n_ar", 0.0)
     if n_ar > 0

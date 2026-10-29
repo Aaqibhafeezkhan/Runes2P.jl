@@ -89,7 +89,7 @@ end
 effective_charge(plasma::PlasmaState, ir::Integer) = effective_charge(plasma.ions, ir)
 
 """
-    braams_karney_conductivity(temperature, effective_charge, free_electron_density)
+    braams_karney_conductivity(free_electron_density, temperature, effective_charge)
 
 Electric conductivity [S/m] of a relativistic plasma after Braams and Karney,
 
@@ -106,14 +106,14 @@ neoclassical correction is 1 without trapped particles. At low temperature and h
 it is the Lorentz conductivity
 ``64 \\sqrt{2\\pi} \\, \\varepsilon_0^2 T^{3/2} / (\\sqrt{m_e} \\, e^2 Z \\ln\\Lambda)``.
 """
-function braams_karney_conductivity(temperature, effective_charge, free_electron_density)
+function braams_karney_conductivity(free_electron_density, temperature, effective_charge)
     temperature > 0 || throw(DomainError(temperature, "the temperature must be positive"))
     effective_charge > 0 ||
         throw(DomainError(effective_charge, "the effective charge must be positive"))
     energy = temperature * Constants.ELEMENTARY_CHARGE
     theta = energy / (Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT^2)
     normalized = normalized_conductivity(theta, 1 / (1 + effective_charge))
-    logarithm = thermal_coulomb_logarithm(temperature, free_electron_density)
+    logarithm = thermal_coulomb_logarithm(free_electron_density, temperature)
     return 4π * Constants.VACUUM_PERMITTIVITY^2 * energy * sqrt(energy) /
            (effective_charge * sqrt(Constants.ELECTRON_MASS) *
             Constants.ELEMENTARY_CHARGE^2 * logarithm) * normalized
@@ -122,13 +122,13 @@ end
 """
     braams_karney_conductivity(plasma, ir)
 
-The conductivity of Braams and Karney at the radius index `ir` of `plasma`, with its cold
-temperature, its effective charge and its free-electron density.
+The conductivity of Braams and Karney at the radius index `ir` of `plasma`, with its
+free-electron density, its cold temperature and its effective charge.
 """
 function braams_karney_conductivity(plasma::PlasmaState, ir::Integer)
     braams_karney_conductivity(
-        plasma.cold_electron_temperature[ir], effective_charge(plasma, ir),
-        free_electron_density(plasma, ir))
+        free_electron_density(plasma, ir), plasma.cold_electron_temperature[ir],
+        effective_charge(plasma, ir))
 end
 
 """

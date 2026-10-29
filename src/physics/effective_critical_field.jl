@@ -206,7 +206,7 @@ end
 # logarithm of the free electrons (DREAM's Ec_tot, RunawayFluid.cpp:200-210)
 function _connor_hastie_total_field(plasma::PlasmaState, ir)
     free = free_electron_density(plasma, ir)
-    logarithm = relativistic_coulomb_logarithm(plasma.cold_electron_temperature[ir], free)
+    logarithm = relativistic_coulomb_logarithm(free, plasma.cold_electron_temperature[ir])
     return critical_field(free + bound_electron_density(plasma, ir), logarithm)
 end
 

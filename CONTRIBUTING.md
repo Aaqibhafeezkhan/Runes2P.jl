@@ -94,6 +94,8 @@ The header of `docs/make.jl` gives the command of a live local preview.
 - A key of a settings record changes only with the output format, so a keyword that is such a key keeps its name even where the rule above would rename it.
   A field may be named differently from its key.
 - Established short forms stay, such as `dt`, `p_max`, `p_cutoff` and `xi`, and `p` for a momentum in argument names.
+- A function of the package that takes a density and a temperature takes the density first, such as `thermal_coulomb_logarithm(free_electron_density, temperature)`.
+  The exception is a positional constructor, which follows the order of the fields of its type.
 - When a choice is in doubt, the clearer name wins, even if it is longer.
 
 ## Code style

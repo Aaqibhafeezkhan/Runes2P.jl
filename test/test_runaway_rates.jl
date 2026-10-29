@@ -18,9 +18,9 @@ const DREAM_RUNAWAY_RATE_DATA = reference_file("dream_runaway_rates.h5")
         total_densities = read(corrected["n_tot"])
         # DREAM ran with lnlambda = CONSTANT: E_c from the relativistic (constant) Coulomb
         # logarithm, E_D and τ_ee from the thermal one
-        relativistic = [relativistic_coulomb_logarithm(T, n)
+        relativistic = [relativistic_coulomb_logarithm(n, T)
                         for (T, n) in zip(temperatures, densities)]
-        thermal = [thermal_coulomb_logarithm(T, n)
+        thermal = [thermal_coulomb_logarithm(n, T)
                    for (T, n) in zip(temperatures, densities)]
 
         @testset "fields and collision time" begin
