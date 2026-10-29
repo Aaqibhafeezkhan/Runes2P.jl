@@ -169,11 +169,13 @@ Base.@kwdef struct CollisionSettings
         #! format: on
         all(>(0), values(widths)) ||
             throw(ArgumentError("the widths of the secondary spectrum must be positive"))
-        secondary_spectrum in SECONDARY_SPECTRA ||
+        if !(secondary_spectrum in SECONDARY_SPECTRA)
             throw(ArgumentError("unknown secondary spectrum $secondary_spectrum (:opal or :beb)"))
-        ionization_cross_section_form in IONIZATION_CROSS_SECTION_FORMS ||
+        end
+        if !(ionization_cross_section_form in IONIZATION_CROSS_SECTION_FORMS)
             throw(ArgumentError("unknown form of the ionization cross section $ionization_cross_section_form " *
                                 "(:chianti, :dream or :bethe)"))
+        end
         return new(mode, screening, coulomb_logarithm, screened_diffusion, ion_size_table,
             screening_window, screening_window_start, screening_window_end, bremsstrahlung,
             bremsstrahlung_diffusion, bremsstrahlung_constant, bound_friction, Float64(ionization_threshold),
@@ -342,17 +344,27 @@ function CollisionModel(plasma::PlasmaState{T}, settings::CollisionSettings; fac
     split = settings.bound_friction === :ionization_split
     widths = split ? merge(SECONDARY_SPECTRUM_WIDTHS, settings.secondary_widths) : nothing
     for (index, s) in enumerate(plasma.ions)
-        split &&
+        if split
             _check_ionization_split_data(atomic_element(s.name), widths, settings.secondary_spectrum)
+        end
         for Z0 in 0:s.nuclear_charge
             excitation = mean_excitation_energy(s.nuclear_charge, Z0) /
                          Constants.ELECTRON_REST_ENERGY
-            effective_size = Z0 == s.nuclear_charge ? NaN :
-                             ion_size(s.nuclear_charge, Z0; table = settings.ion_size_table)
-            ionization = split && Z0 < s.nuclear_charge ? ionization_energy(s.name, Z0) :
-                         NaN
-            width = split && settings.secondary_spectrum === :opal ?
-                    widths[atomic_element(s.name)] : NaN
+            effective_size = if Z0 == s.nuclear_charge
+                NaN
+            else
+                ion_size(s.nuclear_charge, Z0; table = settings.ion_size_table)
+            end
+            ionization = if split && Z0 < s.nuclear_charge
+                ionization_energy(s.name, Z0)
+            else
+                NaN
+            end
+            width = if split && settings.secondary_spectrum === :opal
+                widths[atomic_element(s.name)]
+            else
+                NaN
+            end
             push!(charge_states,
                 ChargeState(
                     s.nuclear_charge, Z0, index, excitation, effective_size, s.name,
@@ -368,15 +380,17 @@ function CollisionModel(plasma::PlasmaState{T}, settings::CollisionSettings; fac
     k2 = besselkx.(2, 1 ./ theta)
     tables = Union{Nothing, Tuple{Vector{Float64}, Matrix{Float64}}}[nothing for _ in 1:nr]
     if split && faces !== nothing
-        length(faces) == nr ||
+        if length(faces) != nr
             throw(DimensionMismatch("the momentum faces and the plasma have different radii"))
+        end
         for ir in 1:nr
             f = faces[ir]
-            f isa Vector{Float64} &&
-                (tables[ir] = (f,
+            if f isa Vector{Float64}
+                tables[ir] = (f,
                     _ionization_friction_table(
                         f, charge_states, settings.secondary_spectrum,
-                        settings.ionization_cross_section_form)))
+                        settings.ionization_cross_section_form))
+            end
         end
     end
     return CollisionModel{eltype(k0), typeof(plasma)}(
@@ -402,7 +416,9 @@ end
 # plus the bound electrons without screening.
 function _target_electron_density(model::CollisionModel, ir)
     n = model.plasma.cold_electron_density[ir]
-    model.settings.screening === :none && (n += model.bound_electron_density[ir])
+    if model.settings.screening === :none
+        n += model.bound_electron_density[ir]
+    end
     return max(n, zero(n))
 end
 
@@ -502,9 +518,11 @@ end
 
 # refuses an element without the data of bound_friction = :ionization_split
 function _check_ionization_split_data(element, widths, spectrum)
-    haskey(KINETIC_IONIZATION_FITS, element) ||
+    if !haskey(KINETIC_IONIZATION_FITS, element)
+        known_fits = join(sort!(collect(keys(KINETIC_IONIZATION_FITS))), ", ")
         throw(ArgumentError("bound_friction = :ionization_split needs a fit of the ionization cross sections of " *
-                            "$element, which DREAM's tables lack ($(join(sort!(collect(keys(KINETIC_IONIZATION_FITS))), ", ")))"))
+                            "$element, which DREAM's tables lack ($(known_fits))"))
+    end
     spectrum === :beb || haskey(widths, element) ||
         throw(ArgumentError("bound_friction = :ionization_split needs the width of the secondary spectrum of " *
                             "$element: give it with secondary_widths = Dict(\"$element\" => Ē in eV)"))
@@ -553,8 +571,9 @@ function _bound_slowing_down(
             _bound_electron_stopping(model, state, p)
     # one number type on both branches: the ionization part carries the partials of the plasma,
     # the Bethe term does not
+    number_type = promote_type(typeof(bethe), eltype(model.plasma.cold_electron_temperature))
     model.settings.bound_friction === :ionization_split ||
-        return convert(promote_type(typeof(bethe), eltype(model.plasma.cold_electron_temperature)), bethe)
+        return convert(number_type, bethe)
     ionization = _ionization_envelope(model, ir, p) *
                  _ionization_part(model, index, state, ir, p) / prefactor
     return ionization + max(bethe - ionization, zero(ionization))
@@ -604,8 +623,11 @@ end
 function _collisional_slowing_down(model::CollisionModel, ir, p)
     p == 0 && return zero(p * model.scaled_bessel_k0[ir])
     mode = model.settings.mode
-    prefactor = mode === :ultra_relativistic ? COLLISION_PREFACTOR / p :
-                COLLISION_PREFACTOR * (1 + p^2) / p^3
+    prefactor = if mode === :ultra_relativistic
+        COLLISION_PREFACTOR / p
+    else
+        COLLISION_PREFACTOR * (1 + p^2) / p^3
+    end
     nu = _coulomb_logarithm(model, :electron_electron, p, ir) *
          _thermal_slowing_down_factor(model, ir, p) * _target_electron_density(model, ir)
     if model.settings.screening === :partial
@@ -641,8 +663,11 @@ Pitch-angle scattering (deflection) frequency `ν_D` [s⁻¹]; the collisional p
 function deflection_frequency(model::CollisionModel, ir, p)
     p == 0 && return zero(p * model.scaled_bessel_k0[ir])
     mode = model.settings.mode
-    prefactor = mode === :ultra_relativistic ? COLLISION_PREFACTOR / p^2 :
-                COLLISION_PREFACTOR * sqrt(1 + p^2) / p^3
+    prefactor = if mode === :ultra_relativistic
+        COLLISION_PREFACTOR / p^2
+    else
+        COLLISION_PREFACTOR * sqrt(1 + p^2) / p^3
+    end
     nu = _coulomb_logarithm(model, :electron_electron, p, ir) *
          _thermal_deflection_factor(model, ir, p) * _target_electron_density(model, ir)
     electron_ion = _coulomb_logarithm(model, :electron_ion, p, ir)
@@ -674,9 +699,11 @@ function parallel_diffusion_frequency(model::CollisionModel, ir, p)
     (model.settings.mode === :full && p != 0) || return z
     theta = _normalized_temperature(model, ir)
     if model.settings.screened_diffusion === :maxwellian
-        nu_s = model.settings.bremsstrahlung_diffusion === :dream ?
-               slowing_down_frequency(model, ir, p) :
-               _collisional_slowing_down(model, ir, p)
+        if model.settings.bremsstrahlung_diffusion === :dream
+            nu_s = slowing_down_frequency(model, ir, p)
+        else
+            nu_s = _collisional_slowing_down(model, ir, p)
+        end
     else  # free electrons only
         nu_s = COLLISION_PREFACTOR * (1 + p^2) / p^3 *
                _coulomb_logarithm(model, :electron_electron, p, ir) *

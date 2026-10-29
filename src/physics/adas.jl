@@ -66,24 +66,31 @@ function read_adf11(path::AbstractString; class::Union{Nothing, Symbol} = nothin
         append!(log_temperature, numbers(lines[k]))
         k += 1
     end
-    length(log_density) == nn && length(log_temperature) == nT ||
+    if !(length(log_density) == nn && length(log_temperature) == nT)
         throw(ArgumentError("the nodes of $path do not match its header ($nn densities, $nT temperatures)"))
+    end
     blocks = Vector{Float64}[]
     while k <= length(lines) && !startswith(lines[k], "C")
         # a blank line may follow the last block (argon of year 89)
-        isempty(strip(lines[k])) && (k += 1; continue)
+        if isempty(strip(lines[k]))
+            k += 1
+            continue
+        end
         separator = lines[k]
         for field in ("IGRD", "IPRT")
             m = match(Regex(field * "=\\s*(\\d+)"), separator)
-            m === nothing || parse(Int, m.captures[1]) <= 1 ||
+            if !(m === nothing || parse(Int, m.captures[1]) <= 1)
                 throw(ArgumentError("$path is metastable resolved ($field > 1), which the reader does not take"))
+            end
         end
         k += 1
         # a dashed line that closes the last block (hydrogen, charge exchange)
         while k <= length(lines) && isempty(strip(lines[k]))
             k += 1
         end
-        (k > length(lines) || startswith(lines[k], "C")) && break
+        if k > length(lines) || startswith(lines[k], "C")
+            break
+        end
         values = Float64[]
         while k <= length(lines) && !startswith(strip(lines[k], [' ', 'C']), "--") &&
               !startswith(lines[k], "C") &&
@@ -91,12 +98,14 @@ function read_adf11(path::AbstractString; class::Union{Nothing, Symbol} = nothin
             append!(values, numbers(lines[k]) .- 6)
             k += 1
         end
-        length(values) == nn * nT ||
+        if length(values) != nn * nT
             throw(ArgumentError("block $(length(blocks) + 1) of $path has $(length(values)) values, not $(nn * nT)"))
+        end
         push!(blocks, values)
     end
-    length(blocks) == Z ||
+    if length(blocks) != Z
         throw(ArgumentError("$path has $(length(blocks)) blocks for nuclear charge $Z"))
+    end
     # the density varies fastest within a block
     log_coefficient = reshape(reduce(vcat, blocks), nn, nT, Z)
     return ADF11Table(class, Z, log_density, log_temperature, log_coefficient,
@@ -212,8 +221,12 @@ end
 # radiation (prb) belong to the recombining ion Z0 ≥ 1, the others to Z0 ≤ Z − 1 (DREAM's
 # shiftZ0, ADAS.cpp)
 function _adf11_block(table::ADF11Table, Z0)
-    table.class in (:acd, :prb) ? (Z0 == 0 ? 0 : Z0) :
-    (Z0 == table.nuclear_charge ? 0 : Z0 + 1)
+    if table.class in (:acd, :prb)
+        block = Z0 == 0 ? 0 : Z0
+    else
+        block = Z0 == table.nuclear_charge ? 0 : Z0 + 1
+    end
+    return block
 end
 
 """
@@ -253,7 +266,9 @@ end
 # edge of the table between the nodes, where the two interpolations differ.
 function _adf11_log_value(table::ADF11Table, b, x, y, extrapolation::Symbol)
     xs, ys = table.log_density, table.log_temperature
-    extrapolation === :clamp_density && (x = clamp(x, xs[1], xs[end]))
+    if extrapolation === :clamp_density
+        x = clamp(x, xs[1], xs[end])
+    end
     i, j = _cell(xs, _value(x)), _cell(ys, _value(y))
     t = (x - xs[i]) / (xs[i + 1] - xs[i])
     u = (y - ys[j]) / (ys[j + 1] - ys[j])
@@ -272,8 +287,10 @@ hydrogen, except charge exchange. The high-density files of hydrogen are not ser
 OpenADAS; DREAM's cache carries them. The table is read from `data/adas_files.toml`.
 """
 const ADAS_FILES = let data = read_data_file("adas_files")["data"]
-    entry(files) = NamedTuple{ADF11_CLASSES}(map(class -> files[String(class)]::String,
-        ADF11_CLASSES))
+    function entry(files)
+        file_names = map(class -> files[String(class)]::String, ADF11_CLASSES)
+        return NamedTuple{ADF11_CLASSES}(file_names)
+    end
     Dict(element => entry(files) for (element, files) in data)
 end
 
@@ -311,12 +328,16 @@ read from the cache. Throws an `ArgumentError` naming the missing file and the s
 fetches it.
 """
 function read_adas(element::AbstractString; directory::AbstractString = adas_cache_directory())
-    tables = map(ADF11_CLASSES) do class
-        path = joinpath(directory, adf11_file_name(element, class))
-        isfile(path) ||
-            throw(ArgumentError("the ADF11 file $path is missing: run scripts/fetch_adas.py on a " *
-                                "machine with internet access (see its header)"))
-        read_adf11(path; class)
-    end
+    tables = map(class -> _read_adas_class(element, class, directory), ADF11_CLASSES)
     return NamedTuple{ADF11_CLASSES}(tables)
+end
+
+# the ADF11 table of one class of `element` from the cache `directory`
+function _read_adas_class(element, class, directory)
+    path = joinpath(directory, adf11_file_name(element, class))
+    if !isfile(path)
+        throw(ArgumentError("the ADF11 file $path is missing: run scripts/fetch_adas.py on a " *
+                            "machine with internet access (see its header)"))
+    end
+    return read_adf11(path; class)
 end

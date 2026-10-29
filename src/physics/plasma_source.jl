@@ -127,9 +127,14 @@ The names of the unknowns a [`PlasmaSource`](@ref) reads.
 source_dependencies(::Union{Nothing, PlasmaSource}) = ()
 # the ions need the density as an unknown (constructor)
 function source_dependencies(source::PlasmaFromUnknowns)
-    source.density === nothing ? (source.temperature,) :
-    source.ions === nothing ? (source.temperature, source.density) :
-    (source.temperature, source.density, source.ions)
+    if source.density === nothing
+        read_unknowns = (source.temperature,)
+    elseif source.ions === nothing
+        read_unknowns = (source.temperature, source.density)
+    else
+        read_unknowns = (source.temperature, source.density, source.ions)
+    end
+    return read_unknowns
 end
 
 """
@@ -232,10 +237,11 @@ function plasma_values(source::PlasmaFromUnknowns, u, layout, t; ion_state = u)
     temperatures = Vector{T}(undef, nr)
     for ir in 1:nr
         value = _value(temperature[ir])
-        value > source.temperature_floor ||
+        if !(value > source.temperature_floor)
             throw(DomainError(value,
                 "the cold-electron temperature $(source.temperature) at radius $ir is at or " *
                 "below the floor $(source.temperature_floor) eV"))
+        end
         temperatures[ir] = value
     end
     densities = if source.density === nothing
@@ -244,10 +250,12 @@ function plasma_values(source::PlasmaFromUnknowns, u, layout, t; ion_state = u)
         density = unknown_values(u, layout, unknown_id(layout, source.density))
         T[_value(density[ir]) for ir in 1:nr]
     end
-    #! format: off
-    ions = source.ions === nothing ? base.ions : _ions_from_unknowns(base.ions, ion_state, layout, source.ions,
-                                                                                 source.composition)
-    #! format: on
+    if source.ions === nothing
+        ions = base.ions
+    else
+        ions = _ions_from_unknowns(
+            base.ions, ion_state, layout, source.ions, source.composition)
+    end
     return PlasmaState{T}(
         temperatures, densities, ions, base.electric_field, base.magnetic_field,
         base.cold_density_given || source.density !== nothing)
@@ -296,7 +304,9 @@ function _radius_values!(values::Vector{Float64}, plasma::PlasmaState, ir; elect
     push!(values, _value(plasma.cold_electron_temperature[ir]),
         _value(plasma.cold_electron_density[ir]),
         _value(plasma.magnetic_field[ir]))
-    electric_field && push!(values, _value(plasma.electric_field[ir]))
+    if electric_field
+        push!(values, _value(plasma.electric_field[ir]))
+    end
     for species in plasma.ions
         push!(values, species.nuclear_charge)
         for Z0 in 0:species.nuclear_charge
@@ -332,7 +342,12 @@ for coefficients that do not hold it.
 function update_key!(key::PlasmaKey, plasma::PlasmaState; electric_field::Bool = true)
     nr = radial_cell_count(plasma)
     changed = length(key.values) != nr
-    changed && (resize!(key.values, nr); foreach(ir -> key.values[ir] = Float64[], 1:nr))
+    if changed
+        resize!(key.values, nr)
+        for ir in 1:nr
+            key.values[ir] = Float64[]
+        end
+    end
     for ir in 1:nr
         values = _radius_values!(key.scratch, plasma, ir; electric_field)
         stored = key.values[ir]
@@ -347,7 +362,9 @@ end
 
 function update_key!(key::Vector{Float64}, values)
     changed = length(key) != length(values)
-    changed && resize!(key, length(values))
+    if changed
+        resize!(key, length(values))
+    end
     for (k, value) in enumerate(values)
         v = Float64(_value(value))
         if !isequal(key[k], v) || changed
@@ -392,11 +409,16 @@ function changed_plasma!(
     time = Float64(_value(t))
     # ions of another state (lagged): the shortcut compares the unknowns of `u` alone
     ion_state === u && _key_current(key, source, time, u, layout) && return nothing
-    plasma = ion_state === u ? plasma_values(source, u, layout, t) :
-             plasma_values(source, u, layout, t; ion_state)
+    if ion_state === u
+        plasma = plasma_values(source, u, layout, t)
+    else
+        plasma = plasma_values(source, u, layout, t; ion_state)
+    end
     changed = update_key!(key, plasma; electric_field)
     key.time[] = time
-    is_state_dependent(source) && _source_state!(key.state, source, u, layout)
+    if is_state_dependent(source)
+        _source_state!(key.state, source, u, layout)
+    end
     return changed ? plasma : nothing
 end
 
@@ -406,7 +428,10 @@ end
 Empty `key`, so that the next [`update_key!`](@ref) reports a change: after a rebuild that
 failed.
 """
-reset_key!(key::PlasmaKey) = (empty!(key.values); key)
+function reset_key!(key::PlasmaKey)
+    empty!(key.values)
+    return key
+end
 reset_key!(key::Vector{Float64}) = empty!(key)
 
 # tag of the dual numbers of the plasma columns
@@ -434,8 +459,11 @@ function _dual_plasma(plasma::PlasmaState{Float64}, with_density::Bool, with_ion
     D = ForwardDiff.Dual{PlasmaColumnTag, Float64, K}
     seeded(x, k) = D(x, ForwardDiff.Partials(ntuple(i -> Float64(i == k), Val(K))))
     temperature = [seeded(x, 1) for x in plasma.cold_electron_temperature]
-    density = with_density ? [seeded(x, 2) for x in plasma.cold_electron_density] :
-              D.(plasma.cold_electron_density)
+    if with_density
+        density = [seeded(x, 2) for x in plasma.cold_electron_density]
+    else
+        density = D.(plasma.cold_electron_density)
+    end
     ions = IonSpecies{D}[]
     k = with_density ? 2 : 1
     for s in plasma.ions
@@ -464,9 +492,11 @@ components of the ion densities when the source reads them, as the argument of
 """
 function plasma_columns(source::PlasmaFromUnknowns, layout, ir; with_ions::Bool = true)
     columns = [first(unknown_range(layout, unknown_id(layout, source.temperature), ir))]
-    source.density === nothing ||
+    if source.density !== nothing
         push!(columns, first(unknown_range(layout, unknown_id(layout, source.density), ir)))
-    with_ions && source.ions !== nothing &&
+    end
+    if with_ions && source.ions !== nothing
         append!(columns, unknown_range(layout, unknown_id(layout, source.ions), ir))
+    end
     return columns
 end

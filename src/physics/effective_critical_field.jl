@@ -51,8 +51,20 @@ end
 
 # the Langevin function L(A) = coth A − 1/A, the mean of ξ₀ in the pitch distribution exp(−A(1 − ξ₀)),
 # and L(A)/A; series below A = 1e-2, where the difference cancels
-_langevin(A) = A < 1e-2 ? A / 3 - A^3 / 45 + 2A^5 / 945 : coth(A) - 1 / A
-_langevin_over(A) = A < 1e-2 ? 1 / 3 - A^2 / 45 + 2A^4 / 945 : (coth(A) - 1 / A) / A
+function _langevin(A)
+    if A < 1e-2
+        return A / 3 - A^3 / 45 + 2A^5 / 945
+    else
+        return coth(A) - 1 / A
+    end
+end
+function _langevin_over(A)
+    if A < 1e-2
+        return 1 / 3 - A^2 / 45 + 2A^4 / 945
+    else
+        return (coth(A) - 1 / A) / A
+    end
+end
 
 """
     critical_field_advection(model, ir, p, field_frequency)
@@ -122,11 +134,15 @@ function _illinois(g, a, b, ga, gb; tol = 1e-13, iterations = 200)
         (gc == 0 || abs(b - a) <= tol * abs(c)) && return c
         if gc * gb > 0
             b, gb = c, gc
-            side == -1 && (ga /= 2)
+            if side == -1
+                ga /= 2
+            end
             side = -1
         else
             a, ga = c, gc
-            side == +1 && (gb /= 2)
+            if side == +1
+                gb /= 2
+            end
             side = +1
         end
     end
@@ -164,8 +180,11 @@ derivatives: the envelope of the maximum, `dE_ceff/dx = −(∂U/∂x)/(∂U/∂
 function effective_critical_field(
         plasma::PlasmaState, ir::Integer; settings::CollisionSettings = CollisionSettings())
     s = runaway_fluid_settings(settings; role = :critical_field)
-    dual = eltype(plasma.cold_electron_temperature) <: ForwardDiff.Dual ?
-           CollisionModel(plasma, s) : nothing
+    if eltype(plasma.cold_electron_temperature) <: ForwardDiff.Dual
+        dual = CollisionModel(plasma, s)
+    else
+        dual = nothing
+    end
     return effective_critical_field(CollisionModel(_plain_plasma(plasma), s), ir; dual)
 end
 
@@ -245,10 +264,15 @@ method behind the one of a plasma. `dual`, a model of the same plasma in dual nu
 field frequency in dual numbers, gives the derivatives.
 """
 function avalanche_critical_momentum(plain::CollisionModel, ir::Integer, field_frequency; dual = nothing)
-    G(model, p, w) = (
-        q = _collision_hats(model, ir, p); sqrt(sqrt(q.s * (q.d + 4q.s))) / sqrt(w) - p)
-    w0 = field_frequency isa ForwardDiff.Dual ? ForwardDiff.value(field_frequency) :
-         field_frequency
+    function G(model, p, w)
+        q = _collision_hats(model, ir, p)
+        return sqrt(sqrt(q.s * (q.d + 4q.s))) / sqrt(w) - p
+    end
+    w0 = if field_frequency isa ForwardDiff.Dual
+        ForwardDiff.value(field_frequency)
+    else
+        field_frequency
+    end
     g(p) = -G(plain, p, w0)     # increasing in p
     lower, upper = 1.0, 1.0
     while g(lower) >= 0

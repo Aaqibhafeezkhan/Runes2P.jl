@@ -53,13 +53,15 @@ function parse_data_file(path::AbstractString)
         error("data file $path: no table [metadata]")
     for key in DATA_FILE_METADATA_KEYS
         value = get(metadata, key, nothing)
-        value isa AbstractString && !isempty(value) ||
+        if !(value isa AbstractString && !isempty(value))
             error("data file $path: [metadata] needs a non-empty string `$key`")
+        end
     end
     for (key, value) in metadata
-        value isa AbstractString ||
+        if !(value isa AbstractString)
             error("data file $path: [metadata] holds `$key`, which is not a string; " *
                   "the numbers go into a table of their own after the header")
+        end
     end
     return content
 end

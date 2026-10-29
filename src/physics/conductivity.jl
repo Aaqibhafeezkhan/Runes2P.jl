@@ -80,10 +80,12 @@ a plasma without free electrons.
 function effective_charge(ions, ir::Integer)
     free = free_electron_density(ions, ir)
     free == 0 && return one(float(typeof(free)))
-    #! format: off
-    squares = sum((Z0^2 * s.charge_state_densities[Z0+1, ir] for s in ions for Z0 in 0:s.nuclear_charge);
-                  init=zero(free))
-    #! format: on
+    squares = zero(free)
+    for s in ions
+        for Z0 in 0:s.nuclear_charge
+            squares += Z0^2 * s.charge_state_densities[Z0 + 1, ir]
+        end
+    end
     return max(squares / free, one(squares / free))
 end
 effective_charge(plasma::PlasmaState, ir::Integer) = effective_charge(plasma.ions, ir)

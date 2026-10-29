@@ -106,12 +106,16 @@ function ion_mass(species::IonSpecies; table::Symbol = :standard)
         throw(ArgumentError("table must be :standard or :dream, not $table"))
     Z = species.nuclear_charge
     if Z == 1
-        isotopes = table === :standard ? HYDROGEN_ISOTOPE_MASSES :
-                   DREAM_HYDROGEN_ISOTOPE_MASSES
+        if table === :standard
+            isotopes = HYDROGEN_ISOTOPE_MASSES
+        else
+            isotopes = DREAM_HYDROGEN_ISOTOPE_MASSES
+        end
         return get(isotopes, atomic_element(species.name), isotopes["D"])
     end
     table === :dream && Z > 40 && return 2.3 * Z * ATOMIC_MASS_UNIT
-    Z <= length(ATOMIC_MASSES) && !isnan(ATOMIC_MASSES[Z]) ||
+    if !(Z <= length(ATOMIC_MASSES) && !isnan(ATOMIC_MASSES[Z]))
         throw(ArgumentError("$(species.name) (Z = $Z) has no standard atomic weight: give its mass"))
+    end
     return ATOMIC_MASSES[Z] * ATOMIC_MASS_UNIT
 end
