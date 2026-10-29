@@ -34,7 +34,7 @@ These rules hold for every contribution, by people and by coding agents alike.
 - A larger change may collect its steps on an integration branch `feat/<topic>` off `dev`; the steps are branches of the other types (`fix/…`, `perf/…`, `test/…`, `docs/…`, `chore/…`) with pull requests into it.
   A step runs the checks of `CI.yml`, its author runs `test/test_regression_values.jl` at `-O2` and the test files of the code it changes, and it merges with a merge commit once these pass.
   The full suite runs on the integration branch by hand every few steps, and on its pull request into `dev`, which the maintainer reviews and merges.
-- A pull request with a change that users see adds an entry under "Unreleased" in [`CHANGELOG.md`](CHANGELOG.md), with its number.
+- A pull request with a change that users see adds an entry under "Unreleased" in [`CHANGELOG.md`](CHANGELOG.md), with a link to the pull request.
   Such changes are those of the public API (a rename, a removed export, a changed keyword or order of arguments), new features, and changed numerical results.
   Refactors, tests, CI and documentation get no entry.
   At the first release, "Unreleased" becomes the section of that version.

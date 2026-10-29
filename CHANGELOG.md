@@ -2,9 +2,13 @@
 
 The changes of Runes2P that users see: the public API, new features and changed numerical results.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Until the first release, every change is listed under "Unreleased".
+Until the first release, every change is listed under "Unreleased", with the subsections in the order of that format.
 
 ## Unreleased
+
+### Added
+
+- `validate`, `has_plasma_columns`, `plasma_column_sparsity!` and `add_plasma_columns!`, the functions that a new term implements and the system calls, are declared `public` ([#126](https://github.com/osrep/Runes2P.jl/pull/126)).
 
 ### Changed
 
@@ -28,10 +32,6 @@ Until the first release, every change is listed under "Unreleased".
 - Four functions take the density before the temperature ([#134](https://github.com/osrep/Runes2P.jl/pull/134)).
   The new orders are `thermal_coulomb_logarithm(free_electron_density, temperature)` and `relativistic_coulomb_logarithm(free_electron_density, temperature)`.
   `coulomb_logarithm(collision, model, p, free_electron_density, temperature)` and `braams_karney_conductivity(free_electron_density, temperature, effective_charge)` follow.
-
-### Added
-
-- `validate`, `has_plasma_columns`, `plasma_column_sparsity!` and `add_plasma_columns!`, the functions that a new term implements and the system calls, are declared `public` ([#126](https://github.com/osrep/Runes2P.jl/pull/126)).
 
 ### Removed
 
