@@ -93,12 +93,18 @@ the limiter; zero where r is clamped). For the linear schemes both triples are e
     if scheme === :muscl || scheme === :smart
         # ψ = a + b r written with the slopes, exact also where the upstream slope vanishes
         # (DREAM SetLinearFluxLimitedCoefficient); the region of r is locally constant
-        a, b = scheme === :muscl ? _gplk(r, 0.0, 2.0) : _gplk(r, 0.5, 4.0)
+        a, b = if scheme === :muscl
+            _gplk(r, 0.0, 2.0)
+        else
+            _gplk(r, 0.5, 4.0)
+        end
         weights = (dx * b * e_d, 1 + dx * (a * e_u - b * e_d), -dx * a * e_u)
         return weights, weights
     end
     psi, dpsi = _limiter(scheme, r)
-    clamped && (dpsi = 0.0)
+    if clamped
+        dpsi = 0.0
+    end
     # face = v_u + ψ(r) dx s_u (DREAM SetFluxLimitedCoefficient); its derivative
     # ∂(ψ s_u) = ψ'(r) (∂s_d - r ∂s_u) + ψ ∂s_u
     weights = (0.0, 1 + psi * dx * e_u, -psi * dx * e_u)
@@ -144,4 +150,12 @@ end
     i > n && return 2 * faces[end] - centers[2n + 1 - i]
     return centers[i]
 end
-@inline _ghost_index(i, n) = i < 1 ? 1 - i : (i > n ? 2n + 1 - i : i)
+@inline function _ghost_index(i, n)
+    if i < 1
+        return 1 - i
+    elseif i > n
+        return 2n + 1 - i
+    else
+        return i
+    end
+end
