@@ -142,9 +142,10 @@ function tanh_p_faces(
         return biuniform_p_faces(cell_count, lower_cell_count, p_min, p_separation, p_max)
     n1, w = float(lower_cell_count), float(transition_cells)
     center = n1 + 3w
-    center + 2w <= cell_count ||
+    if !(center + 2w <= cell_count)
         throw(ArgumentError("transition_cells = $transition_cells does not fit in the $(cell_count - lower_cell_count) " *
                             "upper cells (5 transition_cells needed)"))
+    end
     # log cosh without overflow
     logcosh(x) = abs(x) + log1p(exp(-2abs(x))) - log(2.0)
     # integral of (1 + tanh((x - center)/w))/2 from 0 to x
@@ -155,8 +156,9 @@ function tanh_p_faces(
     lower_span, total_span = p_separation - p_min, p_max - p_min
     h1 = (lower_span * sN - s1 * total_span) / determinant
     h2 = ((n1 - s1) * total_span - (cell_count - sN) * lower_span) / determinant
-    (h1 > 0 && h2 > 0) ||
+    if !(h1 > 0 && h2 > 0)
         throw(ArgumentError("transition_cells = $transition_cells is too wide for this grid; the spacings are not positive"))
+    end
     faces = [p_min + h1 * (k - upper_share(float(k))) + h2 * upper_share(float(k))
              for k in 0:cell_count]
     # land exactly on the prescribed separation and ends

@@ -80,8 +80,9 @@ function MomentumRegion(limit; side::Symbol = :above,
     envelope in (:interpolated, :cell_fraction, :smooth) ||
         throw(ArgumentError("envelope must be :interpolated, :cell_fraction or :smooth, not $envelope"))
     smooth_width > 0 || throw(ArgumentError("smooth_width must be positive"))
-    limit isa Real && (limit >= 0 ||
-     throw(ArgumentError("the limit of a momentum region must not be negative")))
+    if limit isa Real && !(limit >= 0)
+        throw(ArgumentError("the limit of a momentum region must not be negative"))
+    end
     return MomentumRegion(limit, side, envelope, Float64(smooth_width))
 end
 
