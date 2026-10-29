@@ -15,7 +15,7 @@ Rules:
     conditional    a conditional expression nested in another on one line,
                    or one whose branches continue on the next line
     semicolon      `;` between two statements on one line
-    composition    `|>` or `∘` as an operator
+    composition    a chain of two or more `|>` in one statement, or `∘` as an operator
 
 Comments, docstrings and the contents of strings are skipped.
 A statement continued over several lines is checked as one, and a finding is reported at the line
@@ -496,9 +496,13 @@ def check(name, wanted):
             if statement.text[line_start:k].strip() and statement.text[k + 1:line_end].strip():
                 line = statement.line_of(k)
                 findings.append(((line, line), "semicolon", "two statements on one line"))
-        for match in re.finditer(r"\|>|(?<!\()∘(?!\))", statement.text):
+        pipes = list(re.finditer(r"\|>", statement.text))
+        if len(pipes) >= 2:
+            line = statement.line_of(pipes[1].start())
+            findings.append(((line, line), "composition", "a chain of `|>`: name the steps"))
+        for match in re.finditer(r"(?<!\()∘(?!\))", statement.text):
             line = statement.line_of(match.start())
-            findings.append(((line, line), "composition", f"`{match.group()}` as an operator: name the steps"))
+            findings.append(((line, line), "composition", "`∘` as an operator: name the steps"))
     result = []
     for (first, last), rule, message in findings:
         if wanted is None or any(number in wanted for number in range(first, last + 1)):
