@@ -202,15 +202,21 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
                                     "quantity it balances (Equation(...; scale)): the scale of its unknown, a " *
                                     "rate, does not fit the row"))
             end
-            #! format: off
-            determined_by_other = any(other -> other.unknown !== eq.unknown &&
-                                               any(term -> treatment(term) === :implicit && eq.unknown in dependencies(term), other.terms),
-                                      equations)
+            determined_by_other = false
+            for other in equations
+                other.unknown === eq.unknown && continue
+                if any(
+                    term -> treatment(term) === :implicit &&
+                            eq.unknown in dependencies(term),
+                    other.terms)
+                    determined_by_other = true
+                    break
+                end
+            end
             if !determined_by_other
                 throw(ArgumentError("the equation of $(eq.unknown) is a constraint, and no other equation has an " *
                                     "implicit term depending on $(eq.unknown), so nothing determines it"))
             end
-            #! format: on
         else
             of = eq.kind.of === nothing ? row : unknown_id(layout, eq.kind.of)
             if of != row
@@ -947,9 +953,6 @@ function _check_plasma_pairings(equations)
         if term isa KineticIonizationTerm
             push!(ionizations, term)
         end
-    end
-    for equation in equations, term in equation.terms
-
         if term isa SecondaryHeatingTerm
             push!(heatings, term)
         end
@@ -1019,10 +1022,11 @@ function _check_plasma_pairings(equations)
                                         "friction of bound_friction = :ionization_split the spectrum " *
                                         ":$(settings.secondary_spectrum): give both the same"))
                 end
-                if !(heating.spectrum === :beb ||
-                     all(
+                widths_match = heating.spectrum === :beb ||
+                               all(
                     ((name, width),) -> get(widths, atomic_element(name), NaN) == width,
-                    zip(k.composition.names, heating.widths)))
+                    zip(k.composition.names, heating.widths))
+                if !widths_match
                     throw(ArgumentError("the heating by secondaries and the friction of bound_friction = " *
                                         ":ionization_split take different widths of the secondary spectrum: give " *
                                         "SecondaryHeatingTerm the secondary_widths of the CollisionSettings"))
@@ -1039,11 +1043,7 @@ function _check_plasma_pairings(equations)
     # A copy with a prescribed plasma rebuilds at its evaluation and stays allowed (the
     # operator of a conductivity model is one), and a bare operator is prescribed data
     # (_check_prescribed_operators).
-    terms_of_system = EquationTerm[]
-    for equation in equations, term in equation.terms
-
-        push!(terms_of_system, term)
-    end
+    terms_of_system = collect(Iterators.flatten(equation.terms for equation in equations))
     for equation in equations, term in equation.terms
         #! format: off
         sources = if term isa KineticEnergyLossTerm
@@ -1136,11 +1136,7 @@ end
 # cold density next to a kinetic ionization, one source of ions where the system evolves them
 # and one composition per ion unknown.
 function _check_ion_pairings(equations)
-    terms = EquationTerm[]
-    for equation in equations, term in equation.terms
-
-        push!(terms, term)
-    end
+    terms = collect(Iterators.flatten(equation.terms for equation in equations))
     rates = [term for term in terms if term isa IonRateTerm]
     radiations = [term for term in terms if term isa RadiatedPowerTerm]
     kinetics = [term for term in terms if term isa KineticIonizationTerm]
@@ -1236,11 +1232,7 @@ end
 # charges the bulk as well, whose radiation the cold electrons pay through RadiatedPowerTerm.
 # The regions themselves are compared with the other moments.
 function _check_sink_regions(equations)
-    terms = EquationTerm[]
-    for equation in equations, term in equation.terms
-
-        push!(terms, term)
-    end
+    terms = collect(Iterators.flatten(equation.terms for equation in equations))
     for sinks in terms
         sinks isa KineticEnergyLossTerm && sinks.part === :sinks &&
         sinks.envelopes === nothing || continue
@@ -1380,8 +1372,8 @@ function _check_total_energy_rows(equations)
                                             "coefficient = -1) of this term"))
                     end
                 end
-                if (term isa FokkerPlanckTerm && _moves_in_radius(term) ||
-                    term isa RadialEdgeLossTerm)
+                if term isa FokkerPlanckTerm && _moves_in_radius(term) ||
+                   term isa RadialEdgeLossTerm
                     throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
                                         "and $d moves in radius, whose energy flux no term of the row carries: the " *
                                         "electrons that move out would heat the cold electrons where they leave. Radial " *
