@@ -48,8 +48,12 @@ function add_rechester_rosenbluth_diffusion!(
     grid = op.grid
     level = radial_face_values(delta_b_over_b, grid)
     q = radial_face_values(safety_factor, grid)
-    all(>=(0), level) || throw(ArgumentError("δB/B must not be negative"))
-    all(>(0), q) || throw(ArgumentError("the safety factor must be positive"))
+    if !all(>=(0), level)
+        throw(ArgumentError("δB/B must not be negative"))
+    end
+    if !all(>(0), q)
+        throw(ArgumentError("the safety factor must be positive"))
+    end
     p_centers = momentum_grid(grid, 1).p_centers   # the p faces are the same at all radii
     for k in eachindex(level)
         overlap = op.radial_overlaps[k]

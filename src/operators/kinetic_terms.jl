@@ -244,11 +244,15 @@ function set_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaS
     zero_coefficients!(op)
     collisions = CollisionModel(plasma, settings;
         faces = [momentum_grid(op.grid, ir).p_faces for ir in 1:radial_cell_count(op.grid)])
-    field_in_coefficients && add_electric_field!(op, plasma)
+    if field_in_coefficients
+        add_electric_field!(op, plasma)
+    end
     add_slowing_down!(op, collisions)
     add_pitch_scattering!(op, collisions)
     add_energy_diffusion!(op, collisions)
-    synchrotron && add_synchrotron!(op, plasma)
+    if synchrotron
+        add_synchrotron!(op, plasma)
+    end
     # the key :electric_field is read by the settings record and the checks of the terms
     op.coefficient_source[] = (;
         plasma, settings, synchrotron, electric_field = field_in_coefficients)

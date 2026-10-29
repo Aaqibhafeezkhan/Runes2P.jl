@@ -45,9 +45,11 @@ scattering or radiation), `Inf` for `E ≤ E_c`. DREAM's effective critical mome
 a better estimate passes it to [`cutoff_window`](@ref) directly.
 """
 function critical_momentum(electric_field, critical_electric_field)
-    electric_field > critical_electric_field ?
-    1 / sqrt(electric_field / critical_electric_field - 1) :
-    oftype(float(electric_field / critical_electric_field), Inf)
+    if electric_field > critical_electric_field
+        return 1 / sqrt(electric_field / critical_electric_field - 1)
+    else
+        return oftype(float(electric_field / critical_electric_field), Inf)
+    end
 end
 
 """
@@ -87,7 +89,9 @@ function choose_cutoff(p_faces::AbstractVector{T}, lower::Real, upper::Real;
         return (p_cutoff = T(current_cutoff), inside_window = true)
     end
     faces = filter(>(0), p_faces)
-    isempty(faces) && throw(ArgumentError("the momentum grid has no positive face"))
+    if isempty(faces)
+        throw(ArgumentError("the momentum grid has no positive face"))
+    end
     candidates = filter(p -> lower <= p < upper, faces)
     if isempty(candidates)
         below = filter(<(upper), faces)
@@ -96,7 +100,8 @@ function choose_cutoff(p_faces::AbstractVector{T}, lower::Real, upper::Real;
     end
     isinf(upper) && return (p_cutoff = first(candidates), inside_window = true)
     target = log(sqrt(max(lower, first(faces)) * upper))
-    return (p_cutoff = candidates[argmin(abs.(log.(candidates) .- target))],
+    log_distance = abs.(log.(candidates) .- target)
+    return (p_cutoff = candidates[argmin(log_distance)],
         inside_window = true)
 end
 
@@ -147,10 +152,18 @@ of this package*), returned as `(p_cutoff, energy, policy)`:
 function cutoff_target(temperature::Real, critical_p::Real; no_ceiling_factor::Real = 10)
     temperature > 0 || throw(ArgumentError("the temperature must be positive"))
     no_ceiling_factor > 1 || throw(ArgumentError("no_ceiling_factor must be above 1"))
-    policy = isinf(critical_p) ? :no_ceiling :
-             kinetic_energy(critical_p) > temperature ? :log_midpoint : :closed
-    energy = policy === :log_midpoint ? sqrt(temperature * kinetic_energy(critical_p)) :
-             no_ceiling_factor * temperature
+    policy = if isinf(critical_p)
+        :no_ceiling
+    elseif kinetic_energy(critical_p) > temperature
+        :log_midpoint
+    else
+        :closed
+    end
+    energy = if policy === :log_midpoint
+        sqrt(temperature * kinetic_energy(critical_p))
+    else
+        no_ceiling_factor * temperature
+    end
     return (p_cutoff = momentum_at_energy(energy), energy = energy, policy = policy)
 end
 
