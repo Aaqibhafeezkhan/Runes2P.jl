@@ -56,6 +56,7 @@ The groups, the tiers, the reference data and the environment variables of the s
 
 The documentation is at <https://osrep.github.io/Runes2P.jl/dev/>.
 Its sources are in `docs/src/`, and [`CONTRIBUTING.md`](CONTRIBUTING.md) tells how to build it.
+The changes that users see, such as renamed functions and keywords, are listed in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Citing
 
