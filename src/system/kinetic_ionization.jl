@@ -118,7 +118,7 @@ _pitch_sum(w, f, i) = sum(w[i, j] * f[i, j] for j in axes(w, 2))
 
 # Σ_p weight(i) R_ic g_i over the momentum cells `cells`, for the column c of the rates R
 function _rate_moment(weight, rates, g, c, cells)
-    sum(weight(i) * rates[i, c] * g[i] for i in cells)
+    return sum(weight(i) * rates[i, c] * g[i] for i in cells)
 end
 
 """
@@ -500,11 +500,7 @@ function _secondary_weights(term::SecondaryHeatingTerm, ir, T)
     kinetic_ionization = term.kinetic_ionization
     c = kinetic_ionization.composition
     # one type: Inf, and the threshold of a fixed-momentum region, in the type of T
-    cut_energy = if term.cut === :threshold
-        _threshold_energy(kinetic_ionization, T)
-    else
-        Inf
-    end
+    cut_energy = term.cut === :threshold ? _threshold_energy(kinetic_ionization, T) : Inf
     cut = oftype(float(T), cut_energy)
     rates = kinetic_ionization.rates[ir]
     energies = term.energies[ir]

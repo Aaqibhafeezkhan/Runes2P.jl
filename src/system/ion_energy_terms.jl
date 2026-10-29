@@ -206,7 +206,6 @@ function _nrl_screening(ions, n_e, T_e)
     return 1e-6 * (ion_screening + n_e / max(T_e, DEFAULT_TEMPERATURE_FLOOR))
 end
 
-# the power each ion species receives at radius ir, and the power the electrons lose
 # the density, Σ Z0² n, the weight W, the mass and Σ Z0 n of the ion species s at radius ir
 function _ion_moments(term::IonEnergyExchangeTerm, species, W, s, ir)
     densities = view(species.charge_state_densities, :, ir)
@@ -216,6 +215,7 @@ function _ion_moments(term::IonEnergyExchangeTerm, species, W, s, ir)
     return (density, charge_square_density, W[s], term.masses[s], charge_density)
 end
 
+# the power each ion species receives at radius ir, and the power the electrons lose
 function _ion_exchange(term::IonEnergyExchangeTerm, plasma::PlasmaState, W, n_e, T_e, ir)
     e = Constants.ELEMENTARY_CHARGE
     n_free = free_electron_density(plasma, ir)
