@@ -59,7 +59,8 @@ end
 function rhs!(out, term::PoloidalFluxDiffusionTerm, u, layout, row, t)
     rg = layout.radial_grid
     psi = unknown_values(u, layout, unknown_id(layout, term.poloidal_flux))
-    psi_edge = u[first(unknown_range(layout, unknown_id(layout, term.edge_poloidal_flux)))]
+    edge_flux_id = unknown_id(layout, term.edge_poloidal_flux)
+    psi_edge = u[first(unknown_range(layout, edge_flux_id))]
     @inbounds for ir in 1:radial_cell_count(rg)
         divergence = (_flux_gradient(rg, psi, psi_edge, ir + 1) -
                       _flux_gradient(rg, psi, psi_edge, ir)) /

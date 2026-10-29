@@ -41,8 +41,8 @@ function rhs!(out, term::RadialEdgeLossTerm, u, layout, row, t)
     id = unknown_id(layout, term.kinetic)
     f = kinetic_array(u, layout, id)
     edge = radial_cell_count(layout) + 1
-    out[first(unknown_range(layout, row))] += term.coefficient *
-                                              radial_particle_flux(term.operator, f, edge)
+    r = first(unknown_range(layout, row))
+    out[r] += term.coefficient * radial_particle_flux(term.operator, f, edge)
     return out
 end
 

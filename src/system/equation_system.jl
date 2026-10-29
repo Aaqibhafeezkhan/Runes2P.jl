@@ -156,19 +156,22 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
     rows = zeros(Int, count)
     for eq in equations
         id = unknown_id(layout, eq.unknown)
-        rows[id] == 0 ||
+        if rows[id] != 0
             throw(ArgumentError("unknown $(eq.unknown) has more than one equation"))
+        end
         rows[id] = 1
     end
     missing_equations = [layout.unknowns[id].name for id in 1:count if rows[id] == 0]
-    isempty(missing_equations) ||
+    if !isempty(missing_equations)
         throw(ArgumentError("no equation for $(join(missing_equations, ", "))"))
+    end
     # a group part needs the component groups of a radial unknown: Newton would skip it on
     # another unknown, and the step controller would fail at its first estimate
     for tolerances in (newton_tolerances, time_step_tolerances), (name, tol) in tolerances
 
-        iszero(tol.group) || unknown(layout, name) isa RadialUnknown ||
+        if !(iszero(tol.group) || unknown(layout, name) isa RadialUnknown)
             throw(ArgumentError("the tolerance of $name has a group part, which only a radial unknown has"))
+        end
     end
 
     _check_conductivity_correction(equations)
@@ -181,48 +184,56 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
     derivative_rows = zeros(Int, count)   # per unknown: the unknown whose row holds its time derivative
     for eq in equations
         row = unknown_id(layout, eq.unknown)
-        eq.kind isa Union{TimeDerivative, Algebraic, Constraint} ||
+        if !(eq.kind isa Union{TimeDerivative, Algebraic, Constraint})
             throw(ArgumentError("unknown equation kind $(eq.kind)"))
+        end
         # explicit terms are evaluated at the previous time level and determine nothing
         holds_unknown = any(
             term -> treatment(term) === :implicit &&
                     eq.unknown in dependencies(term), eq.terms)
         if eq.kind isa Algebraic
-            holds_unknown ||
+            if !holds_unknown
                 throw(ArgumentError("the algebraic equation of $(eq.unknown) has no implicit term " *
                                     "depending on $(eq.unknown), so it cannot determine it"))
+            end
         elseif eq.kind isa Constraint
-            eq.scale === nothing &&
+            if eq.scale === nothing
                 throw(ArgumentError("the equation of $(eq.unknown) is a constraint and needs the scale of the " *
                                     "quantity it balances (Equation(...; scale)): the scale of its unknown, a " *
                                     "rate, does not fit the row"))
+            end
             #! format: off
-            any(other -> other.unknown !== eq.unknown &&
-                         any(term -> treatment(term) === :implicit && eq.unknown in dependencies(term), other.terms),
-                equations) ||
+            determined_by_other = any(other -> other.unknown !== eq.unknown &&
+                                               any(term -> treatment(term) === :implicit && eq.unknown in dependencies(term), other.terms),
+                                      equations)
+            if !determined_by_other
                 throw(ArgumentError("the equation of $(eq.unknown) is a constraint, and no other equation has an " *
                                     "implicit term depending on $(eq.unknown), so nothing determines it"))
+            end
             #! format: on
         else
             of = eq.kind.of === nothing ? row : unknown_id(layout, eq.kind.of)
             if of != row
-                layout.kinds[of] === layout.kinds[row] &&
-                layout.sizes[of, :] == layout.sizes[row, :] ||
+                if !(layout.kinds[of] === layout.kinds[row] &&
+                     layout.sizes[of, :] == layout.sizes[row, :])
                     throw(ArgumentError("the equation of $(eq.unknown) holds the time derivative of " *
                                         "$(eq.kind.of), which needs the same kind and sizes"))
+                end
                 # the unknown of the row is determined by its own row or, as the temperature by
                 # the energy in DREAM's pairing, by the equation of the unknown it differentiates,
                 # directly or through algebraic rows (the total energy reads the energy of the
                 # cold electrons, whose row reads the temperature)
                 determined_by_of = _reaches(equations, eq.kind.of, eq.unknown)
-                holds_unknown || determined_by_of ||
+                if !(holds_unknown || determined_by_of)
                     throw(ArgumentError("the equation of $(eq.unknown) holds the time derivative of " *
                                         "$(eq.kind.of), and neither it nor the equation of $(eq.kind.of) has an " *
                                         "implicit term depending on $(eq.unknown), so nothing determines it"))
+                end
             end
-            derivative_rows[of] == 0 ||
+            if derivative_rows[of] != 0
                 throw(ArgumentError("the time derivative of $(layout.unknowns[of].name) is in the equations of " *
                                     "$(layout.unknowns[derivative_rows[of]].name) and of $(eq.unknown)"))
+            end
             derivative_rows[of] = row
             for (rows_here, columns_here) in zip(_unknown_ranges(layout, row), _unknown_ranges(layout, of))
                 mass[rows_here] .= one(T)
@@ -240,8 +251,9 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
                 unknown_id(layout, name)  # throws for unknown names
             end
             validate(term, layout, row, T(initial_time))
-            coupling(term) in (:sparse, :matrix_free) ||
+            if !(coupling(term) in (:sparse, :matrix_free))
                 throw(ArgumentError("unknown coupling $(coupling(term)) of $(typeof(term))"))
+            end
             bound = BoundTerm(term, row)
             if treatment(term) === :explicit
                 push!(explicit_terms, bound)
@@ -261,11 +273,13 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
              all(bound -> is_linear(bound.term), matrix_free_terms)
 
     for bound in sparse_terms
-        jacobian_assembly(bound.term) in (:automatic, :direct) ||
+        if !(jacobian_assembly(bound.term) in (:automatic, :direct))
             throw(ArgumentError("unknown Jacobian assembly $(jacobian_assembly(bound.term)) of $(typeof(bound.term))"))
-        jacobian_assembly(bound.term) === :direct &&
-            jacobian_kind(bound.term) === :approximate &&
+        end
+        if jacobian_assembly(bound.term) === :direct &&
+           jacobian_kind(bound.term) === :approximate
             throw(ArgumentError("$(typeof(bound.term)) assembles its block itself, so the block is exact"))
+        end
     end
     #! format: off
     automatic_tuple = Tuple(bound for bound in sparse_terms if jacobian_assembly(bound.term) === :automatic)
@@ -299,32 +313,38 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
     # residual of the part that AD differentiates: the coloring must not see matrix-free
     # terms, whose entries outside the pattern would be folded onto entries inside it
     sparse_rhs! = let terms = automatic_tuple, layout = layout, time = time
-        (du, u) -> (
-            fill!(du, zero(eltype(du))); _add_terms!(du, terms, u, layout, time[]); nothing)
+        (du, u) -> begin
+            fill!(du, zero(eltype(du)))
+            _add_terms!(du, terms, u, layout, time[])
+            return nothing
+        end
     end
     # one type of dual numbers for every system (JacobianTag)
     backend = sparse_ad_backend(pattern = automatic_pattern, tag = ForwardDiff.Tag{
         JacobianTag, T}())
-    initial_state === nothing || length(initial_state) == n ||
+    if !(initial_state === nothing || length(initial_state) == n)
         throw(DimensionMismatch("the initial state has $(length(initial_state)) entries, the layout $n"))
+    end
     x0 = initial_state === nothing ? zeros(T, n) : collect(T, initial_state)
     buffer = zeros(T, n)
     preparation, automatic_jacobian = try
         preparation = DI.prepare_jacobian(sparse_rhs!, buffer, backend, x0)
         preparation, DI.jacobian(sparse_rhs!, buffer, preparation, backend, x0)
     catch failure
-        failure isa DomainError && initial_state === nothing &&
+        if failure isa DomainError && initial_state === nothing
             throw(ArgumentError("a term is not defined at the zero state, where the structure of the Jacobian is " *
                                 "evaluated ($(sprint(showerror, failure))): give the initial state, " *
                                 "EquationSystem(...; initial_state)"))
+        end
         rethrow()
     end
     # the prototype is evaluated at u = x0 and t = initial_time, where some derivatives
     # vanish; it must still carry the whole pattern, or jacobian! at other states would
     # miss entries
-    nnz(automatic_jacobian) == nnz(automatic_pattern) ||
+    if nnz(automatic_jacobian) != nnz(automatic_pattern)
         error("the Jacobian prototype lost structural entries ($(nnz(automatic_jacobian)) of " *
               "$(nnz(automatic_pattern)))")
+    end
     if isempty(direct_tuple) && isempty(column_tuple)
         prototype = automatic_jacobian
         automatic_positions = Int[]
@@ -368,8 +388,11 @@ function _merge_jacobian!(J::SparseMatrixCSC, automatic::SparseMatrixCSC, positi
 end
 
 function _unknown_ranges(layout, id)
-    layout.kinds[id] === :scalar ? (unknown_range(layout, id),) :
-    (unknown_range(layout, id, ir) for ir in 1:radial_cell_count(layout))
+    if layout.kinds[id] === :scalar
+        return (unknown_range(layout, id),)
+    else
+        return (unknown_range(layout, id, ir) for ir in 1:radial_cell_count(layout))
+    end
 end
 
 """
@@ -430,7 +453,10 @@ function _reaches(equations, from::Symbol, target::Symbol)
 
                 treatment(term) === :implicit || continue
                 dependency === target && return true
-                dependency in seen || (push!(seen, dependency); push!(queue, dependency))
+                if !(dependency in seen)
+                    push!(seen, dependency)
+                    push!(queue, dependency)
+                end
             end
         end
     end
@@ -493,20 +519,25 @@ function fill_initial_values!(u::AbstractVector, system::EquationSystem, t::Real
                 magnitude = max(abs(r0[i]), abs(r1[i]), abs(r2[i]))
                 # a row far larger than the unknown's scale times its coefficient loses the
                 # coefficient in round-off: the initial state is in other units than the scale
-                abs(c[i]) * s > 1e-6 * magnitude ||
+                if !(abs(c[i]) * s > 1e-6 * magnitude)
                     throw(ArgumentError("the row of $(eq.unknown), which gives its initial value, is $magnitude in " *
                                         "magnitude against its unknown's scale $s: check the units of the initial " *
                                         "state, or that the row depends on $(eq.unknown)"))
-                abs(r2[i] - 2r1[i] + r0[i]) <= 1e-10 * magnitude ||
+                end
+                if !(abs(r2[i] - 2r1[i] + r0[i]) <= 1e-10 * magnitude)
                     throw(ArgumentError("the initial value of $(eq.unknown) comes from its equation, whose row " *
                                         "must be linear in $(eq.unknown)"))
+                end
             end
             u[x] .= .-r0 ./ c
             coefficients[eq.unknown] = c
         end
         #! format: off
-        holds(eq) = all(abs(r) <= 1e-10 * abs(c) * max(abs(v), layout.unknowns[unknown_id(layout, eq.unknown)].scale)
-                        for (r, c, v) in zip(row_values(eq), coefficients[eq.unknown], u[positions[eq.unknown]]))
+        function holds(eq)
+            scale = layout.unknowns[unknown_id(layout, eq.unknown)].scale
+            return all(abs(r) <= 1e-10 * abs(c) * max(abs(v), scale)
+                       for (r, c, v) in zip(row_values(eq), coefficients[eq.unknown], u[positions[eq.unknown]]))
+        end
         #! format: on
         all(holds, rows) && return [eq.unknown for eq in rows]
     end
@@ -638,9 +669,13 @@ relative to its own density, and the absolute part only covers a species absent 
 radius.
 """
 function tolerance(system::EquationSystem, name::Symbol; kind::Symbol = :newton)
-    settings = kind === :newton ? system.newton_tolerances :
-               kind === :time_step ? system.time_step_tolerances :
-               throw(ArgumentError("kind must be :newton or :time_step"))
+    settings = if kind === :newton
+        system.newton_tolerances
+    elseif kind === :time_step
+        system.time_step_tolerances
+    else
+        throw(ArgumentError("kind must be :newton or :time_step"))
+    end
     haskey(settings, name) && return settings[name]
     u = unknown(system.layout, name)
     kind === :newton && u isa RadialUnknown && length(component_groups(u)) > 1 &&
@@ -668,34 +703,42 @@ function ode_function end
 # - a field-particle term on the same unknown restores the momentum that the e-e part of
 #   the Fokker-Planck term takes, which needs the same collision settings.
 function _check_prescribed_operators(equations)
-    prescribed = [term for equation in equations
-                  for term in equation.terms
-                  if term isa FokkerPlanckTerm && has_plasma_source(term)]
+    prescribed = FokkerPlanckTerm[]
+    for equation in equations, term in equation.terms
+
+        if term isa FokkerPlanckTerm && has_plasma_source(term)
+            push!(prescribed, term)
+        end
+    end
     isempty(prescribed) && return nothing
     for equation in equations, term in equation.terms, source in _coefficient_sources(term)
-        source isa AdvectionDiffusion && any(p -> p.operator === source, prescribed) &&
+        if source isa AdvectionDiffusion && any(p -> p.operator === source, prescribed)
             throw(ArgumentError("a $(nameof(typeof(term))) of $(equation.unknown) reads the bare operator of a " *
                                 "FokkerPlanckTerm with a plasma source, whose coefficients belong to the plasma of " *
                                 "its last rebuild: give it the Fokker-Planck term in place of its operator"))
+        end
     end
     for (k, term) in enumerate(prescribed)
-        any(other -> other.operator === term.operator, @view prescribed[(k + 1):end]) &&
+        if any(other -> other.operator === term.operator, @view prescribed[(k + 1):end])
             throw(ArgumentError("two Fokker-Planck terms with a plasma source rebuild the same operator of " *
                                 "$(term.unknown): give each term an operator of its own"))
+        end
         op = term.operator
-        (any(!iszero, op.advection_r) || any(!iszero, op.diffusion_r_r)) &&
+        if any(!iszero, op.advection_r) || any(!iszero, op.diffusion_r_r)
             throw(ArgumentError("the operator of the Fokker-Planck term of $(term.unknown) with a plasma source " *
                                 "holds radial transport, which its rebuild clears: give the radial transport an " *
                                 "operator and a FokkerPlanckTerm of its own"))
+        end
     end
     for equation in equations, term in equation.terms
 
         term isa FieldParticleTerm && has_plasma_source(term) || continue
         for owner in prescribed
-            owner.unknown === term.unknown && owner.settings != term.settings &&
+            if owner.unknown === term.unknown && owner.settings != term.settings
                 throw(ArgumentError("the field-particle term of $(term.unknown) has other collision settings than " *
                                     "the Fokker-Planck term of that unknown, so the field-particle part does not " *
                                     "restore the momentum of its electron-electron part: give both the same settings"))
+            end
         end
     end
     return nothing
@@ -710,8 +753,11 @@ _temperature_source(term::FieldParticleTerm) = _source_temperature(term.plasma)
 # a Fokker-Planck term without a plasma whose operator has no collision coefficients (radial
 # transport alone, the layout the rebuilt terms ask for) reads no temperature
 function _temperature_source(term::FokkerPlanckTerm)
-    term.plasma === nothing && term.operator.coefficient_source[] === nothing ? nothing :
-    _source_temperature(term.plasma)
+    if term.plasma === nothing && term.operator.coefficient_source[] === nothing
+        return nothing
+    else
+        return _source_temperature(term.plasma)
+    end
 end
 _temperature_source(term::ConductivityTerm) = _source_temperature(term.model.plasma)
 _temperature_source(term::ParticleSourceTerm) = _limit_temperature(term.temperature)
@@ -745,11 +791,14 @@ function _bulk_temperature_unknown(equations)
     for equation in equations, term in equation.terms
 
         source = _temperature_source(term)
-        source !== nothing && first(source) === :unknown && push!(names, last(source))
+        if source !== nothing && first(source) === :unknown
+            push!(names, last(source))
+        end
     end
-    length(names) > 1 &&
+    if length(names) > 1
         throw(ArgumentError("the terms of the cold bulk read the temperature from the unknowns " *
                             "$(join(sort!(collect(names)), " and ")): give them one temperature"))
+    end
     return isempty(names) ? nothing : only(names)
 end
 
@@ -806,7 +855,9 @@ function fluid_temperature_floors(equations::AbstractVector)
         term isa Union{IonRateTerm,RadiatedPowerTerm,HeatTransportTerm,IonEnergyExchangeTerm,
                        RunawayFluidEnergyTransferTerm,SecondaryHeatingTerm,ExternalAvalancheTerm} || continue
         #! format: on
-        term.temperature in floored || push!(names, term.temperature)
+        if !(term.temperature in floored)
+            push!(names, term.temperature)
+        end
     end
     return sort!([name => DEFAULT_TEMPERATURE_FLOOR for name in names]; by = first)
 end
@@ -827,30 +878,38 @@ function _check_plasma_pairings(equations)
     if temperature !== nothing
         for equation in equations, term in equation.terms
 
-            _temperature_source(term) == (:fixed,) &&
+            if _temperature_source(term) == (:fixed,)
                 throw(ArgumentError("a $(nameof(typeof(term))) in the equation of $(equation.unknown) takes a " *
                                     "prescribed or fixed temperature, while other terms of the cold bulk read the " *
                                     "unknown $temperature: give it the temperature of that unknown " *
                                     "(PlasmaFromUnknowns, or the name of the unknown)"))
+            end
         end
     end
-    fokker_planck = [term for equation in equations
-                     for term in equation.terms if term isa FokkerPlanckTerm]
+    fokker_planck = FokkerPlanckTerm[]
+    for equation in equations, term in equation.terms
+
+        if term isa FokkerPlanckTerm
+            push!(fokker_planck, term)
+        end
+    end
     for equation in equations, term in equation.terms
 
         term isa FieldParticleTerm || continue
         for owner in fokker_planck
             owner.unknown === term.unknown || continue
-            _plasma_kind(owner.plasma) == _plasma_kind(term.plasma) ||
+            if _plasma_kind(owner.plasma) != _plasma_kind(term.plasma)
                 throw(ArgumentError("the field-particle term of $(term.unknown) and the Fokker-Planck term of that " *
                                     "unknown take their plasma from different sources, so the field-particle part " *
                                     "does not restore the momentum of the electron-electron part: give both the " *
                                     "same plasma"))
-            is_state_dependent(owner.plasma) && !_is_lagged(owner) &&
+            end
+            if is_state_dependent(owner.plasma) && !_is_lagged(owner)
                 throw(ArgumentError("the field-particle term of $(term.unknown) follows the plasma of the unknowns " *
                                     "lagged and the Fokker-Planck term of that unknown implicitly, so the " *
                                     "field-particle part misses the change of the electron-electron part within a " *
                                     "step: use lagged = :all for the Fokker-Planck term"))
+            end
         end
     end
     # the moments of the hot region of one temperature unknown count the same electrons: the
@@ -858,85 +917,116 @@ function _check_plasma_pairings(equations)
     # the regions above and below a threshold complement each other.
     # The kinetic ionization of the split counts the hot electrons of its region as well
     # (n_cold = n_M (1 − f_>)), and the sinks charged to the total energy those of W_hot.
-    regions = [term.envelopes.region for equation in equations
-               for term in equation.terms
-               if term isa Union{DensityMomentTerm, CurrentMomentTerm,
-                          EnergyMomentTerm, KineticIonizationTerm,
-                          KineticEnergyLossTerm} && term.envelopes !== nothing &&
-                      term.envelopes.region.limit isa ThermalMomentum{Symbol}]
+    regions = MomentumRegion[]
+    for equation in equations, term in equation.terms
+
+        if term isa Union{DensityMomentTerm, CurrentMomentTerm,
+               EnergyMomentTerm, KineticIonizationTerm,
+               KineticEnergyLossTerm} && term.envelopes !== nothing &&
+           term.envelopes.region.limit isa ThermalMomentum{Symbol}
+            push!(regions, term.envelopes.region)
+        end
+    end
     for (k, a) in enumerate(regions), b in regions[(k + 1):end]
 
         a.limit.temperature === b.limit.temperature || continue
-        (a.limit.factor, a.envelope, a.smooth_width) ==
-        (b.limit.factor, b.envelope, b.smooth_width) ||
+        if (a.limit.factor, a.envelope, a.smooth_width) !=
+           (b.limit.factor, b.envelope, b.smooth_width)
             throw(ArgumentError("two moments over the hot region of $(a.limit.temperature) take different thresholds " *
                                 "or envelopes (factor $(a.limit.factor) and $(b.limit.factor)), so they count different " *
                                 "electrons as hot: give them one region"))
+        end
     end
     # the friction of bound_friction = :ionization_split charges f for the ionization that the
     # kinetic ionization of the system counts: the same threshold, and the heating by the
     # secondaries gives the cold electrons the moment that f pays
-    ionizations = [term for equation in equations
-                   for term in equation.terms if term isa KineticIonizationTerm]
-    heatings = [term for equation in equations
-                for term in equation.terms if term isa SecondaryHeatingTerm]
+    ionizations = KineticIonizationTerm[]
+    heatings = SecondaryHeatingTerm[]
+    for equation in equations, term in equation.terms
+
+        if term isa KineticIonizationTerm
+            push!(ionizations, term)
+        end
+    end
+    for equation in equations, term in equation.terms
+
+        if term isa SecondaryHeatingTerm
+            push!(heatings, term)
+        end
+    end
     for owner in fokker_planck
         settings = owner.settings
         settings.bound_friction === :ionization_split || continue
         paired = [k for k in ionizations if k.kinetic === owner.unknown]
-        isempty(paired) &&
+        if isempty(paired)
             throw(ArgumentError("the Fokker-Planck term of $(owner.unknown) takes bound_friction = :ionization_split, " *
                                 "which charges f for the ionization that a KineticIonizationTerm of $(owner.unknown) " *
                                 "counts, and the system has none: add the kinetic ionization or take " *
                                 "bound_friction = :bethe"))
+        end
         for k in paired
             region = k.envelopes === nothing ? nothing : k.envelopes.region
-            factor = region === nothing ? 0.0 :
-                     region.limit isa ThermalMomentum{Symbol} ? region.limit.factor :
-                     throw(ArgumentError("bound_friction = :ionization_split takes the threshold of the kinetic " *
-                                         "ionization of $(owner.unknown) as a factor of the thermal momentum of the " *
-                                         "temperature unknown (ThermalMomentum with the name of the unknown)"))
-            factor == settings.ionization_threshold ||
+            factor = if region === nothing
+                0.0
+            elseif region.limit isa ThermalMomentum{Symbol}
+                region.limit.factor
+            else
+                throw(ArgumentError("bound_friction = :ionization_split takes the threshold of the kinetic " *
+                                    "ionization of $(owner.unknown) as a factor of the thermal momentum of the " *
+                                    "temperature unknown (ThermalMomentum with the name of the unknown)"))
+            end
+            if factor != settings.ionization_threshold
                 throw(ArgumentError("the kinetic ionization of $(owner.unknown) has its threshold at $factor thermal " *
                                     "momenta and the friction of bound_friction = :ionization_split at " *
                                     "$(settings.ionization_threshold) (ionization_threshold of CollisionSettings), so f " *
                                     "pays for other ionizations than it causes: give both the same factor"))
-            k.ionization_cross_section_form === settings.ionization_cross_section_form ||
+            end
+            if k.ionization_cross_section_form !== settings.ionization_cross_section_form
                 throw(ArgumentError("the kinetic ionization of $(owner.unknown) takes the cross sections of the form " *
                                     ":$(k.ionization_cross_section_form) and the friction of bound_friction = :ionization_split " *
                                     "the form :$(settings.ionization_cross_section_form), so f pays for other " *
                                     "ionizations than it causes: give both the same form"))
+            end
             # where the system books the sinks of f, the energy of the secondaries that f pays
             # goes to the cold electrons only through the heating by secondaries
-            books_sinks = any(
-                term -> term isa KineticEnergyLossTerm && term.source === owner &&
-                        term.part === :sinks,
-                (term for equation in equations for term in equation.terms))
-            books_sinks && !any(heating -> heating.kinetic_ionization === k, heatings) &&
+            books_sinks = false
+            for equation in equations, term in equation.terms
+
+                if term isa KineticEnergyLossTerm && term.source === owner &&
+                   term.part === :sinks
+                    books_sinks = true
+                    break
+                end
+            end
+            if books_sinks && !any(heating -> heating.kinetic_ionization === k, heatings)
                 throw(ArgumentError("the Fokker-Planck term of $(owner.unknown) takes bound_friction = " *
                                     ":ionization_split and its sinks leave the electrons (KineticEnergyLossTerm with " *
                                     "part = :sinks), and the system has no SecondaryHeatingTerm of its kinetic " *
                                     "ionization: the energy of the secondaries, which join the cold electrons through " *
                                     "the closure, would be lost. Add SecondaryHeatingTerm(kinetic_ionization) to the " *
                                     "row of the temperature"))
+            end
             widths = merge(SECONDARY_SPECTRUM_WIDTHS, settings.secondary_widths)
             for heating in heatings
                 heating.kinetic_ionization === k || continue
-                heating.cut === :none ||
+                if heating.cut !== :none
                     throw(ArgumentError("the heating by secondaries of the kinetic ionization of $(owner.unknown) takes " *
                                         "cut = :$(heating.cut), while the friction of bound_friction = " *
                                         ":ionization_split takes the mean over every secondary from f: take cut = :none"))
-                heating.spectrum === settings.secondary_spectrum ||
+                end
+                if heating.spectrum !== settings.secondary_spectrum
                     throw(ArgumentError("the heating by secondaries takes the spectrum :$(heating.spectrum) and the " *
                                         "friction of bound_friction = :ionization_split the spectrum " *
                                         ":$(settings.secondary_spectrum): give both the same"))
-                heating.spectrum === :beb ||
-                    all(
-                        ((name, width),) -> get(widths, atomic_element(name), NaN) == width,
-                        zip(k.composition.names, heating.widths)) ||
+                end
+                if !(heating.spectrum === :beb ||
+                     all(
+                    ((name, width),) -> get(widths, atomic_element(name), NaN) == width,
+                    zip(k.composition.names, heating.widths)))
                     throw(ArgumentError("the heating by secondaries and the friction of bound_friction = " *
                                         ":ionization_split take different widths of the secondary spectrum: give " *
                                         "SecondaryHeatingTerm the secondary_widths of the CollisionSettings"))
+                end
             end
         end
     end
@@ -949,32 +1039,47 @@ function _check_plasma_pairings(equations)
     # A copy with a prescribed plasma rebuilds at its evaluation and stays allowed (the
     # operator of a conductivity model is one), and a bare operator is prescribed data
     # (_check_prescribed_operators).
-    terms_of_system = [term for equation in equations for term in equation.terms]
+    terms_of_system = EquationTerm[]
+    for equation in equations, term in equation.terms
+
+        push!(terms_of_system, term)
+    end
     for equation in equations, term in equation.terms
         #! format: off
-        sources = term isa KineticEnergyLossTerm ? (term.source,) :
-                  term isa InterfaceEnergyFluxTerm ? (term.interface,) :
-                  filter(s -> s isa FokkerPlanckTerm && is_state_dependent(s.plasma), _coefficient_sources(term))
+        sources = if term isa KineticEnergyLossTerm
+            (term.source,)
+        elseif term isa InterfaceEnergyFluxTerm
+            (term.interface,)
+        else
+            filter(s -> s isa FokkerPlanckTerm && is_state_dependent(s.plasma), _coefficient_sources(term))
+        end
         #! format: on
         for source in sources
-            any(other -> other === source, terms_of_system) ||
+            if !any(other -> other === source, terms_of_system)
                 throw(ArgumentError("a $(nameof(typeof(term))) in the equation of $(equation.unknown) reads a " *
                                     "$(nameof(typeof(source))) that is not a term of the system: give it the term of the system"))
+            end
         end
     end
     # the energy exchange with the ions conserves energy only with both of its sides
-    exchanges = [term for equation in equations
-                 for term in equation.terms if term isa IonEnergyExchangeTerm]
+    exchanges = IonEnergyExchangeTerm[]
+    for equation in equations, term in equation.terms
+
+        if term isa IonEnergyExchangeTerm
+            push!(exchanges, term)
+        end
+    end
     for term in exchanges
         other = term.side === :ions ? :electrons : :ions
-        any(
+        if !any(
             t -> t.side === other && t.ion_energy === term.ion_energy &&
                  t.temperature === term.temperature &&
                  t.density === term.density && t.ions === term.ions &&
                  _plasma_kind(t.plasma) == _plasma_kind(term.plasma),
-            exchanges) ||
+            exchanges)
             throw(ArgumentError("the energy exchange of the ions has its side :$(term.side) without the side :$other on " *
                                 "the same unknowns, so it does not conserve energy: give the system both sides"))
+        end
     end
     _check_ion_pairings(equations)
     _check_sink_regions(equations)
@@ -983,12 +1088,13 @@ function _check_plasma_pairings(equations)
     isempty(lagged) && return nothing
     for equation in equations, term in equation.terms
 
-        term isa ConductivityTerm && term.model.kinetic !== :none &&
-            is_state_dependent(term.model.plasma) &&
+        if term isa ConductivityTerm && term.model.kinetic !== :none &&
+           is_state_dependent(term.model.plasma)
             throw(ArgumentError("the corrected conductivity in the equation of $(equation.unknown) follows the " *
                                 "temperature implicitly and the Fokker-Planck term of $(first(lagged).unknown) " *
                                 "lagged, so the correction and the current of the distribution belong to different " *
                                 "temperatures: lag no more than the ions of the Fokker-Planck term"))
+        end
     end
     return nothing
 end
@@ -997,8 +1103,13 @@ end
 # and :none for a term that reads no ions
 _ions_read(term) = :none
 function _ions_read(term::Union{FokkerPlanckTerm, FieldParticleTerm})
-    term.plasma isa PlasmaFromUnknowns ? term.plasma.ions :
-    term.plasma === nothing ? _ions_read_operator(term) : nothing
+    if term.plasma isa PlasmaFromUnknowns
+        return term.plasma.ions
+    elseif term.plasma === nothing
+        return _ions_read_operator(term)
+    else
+        return nothing
+    end
 end
 # a term without a plasma source reads the ions of the plasma its operator was built from
 function _ions_read_operator(term::FokkerPlanckTerm)
@@ -1006,8 +1117,13 @@ function _ions_read_operator(term::FokkerPlanckTerm)
 end
 _ions_read_operator(term) = :none
 function _ions_read(term::ConductivityTerm)
-    term.model.plasma isa PlasmaFromUnknowns ? term.model.plasma.ions :
-    term.model.plasma === nothing ? :none : nothing
+    if term.model.plasma isa PlasmaFromUnknowns
+        return term.model.plasma.ions
+    elseif term.model.plasma === nothing
+        return :none
+    else
+        return nothing
+    end
 end
 function _ions_read(term::Union{RadiatedPowerTerm, IonEnergyExchangeTerm,
         RunawayFluidEnergyTransferTerm, ExternalAvalancheTerm})
@@ -1020,50 +1136,61 @@ end
 # cold density next to a kinetic ionization, one source of ions where the system evolves them
 # and one composition per ion unknown.
 function _check_ion_pairings(equations)
-    terms = [term for equation in equations for term in equation.terms]
+    terms = EquationTerm[]
+    for equation in equations, term in equation.terms
+
+        push!(terms, term)
+    end
     rates = [term for term in terms if term isa IonRateTerm]
     radiations = [term for term in terms if term isa RadiatedPowerTerm]
     kinetics = [term for term in terms if term isa KineticIonizationTerm]
     for owner in [rates; radiations]
         k = owner.kinetic_ionization
         k === nothing && continue
-        any(t -> t === k, kinetics) ||
+        if !any(t -> t === k, kinetics)
             throw(ArgumentError("the $(nameof(typeof(owner))) splits the ionization with a KineticIonizationTerm that " *
                                 "is not a term of the system, so the share of the electrons above its threshold is " *
                                 "left out: give the system that term"))
-        owner.ions === nothing || k.ions === owner.ions ||
+        end
+        if !(owner.ions === nothing || k.ions === owner.ions)
             throw(ArgumentError("the $(nameof(typeof(owner))) of the ion densities $(owner.ions) splits the ionization " *
                                 "with a kinetic ionization of $(k.ions): give both the same ion unknown"))
-        _temperature_source(k) == (:unknown, owner.temperature) ||
+        end
+        if _temperature_source(k) != (:unknown, owner.temperature)
             throw(ArgumentError("the $(nameof(typeof(owner))) reads the temperature $(owner.temperature) and the " *
                                 "threshold of its kinetic ionization another one, whose Jacobian columns it does not " *
                                 "list: give both the same temperature unknown"))
+        end
     end
     for rate in rates, radiation in radiations
 
         radiation.ions === rate.ions || continue
-        radiation.kinetic_ionization === rate.kinetic_ionization ||
+        if radiation.kinetic_ionization !== rate.kinetic_ionization
             throw(ArgumentError("the IonRateTerm and the RadiatedPowerTerm of the ion densities $(rate.ions) split the " *
                                 "ionization differently (one with a kinetic part, the other with another or none), so " *
                                 "the binding energy is charged at another rate than the rate equations take: give " *
                                 "both the same kinetic_ionization keyword"))
-        radiation.extrapolation === rate.extrapolation ||
+        end
+        if radiation.extrapolation !== rate.extrapolation
             throw(ArgumentError("the IonRateTerm and the RadiatedPowerTerm of the ion densities $(rate.ions) take the " *
                                 "extrapolations :$(rate.extrapolation) and :$(radiation.extrapolation) of the ADAS " *
                                 "tables: give both the same"))
+        end
         for (s, name) in enumerate(rate.composition.names)
-            haskey(radiation.tables, name) &&
-            radiation.tables[name].scd.source == rate.tables[s].scd.source ||
+            if !(haskey(radiation.tables, name) &&
+                 radiation.tables[name].scd.source == rate.tables[s].scd.source)
                 throw(ArgumentError("the IonRateTerm and the RadiatedPowerTerm of the ion densities $(rate.ions) read " *
                                     "the ionization of $name from different ADF11 files: read both from one directory"))
+            end
         end
     end
     closures = Set(term.unknown for term in terms if term isa WeightedSumTerm)
     for k in kinetics
-        k.ions in closures ||
+        if !(k.ions in closures)
             throw(ArgumentError("the kinetic ionization of $(k.ions) raises the charge of the ions, and no closure of " *
                                 "the cold density reads those ions, so no electron appears: add the " *
                                 "population_equations of the composition"))
+        end
     end
     # where the system evolves the charge states, every term that reads ions takes them from it
     #! format: off
@@ -1073,31 +1200,34 @@ function _check_ion_pairings(equations)
         for term in terms
             read = _ions_read(term)
             read === :none && continue
-            read in evolved ||
+            if !(read in evolved)
+                ions_text = read === nothing ? "prescribed ions" : "the ions $read"
                 throw(ArgumentError("a $(nameof(typeof(term))) reads " *
-                                    (read === nothing ? "prescribed ions" :
-                                     "the ions $read") *
+                                    ions_text *
                                     " while the system evolves the charge states of " *
                                     "$(join(sort!(collect(evolved)), " and ")): give it the ion unknown (the ions " *
                                     "keyword, or PlasmaFromUnknowns(...; ions))"))
+            end
         end
     end
     compositions = Dict{Symbol, IonComposition}()
     for term in terms
         term isa Union{IonRateTerm, KineticIonizationTerm, IonDiffusionTerm} || continue
         known = get!(compositions, term.ions, term.composition)
-        known.names == term.composition.names &&
-        known.nuclear_charges == term.composition.nuclear_charges ||
+        if !(known.names == term.composition.names &&
+             known.nuclear_charges == term.composition.nuclear_charges)
             throw(ArgumentError("two terms of the ion unknown $(term.ions) take the species " *
                                 "$(join(known.names, ", ")) and $(join(term.composition.names, ", ")): give them one " *
                                 "composition in one order"))
+        end
     end
     for term in terms
         term isa SecondaryHeatingTerm || continue
-        _temperature_source(term.kinetic_ionization) in
-        (nothing, (:unknown, term.temperature)) ||
+        if !(_temperature_source(term.kinetic_ionization) in
+             (nothing, (:unknown, term.temperature)))
             throw(ArgumentError("the heating by secondaries reads the temperature $(term.temperature) and the threshold " *
                                 "of its kinetic ionization another one: give both the same temperature unknown"))
+        end
     end
     return nothing
 end
@@ -1106,18 +1236,23 @@ end
 # charges the bulk as well, whose radiation the cold electrons pay through RadiatedPowerTerm.
 # The regions themselves are compared with the other moments.
 function _check_sink_regions(equations)
-    terms = [term for equation in equations for term in equation.terms]
+    terms = EquationTerm[]
+    for equation in equations, term in equation.terms
+
+        push!(terms, term)
+    end
     for sinks in terms
         sinks isa KineticEnergyLossTerm && sinks.part === :sinks &&
         sinks.envelopes === nothing || continue
-        any(
+        if any(
             term -> term isa EnergyMomentTerm && term.kinetic === sinks.kinetic &&
                     term.envelopes !== nothing &&
                     term.envelopes.region.limit isa ThermalMomentum,
-            terms) &&
+            terms)
             throw(ArgumentError("the sinks of $(sinks.kinetic) are charged without a region while the energy of its " *
                                 "hot electrons is a moment over a thermal threshold, so the sinks of the bulk are " *
                                 "charged as well: give KineticEnergyLossTerm the region of the energy moment"))
+        end
     end
     return nothing
 end
@@ -1161,15 +1296,26 @@ function _check_total_energy_rows(equations)
         total = row.kind.of
         closures = [e for e in equations if e.unknown === total && e.kind isa Algebraic]
         isempty(closures) && continue
-        distributions = unique([t.kinetic for e in closures
-                                for t in e.terms if t isa EnergyMomentTerm])
+        kinetic_names = Symbol[]
+        for e in closures, t in e.terms
+
+            if t isa EnergyMomentTerm
+                push!(kinetic_names, t.kinetic)
+            end
+        end
+        distributions = unique(kinetic_names)
         listed = row.terms
         for d in distributions, equation in equations
 
             equation.unknown === d || continue
-            #! format: off
-            moment = first(t for e in closures for t in e.terms if t isa EnergyMomentTerm && t.kinetic === d)
-            #! format: on
+            moment = nothing
+            for e in closures, t in e.terms
+
+                if t isa EnergyMomentTerm && t.kinetic === d
+                    moment = t
+                    break
+                end
+            end
             for term in equation.terms
                 if term isa FokkerPlanckTerm && _has_collisions(term)
                     # the sinks term of this Fokker-Planck term, charged as a loss, over the
@@ -1178,22 +1324,25 @@ function _check_total_energy_rows(equations)
                              for t in listed
                              if t isa KineticEnergyLossTerm && t.source === term &&
                                     t.part === :sinks]
-                    _has_sinks(term) && isempty(sinks) &&
+                    if _has_sinks(term) && isempty(sinks)
                         throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy " *
                                             "$total, and the collisions of $d have sinks (radiation or bound electrons) " *
                                             "that no term of the row lists, so the cold electrons would pay them: add " *
                                             "KineticEnergyLossTerm(term; part = :sinks, region) to the row"))
+                    end
                     for t in sinks
-                        t.coefficient < 0 ||
+                        if !(t.coefficient < 0)
                             throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy " *
                                                 "$total, and its sinks term of $d has the coefficient $(t.coefficient), " *
                                                 "which adds the sinks to the total in place of removing them: give it " *
                                                 "a negative coefficient"))
-                        _same_region(_region_of(t.envelopes), _region_of(moment.envelopes)) ||
+                        end
+                        if !_same_region(_region_of(t.envelopes), _region_of(moment.envelopes))
                             throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy " *
                                                 "$total, and its sinks term of $d takes another region than the energy " *
                                                 "moment of $d, so it charges electrons outside W_hot: give it the region " *
                                                 "of the moment"))
+                        end
                     end
                     boundary = term.operator.p_upper_boundary
                     if boundary === :interface
@@ -1201,48 +1350,53 @@ function _check_total_energy_rows(equations)
                                      for t in listed
                                      if t isa InterfaceEnergyFluxTerm &&
                             t.interface.lower === d]
-                        isempty(crossings) &&
+                        if isempty(crossings)
                             throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy " *
                                                 "$total, and the electrons of $d that cross the interface to the runaway " *
                                                 "grid leave W_hot without a term of the row: add InterfaceEnergyFluxTerm"))
+                        end
                         for t in crossings
-                            t.interface.lower_term === term ||
+                            if t.interface.lower_term !== term
                                 throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total " *
                                                     "energy $total, and its interface term of $d reads the interface of " *
                                                     "another term of $d: give it the interface of this term"))
-                            t.coefficient < 0 ||
+                            end
+                            if !(t.coefficient < 0)
                                 throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total " *
                                                     "energy $total, and its interface term of $d has the coefficient " *
                                                     "$(t.coefficient), which adds the energy that crosses the interface " *
                                                     "to the total in place of removing it: give it a negative coefficient"))
+                            end
                         end
-                    else
-                        any(
-                            t -> t isa MomentumBoundaryFluxTerm && t.kinetic === d &&
-                                 t.source === term &&
-                                 t.weight === :energy && t.coefficient < 0,
-                            listed) ||
-                            throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy " *
-                                                "$total, and the electrons of $d that leave the grid through p_max " *
-                                                "(p_upper_boundary = :$boundary) take their energy without a term of the " *
-                                                "row: add MomentumBoundaryFluxTerm($d, term; weight = :energy, " *
-                                                "coefficient = -1) of this term"))
+                    elseif !any(
+                        t -> t isa MomentumBoundaryFluxTerm && t.kinetic === d &&
+                             t.source === term &&
+                             t.weight === :energy && t.coefficient < 0,
+                        listed)
+                        throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy " *
+                                            "$total, and the electrons of $d that leave the grid through p_max " *
+                                            "(p_upper_boundary = :$boundary) take their energy without a term of the " *
+                                            "row: add MomentumBoundaryFluxTerm($d, term; weight = :energy, " *
+                                            "coefficient = -1) of this term"))
                     end
                 end
-                (term isa FokkerPlanckTerm && _moves_in_radius(term) ||
-                 term isa RadialEdgeLossTerm) &&
+                if (term isa FokkerPlanckTerm && _moves_in_radius(term) ||
+                    term isa RadialEdgeLossTerm)
                     throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
                                         "and $d moves in radius, whose energy flux no term of the row carries: the " *
                                         "electrons that move out would heat the cold electrons where they leave. Radial " *
                                         "transport of f is refused under the total energy"))
-                term isa KnockOnTerm &&
+                end
+                if term isa KnockOnTerm
                     throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
                                         "and the knock-on secondaries on the grid of $d take their energy from the " *
                                         "cold electrons, since no term carries the energy of the secondaries: refused"))
-                term isa RosenbluthPutvinskiSourceTerm &&
+                end
+                if term isa RosenbluthPutvinskiSourceTerm
                     throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
                                         "and the knock-ons of the fluid runaways above the grid of $d take their energy " *
                                         "from the cold electrons, since the primaries have no energy unknown: refused"))
+                end
             end
         end
     end

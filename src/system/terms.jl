@@ -259,10 +259,13 @@ end
 function _same_momentum_grids(a::KineticGrid, b::KineticGrid)
     a === b && return true
     a.radial_grid.r_faces == b.radial_grid.r_faces || return false
-    return all(
-        ir -> momentum_grid(a, ir).p_faces == momentum_grid(b, ir).p_faces &&
-              momentum_grid(a, ir).xi_faces == momentum_grid(b, ir).xi_faces,
-        1:radial_cell_count(a))
+    for ir in 1:radial_cell_count(a)
+        if !(momentum_grid(a, ir).p_faces == momentum_grid(b, ir).p_faces &&
+             momentum_grid(a, ir).xi_faces == momentum_grid(b, ir).xi_faces)
+            return false
+        end
+    end
+    return true
 end
 
 # index of cell (i, j) of kinetic unknown `id` at radius `ir`
@@ -313,9 +316,11 @@ of `ids`, without their lower limits, whose references may be missing. With
 function local_layout(layout::UnknownLayout, ids)
     all(id -> layout.kinds[id] === :radial, ids) ||
         throw(ArgumentError("a local layout holds radial unknowns alone"))
-    unknowns = [(u = layout.unknowns[id];
-                    RadialUnknown(u.name; components = u.components, scale = u.scale, groups = u.groups))
-                for id in ids]
+    unknowns = RadialUnknown[]
+    for id in ids
+        u = layout.unknowns[id]
+        push!(unknowns, RadialUnknown(u.name; components = u.components, scale = u.scale, groups = u.groups))
+    end
     return UnknownLayout(layout.radial_grid, unknowns)
 end
 
@@ -344,7 +349,12 @@ function _add_local_jacobian!(J, term, u, layout, row, t, ids, ::Val{K}) where {
     local_row = findfirst(==(row), local_ids)
     rhs!(out, term, seeded, reduced, local_row, t)
     for ir in 1:radial_cell_count(layout)
-        columns = [i for id in ids for i in unknown_range(layout, id, ir)]
+        columns = Int[]
+        for id in ids
+            for i in unknown_range(layout, id, ir)
+                push!(columns, i)
+            end
+        end
         for (r, r_local) in zip(unknown_range(layout, row, ir), unknown_range(reduced, local_row, ir))
             partials = ForwardDiff.partials(out[r_local])
             for k in 1:K
