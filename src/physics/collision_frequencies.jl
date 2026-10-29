@@ -518,7 +518,7 @@ end
 
 # refuses an element without the data of bound_friction = :ionization_split
 function _check_ionization_split_data(element, widths, spectrum)
-    if !(haskey(KINETIC_IONIZATION_FITS, element))
+    if !haskey(KINETIC_IONIZATION_FITS, element)
         known_fits = join(sort!(collect(keys(KINETIC_IONIZATION_FITS))), ", ")
         throw(ArgumentError("bound_friction = :ionization_split needs a fit of the ionization cross sections of " *
                             "$element, which DREAM's tables lack ($(known_fits))"))
