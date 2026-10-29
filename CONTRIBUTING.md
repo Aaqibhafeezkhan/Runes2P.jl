@@ -106,8 +106,14 @@ The formatter sets the layout only, so the reviews check these rules.
 
 - Control flow is written with `if`.
   `cond && action` and `cond || action` are not used for a side effect, an assignment or a `throw`.
-  An early return, such as `cond && return x`, is allowed anywhere.
+  An early return, such as `cond && return x`, is allowed anywhere, and so are `cond && continue` and `cond && break`.
   The one exception is a check of an argument at the start of a function, in either form, such as `length(x) == n || throw(DimensionMismatch("..."))`.
+  A check is at the start of a function when only other checks and the assignments it reads come before it.
+- A check rewritten from `cond || throw(...)` into an `if` keeps its condition.
+  An ordered or compound condition is negated as `if !(cond)`, since a simplified comparison can differ for `NaN`.
+  A negated equality is written `a != b` or `a !== b`.
+- An `if` that gives one variable its value is written `x = if ... else ... end`, unless a conditional expression `a ? b : c` of one line fits.
+  An `if` that gives the value of a function has a `return` in each branch.
 - One statement per line: no `;` between statements, and no assignment inside an expression.
 - A conditional expression `a ? b : c` chooses between two simple values, short enough for one line, and is never nested.
 - An intermediate quantity gets a name, the name of the physical quantity where there is one, instead of a long chain of calls or broadcasts.
