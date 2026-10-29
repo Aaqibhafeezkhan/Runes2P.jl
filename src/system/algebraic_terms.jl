@@ -14,9 +14,14 @@ struct LinearTerm{C <: Union{Float64, Vector{Float64}}} <: EquationTerm
     coefficient::C
 end
 function LinearTerm(unknown::Symbol; coefficient::Union{Real, AbstractVector{<:Real}} = 1.0)
-    LinearTerm(unknown,
-        coefficient isa Real ? Float64(coefficient) :
-        coefficient isa Vector{Float64} ? coefficient : collect(Float64, coefficient))
+    stored_coefficient = if coefficient isa Real
+        Float64(coefficient)
+    elseif coefficient isa Vector{Float64}
+        coefficient
+    else
+        collect(Float64, coefficient)
+    end
+    LinearTerm(unknown, stored_coefficient)
 end
 
 dependencies(term::LinearTerm) = [term.unknown]
@@ -27,10 +32,11 @@ function validate(term::LinearTerm, layout, row)
     layout.kinds[id] === layout.kinds[row] && layout.sizes[id, :] == layout.sizes[row, :] ||
         throw(DimensionMismatch("LinearTerm needs an unknown of the same kind and sizes as its row"))
     if term.coefficient isa Vector
-        layout.kinds[row] !== :scalar &&
-        length(term.coefficient) == radial_cell_count(layout) ||
+        if !(layout.kinds[row] !== :scalar &&
+             length(term.coefficient) == radial_cell_count(layout))
             throw(DimensionMismatch("a coefficient per radius needs a radial or kinetic unknown and one value " *
                                     "per radius"))
+        end
     end
     return nothing
 end
@@ -41,9 +47,11 @@ Base.@propagate_inbounds _coefficient_at(coefficient::Vector{Float64}, k) = coef
 # the (row range, column range) pairs of a LinearTerm: one per radius, or one for scalars
 _range_count(layout, row) = layout.kinds[row] === :scalar ? 1 : radial_cell_count(layout)
 function _paired_ranges(layout, row, id, k)
-    layout.kinds[row] === :scalar ?
-    (unknown_range(layout, row), unknown_range(layout, id)) :
-    (unknown_range(layout, row, k), unknown_range(layout, id, k))
+    if layout.kinds[row] === :scalar
+        return (unknown_range(layout, row), unknown_range(layout, id))
+    else
+        return (unknown_range(layout, row, k), unknown_range(layout, id, k))
+    end
 end
 
 function rhs!(out, term::LinearTerm, u, layout, row, t)
@@ -113,13 +121,16 @@ function validate(term::PrescribedValueTerm, layout, row)
     kind = layout.kinds[row]
     kind === :scalar || (kind === :radial && layout.sizes[row, 1] == 1) ||
         throw(ArgumentError("PrescribedValueTerm adds to a scalar unknown or to a radial unknown with one component"))
-    kind === :radial && (term.points[] = collect(Float64, layout.radial_grid.r_centers))
+    if kind === :radial
+        term.points[] = collect(Float64, layout.radial_grid.r_centers)
+    end
     term.values isa Function && return nothing
-    term.values isa Real ||
-        (term.values isa AbstractVector{<:Real} && kind === :radial &&
-         length(term.values) == radial_cell_count(layout)) ||
+    if !(term.values isa Real ||
+         (term.values isa AbstractVector{<:Real} && kind === :radial &&
+          length(term.values) == radial_cell_count(layout)))
         throw(ArgumentError("the values of a PrescribedValueTerm are a number, one number per radius of a radial " *
                             "unknown, or a function of time"))
+    end
     return nothing
 end
 
@@ -129,8 +140,8 @@ function rhs!(out, term::PrescribedValueTerm, u, layout, row, t)
         out[first(unknown_range(layout, row))] += values
     else
         for ir in 1:radial_cell_count(layout)
-            out[first(unknown_range(layout, row, ir))] += values isa Real ? values :
-                                                          values[ir]
+            value_at_radius = values isa Real ? values : values[ir]
+            out[first(unknown_range(layout, row, ir))] += value_at_radius
         end
     end
     return out
