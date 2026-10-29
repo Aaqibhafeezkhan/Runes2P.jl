@@ -691,9 +691,7 @@ Base.@propagate_inbounds function _r_flux(
     if ir == k - 1
         for s in overlap.left_ranges[j]
             V = op.jacobian_r_faces[i, s, k]
-            if V == 0
-                continue
-            end
+            V == 0 && continue
             F = _face_flux(op.r_scheme, op.advection_r[i, s, k],
                 op.diffusion_r_r[i, s, k], f[i, j, k - 1],
                 f[i, overlap.right_cells[s], k], distance, weight_left)
@@ -702,9 +700,7 @@ Base.@propagate_inbounds function _r_flux(
     else
         for s in overlap.right_ranges[j]
             V = op.jacobian_r_faces[i, s, k]
-            if V == 0
-                continue
-            end
+            V == 0 && continue
             F = _face_flux(op.r_scheme, op.advection_r[i, s, k], op.diffusion_r_r[i, s, k],
                 f[i, overlap.left_cells[s], k - 1], f[i, j, k], distance, weight_left)
             total += overlap.right_fractions[s] * (V * F)
@@ -760,9 +756,7 @@ loop over the cells is compiled for it.
     @inbounds for j in 1:nxi, i in 1:np
 
         V = op.jacobian_centers[i, j, ir]
-        if V == 0
-            continue
-        end
+        V == 0 && continue
         divergence = (_p_flux(op, f, i + 1, j, ir, state, field) -
                       _p_flux(op, f, i, j, ir, state, field)) /
                      m.p_widths[i] +
