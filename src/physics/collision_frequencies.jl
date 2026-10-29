@@ -380,7 +380,7 @@ function CollisionModel(plasma::PlasmaState{T}, settings::CollisionSettings; fac
     k2 = besselkx.(2, 1 ./ theta)
     tables = Union{Nothing, Tuple{Vector{Float64}, Matrix{Float64}}}[nothing for _ in 1:nr]
     if split && faces !== nothing
-        if !(length(faces) == nr)
+        if length(faces) != nr
             throw(DimensionMismatch("the momentum faces and the plasma have different radii"))
         end
         for ir in 1:nr

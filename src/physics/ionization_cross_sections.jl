@@ -81,8 +81,9 @@ function ionization_cross_section(element::AbstractString, Z0::Integer, p::Real;
     end
     table = form === :bethe ? KINETIC_IONIZATION_BETHE_FITS : KINETIC_IONIZATION_FITS
     if !haskey(table, element)
+        known_elements = join(sort!(collect(keys(table))), ", ")
         throw(ArgumentError("no fit of the kinetic ionization for the element $element " *
-                            "($(join(sort!(collect(keys(table))), ", ")))"))
+                            "($(known_elements))"))
     end
     fits = table[element]
     if !(0 <= Z0 <= size(fits, 1))

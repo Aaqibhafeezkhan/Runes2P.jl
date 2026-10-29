@@ -492,7 +492,7 @@ components of the ion densities when the source reads them, as the argument of
 """
 function plasma_columns(source::PlasmaFromUnknowns, layout, ir; with_ions::Bool = true)
     columns = [first(unknown_range(layout, unknown_id(layout, source.temperature), ir))]
-    if !(source.density === nothing)
+    if source.density !== nothing
         push!(columns, first(unknown_range(layout, unknown_id(layout, source.density), ir)))
     end
     if with_ions && source.ions !== nothing

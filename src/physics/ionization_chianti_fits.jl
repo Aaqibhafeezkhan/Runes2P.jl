@@ -7,7 +7,7 @@ function _chianti_ionization_fits(content)
         element_fits = ChiantiIonization[]
         for (stage, ion) in enumerate(ions)
             name = ion["ion"]::String
-            if !(name == lowercase(element) * "_$stage")
+            if name != lowercase(element) * "_$stage"
                 error("data/chianti_ionization.toml: ion $name at the place of stage $stage of $element")
             end
             direct = ChiantiDirectShell[ChiantiDirectShell(

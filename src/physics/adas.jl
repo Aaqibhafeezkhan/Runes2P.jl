@@ -98,12 +98,12 @@ function read_adf11(path::AbstractString; class::Union{Nothing, Symbol} = nothin
             append!(values, numbers(lines[k]) .- 6)
             k += 1
         end
-        if !(length(values) == nn * nT)
+        if length(values) != nn * nT
             throw(ArgumentError("block $(length(blocks) + 1) of $path has $(length(values)) values, not $(nn * nT)"))
         end
         push!(blocks, values)
     end
-    if !(length(blocks) == Z)
+    if length(blocks) != Z
         throw(ArgumentError("$path has $(length(blocks)) blocks for nuclear charge $Z"))
     end
     # the density varies fastest within a block
@@ -288,8 +288,8 @@ OpenADAS; DREAM's cache carries them. The table is read from `data/adas_files.to
 """
 const ADAS_FILES = let data = read_data_file("adas_files")["data"]
     function entry(files)
-        file_entries = map(class -> files[String(class)]::String, ADF11_CLASSES)
-        return NamedTuple{ADF11_CLASSES}(file_entries)
+        file_names = map(class -> files[String(class)]::String, ADF11_CLASSES)
+        return NamedTuple{ADF11_CLASSES}(file_names)
     end
     Dict(element => entry(files) for (element, files) in data)
 end

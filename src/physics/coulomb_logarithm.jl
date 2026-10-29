@@ -47,7 +47,7 @@ function coulomb_logarithm(collision::Symbol, model::Symbol, p, free_electron_de
         return relativistic_coulomb_logarithm(free_electron_density, temperature)
     thermal = thermal_coulomb_logarithm(free_electron_density, temperature)
     model === :thermal && return thermal
-    if !(model === :energy_dependent)
+    if model !== :energy_dependent
         throw(ArgumentError("unknown Coulomb logarithm model $model"))
     end
     # the thermal value at p = 0, the limit of the formula below: its square root of zero has
