@@ -154,10 +154,12 @@ radius.
 function PlasmaState(; cold_electron_temperature, ions, electric_field, magnetic_field,
         cold_electron_density = nothing)
     ions = collect(ions)
-    density = cold_electron_density === nothing ?
-              [free_electron_density(ions, ir)
-               for ir in eachindex(cold_electron_temperature)] :
-              cold_electron_density
+    if cold_electron_density === nothing
+        density = [free_electron_density(ions, ir)
+                   for ir in eachindex(cold_electron_temperature)]
+    else
+        density = cold_electron_density
+    end
     T = promote_type(
         eltype(cold_electron_temperature), eltype(density), eltype(electric_field),
         eltype(magnetic_field), (eltype(s.charge_state_densities) for s in ions)...)
@@ -190,28 +192,35 @@ function with_electric_field(plasma::PlasmaState, electric_field::AbstractVector
         plasma.cold_density_given)
 end
 
-#! format: off
 """
     free_electron_density(ions, ir)
 
 `Σ Z0 n_{Z0}` over all ion charge states (DREAM `GetFreeElectronDensityFromQuasiNeutrality`).
 """
-free_electron_density(ions, ir) =
-    sum((Z0 * s.charge_state_densities[Z0+1, ir] for s in ions for Z0 in 0:s.nuclear_charge);
-        init=zero(eltype(first(ions).charge_state_densities)))
-#! format: on
+function free_electron_density(ions, ir)
+    free_density = zero(eltype(first(ions).charge_state_densities))
+    for s in ions
+        for Z0 in 0:s.nuclear_charge
+            free_density += Z0 * s.charge_state_densities[Z0 + 1, ir]
+        end
+    end
+    return free_density
+end
 free_electron_density(plasma::PlasmaState, ir) = free_electron_density(plasma.ions, ir)
 
-#! format: off
 """
     bound_electron_density(plasma, ir)
 
 `Σ (Z - Z0) n_{Z0}` over all ion charge states.
 """
-bound_electron_density(plasma::PlasmaState, ir) =
-    sum(((s.nuclear_charge - Z0) * s.charge_state_densities[Z0+1, ir]
-         for s in plasma.ions for Z0 in 0:s.nuclear_charge);
-        init=zero(eltype(plasma.cold_electron_temperature)))
-#! format: on
+function bound_electron_density(plasma::PlasmaState, ir)
+    bound_density = zero(eltype(plasma.cold_electron_temperature))
+    for s in plasma.ions
+        for Z0 in 0:s.nuclear_charge
+            bound_density += (s.nuclear_charge - Z0) * s.charge_state_densities[Z0 + 1, ir]
+        end
+    end
+    return bound_density
+end
 
 IonComposition(plasma::PlasmaState) = IonComposition(plasma.ions)

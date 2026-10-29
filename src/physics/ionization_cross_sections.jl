@@ -70,8 +70,9 @@ function ionization_cross_section(element::AbstractString, Z0::Integer, p::Real;
     if form === :chianti
         fits = get(CHIANTI_IONIZATION_FITS, chianti_element(element), nothing)
         if fits !== nothing
-            0 <= Z0 <= length(fits) ||
+            if !(0 <= Z0 <= length(fits))
                 throw(ArgumentError("no charge state $Z0 of $element"))
+            end
             Z0 == length(fits) && return zero(float(p))
             return chianti_cross_section(fits[Z0 + 1], p)
         end
@@ -79,11 +80,14 @@ function ionization_cross_section(element::AbstractString, Z0::Integer, p::Real;
         form = :dream
     end
     table = form === :bethe ? KINETIC_IONIZATION_BETHE_FITS : KINETIC_IONIZATION_FITS
-    haskey(table, element) ||
+    if !(haskey(table, element))
         throw(ArgumentError("no fit of the kinetic ionization for the element $element " *
                             "($(join(sort!(collect(keys(table))), ", ")))"))
+    end
     fits = table[element]
-    0 <= Z0 <= size(fits, 1) || throw(ArgumentError("no charge state $Z0 of $element"))
+    if !(0 <= Z0 <= size(fits, 1))
+        throw(ArgumentError("no charge state $Z0 of $element"))
+    end
     Z0 == size(fits, 1) && return zero(float(p))
     C, I_eV, beta_star = fits[Z0 + 1, 1], fits[Z0 + 1, 2], fits[Z0 + 1, 3]
     mc2 = Constants.ELECTRON_REST_ENERGY
@@ -211,8 +215,12 @@ end
 # the mean secondary energy [eV] of the spectrum `spectrum`: :opal, Opal et al. with the width
 # `width` (mean_secondary_energy), or :beb, Kim and Rudd with the binding energy I
 function secondary_spectrum_mean(spectrum::Symbol, width, E, I, cut)
-    spectrum === :beb ? beb_mean_secondary_energy(E, I, cut) :
-    mean_secondary_energy(width, E, I, cut)
+    if spectrum === :beb
+        mean_energy = beb_mean_secondary_energy(E, I, cut)
+    else
+        mean_energy = mean_secondary_energy(width, E, I, cut)
+    end
+    return mean_energy
 end
 
 const SECONDARY_SPECTRA = (:opal, :beb)

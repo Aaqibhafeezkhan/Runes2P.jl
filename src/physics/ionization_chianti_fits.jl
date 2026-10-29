@@ -4,10 +4,12 @@
 function _chianti_ionization_fits(content)
     fits = Dict{String, Vector{ChiantiIonization}}()
     for (element, ions) in content["data"]
-        fits[element] = map(enumerate(ions)) do (stage, ion)
+        element_fits = ChiantiIonization[]
+        for (stage, ion) in enumerate(ions)
             name = ion["ion"]::String
-            name == lowercase(element) * "_$stage" ||
+            if !(name == lowercase(element) * "_$stage")
                 error("data/chianti_ionization.toml: ion $name at the place of stage $stage of $element")
+            end
             direct = ChiantiDirectShell[ChiantiDirectShell(
                                             s["scale"]::Float64, s["threshold"]::Float64,
                                             float_vector(s["knots"]), float_vector(s["values"]))
@@ -18,9 +20,11 @@ function _chianti_ionization_fits(content)
                                                        t["energy"]::Float64, t["scale"]::Float64,
                                                        float_vector(t["values"]))
                                                    for t in ion["autoionization"]]
-            ChiantiIonization(
-                name, direct, ion["autoionization_scale"]::Float64, autoionization)
+            push!(element_fits,
+                ChiantiIonization(
+                    name, direct, ion["autoionization_scale"]::Float64, autoionization))
         end
+        fits[element] = element_fits
     end
     return fits
 end
