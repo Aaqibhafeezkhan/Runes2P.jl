@@ -207,6 +207,15 @@ function _nrl_screening(ions, n_e, T_e)
 end
 
 # the power each ion species receives at radius ir, and the power the electrons lose
+# the density, Σ Z0² n, the weight W, the mass and Σ Z0 n of the ion species s at radius ir
+function _ion_moments(term::IonEnergyExchangeTerm, species, W, s, ir)
+    densities = view(species.charge_state_densities, :, ir)
+    density = sum(densities)
+    charge_square_density = sum(densities[Z0 + 1] * Z0^2 for Z0 in 0:species.nuclear_charge)
+    charge_density = sum(densities[Z0 + 1] * Z0 for Z0 in 0:species.nuclear_charge)
+    return (density, charge_square_density, W[s], term.masses[s], charge_density)
+end
+
 function _ion_exchange(term::IonEnergyExchangeTerm, plasma::PlasmaState, W, n_e, T_e, ir)
     e = Constants.ELEMENTARY_CHARGE
     n_free = free_electron_density(plasma, ir)
@@ -217,16 +226,8 @@ function _ion_exchange(term::IonEnergyExchangeTerm, plasma::PlasmaState, W, n_e,
         17.3 - 0.5 * log(n_free / 1e20) + 1.5 * log(T_e / 1e3)
     end
     electrons = (n_e, n_e, 1.5 * e * n_e * T_e, Constants.ELECTRON_MASS)
-    density_type = eltype(plasma.cold_electron_temperature)
-    ions = Vector{Tuple{density_type, density_type, eltype(W), Float64, density_type}}(
-        undef, length(plasma.ions))
-    for (s, species) in enumerate(plasma.ions)
-        densities = view(species.charge_state_densities, :, ir)
-        ions[s] = (sum(densities),
-            sum(densities[Z0 + 1] * Z0^2 for Z0 in 0:species.nuclear_charge),
-            W[s], term.masses[s],
-            sum(densities[Z0 + 1] * Z0 for Z0 in 0:species.nuclear_charge))
-    end
+    ions = [_ion_moments(term, species, W, s, ir)
+            for (s, species) in enumerate(plasma.ions)]
     received = [zero(lnL * W[s] * T_e) for s in eachindex(ions)]
     lost = zero(eltype(received))
     screening = if term.ion_ion && term.ion_coulomb_logarithm === :nrl

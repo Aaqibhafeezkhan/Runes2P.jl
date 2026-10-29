@@ -277,7 +277,7 @@ end
 _operator_rebuilds(operator, u, layout, t) = 0
 function _operator_rebuilds(term::FokkerPlanckTerm, u, layout, t)
     refresh_coefficients!(term, u, layout, t)
-    term.rebuilds[]
+    return term.rebuilds[]
 end
 
 function _conductivity(model::ConductivityModel, plasma::PlasmaState, operator)

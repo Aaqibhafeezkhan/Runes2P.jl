@@ -127,7 +127,8 @@ end
 function _heat_level_faces(term::HeatTransportTerm, rg::RadialGrid, t)
     if term.level_in_time
         term.time[] == t && !isempty(term.faces[]) && return term.faces[]
-        values = collect(Float64, radial_values(level_over_step(term.level, t), rg.r_faces))
+        level = level_over_step(term.level, t)
+        values = collect(Float64, radial_values(level, rg.r_faces))
         term.time[] = t
     else
         isempty(term.faces[]) || return term.faces[]

@@ -133,8 +133,9 @@ function kinetic_ionization_rates(term::KineticIonizationTerm, u, layout, t, ir)
     g = _pitch_moment(term, f, ir)
     envelope = _moment_envelope(term.envelopes, term.grid, ir, u, layout, t)
     rates = term.rates[ir]
-    envelope_at(i) = _envelope_value(envelope, i)
-    return [_rate_moment(envelope_at, rates, g, c, axes(rates, 1)) for c in axes(rates, 2)]
+    cell_envelope(i) = _envelope_value(envelope, i)
+    return [_rate_moment(cell_envelope, rates, g, c, axes(rates, 1))
+            for c in axes(rates, 2)]
 end
 
 function rhs!(out, term::KineticIonizationTerm, u, layout, row, t)
@@ -263,9 +264,9 @@ function threshold_split(term::KineticIonizationTerm, ir, u, layout, t)
     above = sum(_envelope_value(envelope, i) * maxwellian[i]
     for i in eachindex(maxwellian)) / total
     rates = term.rates[ir]
-    envelope_at(i) = _envelope_value(envelope, i)
+    cell_envelope(i) = _envelope_value(envelope, i)
     cells = eachindex(maxwellian)
-    coefficients = [_rate_moment(envelope_at, rates, maxwellian, k, cells) / total
+    coefficients = [_rate_moment(cell_envelope, rates, maxwellian, k, cells) / total
                     for k in axes(rates, 2)]
     return (term = term, fraction = above, coefficients = coefficients)
 end
