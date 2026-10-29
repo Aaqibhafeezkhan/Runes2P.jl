@@ -120,6 +120,9 @@ The formatter sets the layout only, so the reviews check these rules.
   A line that transcribes a cited formula may stay one expression, so that it can be compared with its source.
 - A comprehension or generator has one level; a nested one, or a `map` or `foreach` whose function takes more than one line, is written as a loop.
 - No composition of functions with `∘` as an operator in code, and no chains of `|>`.
+- `python3 scripts/check_code_style.py <file> ...` finds the simplest breaks of these rules.
+  These are an assignment, a call ending in `!`, or a `throw` or `error` after `&&` or `||` outside the checks at the start of a function, a nested or two-line `a ? b : c`, `;`, `|>` and `∘`.
+  CI runs it on the lines a pull request adds, and on every line of `src/` and `ext/` after a push to `dev` or `main`; the reviews check the rest.
 
 ## Physics values and their sources
 
