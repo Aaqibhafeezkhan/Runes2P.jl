@@ -32,8 +32,8 @@ end
 
 Coulomb logarithm for `:electron_electron` or `:electron_ion` collisions at momentum `p`
 (units of mₑc), the free-electron density `free_electron_density` [m⁻³] and the temperature
-`temperature` [eV]. `model` is `:energy_dependent`, `:thermal` or
-`:relativistic` (the constant relativistic value, DREAM's `CONSTANT`).
+`temperature` [eV]. `model` is `:energy_dependent`, `:thermal` or `:relativistic` (the
+constant relativistic value, DREAM's `CONSTANT`).
 """
 function coulomb_logarithm(collision::Symbol, model::Symbol, p, free_electron_density,
         temperature)
