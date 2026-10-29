@@ -96,8 +96,8 @@ end
 function _radial_overlaps(grids::Vector{MomentumGrid{T}}) where {T}
     nr = length(grids)
     interval(m) = (first(m.xi_faces), last(m.xi_faces))
-    tolerance = 1e-12 * (last(first(grids).xi_faces) - first(first(grids).xi_faces))
     reference_interval = interval(first(grids))
+    tolerance = 1e-12 * (last(reference_interval) - first(reference_interval))
     same_interval(m) = all(abs.(interval(m) .- reference_interval) .<= tolerance)
     all(same_interval, grids) || return nothing
     built = Dict{Tuple{UInt, UInt}, PitchOverlap{T}}()
@@ -130,8 +130,9 @@ function runaway_grid(hot_tail_grid::KineticGrid{T}, p_faces_above::AbstractVect
         throw(ArgumentError("the runaway grid needs at least one momentum cell"))
     pitch = collect(T, xi_faces)
     built = Dict{T, MomentumGrid{T}}()
-    grids = Vector{MomentumGrid{T}}(undef, radial_cell_count(hot_tail_grid))
-    for ir in 1:radial_cell_count(hot_tail_grid)
+    nr = radial_cell_count(hot_tail_grid)
+    grids = Vector{MomentumGrid{T}}(undef, nr)
+    for ir in 1:nr
         p_interface = last(momentum_grid(hot_tail_grid, ir).p_faces)
         if !(first(p_faces_above) > p_interface)
             throw(ArgumentError("the faces of the runaway grid must lie above the hot-tail p_max = " *
@@ -363,8 +364,9 @@ function pitch_moment_weights(m::MomentumGrid{T}; pitch_rule::Symbol = :linear) 
     xi, dxi = m.xi_centers, m.xi_widths
     w = xi .* dxi
     pitch_rule === :cell_center && return w
-    pitch_rule === :linear ||
+    if pitch_rule !== :linear
         throw(ArgumentError("pitch_rule must be :linear or :cell_center, got $pitch_rule"))
+    end
     nxi = length(xi)
     nxi == 1 && return w
     for j in 1:nxi

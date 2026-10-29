@@ -119,8 +119,9 @@ function momentum_limit(region::MomentumRegion, ir::Integer, t = 0.0; radii::Uni
         Nothing, Integer} = nothing)
     values = _limit_values(region.limit, t)
     values isa Real && return Float64(values)
-    radii === nothing || length(values) == radii ||
+    if !(radii === nothing || length(values) == radii)
         throw(DimensionMismatch("the limit of the momentum region has $(length(values)) values for $radii radii"))
+    end
     return Float64(values[ir])
 end
 
