@@ -96,13 +96,15 @@ end
 function _radial_overlaps(grids::Vector{MomentumGrid{T}}) where {T}
     nr = length(grids)
     interval(m) = (first(m.xi_faces), last(m.xi_faces))
-    tolerance = 1e-12 * (last(first(grids).xi_faces) - first(first(grids).xi_faces))
-    all(m -> all(abs.(interval(m) .- interval(first(grids))) .<= tolerance), grids) ||
-        return nothing
+    reference_interval = interval(first(grids))
+    tolerance = 1e-12 * (last(reference_interval) - first(reference_interval))
+    same_interval(m) = all(abs.(interval(m) .- reference_interval) .<= tolerance)
+    all(same_interval, grids) || return nothing
     built = Dict{Tuple{UInt, UInt}, PitchOverlap{T}}()
-    #! format: off
-    overlap(left, right) = get!(() -> PitchOverlap(left, right), built, (objectid(left), objectid(right)))
-    #! format: on
+    function overlap(left, right)
+        pair_key = (objectid(left), objectid(right))
+        return get!(() -> PitchOverlap(left, right), built, pair_key)
+    end
     return PitchOverlap{T}[overlap(grids[max(k - 1, 1)], grids[min(k, nr)])
                            for k in 1:(nr + 1)]
 end
@@ -128,12 +130,18 @@ function runaway_grid(hot_tail_grid::KineticGrid{T}, p_faces_above::AbstractVect
         throw(ArgumentError("the runaway grid needs at least one momentum cell"))
     pitch = collect(T, xi_faces)
     built = Dict{T, MomentumGrid{T}}()
-    grids = map(1:radial_cell_count(hot_tail_grid)) do ir
+    nr = radial_cell_count(hot_tail_grid)
+    grids = Vector{MomentumGrid{T}}(undef, nr)
+    for ir in 1:nr
         p_interface = last(momentum_grid(hot_tail_grid, ir).p_faces)
-        first(p_faces_above) > p_interface ||
+        if !(first(p_faces_above) > p_interface)
             throw(ArgumentError("the faces of the runaway grid must lie above the hot-tail p_max = " *
                                 "$p_interface, the first is $(first(p_faces_above))"))
-        get!(() -> MomentumGrid(vcat(p_interface, collect(T, p_faces_above)), pitch), built, p_interface)
+        end
+        grids[ir] = get!(built, p_interface) do
+            p_faces = vcat(p_interface, collect(T, p_faces_above))
+            MomentumGrid(p_faces, pitch)
+        end
     end
     return cylindrical_grid(grids, hot_tail_grid.radial_grid)
 end
@@ -209,7 +217,10 @@ end
 Momentum grid at radius index `ir`; without `ir`, the grid shared by all radii.
 """
 momentum_grid(grid::KineticGrid, ir::Integer) = grid.momentum_grids[ir]
-momentum_grid(grid::KineticGrid) = (_require_shared(grid); first(grid.momentum_grids))
+function momentum_grid(grid::KineticGrid)
+    _require_shared(grid)
+    return first(grid.momentum_grids)
+end
 
 """
     phase_space_jacobian(grid, ir)
@@ -284,10 +295,12 @@ end
 pitch_cell_count(grid::KineticGrid, ir::Integer) = pitch_cell_count(momentum_grid(grid, ir))
 cell_count(grid::KineticGrid, ir::Integer) = cell_count(momentum_grid(grid, ir))
 function momentum_cell_count(grid::KineticGrid)
-    (_require_same_cell_counts(grid); momentum_cell_count(grid, 1))
+    _require_same_cell_counts(grid)
+    return momentum_cell_count(grid, 1)
 end
 function pitch_cell_count(grid::KineticGrid)
-    (_require_same_cell_counts(grid); pitch_cell_count(grid, 1))
+    _require_same_cell_counts(grid)
+    return pitch_cell_count(grid, 1)
 end
 radial_cell_count(grid::KineticGrid) = radial_cell_count(grid.radial_grid)
 cell_count(grid::KineticGrid) = sum(ir -> cell_count(grid, ir), 1:radial_cell_count(grid))
@@ -351,8 +364,9 @@ function pitch_moment_weights(m::MomentumGrid{T}; pitch_rule::Symbol = :linear) 
     xi, dxi = m.xi_centers, m.xi_widths
     w = xi .* dxi
     pitch_rule === :cell_center && return w
-    pitch_rule === :linear ||
+    if pitch_rule !== :linear
         throw(ArgumentError("pitch_rule must be :linear or :cell_center, got $pitch_rule"))
+    end
     nxi = length(xi)
     nxi == 1 && return w
     for j in 1:nxi
@@ -397,9 +411,9 @@ function current_density(
         m = momentum_grid(grid, ir)
         w = pitch_moment_weights(m; pitch_rule)
         envelope = envelopes === nothing ? nothing : envelopes[ir]
-        j[ir] = _current_moment(
-            m, w, phase_space_jacobian(grid, ir), view(f, :, :, ir), envelope) /
-                grid.radial_grid.spatial_jacobian[ir]
+        current_moment = _current_moment(
+            m, w, phase_space_jacobian(grid, ir), view(f, :, :, ir), envelope)
+        j[ir] = current_moment / grid.radial_grid.spatial_jacobian[ir]
     end
     return j
 end
