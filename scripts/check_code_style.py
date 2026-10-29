@@ -8,23 +8,30 @@
 Rules:
 
     short-circuit  `cond && action` or `cond || action` whose action is an assignment, an assignment
-                   in parentheses or a call of a function whose name ends in `!`;
+                   in parentheses or a call of a function whose name ends in `!`, alone or as one of
+                   the statements of a group `(a; b)`;
                    `return`, `continue` and `break` after the operator are allowed
     throw          `cond && throw(...)` or `cond || throw(...)`, or `error(...)` in place of `throw`,
                    that is not a check at the start of its function
     conditional    a conditional expression nested in another on one line,
                    or one whose branches continue on the next line
-    semicolon      `;` between two statements on one line
+    semicolon      `;` between two statements on one line, or between two statements of a group
+                   `(a; b)` in parentheses; a `;` of keyword arguments `f(x; k = 1)`, of a named
+                   tuple `(; a, b)` or of the arguments of an anonymous function is not reported
     composition    a chain of two or more `|>` in one statement, or `∘` as an operator
 
 Comments, docstrings and the contents of strings are skipped.
 A statement continued over several lines is checked as one, and a finding is reported at the line
 of its operator; against a base it counts when one of its lines is added.
+Against a base only added lines are checked: a check that an added line above it moves away from
+the start of its function is not reported, and a renamed file counts as added in full.
 A check is at the start of its function when, between it and the line that opens the function
 (a `function` line, a `do` block or a one-line definition), there are only other checks, `for` loops
-that hold only checks and the assignments they read, `if` blocks that end in a `throw` after
-assignments only, and assignments of a name that one of the checks of the function's start reads.
-A check outside any function is not reported.
+that hold only checks and the assignments they read, `if` blocks, with or without `elseif` and
+`else`, each of whose branches ends in a `throw` or `error` after assignments and checks only, and
+assignments of a name that one of the checks of the function's start reads.
+A check outside any function is not reported: one at column 0, or one after the `end` of a
+definition at its own indentation, unless that definition is nested in a function.
 The rules decide on patterns, not on parsed Julia: a form they do not recognise is not reported.
 The exit code is 1 when a line breaks a rule, and 0 otherwise.
 """
@@ -41,6 +48,7 @@ CONTINUES = re.compile(r"(\|\||&&|[=+\-*/\\^÷%,?<>|&~∘]|(?<=\s):|->|\b(?:in|i
 # an assignment operator at its `=`: not `==`, `<=`, `>=`, `!=`, `=>`, `===`, `!==`
 ASSIGNMENT = re.compile(r"(?<![=!<>≤≥:])=(?![=>])")
 IDENTIFIER = re.compile(r"[^\W\d]\w*!?")
+DEFINITIONS = ("function", "macro", "struct", "module", "baremodule")
 OPENERS = re.compile(r"^(?:@\w+\s+)*(function|macro|for|while|if|elseif|else|let|begin|try|catch|finally|"
                      r"struct|mutable\s+struct|module|baremodule|quote)\b")
 
@@ -322,10 +330,15 @@ def block(stmts, k):
 
 def check_block(stmts, k):
     """For an opener at index k: the names its header and checks read when it is a `for` loop that
-    holds only checks and the assignments they read, or an `if` that ends in a `throw` after
-    assignments only; None for another block."""
+    holds only checks and the assignments they read, or an `if`, with or without `elseif` and `else`,
+    each of whose branches ends in a `throw` after assignments and checks only; None for another block."""
     kind = stmts[k].opener()
     body, end = block(stmts, k)
+    if kind == "if":
+        # past the `elseif` and `else` lines, to the `end` of the whole block
+        while end is not None and stmts[end].indent == stmts[k].indent and \
+                stmts[end].opener() in ("elseif", "else"):
+            _, end = block(stmts, end)
     if end is None or not stmts[end].is_end() or not body:
         return None
     if kind == "for":
@@ -333,9 +346,19 @@ def check_block(stmts, k):
         if read and all(s.check() is not None or (s.assigned_names() or set()) & read for s in body):
             return read | names_in(stmts[k].text)
         return None
-    if kind == "if" and re.fullmatch(r"(?:throw|error)\(.*\)", body[-1].stripped, re.S) and \
-            all(s.assigned_names() for s in body[:-1]):
-        return names_in(stmts[k].text)
+    if kind == "if":
+        headers, branches = [stmts[k]], [[]]
+        for statement in stmts[k + 1:end]:
+            if statement.indent > stmts[k].indent:
+                branches[-1].append(statement)
+            elif statement.opener() in ("elseif", "else"):
+                headers.append(statement)
+                branches.append([])
+            else:
+                return None
+        if all(branch and re.fullmatch(r"(?:throw|error)\(.*\)", branch[-1].stripped, re.S) and
+               all(s.assigned_names() or s.check() is not None for s in branch[:-1]) for branch in branches):
+            return set().union(*(names_in(h.text) for h in headers))
     return None
 
 
@@ -343,6 +366,8 @@ def at_start_of_function(stmts, k, condition):
     """Whether the check at index k comes at the start of its function, or the walk cannot tell."""
     names = names_in(condition)
     indent = stmts[k].indent
+    if indent == 0:
+        return True         # outside any function
     # the checks that follow, which may read an assignment before this one
     for statement in stmts[k + 1:]:
         if statement.indent != indent:
@@ -359,7 +384,7 @@ def at_start_of_function(stmts, k, condition):
             continue
         if statement.indent < indent:
             kind = statement.opener()
-            if kind in ("function", "macro", "do", "quote", "struct", "module", "baremodule") or kind is None:
+            if kind in DEFINITIONS + ("do", "quote") or kind is None:
                 return True
             if kind == "for":
                 read = check_block(stmts, j)
@@ -375,8 +400,19 @@ def at_start_of_function(stmts, k, condition):
             o = j - 1
             while o >= 0 and stmts[o].indent > indent:
                 o -= 1
+            # from an `elseif` or `else` line back to its `if`
+            while o >= 0 and stmts[o].indent == indent and stmts[o].opener() in ("elseif", "else"):
+                o -= 1
+                while o >= 0 and stmts[o].indent > indent:
+                    o -= 1
             if o < 0 or stmts[o].indent < indent:
                 return True
+            if stmts[o].opener() in DEFINITIONS:
+                # after a definition at the same level: outside any function, unless the definition
+                # is nested in a function
+                while o >= 0 and stmts[o].indent >= indent:
+                    o -= 1
+                return o < 0 or stmts[o].opener() not in ("function", "macro", "do")
             read = check_block(stmts, o)
             if read is None:
                 return False
@@ -444,11 +480,60 @@ def short_circuits(statement, stmts, index):
         elif action.startswith("(") and (close := closing(inner, 0)) is not None and not action[close + 1:].strip() \
                 and ASSIGNMENT.search("".join(c for c, d in zip(action, inner.depth) if d == 1)):
             findings.append((span, "short-circuit", f"an assignment in parentheses after `{match.group()}`: use `if`"))
-        elif (call := re.match(r"[^\W\d][\w.]*!\(", action)) and (close := closing(inner, call.end() - 1)) is not None \
-                and not action[close + 1:].strip():
-            name = call.group()[:-1]
+        elif (name := mutating_call(inner)) is not None:
             findings.append((span, "short-circuit", f"a call of `{name}` after `{match.group()}`: use `if`"))
+        elif action.startswith("(") and (close := closing(inner, 0)) is not None and not action[close + 1:].strip() \
+                and group_semicolons(inner, 0, close):
+            cuts = [k for k in range(1, close) if action[k] == ";" and inner.depth[k] == 1]
+            for begin, stop in zip([0] + cuts, cuts + [close]):
+                if (name := mutating_call(Statement(0, [action[begin + 1:stop]]))) is not None:
+                    findings.append((span, "short-circuit",
+                                     f"a call of `{name}` in parentheses after `{match.group()}`: use `if`"))
+                    break
     return findings
+
+
+def mutating_call(statement):
+    """The name of the function ending in `!` whose call makes up the whole statement, or None."""
+    call = re.match(r"\s*([^\W\d][\w.]*!)\(", statement.text)
+    if call is None:
+        return None
+    close = closing(statement, call.end() - 1)
+    if close is None or statement.text[close + 1:].strip():
+        return None
+    return call.group(1)
+
+
+def group_semicolons(statement, start, close):
+    """The `;` directly inside the parentheses at `start` that `close` closes, when they make a group
+    of statements `(a; b)`: not the parentheses of a call or a definition, of a tuple, or of the
+    arguments of an anonymous function. Only a `;` with code before and after it inside them."""
+    text = statement.text
+    before = text[:start].rstrip(" ")
+    if before and (before[-1].isalnum() or before[-1] in "_!.)]}'\"$`@") and before == text[:start]:
+        return []           # a call, an indexing, a macro call or an interpolation
+    if re.search(r"\b(?:function|macro)\s*$", before):
+        return []
+    if re.match(r"\s*(?:->|::|=(?![=>])|where\b)", text[close + 1:]):
+        return []           # the arguments of an anonymous function or of a definition
+    depth = statement.depth[start] + 1
+    inside = range(start + 1, close)
+    if any(text[k] == "," and statement.depth[k] == depth for k in inside):
+        return []           # a tuple or a named tuple
+    found = []
+    for k in inside:
+        if text[k] == ";" and statement.depth[k] == depth and text[start + 1:k].strip() and text[k + 1:close].strip():
+            found.append(k)
+    return found
+
+
+def parenthesised_groups(statement):
+    """The positions of the `;` of the groups `(a; b)` of a statement."""
+    found = []
+    for k, ch in enumerate(statement.text):
+        if ch == "(" and statement.curly[k] == 0 and (close := closing(statement, k)) is not None:
+            found += group_semicolons(statement, k, close)
+    return found
 
 
 def ternary_extent(statement, position):
@@ -496,6 +581,9 @@ def check(name, wanted):
             if statement.text[line_start:k].strip() and statement.text[k + 1:line_end].strip():
                 line = statement.line_of(k)
                 findings.append(((line, line), "semicolon", "two statements on one line"))
+        for k in parenthesised_groups(statement):
+            line = statement.line_of(k)
+            findings.append(((line, line), "semicolon", "two statements in parentheses: one per line"))
         pipes = list(re.finditer(r"\|>", statement.text))
         if len(pipes) >= 2:
             line = statement.line_of(pipes[1].start())
