@@ -1022,14 +1022,16 @@ function _check_plasma_pairings(equations)
                                         "friction of bound_friction = :ionization_split the spectrum " *
                                         ":$(settings.secondary_spectrum): give both the same"))
                 end
-                widths_match = heating.spectrum === :beb ||
-                               all(
-                    ((name, width),) -> get(widths, atomic_element(name), NaN) == width,
-                    zip(k.composition.names, heating.widths))
-                if !widths_match
-                    throw(ArgumentError("the heating by secondaries and the friction of bound_friction = " *
-                                        ":ionization_split take different widths of the secondary spectrum: give " *
-                                        "SecondaryHeatingTerm the secondary_widths of the CollisionSettings"))
+                if heating.spectrum !== :beb
+                    width_pairs = zip(k.composition.names, heating.widths)
+                    widths_agree = all(
+                        ((name, width),) -> get(widths, atomic_element(name), NaN) == width,
+                        width_pairs)
+                    if !widths_agree
+                        throw(ArgumentError("the heating by secondaries and the friction of bound_friction = " *
+                                            ":ionization_split take different widths of the secondary spectrum: give " *
+                                            "SecondaryHeatingTerm the secondary_widths of the CollisionSettings"))
+                    end
                 end
             end
         end
@@ -1372,7 +1374,7 @@ function _check_total_energy_rows(equations)
                                             "coefficient = -1) of this term"))
                     end
                 end
-                if term isa FokkerPlanckTerm && _moves_in_radius(term) ||
+                if (term isa FokkerPlanckTerm && _moves_in_radius(term)) ||
                    term isa RadialEdgeLossTerm
                     throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
                                         "and $d moves in radius, whose energy flux no term of the row carries: the " *

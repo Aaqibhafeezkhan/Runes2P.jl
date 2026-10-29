@@ -349,11 +349,7 @@ function _add_local_jacobian!(J, term, u, layout, row, t, ids, ::Val{K}) where {
     local_row = findfirst(==(row), local_ids)
     rhs!(out, term, seeded, reduced, local_row, t)
     for ir in 1:radial_cell_count(layout)
-        columns = Int[]
-        for id in ids, i in unknown_range(layout, id, ir)
-
-            push!(columns, i)
-        end
+        columns = collect(Iterators.flatten(unknown_range(layout, id, ir) for id in ids))
         for (r, r_local) in zip(unknown_range(layout, row, ir), unknown_range(reduced, local_row, ir))
             partials = ForwardDiff.partials(out[r_local])
             for k in 1:K
