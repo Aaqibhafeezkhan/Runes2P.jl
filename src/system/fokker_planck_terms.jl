@@ -117,9 +117,12 @@ function FokkerPlanckTerm(
     # the settings that built the operator, before the field branch below forgets them: a
     # rebuild with other settings would change the coefficients at the first refresh
     built = operator.coefficient_source[]
-    settings === nothing &&
-        (settings = built === nothing ? CollisionSettings() : built.settings)
-    synchrotron === nothing && (synchrotron = built === nothing ? true : built.synchrotron)
+    if settings === nothing
+        settings = built === nothing ? CollisionSettings() : built.settings
+    end
+    if synchrotron === nothing
+        synchrotron = built === nothing ? true : built.synchrotron
+    end
     plasma_from = plasma === nothing ? nothing : plasma_source(plasma)
     lagged = if lag_all
         ()
@@ -127,19 +130,22 @@ function FokkerPlanckTerm(
         ions = ion_dependency(plasma_from)
         ions === nothing ? () : (ions,)
     else
-        lagged isa Symbol &&
+        if lagged isa Symbol
             throw(ArgumentError("lagged is :all, :ions or a collection of names, not $lagged"))
+        end
         Tuple(Symbol(name) for name in lagged)
     end
     # the rebuild of the coefficients leaves the field out when it is an unknown
-    plasma_from !== nothing && electric_field !== nothing &&
-        (operator.coefficient_source[] = nothing)
+    if plasma_from !== nothing && electric_field !== nothing
+        operator.coefficient_source[] = nothing
+    end
     if electric_field !== nothing
         source = operator.coefficient_source[]
-        source !== nothing && get(source, :electric_field, true) &&
-            any(!iszero, source.plasma.electric_field) &&
+        if source !== nothing && get(source, :electric_field, true) &&
+           any(!iszero, source.plasma.electric_field)
             throw(ArgumentError("the operator holds the electric field of its plasma, and the term would add the " *
                                 "unknown $electric_field to it: build the operator with field_in_coefficients = false"))
+        end
         set_unit_field_coefficients!(operator)
     end
     stored = if jacobian in (:exact, :frozen_limiter)
@@ -150,8 +156,11 @@ function FokkerPlanckTerm(
         throw(ArgumentError("jacobian must be :exact, :frozen_limiter or a linear scheme " *
                             "($(join(LINEAR_JACOBIAN_SCHEMES, ", "))), not $jacobian"))
     end
-    dims = _jacobian_kind(jacobian, operator, stored) === :approximate ?
-           size(operator.grid) : (0, 0, 0)
+    dims = if _jacobian_kind(jacobian, operator, stored) === :approximate
+        size(operator.grid)
+    else
+        (0, 0, 0)
+    end
     D = ForwardDiff.Dual{JacobianCorrectionTag, T, 1}
     radii = electric_field === nothing ? 0 : radial_cell_count(operator.grid)
     return FokkerPlanckTerm{T, typeof(plasma_from)}(
@@ -174,8 +183,11 @@ end
 # the plasma of the term at the state u, with lagged ions from the start of the step
 function _fokker_planck_plasma(term::FokkerPlanckTerm, u, layout, t)
     state = _ion_state(term, u)
-    return state === u ? plasma_values(term.plasma, u, layout, t) :
-           plasma_values(term.plasma, u, layout, t; ion_state = state)
+    if state === u
+        return plasma_values(term.plasma, u, layout, t)
+    else
+        return plasma_values(term.plasma, u, layout, t; ion_state = state)
+    end
 end
 
 """
@@ -229,7 +241,9 @@ function prepare_step!(term::FokkerPlanckTerm, u_old, layout, row, t)
         resize!(term.ion_state, length(u_old))
         term.ion_state .= _value.(u_old)
     end
-    _is_lagged(term) && _rebuild_coefficients!(term, u_old, layout, t)
+    if _is_lagged(term)
+        _rebuild_coefficients!(term, u_old, layout, t)
+    end
     return nothing
 end
 
@@ -328,7 +342,9 @@ function _dual_operator!(term::FokkerPlanckTerm, ::Type{D}) where {D}
     if !(op isa AdvectionDiffusion{<:Any, D})
         op = similar_coefficients(term.operator, D)
         # the coefficients of a unit field do not depend on the plasma
-        term.electric_field === nothing || set_unit_field_coefficients!(op)
+        if term.electric_field !== nothing
+            set_unit_field_coefficients!(op)
+        end
         term.dual_operator[] = op
         term.dual_columns[] = zeros(D, size(term.operator.grid))
     end
@@ -340,8 +356,11 @@ end
 function _jacobian_kind(jacobian, operator, stored)
     jacobian === :exact && return :exact
     jacobian === :frozen_limiter && return is_linear(operator) ? :exact : :approximate
-    return (stored.p_scheme, stored.xi_scheme) == (operator.p_scheme, operator.xi_scheme) ?
-           :exact : :approximate
+    if (stored.p_scheme, stored.xi_scheme) == (operator.p_scheme, operator.xi_scheme)
+        return :exact
+    else
+        return :approximate
+    end
 end
 
 function dependencies(term::FokkerPlanckTerm)
@@ -374,19 +393,22 @@ function _check_fokker_planck(term::FokkerPlanckTerm, layout, row, t)
     grid = term.operator.grid
     for k in (id, row), ir in 1:radial_cell_count(layout)
 
-        layout.shapes[k, ir] ==
-        (momentum_cell_count(grid, ir), pitch_cell_count(grid, ir)) ||
+        if layout.shapes[k, ir] !=
+           (momentum_cell_count(grid, ir), pitch_cell_count(grid, ir))
             throw(DimensionMismatch("the operator grid does not match $(layout.unknowns[k].name)"))
+        end
     end
     if term.electric_field !== nothing
         field = unknown_id(layout, term.electric_field)
-        layout.kinds[field] === :radial && layout.sizes[field, 1] == 1 ||
+        if !(layout.kinds[field] === :radial && layout.sizes[field, 1] == 1)
             throw(ArgumentError("the electric field of a FokkerPlanckTerm is a radial unknown with one component"))
+        end
     end
     for name in term.lagged
-        name === ion_dependency(term.plasma) ||
+        if name !== ion_dependency(term.plasma)
             throw(ArgumentError("the FokkerPlanckTerm of $(term.unknown) lags $name, which is not the ion densities " *
                                 "of its plasma"))
+        end
     end
     for name in source_dependencies(term.plasma)
         id = unknown_id(layout, name)
@@ -395,8 +417,9 @@ function _check_fokker_planck(term::FokkerPlanckTerm, layout, row, t)
                 IonComposition(plasma_values(term.plasma.prescribed, nothing, nothing, t)))
             continue
         end
-        layout.kinds[id] === :radial && layout.sizes[id, 1] == 1 ||
+        if !(layout.kinds[id] === :radial && layout.sizes[id, 1] == 1)
             throw(ArgumentError("the plasma unknown $name of a FokkerPlanckTerm is a radial unknown with one component"))
+        end
     end
     return nothing
 end
@@ -411,16 +434,18 @@ function validate(term::FokkerPlanckTerm, layout, row, t)
     haskey(layout.ids, :cold_electron_density) || return nothing
     source = term.plasma
     if source isa PlasmaFromUnknowns
-        source.density === nothing &&
+        if source.density === nothing
             throw(ArgumentError("the plasma of the FokkerPlanckTerm of $(term.unknown) keeps the density of its " *
                                 "prescribed part (density = nothing), while the system has the unknown " *
                                 "cold_electron_density: read it with density = :cold_electron_density"))
+        end
     elseif source isa PrescribedPlasma && term.settings.mode === :full
-        plasma_values(source, nothing, nothing, t).cold_density_given ||
+        if !plasma_values(source, nothing, nothing, t).cold_density_given
             throw(ArgumentError("the prescribed plasma of the FokkerPlanckTerm of $(term.unknown) takes the " *
                                 "free-electron density as the cold density, which counts the electrons of the " *
                                 "grids twice in a system with the unknown cold_electron_density: give the cold " *
                                 "density, or read it from the unknown"))
+        end
     end
     return nothing
 end
@@ -487,9 +512,10 @@ function sparsity!(entries, term::FokkerPlanckTerm, layout, row)
             push!(entries, (r, _kinetic_index(layout, id, ir2, i2, j2)))
         end
         # the field of the radius acts on every cell of the radius
-        term.electric_field === nothing ||
+        if term.electric_field !== nothing
             push!(entries, (r,
                 first(unknown_range(layout, unknown_id(layout, term.electric_field), ir))))
+        end
     end
     return entries
 end

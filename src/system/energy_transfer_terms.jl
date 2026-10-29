@@ -60,8 +60,11 @@ function KineticEnergyLossTerm(source::FokkerPlanckTerm; part::Symbol = :free_el
         coefficient::Union{Nothing, Real} = nothing)
     part in (:free_electrons, :sinks) ||
         throw(ArgumentError("part must be :free_electrons or :sinks, not $part"))
-    value = coefficient === nothing ? (part === :free_electrons ? 1.0 : -1.0) :
-            Float64(coefficient)
+    value = if coefficient === nothing
+        part === :free_electrons ? 1.0 : -1.0
+    else
+        Float64(coefficient)
+    end
     return KineticEnergyLossTerm(
         source.unknown, source, part, value, RegionEnvelopes(region, source.operator.grid),
         Ref{Any}(nothing))
@@ -87,8 +90,11 @@ end
 function _loss_plasma_unknowns(term::KineticEnergyLossTerm)
     _follows_unknowns(term) || return Symbol[]
     names = collect(Symbol, source_dependencies(term.source.plasma))
-    return _lags_ions(term.source) ? filter(!=(ion_dependency(term.source.plasma)), names) :
-           names
+    if _lags_ions(term.source)
+        return filter(!=(ion_dependency(term.source.plasma)), names)
+    else
+        return names
+    end
 end
 function dependencies(term::KineticEnergyLossTerm)
     unique([term.kinetic; _loss_plasma_unknowns(term);
@@ -117,8 +123,9 @@ function validate(term::KineticEnergyLossTerm, layout, row)
 end
 
 function prepare_step!(term::KineticEnergyLossTerm, u_old, layout, row, t)
-    _is_lagged(term.source) &&
-        (term.lagged_plasma[] = plasma_values(term.source.plasma, u_old, layout, t))
+    if _is_lagged(term.source)
+        term.lagged_plasma[] = plasma_values(term.source.plasma, u_old, layout, t)
+    end
     return nothing
 end
 
@@ -147,7 +154,9 @@ function _loss_operators(term::KineticEnergyLossTerm, grid, plasma)
     collisions = AdvectionDiffusion(grid; p_scheme = op.p_scheme, xi_scheme = op.xi_scheme,
         p_lower_boundary = op.p_lower_boundary, p_upper_boundary = upper)
     C = eltype(plasma.cold_electron_temperature)
-    C === Float64 || (collisions = similar_coefficients(collisions, C))
+    if C !== Float64
+        collisions = similar_coefficients(collisions, C)
+    end
     set_fokker_planck_coefficients!(
         collisions, plasma, term.source.settings; synchrotron = term.source.synchrotron,
         field_in_coefficients = false)
@@ -190,12 +199,15 @@ end
 function rhs!(out, term::KineticEnergyLossTerm, u, layout, row, t)
     id = unknown_id(layout, term.kinetic)
     grid = kinetic_grid(layout, id)
-    df = _loss_change(_loss_operators(term, grid, _transfer_plasma(term, u, layout, t)),
-        kinetic_array(u, layout, id))
+    plasma = _transfer_plasma(term, u, layout, t)
+    ops = _loss_operators(term, grid, plasma)
+    f = kinetic_array(u, layout, id)
+    df = _loss_change(ops, f)
     for ir in 1:radial_cell_count(layout)
+        loss_weights = _loss_weights(term, grid, ir, u, layout, t)
         #! format: off
         out[first(unknown_range(layout, row, ir))] -=
-            term.coefficient * sum(_loss_weights(term, grid, ir, u, layout, t) .* view(df, :, :, ir))
+            term.coefficient * sum(loss_weights .* view(df, :, :, ir))
         #! format: on
     end
     return out
@@ -212,7 +224,9 @@ function add_jacobian!(J, term::KineticEnergyLossTerm, u, layout, row, t)
     weights = reduce(vcat, (vec(_loss_weights(term, grid, ir, u, layout, t))
     for ir in 1:nr))
     row_values = transpose(operator_matrix(ops[1])) * weights
-    ops[2] === nothing || (row_values .-= transpose(operator_matrix(ops[2])) * weights)
+    if ops[2] !== nothing
+        row_values .-= transpose(operator_matrix(ops[2])) * weights
+    end
     # the cells of the kinetic array (p fastest, then ξ, then r) with a nonzero weight
     for (k, value) in zip(findnz(sparse(row_values))...)
         radius, within = divrem(k - 1, np * nxi)
@@ -230,10 +244,9 @@ function add_jacobian!(J, term::KineticEnergyLossTerm, u, layout, row, t)
         dual = dual_plasma(plasma, source.density !== nothing, with_ions)
         df = _loss_change(_loss_operators(term, grid, dual), f)
         for ir in 1:nr
-            #! format: off
-            partials = ForwardDiff.partials(-term.coefficient * sum(_loss_weights(term, grid, ir, u, layout, t) .*
-                                                                     view(df, :, :, ir)))
-            #! format: on
+            loss_weights = _loss_weights(term, grid, ir, u, layout, t)
+            loss = -term.coefficient * sum(loss_weights .* view(df, :, :, ir))
+            partials = ForwardDiff.partials(loss)
             for (k, column) in enumerate(plasma_columns(source, layout, ir; with_ions))
                 _add_entry!(J, first(unknown_range(layout, row, ir)), column, partials[k])
             end
@@ -343,8 +356,9 @@ function sparsity!(entries, term::InterfaceEnergyFluxTerm, layout, row)
         for j in 1:pitch_cell_count(m_upper)
             push!(entries, (r, _kinetic_index(layout, upper, ir, 1, j)))
         end
-        field === nothing ||
+        if field !== nothing
             push!(entries, (r, first(unknown_range(layout, unknown_id(layout, field), ir))))
+        end
     end
     return entries
 end

@@ -175,29 +175,37 @@ function RadiatedPowerTerm(plasma; radiation::Symbol = :recombination,
     for species in plasma_values(source, nothing, nothing, initial_time).ions
         element = species.name
         haskey(tables, element) && continue
-        haskey(ADAS_FILES, atomic_element(element)) ||
+        if !haskey(ADAS_FILES, atomic_element(element))
             throw(ArgumentError("the ion species $element is not an element with ADF11 tables " *
                                 "($(join(sort!(collect(keys(ADAS_FILES))), ", ")))"))
+        end
         ionization_energy(element, 0)
         element_tables = read_adas(element; directory)
-        element_tables.plt.nuclear_charge == species.nuclear_charge ||
+        if element_tables.plt.nuclear_charge != species.nuclear_charge
             throw(ArgumentError("the species $element has nuclear charge $(species.nuclear_charge), its ADF11 " *
                                 "tables $(element_tables.plt.nuclear_charge)"))
+        end
         tables[element] = element_tables
     end
-    kinetic_ionization === nothing || kinetic_ionization isa KineticIonizationTerm ||
+    if !(kinetic_ionization === nothing || kinetic_ionization isa KineticIonizationTerm)
         throw(ArgumentError("kinetic_ionization must be a KineticIonizationTerm or nothing"))
-    kinetic_ionization === nothing ||
+    end
+    if kinetic_ionization !== nothing
         _check_split_threshold(kinetic_ionization, "a RadiatedPowerTerm")
+    end
     return RadiatedPowerTerm(source, temperature, density, radiation,
         extrapolation, bremsstrahlung_corrections, tables,
         ions, kinetic_ionization)
 end
 
 function dependencies(term::RadiatedPowerTerm)
+    kinetic_unknowns = if term.kinetic_ionization === nothing
+        Symbol[]
+    else
+        collect(Symbol, _region_unknowns(term.kinetic_ionization.envelopes))
+    end
     unique([term.temperature; term.density; term.ions === nothing ? Symbol[] : [term.ions];
-            term.kinetic_ionization === nothing ? Symbol[] :
-            collect(Symbol, _region_unknowns(term.kinetic_ionization.envelopes))])
+            kinetic_unknowns])
 end
 # the index of a species in the composition of the kinetic ionization of the split
 function _species_of(term::RadiatedPowerTerm, name)
@@ -210,13 +218,15 @@ end
 
 function validate(term::RadiatedPowerTerm, layout, row, t)
     for id in (unknown_id(layout, term.temperature), unknown_id(layout, term.density), row)
-        layout.kinds[id] === :radial && layout.sizes[id, 1] == 1 ||
+        if !(layout.kinds[id] === :radial && layout.sizes[id, 1] == 1)
             throw(ArgumentError("RadiatedPowerTerm takes and adds to radial unknowns with one component, not " *
                                 "$(layout.unknowns[id].name)"))
+        end
     end
-    term.ions === nothing ||
+    if term.ions !== nothing
         _check_ion_unknown(layout, unknown_id(layout, term.ions),
             IonComposition(plasma_values(term.plasma, nothing, nothing, t)))
+    end
     return nothing
 end
 validate(term::RadiatedPowerTerm, layout, row) = validate(term, layout, row, 0.0)
@@ -225,7 +235,8 @@ validate(term::RadiatedPowerTerm, layout, row) = validate(term, layout, row, 0.0
 # n_e [m⁻³] and temperature T [eV], in W/m³
 function _radiated_power(
         term::RadiatedPowerTerm, plasma::PlasmaState, n_e, T, ir, split = nothing)
-    radiation = binding = zero(n_e * T)
+    radiation = zero(n_e * T)
+    binding = zero(n_e * T)
     recombination = term.radiation === :recombination
     ion_sum = zero(eltype(first(plasma.ions).charge_state_densities))    # Σ n Z₀²
     for species in plasma.ions
@@ -239,18 +250,22 @@ function _radiated_power(
             ion_sum += density * Z0^2
             line = coefficient(tables.plt, Z0)
             energy = zero(line)
-            recombination && (line += coefficient(tables.prb, Z0))
+            if recombination
+                line += coefficient(tables.prb, Z0)
+            end
             if Z0 < Z
                 ionization = coefficient(tables.scd, Z0)
-                split === nothing ||
-                    (ionization = _fluid_ionization(split, _species_of(term, species.name), Z0, ionization))
+                if split !== nothing
+                    ionization = _fluid_ionization(split, _species_of(term, species.name), Z0, ionization)
+                end
                 energy += Constants.ELEMENTARY_CHARGE *
                           ionization_energy(species.name, Z0) * ionization
             end
-            recombination && Z0 > 0 &&
-                (energy -= Constants.ELEMENTARY_CHARGE *
-                           ionization_energy(species.name, Z0 - 1) *
-                           coefficient(tables.acd, Z0))
+            if recombination && Z0 > 0
+                energy -= Constants.ELEMENTARY_CHARGE *
+                          ionization_energy(species.name, Z0 - 1) *
+                          coefficient(tables.acd, Z0)
+            end
             radiation += density * line
             binding += density * energy
         end
@@ -278,8 +293,11 @@ function rhs!(out, term::RadiatedPowerTerm, u, layout, row, t)
     T = unknown_values(u, layout, unknown_id(layout, term.temperature))
     n = unknown_values(u, layout, unknown_id(layout, term.density))
     @inbounds for ir in 1:radial_cell_count(layout)
-        split = term.kinetic_ionization === nothing ? nothing :
-                threshold_split(term.kinetic_ionization, ir, u, layout, t)
+        split = if term.kinetic_ionization === nothing
+            nothing
+        else
+            threshold_split(term.kinetic_ionization, ir, u, layout, t)
+        end
         power = _radiated_power(term, plasma, n[ir], T[ir], ir, split)
         out[first(unknown_range(layout, row, ir))] -= power.radiation + power.binding
     end
@@ -309,9 +327,14 @@ function radiated_power(term::RadiatedPowerTerm, u, layout, t)
     plasma = _term_plasma(plasma_values(term.plasma, u, layout, t), term.ions, u, layout)
     T = unknown_values(u, layout, unknown_id(layout, term.temperature))
     n = unknown_values(u, layout, unknown_id(layout, term.density))
-    parts = [_radiated_power(term, plasma, n[ir], T[ir], ir,
-                 term.kinetic_ionization === nothing ? nothing :
-                 threshold_split(term.kinetic_ionization, ir, u, layout, t))
+    function split_at(ir)
+        if term.kinetic_ionization === nothing
+            return nothing
+        else
+            return threshold_split(term.kinetic_ionization, ir, u, layout, t)
+        end
+    end
+    parts = [_radiated_power(term, plasma, n[ir], T[ir], ir, split_at(ir))
              for ir in 1:radial_cell_count(layout)]
     return (radiation = [p.radiation for p in parts], binding = [p.binding for p in parts])
 end

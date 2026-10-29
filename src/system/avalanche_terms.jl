@@ -112,8 +112,11 @@ function RosenbluthPutvinskiSourceTerm(
 end
 
 function dependencies(term::RosenbluthPutvinskiSourceTerm)
-    term.electric_field === nothing ? [term.runaway_density, term.total_density] :
-    [term.runaway_density, term.total_density, term.electric_field]
+    if term.electric_field === nothing
+        return [term.runaway_density, term.total_density]
+    else
+        return [term.runaway_density, term.total_density, term.electric_field]
+    end
 end
 is_linear(::RosenbluthPutvinskiSourceTerm) = false
 jacobian_assembly(::RosenbluthPutvinskiSourceTerm) = :direct
@@ -128,8 +131,9 @@ function validate(term::RosenbluthPutvinskiSourceTerm, layout, row)
         throw(DimensionMismatch("the grid of the Rosenbluth-Putvinski source does not match $(term.kinetic)"))
     for name in dependencies(term)
         k = unknown_id(layout, name)
-        layout.kinds[k] === :radial && layout.sizes[k, 1] == 1 ||
+        if !(layout.kinds[k] === :radial && layout.sizes[k, 1] == 1)
             throw(ArgumentError("the Rosenbluth-Putvinski source reads $name, a radial unknown with one component"))
+        end
     end
     return nothing
 end
@@ -293,14 +297,17 @@ jacobian_assembly(::ExternalAvalancheTerm) = :direct
 function validate(term::ExternalAvalancheTerm, layout, row, t)
     for name in (term.runaway_density, term.total_density, term.electric_field, term.temperature, term.density)
         k = unknown_id(layout, name)
-        layout.kinds[k] === :radial && layout.sizes[k, 1] == 1 ||
+        if !(layout.kinds[k] === :radial && layout.sizes[k, 1] == 1)
             throw(ArgumentError("ExternalAvalancheTerm reads $name, a radial unknown with one component"))
+        end
     end
-    layout.kinds[row] === :radial && layout.sizes[row, 1] == 1 ||
+    if !(layout.kinds[row] === :radial && layout.sizes[row, 1] == 1)
         throw(ArgumentError("ExternalAvalancheTerm adds to a radial unknown with one component"))
-    term.ions === nothing ||
+    end
+    if term.ions !== nothing
         _check_ion_unknown(layout, unknown_id(layout, term.ions),
             IonComposition(plasma_values(term.plasma, nothing, nothing, t)))
+    end
     return nothing
 end
 validate(term::ExternalAvalancheTerm, layout, row) = validate(term, layout, row, 0.0)
@@ -334,8 +341,9 @@ function _external_avalanche_inputs(term::ExternalAvalancheTerm, u, layout, ir)
     names = (term.runaway_density, term.total_density,
         term.electric_field, term.temperature, term.density)
     columns = [first(unknown_range(layout, unknown_id(layout, name), ir)) for name in names]
-    term.ions === nothing ||
+    if term.ions !== nothing
         append!(columns, unknown_range(layout, unknown_id(layout, term.ions), ir))
+    end
     return u[columns], columns
 end
 
@@ -365,8 +373,10 @@ function _evaluate!(
         result = ForwardDiff.DiffResults.GradientResult(x)
         ForwardDiff.gradient!(result, f, x, ForwardDiff.GradientConfig(f, x, ForwardDiff.Chunk{length(x)}()))
         entry.gradient = copy(ForwardDiff.DiffResults.gradient(result))
-        entry.has_value ||
-            (entry.value = ForwardDiff.DiffResults.value(result); entry.has_value = true)
+        if !entry.has_value
+            entry.value = ForwardDiff.DiffResults.value(result)
+            entry.has_value = true
+        end
         entry.evaluations += 1
     elseif !entry.has_value
         entry.value, entry.has_value = _external_avalanche(term, prescribed, ir, x), true
@@ -379,9 +389,11 @@ function rhs!(out, term::ExternalAvalancheTerm, u, layout, row, t)
     prescribed = plasma_values(term.plasma, nothing, nothing, t)
     for ir in 1:radial_cell_count(layout)
         x, _ = _external_avalanche_inputs(term, u, layout, ir)
-        value = x isa Vector{Float64} ?
-                _evaluate!(term, prescribed, ir, x, t; gradient = false).value :
-                _external_avalanche(term, prescribed, ir, x)    # a state in dual numbers, without the cache
+        value = if x isa Vector{Float64}
+            _evaluate!(term, prescribed, ir, x, t; gradient = false).value
+        else
+            _external_avalanche(term, prescribed, ir, x)    # a state in dual numbers, without the cache
+        end
         out[first(unknown_range(layout, row, ir))] += value
     end
     return out
