@@ -56,7 +56,7 @@ end
     temperature, electron_density, bulk_momentum = 1000.0, 1e20, 0.12
     dreicer_grid = MomentumGrid(biuniform_p_faces(110, 80, 0.0, 0.4, 2.0), uniform_xi_faces(14))
     collision_time = thermal_collision_time(electron_density, temperature,
-        thermal_coulomb_logarithm(temperature, electron_density))
+        thermal_coulomb_logarithm(electron_density, temperature))
 
     function dreicer_run(case, collision_times; hold_bulk)
         mom = dreicer_grid

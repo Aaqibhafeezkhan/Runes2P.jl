@@ -107,7 +107,7 @@ using HDF5
         # the critical fields of DREAM: the cold electrons, and all electrons, with the
         # relativistic Coulomb logarithm of the cold ones
         plasma = case.plasma_at(0.0)
-        logarithm = relativistic_coulomb_logarithm(1000.0, 1e20)
+        logarithm = relativistic_coulomb_logarithm(1e20, 1000.0)
         critical = critical_field(1e20, logarithm)
         @test free_critical_momentum(plasma, 1) == critical_momentum(1.0, critical)
         @test free_critical_momentum(plasma, 1) ≈ 1 / sqrt(1.0 / critical - 1) rtol = 1e-14
@@ -133,8 +133,8 @@ using HDF5
         hot = PlasmaState(
             cold_electron_temperature = [5000.0], cold_electron_density = [1e-2 * 1e20],
             ions = [IonSpecies("D", 1, 1, [1e20])], electric_field = [1.0], magnetic_field = [5.0])
-        all_free = relativistic_coulomb_logarithm(5000.0, 1e20)
-        cold_only = relativistic_coulomb_logarithm(5000.0, 1e-2 * 1e20)
+        all_free = relativistic_coulomb_logarithm(1e20, 5000.0)
+        cold_only = relativistic_coulomb_logarithm(1e-2 * 1e20, 5000.0)
         @test cold_only > all_free
         @test free_critical_momentum(hot, 1) ==
               critical_momentum(1.0, critical_field(1e-2 * 1e20, all_free))

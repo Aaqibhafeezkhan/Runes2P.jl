@@ -407,7 +407,7 @@ function _add_state_conductivity!(out, term::ConductivityTerm, u, layout, row, t
             throw(DomainError(_value(T),
                 "the cold-electron temperature at radius $ir is at or below the floor"))
         charge = effective_charge(base, ir)
-        sigma = braams_karney_conductivity(T, charge, free_electron_density(base, ir))
+        sigma = braams_karney_conductivity(free_electron_density(base, ir), T, charge)
         model.kinetic === :dream_fit &&
             (sigma *= 1 - test_particle_conductivity_fraction(charge))
         out[first(unknown_range(layout, row, ir))] += term.coefficient * sigma * field[ir]

@@ -168,7 +168,7 @@
         # Spitzer and Härm, Table III: σ = 0.5816 σ_L at Z = 1, with the Lorentz conductivity
         # σ_L = 64√(2π) ε₀² T^{3/2} / (√m e² Z lnΛ) (as in test_conductivity.jl)
         lorentz = 64 * sqrt(2π) * Constants.VACUUM_PERMITTIVITY^2 * (T * e)^1.5 /
-                  (sqrt(Constants.ELECTRON_MASS) * e^2 * thermal_coulomb_logarithm(T, n))
+                  (sqrt(Constants.ELECTRON_MASS) * e^2 * thermal_coulomb_logarithm(n, T))
         @test F[3] / E^2 ≈ 0.5816 * lorentz rtol = 4e-3
     end
 end

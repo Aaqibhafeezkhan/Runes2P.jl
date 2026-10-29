@@ -24,6 +24,9 @@ Until the first release, every change is listed under "Unreleased".
 - The keyword `density` of `coronal_equilibrium`, the total density of the species, is renamed `species_density` (#124).
 - `add_local_jacobian!`, `plasma_columns`, `lags_in_ode_form` and `is_local` are declared `public` instead of exported (#122).
   A term or an operator that adds methods to them imports them with `using Runes2P: ...` or qualifies them.
+- Four functions take the density before the temperature (#PR).
+  The new orders are `thermal_coulomb_logarithm(free_electron_density, temperature)` and `relativistic_coulomb_logarithm(free_electron_density, temperature)`.
+  `coulomb_logarithm(collision, model, p, free_electron_density, temperature)` and `braams_karney_conductivity(free_electron_density, temperature, effective_charge)` follow.
 
 ### Added
 

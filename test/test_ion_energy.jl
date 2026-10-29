@@ -71,7 +71,7 @@
         only_deuterium = IonEnergyExchangeTerm(plasma; side = :ions, ion_ion = false)
         Q = exchange(only_deuterium, u, 4)[Runes2P.unknown_range(layout, 4, 1)][1]
         m_D, m_e = 3.3435837724e-24, Constants.ELECTRON_MASS * 1e3      # g
-        lnL = thermal_coulomb_logarithm(T_e, n_e)
+        lnL = thermal_coulomb_logarithm(n_e, T_e)
         e_cgs = 4.80320471e-10
         exact = 8 * sqrt(2π) * e_cgs^4 / (3 * (1.602176634e-12)^1.5)
         @test exact ≈ 1.754e-19 rtol = 1e-3

@@ -357,8 +357,8 @@ end
             F = zeros(length(u))
             rhs!(F, u, system, 0.0)
             base = _cold_base(0.0)
-            expected = [braams_karney_conductivity(T, effective_charge(base, ir),
-                            free_electron_density(base, ir)) *
+            expected = [braams_karney_conductivity(free_electron_density(base, ir), T,
+                            effective_charge(base, ir)) *
                         (kinetic === :dream_fit ?
                          1 -
                          test_particle_conductivity_fraction(effective_charge(base, ir)) :
@@ -384,7 +384,7 @@ end
             solution = integrate(system, u, [0.0, 1e-6, 2e-6])
             @test all(solution.statistics.accepted)
             @test unknown_values(solution.states[:, end], layout, 3) ≈
-                  [braams_karney_conductivity(T, effective_charge(base, ir), free_electron_density(base, ir)) *
+                  [braams_karney_conductivity(free_electron_density(base, ir), T, effective_charge(base, ir)) *
                    (kinetic === :dream_fit ?
                     1 - test_particle_conductivity_fraction(effective_charge(base, ir)) :
                     1)

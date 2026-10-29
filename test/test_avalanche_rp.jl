@@ -119,7 +119,7 @@ end
         plasma(E) = PlasmaState(; cold_electron_temperature = [T], ions,
             electric_field = [E], magnetic_field = [0.0],
             cold_electron_density = [n])
-        lnL = thermal_coulomb_logarithm(T, n)
+        lnL = thermal_coulomb_logarithm(n, T)
         Ec = critical_field(n, lnL)
         # the method of a collision model keeps the constant logarithm, which DREAM's settings
         # of the effective critical field replace by the energy-dependent one
@@ -203,7 +203,7 @@ end
             end
             return advection(exp((a + b) / 2), E), exp((a + b) / 2)
         end
-        Ec = critical_field(n, thermal_coulomb_logarithm(T, n))
+        Ec = critical_field(n, thermal_coulomb_logarithm(n, T))
         lower, upper = Ec, 20Ec
         @test first(largest(lower)) < 0 < first(largest(upper))
         for _ in 1:60

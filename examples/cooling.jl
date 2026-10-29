@@ -31,7 +31,7 @@ times, save_times = times_from_switches(dt = 1e-5, t_end = 2e-3)
 t_end = last(times)
 n, B = number("n", 1e20), number("B", 5.3)
 field = has_argument("E") ? number("E", 0.0) :
-        number("e_over_ec", 20.0) * critical_field(n, thermal_coulomb_logarithm(T0, n))
+        number("e_over_ec", 20.0) * critical_field(n, thermal_coulomb_logarithm(n, T0))
 temperature(t) = T0 * (T_final / T0)^(t / t_end)
 function plasma_at(t)
     PlasmaState(cold_electron_temperature = fill(temperature(t), nr),
@@ -63,7 +63,7 @@ end
 println("scheme p/ξ: ", op.p_scheme, "/", op.xi_scheme,
     ", Jacobian ", jacobian_switch(), ", ", nr, " radii",
     nr > 1 ? " (δB/B = $dbb)" : "", ", T from ", T0, " to ", T_final, " eV over ", t_end, " s, E/E_c(T0) = ",
-    round(field / critical_field(n, thermal_coulomb_logarithm(T0, n)); digits = 2))
+    round(field / critical_field(n, thermal_coulomb_logarithm(n, T0)); digits = 2))
 
 f0 = maxwellian(grid, T0, n, nr)
 layout = UnknownLayout(grid.radial_grid,

@@ -326,7 +326,7 @@ function rhs!(out, term::RunawayFluidEnergyTransferTerm, u, layout, row, t)
     n = unknown_values(u, layout, unknown_id(layout, term.density))
     for ir in 1:radial_cell_count(layout)
         lnL = coulomb_logarithm(:electron_electron, term.coulomb_logarithm,
-            20.0, T[ir], free_electron_density(plasma, ir))
+            20.0, free_electron_density(plasma, ir), T[ir])
         out[first(unknown_range(layout, row, ir))] += RUNAWAY_FLUID_ENERGY_PREFACTOR * lnL *
                                                       n[ir] * n_re[ir]
     end

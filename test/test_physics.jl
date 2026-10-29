@@ -19,7 +19,7 @@ end
             coulomb_logarithm = :relativistic, bremsstrahlung = :neglect)
         n, T = 1e20, 100.0
         Ec = 4π * Constants.CLASSICAL_ELECTRON_RADIUS^2 * Constants.SPEED_OF_LIGHT *
-             relativistic_coulomb_logarithm(T, n) * n *
+             relativistic_coulomb_logarithm(n, T) * n *
              Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT /
              Constants.ELEMENTARY_CHARGE
         mom = MomentumGrid(uniform_p_faces(20, 0.0, 50.0), [-1.0, 0.0, 0.999, 1.0])
@@ -206,7 +206,7 @@ end
             σL = 64 * sqrt(2π) * Constants.VACUUM_PERMITTIVITY^2 *
                  (T * Constants.ELEMENTARY_CHARGE)^1.5 /
                  (sqrt(Constants.ELECTRON_MASS) * Constants.ELEMENTARY_CHARGE^2 * Z *
-                  thermal_coulomb_logarithm(T, ne))
+                  thermal_coulomb_logarithm(ne, T))
             return abs(j) / σL
         end
         # the cell-centre rule reproduces the linear rule once its ξ error is divided out

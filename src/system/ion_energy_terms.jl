@@ -197,10 +197,10 @@ function _nrl_screening(ions, n_e, T_e)
 end
 
 # the power each ion species receives at radius ir, and the power the electrons lose
-function _ion_exchange(term::IonEnergyExchangeTerm, plasma::PlasmaState, W, T_e, n_e, ir)
+function _ion_exchange(term::IonEnergyExchangeTerm, plasma::PlasmaState, W, n_e, T_e, ir)
     e = Constants.ELEMENTARY_CHARGE
     n_free = free_electron_density(plasma, ir)
-    lnL = thermal_coulomb_logarithm(T_e, n_free)
+    lnL = thermal_coulomb_logarithm(n_free, T_e)
     lnL_dream = n_free == 0 ? zero(lnL) :
                 17.3 - 0.5 * log(n_free / 1e20) + 1.5 * log(T_e / 1e3)
     electrons = (n_e, n_e, 1.5 * e * n_e * T_e, Constants.ELECTRON_MASS)
@@ -240,7 +240,7 @@ function rhs!(out, term::IonEnergyExchangeTerm, u, layout, row, t)
     n = unknown_values(u, layout, unknown_id(layout, term.density))
     for ir in 1:radial_cell_count(layout)
         W = view(u, unknown_range(layout, id, ir))
-        received, lost = _ion_exchange(term, plasma, W, T[ir], n[ir], ir)
+        received, lost = _ion_exchange(term, plasma, W, n[ir], T[ir], ir)
         rows = unknown_range(layout, row, ir)
         if term.side === :ions
             for (s, r) in enumerate(rows)

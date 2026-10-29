@@ -12,7 +12,7 @@
 @testset "runaways with a knock-on cutoff that follows the plasma" begin
     density_, t_end = 1e20, 0.04
     temperature(t) = 100.0 * 0.1^(t / t_end)
-    logarithm = relativistic_coulomb_logarithm(100.0, density_)
+    logarithm = relativistic_coulomb_logarithm(density_, 100.0)
     critical_field_ = critical_field(density_, logarithm)
     field(t) = critical_field_ * (10 + 20 * t / t_end)
     plasma_at(t) = PlasmaState(

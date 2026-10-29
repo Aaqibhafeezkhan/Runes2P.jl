@@ -126,8 +126,8 @@ Before the thermal quench of a fully kinetic run most electrons are hot, and the
 density alone overstates the logarithm.
 """
 function free_critical_momentum(plasma::PlasmaState, ir::Integer)
-    logarithm = relativistic_coulomb_logarithm(plasma.cold_electron_temperature[ir],
-        free_electron_density(plasma, ir))
+    logarithm = relativistic_coulomb_logarithm(free_electron_density(plasma, ir),
+        plasma.cold_electron_temperature[ir])
     field = critical_field(plasma.cold_electron_density[ir], logarithm)
     return critical_momentum(abs(plasma.electric_field[ir]), field)
 end
@@ -151,7 +151,7 @@ it, and it is not the default of `critical_momentum_at`.
 """
 function total_critical_momentum(plasma::PlasmaState, ir::Integer)
     free = free_electron_density(plasma, ir)
-    logarithm = relativistic_coulomb_logarithm(plasma.cold_electron_temperature[ir], free)
+    logarithm = relativistic_coulomb_logarithm(free, plasma.cold_electron_temperature[ir])
     field = critical_field(free + bound_electron_density(plasma, ir), logarithm)
     return critical_momentum(abs(plasma.electric_field[ir]), field)
 end

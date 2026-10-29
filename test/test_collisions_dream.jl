@@ -64,12 +64,12 @@ end
                            for i in 1:n1, _ in 1:(n2 + 1), ir in 1:nr_]
                 lnee(ir, p) = coulomb_logarithm(
                     :electron_electron, settings.coulomb_logarithm, p,
-                    plasma.cold_electron_temperature[ir],
-                    free_electron_density(plasma, ir))
+                    free_electron_density(plasma, ir),
+                    plasma.cold_electron_temperature[ir])
                 lnei(ir, p) = coulomb_logarithm(
                     :electron_ion, settings.coulomb_logarithm, p,
-                    plasma.cold_electron_temperature[ir],
-                    free_electron_density(plasma, ir))
+                    free_electron_density(plasma, ir),
+                    plasma.cold_electron_temperature[ir])
 
                 @test _maxrel(f1(lnee), read(grp["lnLambda_ee_f1"])) < 1e-13
                 @test _maxrel(f2(lnei), read(grp["lnLambda_ei_f2"])) < 1e-13

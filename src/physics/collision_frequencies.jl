@@ -395,7 +395,7 @@ end
 
 function _coulomb_logarithm(model::CollisionModel, collision, p, ir)
     coulomb_logarithm(collision, model.settings.coulomb_logarithm, p,
-        model.plasma.cold_electron_temperature[ir], model.free_electron_density[ir])
+        model.free_electron_density[ir], model.plasma.cold_electron_temperature[ir])
 end
 
 # Density of the target electrons of electron-electron collisions: the cold electrons,
