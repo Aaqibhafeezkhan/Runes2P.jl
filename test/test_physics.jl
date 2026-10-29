@@ -88,6 +88,14 @@ end
         @test errs_van_albada[end] < 5e-4
     end
 
+    @testset "Coulomb logarithms take the density first" begin
+        # by hand: 14.9 - ln(10^19/10^20)/2 + ln(10 eV/1 keV) = 14.9 - 1.5 ln 10, and
+        # 14.6 + ln(10/(10^19/10^20))/2 = 14.6 + ln 10; the swapped order gives about 73
+        @test thermal_coulomb_logarithm(1e20, 1e3) == 14.9
+        @test thermal_coulomb_logarithm(1e19, 10.0) ≈ 11.446122 rtol = 1e-7
+        @test relativistic_coulomb_logarithm(1e19, 10.0) ≈ 16.902585 rtol = 1e-7
+    end
+
     @testset "collision frequency limits" begin
         plasma = _single_species_plasma(; T = 10.0)
         # fully ionized hydrogen, superthermal, same thermal lnΛ for e-e and e-i:
