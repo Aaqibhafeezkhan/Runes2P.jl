@@ -319,11 +319,11 @@ its growth (DREAM: safety 0.95, exponent 1.0; its stabiliser, exponent 0.7 with 
 the last error, is compiled out). A step that such an unknown fails shows in the record as
 rejected, also with an error of at most 1. When it fails a step in which every other unknown
 has no error at all, DREAM's next step is unbounded; this step is retried with half its
-length instead (a choice of this package; see the docs page *Choices of this package*). `check_every` steps between two checked steps are taken at the
-current length without a check, the documented intent of DREAM's `checkevery`. DREAM's code
-takes them from a stale `initTime`, with the lengths `h₁ − h₀`, `−h₀`, `−(h₀ + h₁)`, and
-`checkevery + 1` of them (`TimeStepperAdaptive.cpp:119-122`, `145-152`, `334-338`), so no
-option reproduces it.
+length instead (a choice of this package; see the docs page *Choices of this package*).
+`check_every` steps between two checked steps are taken at the current length without a
+check, the documented intent of DREAM's `checkevery`. DREAM's code takes them from a stale
+`initTime`, with the lengths `h₁ − h₀`, `−h₀`, `−(h₀ + h₁)`, and `checkevery + 1` of them
+(`TimeStepperAdaptive.cpp:119-122`, `145-152`, `334-338`), so no option reproduces it.
 
 The tolerances are the [`Tolerance`](@ref)s the system holds for the time-step error
 (`time_step_tolerances` of [`EquationSystem`](@ref)); an unknown without one gets
