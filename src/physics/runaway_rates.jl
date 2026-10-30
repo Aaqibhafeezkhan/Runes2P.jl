@@ -120,6 +120,11 @@ electrons with the relativistic Coulomb logarithm (DREAM's `Ec_free`,
 `RunawayFluid.cpp`), [`critical_momentum`](@ref) of `|E|`. Screening and pitch-angle
 scattering raise the critical momentum, so this is a lower estimate.
 
+The logarithm is the relativistic one whatever the Coulomb logarithm of the collisions (a
+choice of this package; see the docs page *Choices of this package*). DREAM takes the thermal
+logarithm for `Ec_free` and `Ec_tot` when `collisions/lnlambda` is `THERMAL`
+(`RunawayFluid::CalculateDerivedQuantities`, `src/Equations/RunawayFluid.cpp:205-207`).
+
 The Coulomb logarithm takes the free electron density, the cold, hot and runaway
 electrons together, as DREAM's `lnLambdaC` does (agreement to 1e-8).
 Before the thermal quench of a fully kinetic run most electrons are hot, and the cold
@@ -138,7 +143,9 @@ end
 Critical momentum at radius `ir` from the Connor-Hastie critical field of all electrons,
 free and bound, with the relativistic Coulomb logarithm of the free electrons (DREAM's
 `Ec_tot`, `RunawayFluid.cpp`), [`critical_momentum`](@ref) of `|E|`. `Inf` where the
-field is below that critical field.
+field is below that critical field. The logarithm is the relativistic one whatever the
+Coulomb logarithm of the collisions, as in [`free_critical_momentum`](@ref) (a choice of this
+package; see the docs page *Choices of this package*).
 
 It is not DREAM's effective critical momentum (`other/fluid/pCrit`, Hesslow et al.), which
 takes the partial screening of the ions into account in the slowing down and the

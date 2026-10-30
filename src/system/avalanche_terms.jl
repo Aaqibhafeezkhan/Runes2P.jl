@@ -17,7 +17,7 @@ The rate of the Rosenbluth-Putvinski avalanche source between the momenta `p_low
 the knock-ons of a runaway at the speed of light on electrons at rest: the Møller cross section
 in the limit of an infinitely fast primary, `2π r₀²/(γ − 1)²` per unit `γ` (M. N.
 Rosenbluth and S. V. Putvinski, Nucl. Fusion 37, 1355 (1997), doi:10.1088/0029-5515/37/10/I03,
-eq. (8)). DREAM's `AvalancheSourceRP::EvaluateNormalizedTotalKnockOnNumber`
+eq. (4)). DREAM's `AvalancheSourceRP::EvaluateNormalizedTotalKnockOnNumber`
 (`src/Equations/Kinetic/AvalancheSourceRP.cpp:96-115`), with its prefactor `e⁴/((4πε₀ mₑ
 c)² c) = r₀² c`. Infinite at `p_lower = 0`.
 """
@@ -34,7 +34,7 @@ end
                                   electric_field=:electric_field, p_cutoff=0.01)
 
 DREAM's kinetic Rosenbluth-Putvinski avalanche source (`AVALANCHE_MODE_KINETIC`,
-`src/Equations/Kinetic/AvalancheSourceRP.cpp`, placed by `src/Settings/Equations/f_hot.cpp:127-145`)
+`src/Equations/Kinetic/AvalancheSourceRP.cpp`, placed by `src/Settings/Equations/f_hot.cpp:116-126`)
 in the equation of the kinetic unknown `kinetic` on `grid`: the knock-on electrons that a
 fluid runaway density `n_re` above the grid creates on the electrons of the total density
 `n_tot` (free and bound), at every momentum cell above `p_cutoff` and at the pitch
@@ -59,7 +59,7 @@ as in DREAM. The Jacobian is assembled directly.
 The source creates electrons, which the particle source of the grid takes out of the cold
 electrons: DREAM's row of the particle source, `S = dn_free/dt − internal − external`, holds
 the internal number with the factor `−1` (`TotalElectronDensityFromKineticAvalanche`,
-`f_hot.cpp:283-296, 409-416`). Written as `dn_free/dt = S + internal + external`
+`f_hot.cpp:244-255, 362-374`). Written as `dn_free/dt = S + internal + external`
 (`TimeDerivative(:free_electron_density)`), the term is
 [`ProductTerm`](@ref)`(total_density, runaway_density; coefficient = +rosenbluth_putvinski_rate(p_cutoff, p_max))`. The value
 `p_cutoff = 0.01` is that of DREAM's disruption example (`examples/Disruptions/generate.py:329`).
