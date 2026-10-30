@@ -222,11 +222,10 @@ end
 # shiftZ0, ADAS.cpp)
 function _adf11_block(table::ADF11Table, Z0)
     if table.class in (:acd, :prb)
-        block = Z0 == 0 ? 0 : Z0
+        return Z0 == 0 ? 0 : Z0
     else
-        block = Z0 == table.nuclear_charge ? 0 : Z0 + 1
+        return Z0 == table.nuclear_charge ? 0 : Z0 + 1
     end
-    return block
 end
 
 """

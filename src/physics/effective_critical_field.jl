@@ -180,10 +180,10 @@ derivatives: the envelope of the maximum, `dE_ceff/dx = −(∂U/∂x)/(∂U/∂
 function effective_critical_field(
         plasma::PlasmaState, ir::Integer; settings::CollisionSettings = CollisionSettings())
     s = runaway_fluid_settings(settings; role = :critical_field)
-    if eltype(plasma.cold_electron_temperature) <: ForwardDiff.Dual
-        dual = CollisionModel(plasma, s)
+    dual = if eltype(plasma.cold_electron_temperature) <: ForwardDiff.Dual
+        CollisionModel(plasma, s)
     else
-        dual = nothing
+        nothing
     end
     return effective_critical_field(CollisionModel(_plain_plasma(plasma), s), ir; dual)
 end

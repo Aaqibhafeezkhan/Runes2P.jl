@@ -43,9 +43,12 @@ function _plain(x::Union{AbstractDict, NamedTuple})
     record = SettingsRecord()
     for (key, value) in pairs(x)
         name = String(key isa Symbol ? key : string(key))
-        isempty(name) && throw(ArgumentError("a settings record cannot have an empty key"))
-        occursin('/', name) &&
+        if isempty(name)
+            throw(ArgumentError("a settings record cannot have an empty key"))
+        end
+        if occursin('/', name)
             throw(ArgumentError("the key \"$name\" of a settings record must not contain '/'"))
+        end
         record[name] = _plain(value)
     end
     return record
@@ -192,14 +195,16 @@ end
 # whether the phase-space Jacobian at the cell centres is the cylindrical 2π p² V'
 function _is_cylindrical(grid::KineticGrid)
     volume = grid.radial_grid.spatial_jacobian
-    return all(1:radial_cell_count(grid)) do ir
+    for ir in 1:radial_cell_count(grid)
         m = momentum_grid(grid, ir)
         jacobian = phase_space_jacobian(grid, ir)
-        #! format: off
-        all(jacobian[i, j] == 2pi * m.p_centers[i]^2 * volume[ir]
-            for i in 1:momentum_cell_count(m), j in 1:pitch_cell_count(m))
-        #! format: on
+        for i in 1:momentum_cell_count(m)
+            for j in 1:pitch_cell_count(m)
+                jacobian[i, j] == 2pi * m.p_centers[i]^2 * volume[ir] || return false
+            end
+        end
     end
+    return true
 end
 
 function describe(grid::KineticGrid)
@@ -260,18 +265,25 @@ function describe(layout::UnknownLayout, context::DescriptionContext)
         entry = SettingsRecord(
             "kind" => String(layout.kinds[id]), "scale" => u.scale, "position" => id,
             "sizes" => u isa ScalarUnknown ? [1] : layout.sizes[id, :])
-        u isa RadialUnknown && (entry["components"] = u.components)
+        if u isa RadialUnknown
+            entry["components"] = u.components
+        end
         # the first component of each group, recorded only for more than one group
-        u isa RadialUnknown && length(u.groups) > 1 &&
-            (entry["group_starts"] = first.(u.groups))
-        u isa KineticUnknown && (entry["grid"] = grid_name!(context, u.grid))
+        if u isa RadialUnknown && length(u.groups) > 1
+            entry["group_starts"] = first.(u.groups)
+        end
+        if u isa KineticUnknown
+            entry["grid"] = grid_name!(context, u.grid)
+        end
         if u.lower_limit !== nothing
             entry["lower_limit_tolerance"] = u.lower_limit.tolerance
             # the value is recorded only when it is not zero; a reader takes 0.0 when it is missing
-            iszero(u.lower_limit.value) ||
-                (entry["lower_limit_value"] = u.lower_limit.value)
-            u.lower_limit.reference === nothing ||
-                (entry["lower_limit_reference"] = String(u.lower_limit.reference))
+            if !iszero(u.lower_limit.value)
+                entry["lower_limit_value"] = u.lower_limit.value
+            end
+            if u.lower_limit.reference !== nothing
+                entry["lower_limit_reference"] = String(u.lower_limit.reference)
+            end
         end
         unknowns[String(u.name)] = entry
     end
@@ -366,11 +378,14 @@ function describe_prescribed_plasma(plasma_at, context::DescriptionContext)
     all(s -> s isa PlasmaState, states) ||
         return incomplete("the function does not return a PlasmaState")
     reference = first_state
-    same_species(s) = length(s.ions) == length(reference.ions) &&
-                      all(
-        k -> s.ions[k].name == reference.ions[k].name &&
-             s.ions[k].nuclear_charge == reference.ions[k].nuclear_charge,
-        eachindex(s.ions))
+    function same_ion(s, k)
+        return s.ions[k].name == reference.ions[k].name &&
+               s.ions[k].nuclear_charge == reference.ions[k].nuclear_charge
+    end
+    function same_species(s)
+        length(s.ions) == length(reference.ions) || return false
+        return all(k -> same_ion(s, k), eachindex(s.ions))
+    end
     all(same_species, states) || return incomplete("the ion species change in time")
     record["times"] = times
     record["time_count"] = length(context.times)
@@ -429,26 +444,33 @@ function describe(
     for field in OPERATOR_OPTION_FIELDS
         record[String(field)] = String(getfield(op, field))
     end
-    any(!iszero, op.p_flux_at_lower_boundary) &&
-        (record["p_flux_at_lower_boundary"] = _plain(op.p_flux_at_lower_boundary))
+    if any(!iszero, op.p_flux_at_lower_boundary)
+        record["p_flux_at_lower_boundary"] = _plain(op.p_flux_at_lower_boundary)
+    end
     coefficients || return record
     values = SettingsRecord()
     zero_names = String[]
     for field in COEFFICIENT_FIELDS
         array = getfield(op, field)
-        any(!iszero, array) ? (values[String(field)] = _plain(array)) :
-        push!(zero_names, String(field))
+        if any(!iszero, array)
+            values[String(field)] = _plain(array)
+        else
+            push!(zero_names, String(field))
+        end
     end
     record["coefficients"] = values
-    isempty(zero_names) || (record["zero_coefficients"] = zero_names)
+    if !isempty(zero_names)
+        record["zero_coefficients"] = zero_names
+    end
     source = op.coefficient_source[]
     if source !== nothing
         record["coefficient_source"] = SettingsRecord("plasma" => describe(source.plasma),
             "collision_settings" => describe(source.settings),
             "synchrotron" => source.synchrotron)
         # the field of the plasma is left out when the field is an unknown of the system
-        get(source, :electric_field, true) ||
-            (record["coefficient_source"]["electric_field"] = false)
+        if !get(source, :electric_field, true)
+            record["coefficient_source"]["electric_field"] = false
+        end
     end
     return record
 end
@@ -483,7 +505,9 @@ function _term_record(term::EquationTerm)
         "coupling" => String(coupling(term)), "linear" => is_linear(term),
         "jacobian_kind" => String(jacobian_kind(term)))
     names = dependencies(term)
-    isempty(names) || (record["dependencies"] = String[String(name) for name in names])
+    if !isempty(names)
+        record["dependencies"] = String[String(name) for name in names]
+    end
     return record
 end
 
@@ -510,8 +534,9 @@ function describe(term::FokkerPlanckTerm, context::DescriptionContext)
     record = _term_record(term)
     record["unknown"] = String(term.unknown)
     record["jacobian"] = String(term.jacobian)
-    term.electric_field === nothing ||
-        (record["electric_field"] = String(term.electric_field))
+    if term.electric_field !== nothing
+        record["electric_field"] = String(term.electric_field)
+    end
     if term.plasma === nothing
         record["operator"] = describe(term.operator, context)
     else
@@ -542,11 +567,12 @@ end
 # a plasma from the unknowns: their names, the floor, and the prescribed rest
 function _describe_plasma_source!(record, source::PlasmaFromUnknowns, context::DescriptionContext)
     record["plasma_unknowns"] = SettingsRecord("temperature" => String(source.temperature),
-        "density" => source.density === nothing ? "prescribed" :
-                     String(source.density),
+        "density" => source.density === nothing ? "prescribed" : String(source.density),
         "temperature_floor" => source.temperature_floor)
     # recorded only when set: a plasma with prescribed ions has no `ions` entry
-    source.ions === nothing || (record["plasma_unknowns"]["ions"] = String(source.ions))
+    if source.ions !== nothing
+        record["plasma_unknowns"]["ions"] = String(source.ions)
+    end
     return _describe_plasma_source!(record, source.prescribed, context)
 end
 
@@ -567,9 +593,11 @@ function describe(term::KnockOnTerm, context::DescriptionContext)
     # the treatment asked for; `treatment` above is where the system places the term
     record["knock_on_treatment"] = String(term.treatment)
     record["primary"] = String(term.primary)
-    record["target_density"] = term.target_density isa Symbol ?
-                               String(term.target_density) :
-                               _plain(term.target_density)
+    record["target_density"] = if term.target_density isa Symbol
+        String(term.target_density)
+    else
+        _plain(term.target_density)
+    end
     record["operator"] = describe(term.operator, context)
     return record
 end
@@ -581,9 +609,11 @@ end
 function describe(term::PrescribedValueTerm, context::DescriptionContext)
     record = _term_record(term)
     points = isempty(term.points[]) ? nothing : term.points[]
-    record["values"] = term.values isa Function ?
-                       describe_prescribed_levels(term.values, context; points) :
-                       _plain(term.values)
+    record["values"] = if term.values isa Function
+        describe_prescribed_levels(term.values, context; points)
+    else
+        _plain(term.values)
+    end
     return record
 end
 
@@ -608,15 +638,18 @@ function describe(term::RadiatedPowerTerm, context::DescriptionContext)
     record["radiation"] = String(term.radiation)
     record["extrapolation"] = String(term.extrapolation)
     record["bremsstrahlung_corrections"] = String(term.bremsstrahlung_corrections)
-    term.ions === nothing || (record["ions"] = String(term.ions))
-    term.kinetic_ionization === nothing ||
-        (record["kinetic_ionization"] = describe(term.kinetic_ionization, context))
+    if term.ions !== nothing
+        record["ions"] = String(term.ions)
+    end
+    if term.kinetic_ionization !== nothing
+        record["kinetic_ionization"] = describe(term.kinetic_ionization, context)
+    end
     # the ADF11 files of each element, by name: the cache itself is not part of the record
-    #! format: off
-    record["adf11_files"] = SettingsRecord(element => SettingsRecord(String(class) => basename(getproperty(tables, class).source)
-                                                                     for class in ADF11_CLASSES)
-                                           for (element, tables) in term.tables)
-    #! format: on
+    files = SettingsRecord()
+    for (element, tables) in term.tables
+        files[element] = _adf11_file_names(tables, ADF11_CLASSES)
+    end
+    record["adf11_files"] = files
     return _describe_plasma_source!(record, term.plasma, context)
 end
 
@@ -635,15 +668,25 @@ function describe(term::IonRateTerm, context::DescriptionContext)
     for field in (:ions, :temperature, :density, :extrapolation)
         record[String(field)] = String(getfield(term, field))
     end
-    term.kinetic_ionization === nothing ||
-        (record["kinetic_ionization"] = describe(term.kinetic_ionization, context))
+    if term.kinetic_ionization !== nothing
+        record["kinetic_ionization"] = describe(term.kinetic_ionization, context)
+    end
     # the ADF11 files of each element, by name: the cache itself is not part of the record
-    #! format: off
-    record["adf11_files"] = SettingsRecord(name => SettingsRecord(String(class) => basename(getproperty(tables, class).source)
-                                                                  for class in (:scd, :acd))
-                                           for (name, tables) in zip(c.names, term.tables))
-    #! format: on
+    files = SettingsRecord()
+    for (name, tables) in zip(c.names, term.tables)
+        files[name] = _adf11_file_names(tables, (:scd, :acd))
+    end
+    record["adf11_files"] = files
     return record
+end
+
+# the names of the ADF11 files of the classes `classes` in `tables`, by class
+function _adf11_file_names(tables, classes)
+    file_names = SettingsRecord()
+    for class in classes
+        file_names[String(class)] = basename(getproperty(tables, class).source)
+    end
+    return file_names
 end
 
 function settings_fields(::Type{<:KnockOnTerm})
@@ -676,8 +719,7 @@ function describe(history::PiecewiseConstant)
     if any(_is_radial_profile, history.values)
         # profiles on points of their own, one record per interval
         #! format: off
-        record["profiles"] = SettingsRecord("interval_$k" => _is_radial_profile(v) ? _describe_profile(v) :
-                                                             _describe_value(v)
+        record["profiles"] = SettingsRecord("interval_$k" => _describe_profile_or_value(v)
                                             for (k, v) in enumerate(history.values))
         #! format: on
     else
@@ -708,8 +750,11 @@ function describe_prescribed_levels(levels_at, context::DescriptionContext; poin
     isempty(context.times) && return incomplete("no time points to sample the function at")
     values = try
         first_value = levels_at(first(context.times))
-        width = points !== nothing && _is_radial_profile(first_value) ? length(points) :
-                length(first_value)
+        width = if points !== nothing && _is_radial_profile(first_value)
+            length(points)
+        else
+            length(first_value)
+        end
         max_samples = context.max_table_bytes ÷ (8 * width)
         indices = _sample_indices(length(context.times), max_samples)
         record["times"] = context.times[indices]
@@ -721,8 +766,7 @@ function describe_prescribed_levels(levels_at, context::DescriptionContext; poin
                 record["profile"] = _describe_profile(first(profiles))
             else
                 #! format: off
-                record["profiles"] = SettingsRecord("sample_$k" => _is_radial_profile(v) ? _describe_profile(v) :
-                                                                   _describe_value(v)
+                record["profiles"] = SettingsRecord("sample_$k" => _describe_profile_or_value(v)
                                                     for (k, v) in enumerate(sampled))
                 #! format: on
             end
@@ -742,8 +786,20 @@ end
 # record of a radial profile given as a callable: an interpolator by its points (extension),
 # a function by its name
 function _describe_profile(profile)
-    hasmethod(describe, Tuple{typeof(profile)}) ? describe(profile) :
-    SettingsRecord("type" => "callable", "source" => _callable_name(profile))
+    if hasmethod(describe, Tuple{typeof(profile)})
+        return describe(profile)
+    else
+        return SettingsRecord("type" => "callable", "source" => _callable_name(profile))
+    end
+end
+
+# the record of a radial profile, or of a plain value
+function _describe_profile_or_value(v)
+    if _is_radial_profile(v)
+        return _describe_profile(v)
+    else
+        return _describe_value(v)
+    end
 end
 
 # the record of the level of a radial transport term: a number or a vector as given, a
@@ -754,7 +810,9 @@ function _describe_radial_level(level, in_time::Bool, faces, context)
     level isa Union{Real, AbstractVector} && return _plain(level)
     in_time && return describe_prescribed_levels(level, context)
     record = SettingsRecord("profile" => _describe_profile(level))
-    isempty(faces) || (record["faces"] = _plain(faces))
+    if !isempty(faces)
+        record["faces"] = _plain(faces)
+    end
     return record
 end
 
@@ -770,8 +828,9 @@ function describe(term::SecondaryHeatingTerm, context::DescriptionContext)
     record["cut"] = String(term.cut)
     record["spectrum"] = String(term.spectrum)
     #! format: off
-    term.spectrum === :opal &&
-        (record["widths"] = SettingsRecord(name => width for (name, width) in zip(term.kinetic_ionization.composition.names, term.widths)))
+    if term.spectrum === :opal
+        record["widths"] = SettingsRecord(name => width for (name, width) in zip(term.kinetic_ionization.composition.names, term.widths))
+    end
     #! format: on
     return record
 end
@@ -789,8 +848,9 @@ function describe(term::RosenbluthPutvinskiSourceTerm, context::DescriptionConte
     record["grid"] = grid_name!(context, term.grid)
     record["runaway_density"] = String(term.runaway_density)
     record["total_density"] = String(term.total_density)
-    term.electric_field === nothing ||
-        (record["electric_field"] = String(term.electric_field))
+    if term.electric_field !== nothing
+        record["electric_field"] = String(term.electric_field)
+    end
     record["p_cutoff"] = term.p_cutoff
     return record
 end
@@ -808,7 +868,9 @@ function describe(term::ExternalAvalancheTerm, context::DescriptionContext)
     for name in (:runaway_density, :total_density, :electric_field, :temperature, :density)
         record[String(name)] = String(getfield(term, name))
     end
-    term.ions === nothing || (record["ions"] = String(term.ions))
+    if term.ions !== nothing
+        record["ions"] = String(term.ions)
+    end
     record["p_cutoff"] = term.p_cutoff
     record["exponent"] = term.exponent
     record["collision_settings"] = describe(term.settings)
@@ -830,12 +892,14 @@ function describe(term::KineticIonizationTerm, context::DescriptionContext)
     record["kinetic"] = String(term.kinetic)
     record["grid"] = grid_name!(context, term.grid)
     record["ions"] = String(term.ions)
-    record["cross_sections"] = term.ionization_cross_section_form === :chianti ?
-                               "CHIANTI (Dere 2007) continued by the relativistic Bethe form above 100 keV, " *
-                               "DREAM's form for elements without CHIANTI data" :
-                               term.ionization_cross_section_form === :dream ?
-                               "Burgess-Chidichimo with Garland's extension, DREAM's fits" :
-                               "Burgess-Chidichimo with the Bethe term over beta^2, refitted"
+    record["cross_sections"] = if term.ionization_cross_section_form === :chianti
+        "CHIANTI (Dere 2007) continued by the relativistic Bethe form above 100 keV, " *
+        "DREAM's form for elements without CHIANTI data"
+    elseif term.ionization_cross_section_form === :dream
+        "Burgess-Chidichimo with Garland's extension, DREAM's fits"
+    else
+        "Burgess-Chidichimo with the Bethe term over beta^2, refitted"
+    end
     return _describe_region!(record, term.envelopes, context)
 end
 
@@ -880,7 +944,9 @@ function describe(term::IonEnergyExchangeTerm, context::DescriptionContext)
     record["ion_ion"] = term.ion_ion
     record["ion_coulomb_logarithm"] = String(term.ion_coulomb_logarithm)
     record["masses"] = term.masses
-    term.ions === nothing || (record["ions"] = String(term.ions))
+    if term.ions !== nothing
+        record["ions"] = String(term.ions)
+    end
     return _describe_plasma_source!(record, term.plasma, context)
 end
 
@@ -890,7 +956,9 @@ function describe(term::RunawayFluidEnergyTransferTerm, context::DescriptionCont
     record["temperature"] = String(term.temperature)
     record["density"] = String(term.density)
     record["coulomb_logarithm"] = String(term.coulomb_logarithm)
-    term.ions === nothing || (record["ions"] = String(term.ions))
+    if term.ions !== nothing
+        record["ions"] = String(term.ions)
+    end
     return _describe_plasma_source!(record, term.plasma, context)
 end
 
@@ -940,7 +1008,9 @@ the temperature is recorded with its factor and the temperatures at the time poi
 function describe(region::MomentumRegion, context::DescriptionContext = DescriptionContext())
     record = SettingsRecord("type" => "MomentumRegion", "side" => String(region.side),
         "envelope" => String(region.envelope))
-    region.envelope === :smooth && (record["smooth_width"] = region.smooth_width)
+    if region.envelope === :smooth
+        record["smooth_width"] = region.smooth_width
+    end
     record["limit"] = _describe_limit(region.limit, context)
     return record
 end
@@ -953,17 +1023,22 @@ function _describe_limit(limit::ThermalMomentum, context)
         record["temperature"] = SettingsRecord("unknown" => String(limit.temperature))
         return record
     end
-    record["temperature"] = limit.temperature isa AbstractVector ?
-                            _plain(limit.temperature) :
-                            describe_prescribed_levels(t -> _temperatures(limit.temperature, t), context)
-    limit.temperature isa AbstractVector ||
-        (record["temperature"]["source"] = _callable_name(limit.temperature))
+    record["temperature"] = if limit.temperature isa AbstractVector
+        _plain(limit.temperature)
+    else
+        describe_prescribed_levels(t -> _temperatures(limit.temperature, t), context)
+    end
+    if !(limit.temperature isa AbstractVector)
+        record["temperature"]["source"] = _callable_name(limit.temperature)
+    end
     return record
 end
 
 # the region of a moment term in its record
 function _describe_region!(record, envelopes, context)
-    envelopes === nothing || (record["region"] = describe(envelopes.region, context))
+    if envelopes !== nothing
+        record["region"] = describe(envelopes.region, context)
+    end
     return record
 end
 
@@ -1016,8 +1091,9 @@ function describe(term::ParticleSourceTerm, context::DescriptionContext)
     else
         describe_prescribed_levels(t -> _temperatures(term.temperature, t), context)
     end
-    term.temperature isa Union{Symbol, AbstractVector} ||
-        (record["temperature"]["source"] = _callable_name(term.temperature))
+    if !(term.temperature isa Union{Symbol, AbstractVector})
+        record["temperature"]["source"] = _callable_name(term.temperature)
+    end
     return record
 end
 
@@ -1211,7 +1287,9 @@ function describe(tolerance::Tolerance)
     record = SettingsRecord("absolute" => tolerance.absolute, "relative" =>
         tolerance.relative)
     # recorded only when set: a tolerance of group 0 has no `group` entry
-    iszero(tolerance.group) || (record["group"] = tolerance.group)
+    if !iszero(tolerance.group)
+        record["group"] = tolerance.group
+    end
     return record
 end
 
@@ -1228,17 +1306,26 @@ function describe(system::EquationSystem, context::DescriptionContext = Descript
         #! format: off
         terms = SettingsRecord("term_$k" => describe(term, context) for (k, term) in enumerate(equation.terms))
         #! format: on
+        equation_kind = if equation.kind isa TimeDerivative
+            "time_derivative"
+        elseif equation.kind isa Constraint
+            "constraint"
+        else
+            "algebraic"
+        end
         record = SettingsRecord(
-            "kind" =>
-                equation.kind isa TimeDerivative ? "time_derivative" :
-                equation.kind isa Constraint ? "constraint" : "algebraic",
+            "kind" => equation_kind,
             "term_count" => length(equation.terms), "terms" => terms)
         # the unknown whose time derivative the row holds, when it is another one
-        equation.kind isa TimeDerivative && equation.kind.of !== nothing &&
-            (record["time_derivative_of"] = String(equation.kind.of))
-        equation.scale === nothing || (record["scale"] = equation.scale)
-        equation.initial_value === :given ||
-            (record["initial_value"] = String(equation.initial_value))
+        if equation.kind isa TimeDerivative && equation.kind.of !== nothing
+            record["time_derivative_of"] = String(equation.kind.of)
+        end
+        if equation.scale !== nothing
+            record["scale"] = equation.scale
+        end
+        if equation.initial_value !== :given
+            record["initial_value"] = String(equation.initial_value)
+        end
         equations[String(equation.unknown)] = record
     end
     #! format: off
@@ -1329,7 +1416,9 @@ function run_environment()
         "start_time" => Libc.strftime("%Y-%m-%dT%H:%M:%S%z", time()))
     for name in ("SLURM_JOB_ID", "SLURM_JOB_NAME", "SLURM_RESTART_COUNT")
         value = get(ENV, name, "")
-        isempty(value) || (record[lowercase(name)] = value)
+        if !isempty(value)
+            record[lowercase(name)] = value
+        end
     end
     return record
 end
@@ -1349,12 +1438,21 @@ function _canonical!(io::IO, record::AbstractDict)
     return io
 end
 function _canonical!(io::IO, x::AbstractString)
-    (write(io, UInt8('s'), htol(Int64(ncodeunits(x)))); write(io, x); io)
+    write(io, UInt8('s'), htol(Int64(ncodeunits(x))))
+    write(io, x)
+    return io
 end
-_canonical!(io::IO, x::Bool) = (write(io, UInt8('b'), UInt8(x)); io)
-_canonical!(io::IO, x::Integer) = (write(io, UInt8('i'), htol(Int64(x))); io)
+function _canonical!(io::IO, x::Bool)
+    write(io, UInt8('b'), UInt8(x))
+    return io
+end
+function _canonical!(io::IO, x::Integer)
+    write(io, UInt8('i'), htol(Int64(x)))
+    return io
+end
 function _canonical!(io::IO, x::AbstractFloat)
-    (write(io, UInt8('f'), htol(reinterpret(UInt64, Float64(x)))); io)
+    write(io, UInt8('f'), htol(reinterpret(UInt64, Float64(x))))
+    return io
 end
 function _canonical!(io::IO, x::AbstractArray{<:Real})
     write(io, UInt8(eltype(x) <: Integer ? 'I' : 'F'), htol(Int64(ndims(x))))
