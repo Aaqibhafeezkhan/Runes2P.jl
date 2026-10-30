@@ -74,8 +74,9 @@ function segment_files(settings::CheckpointSettings)
     isdir(settings.directory) || return String[]
     for file in readdir(settings.directory)
         m = match(pattern, file)
-        m === nothing ||
+        if m !== nothing
             push!(found, (parse(Int, m.captures[1]), joinpath(settings.directory, file)))
+        end
     end
     return [file for (_, file) in sort!(found)]
 end
@@ -162,7 +163,9 @@ function write_atomically(write_file, path::AbstractString; previous::Union{
         rethrow()
     end
     _sync(temporary)
-    previous !== nothing && isfile(path) && Base.Filesystem.rename(path, previous)
+    if previous !== nothing && isfile(path)
+        Base.Filesystem.rename(path, previous)
+    end
     Base.Filesystem.rename(temporary, path)
     _sync(directory)
     return path
@@ -223,13 +226,15 @@ function _resume_state(resume, checkpoint)
     resume === false && return nothing
     resume isa StoredState && return resume
     if resume === true
-        checkpoint === nothing &&
+        if checkpoint === nothing
             throw(ArgumentError("resume = true needs checkpoint settings; pass a file or a StoredState otherwise"))
+        end
         _require_hdf5(read_checkpoint, "resuming from a checkpoint")
         return read_checkpoint(checkpoint)
     end
-    resume isa AbstractString ||
+    if !(resume isa AbstractString)
         throw(ArgumentError("resume must be true, false, a file name or a StoredState"))
+    end
     _require_hdf5(read_state, "resuming from a file")
     return read_state(resume)
 end
@@ -273,7 +278,9 @@ function _segment_record(segment::Integer, stored, settings::AbstractDict,
     record["previous_setup_hash"] = String(get(stored.settings, "setup_hash", "unknown"))
     changed = changed_sections(stored.settings, settings)
     record["settings_changed"] = !isempty(changed)
-    isempty(changed) || (record["changed_sections"] = changed)
+    if !isempty(changed)
+        record["changed_sections"] = changed
+    end
     return record
 end
 
@@ -320,9 +327,13 @@ function StopCondition(; end_time::Union{Nothing, Real} = nothing,
         push!(ends, Float64(end_time))
     elseif haskey(ENV, "SLURM_JOB_END_TIME")
         from_slurm = tryparse(Float64, ENV["SLURM_JOB_END_TIME"])
-        from_slurm === nothing || push!(ends, from_slurm)
+        if from_slurm !== nothing
+            push!(ends, from_slurm)
+        end
     end
-    wall_budget === nothing || push!(ends, time() + Float64(wall_budget))
+    if wall_budget !== nothing
+        push!(ends, time() + Float64(wall_budget))
+    end
     return StopCondition(
         isempty(ends) ? Inf : minimum(ends), stop_file === nothing ? "" : String(stop_file),
         Float64(slack))
@@ -377,6 +388,9 @@ when it stopped without checkpoints, where another segment would start from the 
 function exit_status(solution)
     run_status(solution) === :finished && return EXIT_FINISHED
     segment = solution.settings["segment"]
-    return get(segment, "checkpoint_written", false) ? EXIT_STOPPED :
-           EXIT_STOPPED_WITHOUT_CHECKPOINT
+    if get(segment, "checkpoint_written", false)
+        return EXIT_STOPPED
+    else
+        return EXIT_STOPPED_WITHOUT_CHECKPOINT
+    end
 end

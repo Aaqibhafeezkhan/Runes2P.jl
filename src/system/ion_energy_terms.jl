@@ -100,12 +100,17 @@ function IonEnergyExchangeTerm(
                             "the keywords temperature, density and ions"))
     source = plasma isa PrescribedPlasma ? plasma : PrescribedPlasma(plasma)
     species_list = plasma_values(source, nothing, nothing, initial_time).ions
-    mass_values = masses === nothing ?
-                  [ion_mass(species; table = mass_table) for species in species_list] :
-                  collect(Float64, masses)
-    length(mass_values) == length(species_list) ||
+    mass_values = if masses === nothing
+        [ion_mass(species; table = mass_table) for species in species_list]
+    else
+        collect(Float64, masses)
+    end
+    if length(mass_values) != length(species_list)
         throw(DimensionMismatch("need one mass per ion species ($(length(species_list))), got $(length(mass_values))"))
-    all(>(0), mass_values) || throw(ArgumentError("the ion masses must be positive"))
+    end
+    if !all(>(0), mass_values)
+        throw(ArgumentError("the ion masses must be positive"))
+    end
     return IonEnergyExchangeTerm(
         source, side, ion_energy, temperature, density, ion_ion, ion_coulomb_logarithm,
         mass_values, ions)
@@ -125,22 +130,27 @@ end
 function validate(term::IonEnergyExchangeTerm, layout, row, t)
     plasma = plasma_values(term.plasma, nothing, nothing, t)
     species = length(plasma.ions)
-    term.ions === nothing ||
+    if term.ions !== nothing
         _check_ion_unknown(layout, unknown_id(layout, term.ions), IonComposition(plasma))
+    end
     id = unknown_id(layout, term.ion_energy)
-    layout.kinds[id] === :radial && layout.sizes[id, 1] == species ||
+    if !(layout.kinds[id] === :radial && layout.sizes[id, 1] == species)
         throw(ArgumentError("the ion energy $(term.ion_energy) needs one component per ion species ($species)"))
+    end
     for name in (term.temperature, term.density)
         k = unknown_id(layout, name)
-        layout.kinds[k] === :radial && layout.sizes[k, 1] == 1 ||
+        if !(layout.kinds[k] === :radial && layout.sizes[k, 1] == 1)
             throw(ArgumentError("IonEnergyExchangeTerm reads $name as a radial unknown with one component"))
+        end
     end
     if term.side === :ions
-        row == id ||
+        if row != id
             throw(ArgumentError("the side :ions of the energy exchange belongs to the row of $(term.ion_energy)"))
+        end
     else
-        layout.kinds[row] === :radial && layout.sizes[row, 1] == 1 ||
+        if !(layout.kinds[row] === :radial && layout.sizes[row, 1] == 1)
             throw(ArgumentError("the side :electrons of the energy exchange adds to a radial unknown with one component"))
+        end
     end
     return nothing
 end
@@ -191,9 +201,18 @@ end
 # the screening of the NRL logarithm, Σ_γ n_γ Z_γ²/T_γ over the ion species and the electrons,
 # in cm⁻³ eV⁻¹
 function _nrl_screening(ions, n_e, T_e)
-    1e-6 *
-    (sum(x -> _plain_value(x[1]) > 0 ? x[2] / _species_temperature(x) : zero(x[2]), ions) +
-     n_e / max(T_e, DEFAULT_TEMPERATURE_FLOOR))
+    ion_screening = sum(
+        x -> _plain_value(x[1]) > 0 ? x[2] / _species_temperature(x) : zero(x[2]), ions)
+    return 1e-6 * (ion_screening + n_e / max(T_e, DEFAULT_TEMPERATURE_FLOOR))
+end
+
+# the density, Σ Z0² n, the weight W, the mass and Σ Z0 n of the ion species s at radius ir
+function _ion_moments(term::IonEnergyExchangeTerm, species, W, s, ir)
+    densities = view(species.charge_state_densities, :, ir)
+    density = sum(densities)
+    charge_square_density = sum(densities[Z0 + 1] * Z0^2 for Z0 in 0:species.nuclear_charge)
+    charge_density = sum(densities[Z0 + 1] * Z0 for Z0 in 0:species.nuclear_charge)
+    return (density, charge_square_density, W[s], term.masses[s], charge_density)
 end
 
 # the power each ion species receives at radius ir, and the power the electrons lose
@@ -201,20 +220,21 @@ function _ion_exchange(term::IonEnergyExchangeTerm, plasma::PlasmaState, W, n_e,
     e = Constants.ELEMENTARY_CHARGE
     n_free = free_electron_density(plasma, ir)
     lnL = thermal_coulomb_logarithm(n_free, T_e)
-    lnL_dream = n_free == 0 ? zero(lnL) :
-                17.3 - 0.5 * log(n_free / 1e20) + 1.5 * log(T_e / 1e3)
-    electrons = (n_e, n_e, 1.5 * e * n_e * T_e, Constants.ELECTRON_MASS)
-    ions = map(enumerate(plasma.ions)) do (s, species)
-        densities = view(species.charge_state_densities, :, ir)
-        (sum(densities),
-            sum(densities[Z0 + 1] * Z0^2 for Z0 in 0:species.nuclear_charge),
-            W[s], term.masses[s],
-            sum(densities[Z0 + 1] * Z0 for Z0 in 0:species.nuclear_charge))
+    lnL_dream = if n_free == 0
+        zero(lnL)
+    else
+        17.3 - 0.5 * log(n_free / 1e20) + 1.5 * log(T_e / 1e3)
     end
+    electrons = (n_e, n_e, 1.5 * e * n_e * T_e, Constants.ELECTRON_MASS)
+    ions = [_ion_moments(term, species, W, s, ir)
+            for (s, species) in enumerate(plasma.ions)]
     received = [zero(lnL * W[s] * T_e) for s in eachindex(ions)]
     lost = zero(eltype(received))
-    screening = term.ion_ion && term.ion_coulomb_logarithm === :nrl ?
-                _nrl_screening(ions, n_e, T_e) : zero(lnL)
+    screening = if term.ion_ion && term.ion_coulomb_logarithm === :nrl
+        _nrl_screening(ions, n_e, T_e)
+    else
+        zero(lnL)
+    end
     for (s, ion) in enumerate(ions)
         _plain_value(ion[1]) > 0 || continue
         Q = _energy_exchange(lnL, ion[1:4], electrons)
@@ -225,8 +245,11 @@ function _ion_exchange(term::IonEnergyExchangeTerm, plasma::PlasmaState, W, n_e,
             # two species of neutrals alone exchange nothing
             (k == s || _plain_value(other[1]) <= 0 ||
              (_plain_value(ion[2]) <= 0 && _plain_value(other[2]) <= 0)) && continue
-            lnL_ions = term.ion_coulomb_logarithm === :nrl ?
-                       _nrl_ion_logarithm(ion, other, screening) : lnL_dream
+            lnL_ions = if term.ion_coulomb_logarithm === :nrl
+                _nrl_ion_logarithm(ion, other, screening)
+            else
+                lnL_dream
+            end
             received[s] += _energy_exchange(lnL_ions, ion[1:4], other[1:4])
         end
     end
@@ -263,8 +286,10 @@ function sparsity!(entries, term::IonEnergyExchangeTerm, layout, row)
         for name in (term.temperature, term.density)
             push!(entries, (r, first(unknown_range(layout, unknown_id(layout, name), ir))))
         end
-        term.ions === nothing || append!(entries, ((r, c)
-        for c in unknown_range(layout, unknown_id(layout, term.ions), ir)))
+        if term.ions !== nothing
+            append!(entries, ((r, c)
+            for c in unknown_range(layout, unknown_id(layout, term.ions), ir)))
+        end
     end
     return entries
 end
@@ -288,8 +313,13 @@ function set_ion_thermal_energy!(
     for ir in 1:radial_cell_count(layout),
         (s, r) in enumerate(unknown_range(layout, id, ir))
 
-        T = temperature isa Real ? temperature :
-            temperature isa AbstractVector ? temperature[s] : temperature[s, ir]
+        T = if temperature isa Real
+            temperature
+        elseif temperature isa AbstractVector
+            temperature[s]
+        else
+            temperature[s, ir]
+        end
         u[r] = THERMAL_ENERGY_FACTOR * totals[s, ir] * T
     end
     return u
@@ -298,10 +328,13 @@ end
 # the total density of every ion species at every radius (species × radii): of the prescribed
 # plasma at time t, or with `ions` of that unknown of the state u
 function _ion_totals(u, layout, plasma, ions, t)
-    #! format: off
-    state = plasma isa PlasmaState ? plasma : plasma_values(plasma isa PrescribedPlasma ? plasma : PrescribedPlasma(plasma),
-                                                            nothing, nothing, t)
-    #! format: on
+    state = if plasma isa PlasmaState
+        plasma
+    elseif plasma isa PrescribedPlasma
+        plasma_values(plasma, nothing, nothing, t)
+    else
+        plasma_values(PrescribedPlasma(plasma), nothing, nothing, t)
+    end
     ions === nothing &&
         return reduce(vcat, [sum(s.charge_state_densities; dims = 1) for s in state.ions])
     c = IonComposition(state.ions)
@@ -330,7 +363,9 @@ function ion_temperatures(u::AbstractVector, layout::UnknownLayout, plasma;
     for ir in 1:nr, (s, r) in enumerate(unknown_range(layout, id, ir))
 
         N = totals[s, ir]
-        N > 0 && (T[s, ir] = u[r] / (THERMAL_ENERGY_FACTOR * N))
+        if N > 0
+            T[s, ir] = u[r] / (THERMAL_ENERGY_FACTOR * N)
+        end
     end
     return T
 end

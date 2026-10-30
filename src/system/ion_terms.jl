@@ -73,7 +73,12 @@ The charge `Z0` of every component of the ion densities: the weights of
 [`WeightedSumTerm`](@ref) for the free-electron density `Σ Z0 n_ij`.
 """
 function free_electron_weights(c::IonComposition)
-    Float64[Z0 for Z in c.nuclear_charges for Z0 in 0:Z]
+    weights = Float64[]
+    for Z in c.nuclear_charges, Z0 in 0:Z
+
+        push!(weights, Z0)
+    end
+    return weights
 end
 
 """
@@ -120,8 +125,9 @@ function set_ion_densities!(u::AbstractVector, layout::UnknownLayout,
     _check_ion_unknown(layout, id, composition)
     for (s, species) in enumerate(species_list), ir in 1:radial_cell_count(layout)
 
-        size(species.charge_state_densities, 2) == radial_cell_count(layout) ||
+        if size(species.charge_state_densities, 2) != radial_cell_count(layout)
             throw(DimensionMismatch("the densities of $(species.name) need one column per radius"))
+        end
         radial_view(u, layout, id, ir)[species_components(composition, s)] .= species.charge_state_densities[:, ir]
     end
     return u
@@ -138,10 +144,13 @@ function ion_densities(u::AbstractVector, layout::UnknownLayout,
     id = unknown_id(layout, ions)
     _check_ion_unknown(layout, id, c)
     nr = radial_cell_count(layout)
-    return [IonSpecies(c.names[s], c.nuclear_charges[s],
-                reduce(hcat, [radial_view(u, layout, id, ir)[species_components(c, s)]
-                              for ir in 1:nr]))
-            for s in 1:length(c)]
+    species = IonSpecies{eltype(u)}[]
+    for s in 1:length(c)
+        densities = reduce(hcat, [radial_view(u, layout, id, ir)[species_components(c, s)]
+                                  for ir in 1:nr])
+        push!(species, IonSpecies(c.names[s], c.nuclear_charges[s], densities))
+    end
+    return species
 end
 
 """
@@ -162,14 +171,16 @@ function deposit_neutrals!(
     _check_ion_unknown(layout, id, c)
     nr = radial_cell_count(layout)
     for (species, density) in deposits
-        density isa Real || length(density) == nr ||
+        if !(density isa Real || length(density) == nr)
             throw(DimensionMismatch("the deposit of $species needs a number or one value per radius"))
-        all(>=(0), density) ||
+        end
+        if !all(>=(0), density)
             throw(ArgumentError("the deposit of $species must not be negative"))
+        end
         neutral = first(species_components(c, String(species)))
         for ir in 1:nr
-            radial_view(u, layout, id, ir)[neutral] += density isa Real ? density :
-                                                       density[ir]
+            deposited_density = density isa Real ? density : density[ir]
+            radial_view(u, layout, id, ir)[neutral] += deposited_density
         end
     end
     return u
@@ -194,7 +205,9 @@ function population_equations(c::IonComposition; ions::Symbol = :ion_densities,
     minus(name) = LinearTerm(name; coefficient = -1)
     terms = EquationTerm[WeightedSumTerm(ions, free_electron_weights(c))]
     for name in (hot_density, runaway_density)
-        name === nothing || push!(terms, minus(name))
+        if name !== nothing
+            push!(terms, minus(name))
+        end
     end
     push!(terms, minus(density))
     return [Equation(density, Algebraic(), Tuple(terms))]
@@ -279,9 +292,12 @@ function _element_tables(element::AbstractString, Z::Integer, directory)
 end
 
 function dependencies(term::IonRateTerm)
-    unique([term.ions; term.temperature; term.density;
-            term.kinetic_ionization === nothing ? Symbol[] :
-            collect(Symbol, _region_unknowns(term.kinetic_ionization.envelopes))])
+    region_unknowns = if term.kinetic_ionization === nothing
+        Symbol[]
+    else
+        collect(Symbol, _region_unknowns(term.kinetic_ionization.envelopes))
+    end
+    unique([term.ions; term.temperature; term.density; region_unknowns])
 end
 
 function validate(term::IonRateTerm, layout, row)
@@ -291,8 +307,9 @@ function validate(term::IonRateTerm, layout, row)
     _check_ion_unknown(layout, id, term.composition)
     for name in (term.temperature, term.density)
         k = unknown_id(layout, name)
-        layout.kinds[k] === :radial && layout.sizes[k, 1] == 1 ||
+        if !(layout.kinds[k] === :radial && layout.sizes[k, 1] == 1)
             throw(ArgumentError("the $name of an IonRateTerm is a radial unknown with one component"))
+        end
     end
     return nothing
 end
@@ -307,8 +324,11 @@ function _add_ion_rates!(out, rows, term::IonRateTerm, s, n, n_e, T, split = not
         table, Z0, n_e, T; extrapolation = term.extrapolation)
     # the flow from state j to j + 1: ionization of j less recombination of j + 1
     for j in 0:(Z - 1)
-        ionization = split === nothing ? coefficient(tables.scd, j) :
-                     _fluid_ionization(split, s, j, coefficient(tables.scd, j))
+        ionization = if split === nothing
+            coefficient(tables.scd, j)
+        else
+            _fluid_ionization(split, s, j, coefficient(tables.scd, j))
+        end
         flow = n_e * (ionization * n[j + 1] - coefficient(tables.acd, j + 1) * n[j + 2])
         out[rows[j + 1]] -= flow
         out[rows[j + 2]] += flow
@@ -323,8 +343,11 @@ function rhs!(out, term::IonRateTerm, u, layout, row, t)
     for ir in 1:radial_cell_count(layout)
         n = radial_view(u, layout, row, ir)
         rows = unknown_range(layout, row, ir)
-        split = term.kinetic_ionization === nothing ? nothing :
-                threshold_split(term.kinetic_ionization, ir, u, layout, t)
+        split = if term.kinetic_ionization === nothing
+            nothing
+        else
+            threshold_split(term.kinetic_ionization, ir, u, layout, t)
+        end
         for s in 1:length(c)
             components = species_components(c, s)
             _add_ion_rates!(out, view(rows, components), term, s,
@@ -459,7 +482,9 @@ function validate(term::IonDiffusionTerm, layout, row)
     id == row ||
         throw(ArgumentError("IonDiffusionTerm adds to the rows of its ion densities $(term.ions)"))
     _check_ion_unknown(layout, id, term.composition)
-    term.level_in_time || _diffusion_faces(term, layout.radial_grid, 0.0)
+    if !term.level_in_time
+        _diffusion_faces(term, layout.radial_grid, 0.0)
+    end
     return nothing
 end
 
@@ -468,13 +493,16 @@ function _diffusion_faces(term::IonDiffusionTerm, rg::RadialGrid, t)
     if term.level_in_time
         time = Float64(_value(t))
         term.time[] == time && !isempty(term.faces[]) && return term.faces[]
-        values = collect(Float64, radial_values(level_over_step(term.level, time), rg.r_faces))
+        diffusivity = level_over_step(term.level, time)
+        values = collect(Float64, radial_values(diffusivity, rg.r_faces))
         term.time[] = time
     else
         isempty(term.faces[]) || return term.faces[]
         values = collect(Float64, radial_values(term.level, rg.r_faces))
     end
-    all(>=(0), values) || throw(ArgumentError("the ion diffusivity must not be negative"))
+    if !all(>=(0), values)
+        throw(ArgumentError("the ion diffusivity must not be negative"))
+    end
     term.faces[] = values
     return values
 end

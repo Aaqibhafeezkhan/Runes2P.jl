@@ -75,19 +75,23 @@ function kinetic_conductivity(
     (any(!iszero, operator.advection_r) || any(!iszero, operator.diffusion_r_r)) &&
         throw(ArgumentError("the operator holds radial transport: the linear response is that of the operator in " *
                             "momentum space, radius by radius"))
-    any(!iszero, operator.unit_field_advection_p) || set_unit_field_coefficients!(operator)
+    if !any(!iszero, operator.unit_field_advection_p)
+        set_unit_field_coefficients!(operator)
+    end
     # DREAM's flux boundaries at p_max give the last momentum cell no net flux in the steady
     # state, which makes the bordered systems singular: f = 0 beyond p_max in
     # their place, with the coefficient arrays shared
-    operator.p_upper_boundary in
-    (:constant_flux, :extrapolated_flux, :extrapolated_flux_consistent, :interface) &&
-        (operator = _with_upper_boundary(operator, :f_zero))
+    if operator.p_upper_boundary in
+       (:constant_flux, :extrapolated_flux, :extrapolated_flux_consistent, :interface)
+        operator = _with_upper_boundary(operator, :f_zero)
+    end
     grid = operator.grid
     np, nxi, nr = size(grid)
     cells = np * nxi * nr
     target = density === nothing ? plasma.cold_electron_density : density
-    length(target) == nr ||
+    if length(target) != nr
         throw(DimensionMismatch("the density needs one value per radius"))
+    end
     index = LinearIndices((np, nxi, nr))
     # the relativistic Maxwellian at the cold temperature, with density 1: the shape of the
     # source and the state at which a limiter is frozen
@@ -102,13 +106,16 @@ function kinetic_conductivity(
     end
     _scale_to_density!(maxwellian, grid, ones(T, nr))
     limiter_state = is_linear(operator) ? nothing : maxwellian
-    residual! = (df, f) -> (
-        fill!(df, zero(eltype(df))); apply!(df, operator, f; limiter_state))
+    residual! = function (df, f)
+        fill!(df, zero(eltype(df)))
+        apply!(df, operator, f; limiter_state)
+    end
     collisions = jacobian(
         SparseJacobian(residual!, grid; backend = sparse_ad_backend(pattern = stencil_pattern(operator))),
         zeros(T, np, nxi, nr))
-    any(!iszero, collisions.nzval) ||
+    if !any(!iszero, collisions.nzval)
         throw(ArgumentError("the operator has no coefficients"))
+    end
     # the border: a source column and a density row per radius
     rows, columns, values = findnz(collisions)
     for ir in 1:nr
@@ -127,8 +134,10 @@ function kinetic_conductivity(
     end
     # the field-particle term, of rank `modes` per radius
     if field_particle !== nothing
-        field_particle.grid === grid || _same_momentum_grids(field_particle.grid, grid) ||
+        if !(field_particle.grid === grid ||
+             _same_momentum_grids(field_particle.grid, grid))
             throw(DimensionMismatch("the field-particle operator lives on another grid"))
+        end
         per_radius = np * nxi
         for ir in 1:nr
             block = field_particle.restoring_shapes[ir] *
@@ -144,13 +153,15 @@ function kinetic_conductivity(
         end
     end
     factors = lu(sparse(rows, columns, values, cells + nr, cells + nr))
-    equilibrium = reshape((factors \ vcat(zeros(T, cells), T.(target)))[1:cells], np, nxi, nr)
+    bordered_equilibrium = factors \ vcat(zeros(T, cells), T.(target))
+    equilibrium = reshape(bordered_equilibrium[1:cells], np, nxi, nr)
     # the derivative of the operator with respect to the field at zero field, applied to it
     D = ForwardDiff.Dual{FieldResponseTag, T, 1}
     field = fill(D(zero(T), ForwardDiff.Partials((one(T),))), nr)
     driven = zeros(D, np, nxi, nr)
     apply!(driven, operator, equilibrium; electric_field = field, limiter_state)
-    response = factors \ vcat(-vec(ForwardDiff.partials.(driven, 1)), zeros(T, nr))
+    field_derivative = vec(ForwardDiff.partials.(driven, 1))
+    response = factors \ vcat(-field_derivative, zeros(T, nr))
     return current_density(grid, reshape(response[1:cells], np, nxi, nr); pitch_rule)
 end
 
@@ -232,14 +243,17 @@ function ConductivityModel(plasma; reference::Symbol = :braams_karney,
     is_state_dependent(plasma_source(plasma)) && kinetic === :discrete_operator &&
         throw(ArgumentError("the conductivity of the discrete operator takes a prescribed plasma"))
     if kinetic === :discrete_operator
-        operator isa FokkerPlanckTerm && is_state_dependent(operator.plasma) &&
+        if operator isa FokkerPlanckTerm && is_state_dependent(operator.plasma)
             throw(ArgumentError("the conductivity of the discrete operator takes an operator with a prescribed " *
                                 "plasma: it costs a factorization per radius at every rebuild"))
-        operator isa Union{AdvectionDiffusion, FokkerPlanckTerm} ||
+        end
+        if !(operator isa Union{AdvectionDiffusion, FokkerPlanckTerm})
             throw(ArgumentError("kinetic = :discrete_operator needs the Fokker-Planck operator of the bulk or its term"))
+        end
     else
-        operator === nothing ||
+        if operator !== nothing
             throw(ArgumentError("an operator belongs to kinetic = :discrete_operator"))
+        end
     end
     return ConductivityModel(
         plasma_source(plasma), reference, kinetic, operator, pitch_rule)
@@ -262,7 +276,8 @@ end
 # the number of rebuilds of the operator of the model after its refresh at the state u
 _operator_rebuilds(operator, u, layout, t) = 0
 function _operator_rebuilds(term::FokkerPlanckTerm, u, layout, t)
-    (refresh_coefficients!(term, u, layout, t); term.rebuilds[])
+    refresh_coefficients!(term, u, layout, t)
+    return term.rebuilds[]
 end
 
 function _conductivity(model::ConductivityModel, plasma::PlasmaState, operator)
@@ -313,9 +328,15 @@ end
 # Karney depends on the temperature, the effective charge and the free-electron density,
 # and the last two come from the ions, which are prescribed
 function _conductivity_unknowns(model::ConductivityModel)
-    model.plasma isa PlasmaFromUnknowns ?
-    (model.plasma.ions === nothing ? (model.plasma.temperature,) :
-     (model.plasma.temperature, model.plasma.ions)) : ()
+    if model.plasma isa PlasmaFromUnknowns
+        if model.plasma.ions === nothing
+            return (model.plasma.temperature,)
+        else
+            return (model.plasma.temperature, model.plasma.ions)
+        end
+    else
+        return ()
+    end
 end
 # with the ion densities the row reads every charge state of a radius
 function jacobian_assembly(term::ConductivityTerm)
@@ -343,13 +364,15 @@ function validate(term::ConductivityTerm, layout, row, t)
     for name in _conductivity_unknowns(term.model)
         id = unknown_id(layout, name)
         name === ion_dependency(term.model.plasma) && continue
-        layout.kinds[id] === :radial && layout.sizes[id, 1] == 1 ||
+        if !(layout.kinds[id] === :radial && layout.sizes[id, 1] == 1)
             throw(ArgumentError("the temperature of a ConductivityTerm is a radial unknown with one component"))
+        end
     end
     # a conductivity that follows the temperature has no value without the state
     isempty(_conductivity_unknowns(term.model)) || return nothing
-    length(conductivity_at(term, t)) == radial_cell_count(layout) ||
+    if length(conductivity_at(term, t)) != radial_cell_count(layout)
         throw(DimensionMismatch("the plasma of the conductivity has other radii than the layout"))
+    end
     return nothing
 end
 
@@ -403,13 +426,15 @@ function _add_state_conductivity!(out, term::ConductivityTerm, u, layout, row, t
     field = unknown_values(u, layout, unknown_id(layout, term.electric_field))
     for ir in 1:radial_cell_count(layout)
         T = temperature[ir]
-        _value(T) > model.plasma.temperature_floor ||
+        if !(_value(T) > model.plasma.temperature_floor)
             throw(DomainError(_value(T),
                 "the cold-electron temperature at radius $ir is at or below the floor"))
+        end
         charge = effective_charge(base, ir)
         sigma = braams_karney_conductivity(free_electron_density(base, ir), T, charge)
-        model.kinetic === :dream_fit &&
-            (sigma *= 1 - test_particle_conductivity_fraction(charge))
+        if model.kinetic === :dream_fit
+            sigma *= 1 - test_particle_conductivity_fraction(charge)
+        end
         out[first(unknown_range(layout, row, ir))] += term.coefficient * sigma * field[ir]
     end
     return out
@@ -433,7 +458,7 @@ end
 # conductivity of the discrete operator is that of a current moment with its pitch rule,
 # and the rules of the two differ by a factor of the pitch grid.
 function _check_conductivity_correction(equations)
-    terms = [term for equation in equations for term in equation.terms]
+    terms = collect(Iterators.flatten(equation.terms for equation in equations))
     corrected = any(term -> term isa ConductivityTerm && term.model.kinetic !== :none, terms)
     corrected && any(term -> term isa FieldParticleTerm, terms) &&
         throw(ArgumentError("the system has a corrected conductivity and the field-particle term: the term gives " *
@@ -443,11 +468,12 @@ function _check_conductivity_correction(equations)
 
         term isa ConductivityTerm && term.model.kinetic === :discrete_operator || continue
         for moment in equation.terms
-            moment isa CurrentMomentTerm && moment.pitch_rule !== term.model.pitch_rule &&
+            if moment isa CurrentMomentTerm && moment.pitch_rule !== term.model.pitch_rule
                 throw(ArgumentError("the conductivity model of $(equation.unknown) takes the pitch rule " *
                                     "$(term.model.pitch_rule) and the current moment of $(moment.kinetic) in the " *
                                     "same equation $(moment.pitch_rule): give the model the rule of the moment " *
                                     "(ConductivityModel(...; pitch_rule = :$(moment.pitch_rule)))"))
+            end
         end
     end
     return nothing

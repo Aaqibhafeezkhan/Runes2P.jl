@@ -49,8 +49,9 @@ function jacobian_chunk_limit()
     value = get(ENV, "RUNES2P_JACOBIAN_CHUNK_SIZE", "")
     isempty(value) && return nothing
     limit = tryparse(Int, value)
-    limit !== nothing && limit > 0 ||
+    if !(limit !== nothing && limit > 0)
         throw(ArgumentError("RUNES2P_JACOBIAN_CHUNK_SIZE must be a positive integer, not \"$value\""))
+    end
     return limit
 end
 
@@ -60,8 +61,12 @@ end
 function _chunk_size(pattern, limit)
     (pattern === nothing || limit === nothing) && return nothing
     problem = ColoringProblem(; structure = :nonsymmetric, partition = :column)
-    return ncolors(coloring(pattern, problem, GreedyColoringAlgorithm())) >= limit ? limit :
-           nothing
+    color_count = ncolors(coloring(pattern, problem, GreedyColoringAlgorithm()))
+    if color_count >= limit
+        return limit
+    else
+        return nothing
+    end
 end
 
 """
@@ -80,8 +85,11 @@ of the dual numbers for a given `pattern` ([`jacobian_chunk_limit`](@ref)).
 function sparse_ad_backend(;
         pattern = nothing, tag = ForwardDiff.Tag{OperatorJacobianTag, Float64}(),
         chunk_limit::Union{Nothing, Integer} = jacobian_chunk_limit())
-    detector = pattern === nothing ? TracerSparsityDetector() :
-               KnownJacobianSparsityDetector(pattern)
+    detector = if pattern === nothing
+        TracerSparsityDetector()
+    else
+        KnownJacobianSparsityDetector(pattern)
+    end
     chunksize = _chunk_size(pattern, chunk_limit)
     return AutoSparse(AutoForwardDiff(; chunksize, tag); sparsity_detector = detector,
         coloring_algorithm = GreedyColoringAlgorithm())
@@ -148,11 +156,15 @@ function _visit_stencil(visit, grid::KineticGrid, i, j, ir; p_width::Integer,
     end
     for d in 2:p_width, s in (-d, d)
 
-        1 <= i + s <= np && visit(i + s, j, ir)
+        if 1 <= i + s <= np
+            visit(i + s, j, ir)
+        end
     end
     for d in 2:xi_width, s in (-d, d)
 
-        1 <= j + s <= nxi && visit(i, j + s, ir)
+        if 1 <= j + s <= nxi
+            visit(i, j + s, ir)
+        end
     end
     for dr in (-1, 1), neighbour in radial_neighbour_pitch_cells(grid, ir, j, dr)
 
@@ -161,15 +173,21 @@ function _visit_stencil(visit, grid::KineticGrid, i, j, ir; p_width::Integer,
     # the second radial neighbours of the four-point schemes, which need one pitch grid
     for d in 2:r_width, s in (-d, d)
 
-        1 <= ir + s <= nr && visit(i, j, ir + s)
+        if 1 <= ir + s <= nr
+            visit(i, j, ir + s)
+        end
     end
     if i == np && p_upper_boundary in (:extrapolated_flux, :extrapolated_flux_consistent)
         for d in 1:3
-            np - d >= 1 && visit(np - d, j, ir)
+            if np - d >= 1
+                visit(np - d, j, ir)
+            end
         end
         if p_upper_boundary === :extrapolated_flux_consistent
             for s in (-1, 1)
-                np >= 2 && 1 <= j + s <= nxi && visit(np - 2, j + s, ir)
+                if np >= 2 && 1 <= j + s <= nxi
+                    visit(np - 2, j + s, ir)
+                end
             end
         end
     end
@@ -252,8 +270,11 @@ function check_stencil_pattern(op)
         return all(pattern[findall(!iszero, M)])
     end
     f0 = 0.5 .+ rand(size(op.grid)...)
-    residual = x -> (y = zeros(eltype(x), size(op.grid));
-        apply!(y, op, reshape(x, size(op.grid))); vec(y))
+    residual = function (x)
+        y = zeros(eltype(x), size(op.grid))
+        apply!(y, op, reshape(x, size(op.grid)))
+        return vec(y)
+    end
     x = vec(f0)
     config = ForwardDiff.JacobianConfig(
         residual, x, ForwardDiff.Chunk(x), ForwardDiff.Tag{OperatorJacobianTag, Float64}())
@@ -294,7 +315,10 @@ function operator_matrix(op; backend = nothing, check_local::Bool = true)
         throw(ArgumentError("the operator uses a flux limiter and is nonlinear in f; it has no matrix " *
                             "(its Jacobian depends on f: use jacobian! of an EquationSystem)"))
     backend = something(backend, sparse_ad_backend(pattern = stencil_pattern(op)))
-    residual! = (df, f) -> (fill!(df, zero(eltype(df))); apply!(df, op, f))
+    residual! = function (df, f)
+        fill!(df, zero(eltype(df)))
+        return apply!(df, op, f)
+    end
     sj = SparseJacobian(residual!, op.grid; backend)
     return jacobian(sj, zeros(eltype(op.advection_p), size(op.grid)))
 end

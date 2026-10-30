@@ -1,5 +1,6 @@
 # The checks of every pull request, drafts included, and of every push to dev and main: the
-# markdown lint, the format check, the component tests and the strict documentation build.
+# markdown lint, the code style check, the format check, the component tests and the strict
+# documentation build.
 # A push to another branch runs nothing, since its pull request runs the same checks. The full
 # suite is in FullSuite.yml.
 name: CI
@@ -41,6 +42,23 @@ jobs:
       - name: Lint every tracked markdown file
         if: github.event_name != 'pull_request'
         run: git ls-files -z -- '*.md' | xargs -0 python3 scripts/lint_markdown.py
+
+  # the patterns of "Code style" in CONTRIBUTING.md that a script can decide, in the Julia files
+  # of src/ and ext/: the lines a pull request adds, or every line of these files on a push
+  style:
+    name: Code style check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Check the added lines of the pull request
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/check_code_style.py --base "origin/${{ github.base_ref }}"
+      - name: Check every tracked Julia file of src/ and ext/
+        if: github.event_name != 'pull_request'
+        run: git ls-files -z -- "src/*.jl" "ext/*.jl" | xargs -0 python3 scripts/check_code_style.py
 
   # the format check: JuliaFormatter 2.14.0 with the .JuliaFormatter.toml of the root changes
   # nothing; format(".") of that version formats a checkout. The step formats the checkout of

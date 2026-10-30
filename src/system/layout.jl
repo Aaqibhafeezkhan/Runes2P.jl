@@ -164,33 +164,48 @@ function UnknownLayout(radial_grid::RadialGrid{T}, unknowns::AbstractVector;
     list = Unknown[u for u in unknowns]
     ids = Dict{Symbol, Int}()
     for (id, u) in enumerate(list)
-        haskey(ids, u.name) && throw(ArgumentError("unknown $(u.name) declared twice"))
+        if haskey(ids, u.name)
+            throw(ArgumentError("unknown $(u.name) declared twice"))
+        end
         ids[u.name] = id
         if u isa KineticUnknown
-            u.grid.radial_grid.r_faces == radial_grid.r_faces ||
+            if u.grid.radial_grid.r_faces != radial_grid.r_faces
                 throw(ArgumentError("kinetic unknown $(u.name) lives on another radial grid"))
+            end
         end
     end
     for u in list
         limit = u.lower_limit
         (limit === nothing || limit.reference === nothing) && continue
-        u isa ScalarUnknown &&
+        if u isa ScalarUnknown
             throw(ArgumentError("the lower limit of scalar unknown $(u.name) cannot take a reference"))
+        end
         if limit.reference === :group
-            u isa RadialUnknown ||
+            if !(u isa RadialUnknown)
                 throw(ArgumentError("the lower limit of $(u.name) is relative to a group of components, which only " *
                                     "a radial unknown has"))
+            end
             continue
         end
         id = get(ids, limit.reference, 0)
-        id != 0 && list[id] isa RadialUnknown && list[id].components == 1 ||
+        if !(id != 0 && list[id] isa RadialUnknown && list[id].components == 1)
             throw(ArgumentError("the lower-limit reference of $(u.name) must be a radial unknown " *
                                 "with one component"))
+        end
     end
     nr = radial_cell_count(radial_grid)
     count = length(list)
-    kinds = [u isa ScalarUnknown ? :scalar : u isa RadialUnknown ? :radial : :kinetic
-             for u in list]
+    kinds = Symbol[]
+    for u in list
+        kind = if u isa ScalarUnknown
+            :scalar
+        elseif u isa RadialUnknown
+            :radial
+        else
+            :kinetic
+        end
+        push!(kinds, kind)
+    end
     sizes = zeros(Int, count, nr)
     shapes = fill((0, 0), count, nr)
     for (id, u) in enumerate(list), ir in 1:nr
@@ -360,8 +375,11 @@ tests, not type-stable.
 """
 function unknown_view(u::AbstractVector, layout::UnknownLayout, name::Symbol, ir::Integer)
     id = unknown_id(layout, name)
-    return layout.kinds[id] === :kinetic ? kinetic_view(u, layout, id, ir) :
-           radial_view(u, layout, id, ir)
+    if layout.kinds[id] === :kinetic
+        return kinetic_view(u, layout, id, ir)
+    else
+        return radial_view(u, layout, id, ir)
+    end
 end
 function unknown_view(u::AbstractVector, layout::UnknownLayout, name::Symbol)
     scalar_view(u, layout, unknown_id(layout, name))
@@ -417,30 +435,35 @@ function copy_unknowns!(u_to::AbstractVector, layout_to::UnknownLayout,
     for (name, id_from) in layout_from.ids
         id_to = get(layout_to.ids, name, 0)
         id_to == 0 && continue
-        layout_from.kinds[id_from] === layout_to.kinds[id_to] ||
+        if layout_from.kinds[id_from] !== layout_to.kinds[id_to]
             throw(ArgumentError("$name changes kind between the layouts"))
+        end
         if layout_from.kinds[id_from] === :scalar
             u_to[unknown_range(layout_to, id_to)] .= u_from[unknown_range(layout_from, id_from)]
         else
-            layout_from.sizes[id_from, :] == layout_to.sizes[id_to, :] ||
+            if layout_from.sizes[id_from, :] != layout_to.sizes[id_to, :]
                 throw(DimensionMismatch("$name has different sizes in the two layouts"))
-            layout_from.radial_grid.r_faces == layout_to.radial_grid.r_faces ||
+            end
+            if layout_from.radial_grid.r_faces != layout_to.radial_grid.r_faces
                 throw(ArgumentError("$name lives on different radial grids in the two layouts"))
+            end
             if layout_from.kinds[id_from] === :radial
-                component_groups(layout_from.unknowns[id_from]) ==
-                component_groups(layout_to.unknowns[id_to]) ||
+                if component_groups(layout_from.unknowns[id_from]) !=
+                   component_groups(layout_to.unknowns[id_to])
                     throw(ArgumentError("$name has other component groups in the two layouts"))
+                end
             end
             if layout_from.kinds[id_from] === :kinetic
                 grid_from = layout_from.unknowns[id_from].grid
                 grid_to = layout_to.unknowns[id_to].grid
-                all(
-                    ir -> momentum_grid(grid_from, ir).p_faces ==
-                          momentum_grid(grid_to, ir).p_faces &&
-                          momentum_grid(grid_from, ir).xi_faces ==
-                          momentum_grid(grid_to, ir).xi_faces,
-                    1:radial_cell_count(layout_from)) ||
-                    throw(ArgumentError("$name lives on different momentum grids in the two layouts"))
+                for ir in 1:radial_cell_count(layout_from)
+                    if !(momentum_grid(grid_from, ir).p_faces ==
+                         momentum_grid(grid_to, ir).p_faces &&
+                         momentum_grid(grid_from, ir).xi_faces ==
+                         momentum_grid(grid_to, ir).xi_faces)
+                        throw(ArgumentError("$name lives on different momentum grids in the two layouts"))
+                    end
+                end
             end
             for ir in 1:radial_cell_count(layout_from)
                 u_to[unknown_range(layout_to, id_to, ir)] .= u_from[unknown_range(layout_from, id_from, ir)]

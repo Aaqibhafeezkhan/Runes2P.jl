@@ -48,8 +48,11 @@ table ([`KnockOnKernels`](@ref)).
 function momentum_at_xi_star(xi_s, p1)
     x2 = xi_s^2
     incident_energy = _gamma_minus_one(p1)
-    knockon_energy = isinf(p1) ? 2x2 / (1 - x2) :
-                     2x2 * incident_energy / (incident_energy + 2 - x2 * incident_energy)
+    knockon_energy = if isinf(p1)
+        2x2 / (1 - x2)
+    else
+        2x2 * incident_energy / (incident_energy + 2 - x2 * incident_energy)
+    end
     knockon_energy > 0 || return zero(float(knockon_energy))
     return sqrt(knockon_energy * (knockon_energy + 2))
 end

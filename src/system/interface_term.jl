@@ -105,28 +105,36 @@ function MomentumInterfaceTerm(lower::Symbol, upper::Symbol, lower_term, upper_o
         throw(ArgumentError("the upper operator needs p_lower_boundary = :interface, it has " *
                             ":$(upper_op.p_lower_boundary)"))
     if scheme === nothing
-        scheme = lower_operator.p_scheme in INTERFACE_SCHEMES ? lower_operator.p_scheme :
-                 :upwind
+        scheme = if lower_operator.p_scheme in INTERFACE_SCHEMES
+            lower_operator.p_scheme
+        else
+            :upwind
+        end
     end
-    scheme in INTERFACE_SCHEMES ||
+    if !(scheme in INTERFACE_SCHEMES)
         throw(ArgumentError("the scheme of the interface flux must be one of $(join(INTERFACE_SCHEMES, ", ")), " *
                             "not $scheme"))
+    end
     lower_grid, upper_grid = lower_operator.grid, upper_op.grid
     T = eltype(lower_operator.advection_p)
-    lower_grid.radial_grid.r_faces == upper_grid.radial_grid.r_faces ||
+    if lower_grid.radial_grid.r_faces != upper_grid.radial_grid.r_faces
         throw(ArgumentError("the two grids of the interface must share the radial grid"))
+    end
     nr = radial_cell_count(lower_grid)
     for ir in 1:nr
         p_interface = last(momentum_grid(lower_grid, ir).p_faces)
         p_lower_face = first(momentum_grid(upper_grid, ir).p_faces)
-        p_interface == p_lower_face ||
+        if p_interface != p_lower_face
             throw(ArgumentError("at radius $ir the lower grid ends at p = $p_interface and the upper grid " *
                                 "starts at p = $p_lower_face: the two must be the same face"))
+        end
     end
     built = Dict{Tuple{UInt, UInt}, PitchOverlap{T}}()
-    overlaps = map(1:nr) do ir
+    overlaps = Vector{PitchOverlap{T}}(undef, nr)
+    for ir in 1:nr
         left, right = momentum_grid(lower_grid, ir), momentum_grid(upper_grid, ir)
-        get!(() -> PitchOverlap(left, right), built, (objectid(left), objectid(right)))
+        pair_key = (objectid(left), objectid(right))
+        overlaps[ir] = get!(() -> PitchOverlap(left, right), built, pair_key)
     end
     cells, weights = Vector{Vector{Int}}(undef, nr), Vector{Vector{T}}(undef, nr)
     for ir in 1:nr
@@ -310,9 +318,11 @@ function sparsity!(entries, term::MomentumInterfaceTerm, layout, row)
         if field !== nothing
             # the field of the radius acts on the cells at the face
             column = first(unknown_range(layout, unknown_id(layout, field), ir))
-            cells = row == lower ?
-                    (_kinetic_index(layout, lower, ir, np, j) for j in 1:layout.shapes[lower, ir][2]) :
-                    (_kinetic_index(layout, upper, ir, 1, J) for J in 1:layout.shapes[upper, ir][2])
+            cells = if row == lower
+                (_kinetic_index(layout, lower, ir, np, j) for j in 1:layout.shapes[lower, ir][2])
+            else
+                (_kinetic_index(layout, upper, ir, 1, J) for J in 1:layout.shapes[upper, ir][2])
+            end
             append!(entries, ((r, column) for r in cells))
         end
         if row == lower

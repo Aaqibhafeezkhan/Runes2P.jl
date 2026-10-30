@@ -30,7 +30,10 @@ Fine for occasional products; a Krylov solver driven through SciML should reuse 
 assembled Jacobian instead.
 """
 function Runes2P.ode_function(system::EquationSystem)
-    f!(du, u, p, t) = (rhs!(du, u, system, t); nothing)
+    function f!(du, u, p, t)
+        rhs!(du, u, system, t)
+        return nothing
+    end
     cached = jacobian_prototype(system)
     function jvp!(Jv, v, u, p, t)
         jacobian!(cached, system, u, t)
@@ -40,13 +43,15 @@ function Runes2P.ode_function(system::EquationSystem)
     M = mass_matrix(system)
     # a term lagged to the start of the step: in the ODE form that is the state itself, and
     # the stored Jacobian leaves out the derivative of the lagged part
-    #! format: off
-    any(lags_in_ode_form(term) for equation in system.equations for term in equation.terms) &&
-        return ODEFunction{true}(f!; mass_matrix=M)
-    #! format: on
+    has_lagged_term(equation) = any(lags_in_ode_form(term) for term in equation.terms)
+    any(has_lagged_term(equation) for equation in system.equations) &&
+        return ODEFunction{true}(f!; mass_matrix = M)
     if isempty(system.matrix_free_terms) && isempty(system.explicit_terms) &&
        system.stored_jacobian_exact
-        jac!(J, u, p, t) = (jacobian!(J, system, u, t); nothing)
+        function jac!(J, u, p, t)
+            jacobian!(J, system, u, t)
+            return nothing
+        end
         return ODEFunction{true}(
             f!; mass_matrix = M, jac = jac!, jac_prototype = jacobian_prototype(system),
             jvp = jvp!)
