@@ -1411,7 +1411,7 @@ function _check_run(system::EquationSystem, u0, times, save_times, options::RunO
     # every saved state is a computed one: a save time is an end of a step
     step_ends = ceilings(options.stepper, times, save_times)
     for s in save_times
-        if !(s in step_ends)
+        if s ∉ step_ends
             throw(ArgumentError("the save time $s is not a time point of the run: with " *
                                 "$(nameof(typeof(options.stepper))) every saved state is a computed one, " *
                                 "so a save time is a time point (time_points(legs) builds matching " *
