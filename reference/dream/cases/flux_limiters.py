@@ -21,10 +21,6 @@ and one lagged step), which is what the test uses, and the settings once. A last
 QUICK in superthermal mode, where the flux through p = 0 does not vanish, tests the face
 value on the p = 0 face.
 
-(With the NONLINEAR solver and reltol = 1e-12, DREAM does not converge on this case: the
-centred scheme stagnates at a relative update of 5.6e-7, and QUICK and TCDF fail after 100
-iterations.)
-
 Usage (from reference/dream, with the environment that run_all.sh sets for <set>):
     pixi run python <set>/cases/flux_limiters.py out/<set>/dream_flux_limiters.h5
 """
