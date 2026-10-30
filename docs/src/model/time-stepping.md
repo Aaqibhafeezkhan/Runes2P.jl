@@ -142,7 +142,7 @@ A failed step is retried with half the time step, the shorter steps continue to 
 The error of an unknown is ``\|u_\mathrm{full} - u_\mathrm{half}\|_2 / (a + r\,\|u_\mathrm{full}\|_2)``, with ``u_\mathrm{half}`` the result of the two half steps and the norms taken over all entries of the unknown at every radius.
 The error of the step is the largest over the unknowns, and the step is accepted at an error of at most 1.
 An unknown at zero with no absolute tolerance stays out of that largest error, but fails the step when it moves between the full and the half steps, as in DREAM.
-A step that only such an unknown fails is retried with half its length ([Choices of this package](../choices.md)).
+The next step follows from the largest error of the other unknowns, as in DREAM; when that error is zero, the step is retried with half its length ([Choices of this package](../choices.md)).
 Its tolerances are the `time_step_tolerances` of the [`EquationSystem`](@ref); an unknown without one gets `relative_tolerance` and no absolute part, and an unknown with both tolerances zero is left out.
 
 ### Step controller

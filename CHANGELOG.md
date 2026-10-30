@@ -44,4 +44,4 @@ Until the first release, every change is listed under "Unreleased", with the sub
   The former −2125/8385 came from a misprint of N²² in Sugama et al. (2019), their equation (C5).
   The conductivity of the default three-mode model moves by up to 0.03 %, depending on the effective charge.
 - `StepDoubling` rejects a step in which an unknown with no absolute tolerance is zero after the full step and not after the two half steps, as DREAM's acceptance does; before, it accepted it ([#157](https://github.com/osrep/Runes2P.jl/pull/157)).
-  The retry takes half the step tried.
+  The next step follows from the largest error of the other unknowns, as in DREAM, and is half the step tried when that error is zero.

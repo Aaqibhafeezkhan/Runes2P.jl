@@ -309,17 +309,17 @@ half the length and one of the full length from the same state, so the error est
 two solves per step of progress. The error of an unknown is the 2-norm of the difference
 between the full step and the two half steps over the 2-norm of the full step,
 `‖u_full - u_half‖ / (absolute + relative ‖u_full‖)`, taken over every entry of the unknown
-at every radius; the error of the step is the largest over the unknowns. An unknown whose
-scale is zero, at zero with no absolute tolerance, stays out of that largest error but fails
-the step when it moves between the full and the half steps, as DREAM's acceptance
-`dx ≤ epsa + epsr x` does (`ConvergenceChecker::IsConverged`). The step is accepted when no
+at every radius; the error of the step is the largest over the unknowns. An unknown at zero
+with no absolute tolerance (a zero scale) stays out of that largest error but fails the step
+when it moves between the full and the half steps, as DREAM's acceptance
+`dx ≤ epsa + epsr x` does (`ConvergenceChecker.cpp:193`). The step is accepted when no
 such unknown fails it and its error is at most 1, and its solution is that of the full step,
 as in DREAM. The next step is `safety · h / error^exponent` in either case, without a cap on
 its growth (DREAM: safety 0.95, exponent 1.0; its stabiliser, exponent 0.7 with a memory of
-the last error, is compiled out); a step that only an unknown at zero fails is retried with
-half its length, and its record shows it rejected with an error of at most 1 (a choice of
-this package, since DREAM's next step is unbounded there; see the docs page *Choices of this
-package*). `check_every` steps between two checked steps are taken at the
+the last error, is compiled out). A step that such an unknown fails shows in the record as
+rejected, also with an error of at most 1. When it fails a step in which every other unknown
+has no error at all, DREAM's next step is unbounded; this step is retried with half its
+length instead (a choice of this package; see the docs page *Choices of this package*). `check_every` steps between two checked steps are taken at the
 current length without a check, the documented intent of DREAM's `checkevery`. DREAM's code
 takes them from a stale `initTime`, with the lengths `h₁ − h₀`, `−h₀`, `−(h₀ + h₁)`, and
 `checkevery + 1` of them (`TimeStepperAdaptive.cpp:119-122`, `145-152`, `334-338`), so no
@@ -426,11 +426,11 @@ end
 
 # the error per unknown of the full step `full` against the two half steps `doubled`, the
 # largest of them, and whether the step converged; an unknown with zero tolerances is left
-# out (NaN). An unknown whose scale is zero, an unknown at zero with no absolute tolerance,
-# is left out of the largest error, as DREAM leaves it out of the next step length, but a
-# nonzero difference there fails the step, as DREAM's acceptance `dx ≤ epsa + epsr x`
-# does (`ConvergenceChecker::IsConverged`, `TimeStepperAdaptive.cpp:456-469`); its error
-# is Inf.
+# out (NaN). An unknown at zero with no absolute tolerance (a zero scale) is left out of the
+# largest error, as DREAM leaves it out of the next step length
+# (`TimeStepperAdaptive.cpp:458-469`), but a nonzero difference there fails the step, as
+# DREAM's acceptance `dx ≤ epsa + epsr x` does (`ConvergenceChecker.cpp:193`); its error is
+# Inf.
 function _doubling_errors!(state::StepDoublingState, layout, full, doubled)
     largest = 0.0
     converged = true
@@ -520,13 +520,11 @@ function advance!(stepper::StepDoubling, state::StepDoublingState, run, options,
     error, converged = _doubling_errors!(state, run.layout, u, state.doubled)
     accepted = converged && error <= 1
     _record!(run.stats, t_next, h, result, run.ws, wall; accepted, error)
-    # DREAM: dt = safety dt / error^exponent, from the step just measured. A step that only
-    # an unknown at zero fails has no error to scale by; it is retried with half its length
-    # (a choice of this package: DREAM's next step would be unbounded there)
-    state.dt = if !converged && error <= 1
-        h / 2
-    elseif error == 0
-        Inf
+    # DREAM: dt = safety dt / error^exponent, from the step just measured. A rejected step
+    # whose other unknowns have no error at all has nothing to scale by, and DREAM's next
+    # step is unbounded; it is retried with half its length (a choice of this package)
+    state.dt = if error == 0
+        converged ? Inf : h / 2
     else
         stepper.safety * h / error^stepper.exponent
     end
@@ -537,8 +535,9 @@ function advance!(stepper::StepDoubling, state::StepDoublingState, run, options,
     if !accepted
         log = options.log
         log_event!(log, "step rejected", Logging.Info,
-            "the step to t = $t_next s with the time step $h s has the error $error of its tolerance " *
-            "and is retried with the time step $(state.dt) s")
+            "the step to t = $t_next s with the time step $h s has the error $error of its tolerance" *
+            (converged ? "" : ", an unknown at zero with no absolute tolerance moved,") *
+            " and is retried with the time step $(state.dt) s")
         report_step!(log, u_old, run.layout, t, run.times, run.next_point - 2, run.stats;
             errors = stepper_errors(state))
         return nothing
