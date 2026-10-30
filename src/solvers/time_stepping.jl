@@ -418,10 +418,16 @@ function stepper_record(state::StepDoublingState)
         "failures" => state.failures)
 end
 
-# the error per unknown of the full step `full` against the two half steps `doubled`,
-# and the largest of them; an unknown with zero tolerances is left out (NaN)
+# the error per unknown of the full step `full` against the two half steps `doubled`, the
+# largest of them, and whether the step converged; an unknown with zero tolerances is left
+# out (NaN). An unknown whose scale is zero, an unknown at zero with no absolute tolerance,
+# is left out of the largest error, as DREAM leaves it out of the next step length, but a
+# nonzero difference there fails the step, as DREAM's acceptance `dx ≤ epsa + epsr x`
+# does (`ConvergenceChecker::IsConverged`, `TimeStepperAdaptive.cpp:456-466`); its error
+# is Inf.
 function _doubling_errors!(state::StepDoublingState, layout, full, doubled)
     largest = 0.0
+    converged = true
     for id in eachindex(layout.unknowns)
         absolute, relative = state.absolute[id], state.relative[id]
         if absolute == 0 && relative == 0
@@ -436,15 +442,22 @@ function _doubling_errors!(state::StepDoublingState, layout, full, doubled)
             norm_difference += (full[i] - doubled[i])^2
         end
         scale = absolute + relative * sqrt(norm_full)
-        # a scale of zero is an unknown at zero, which is no error (DREAM skips it)
-        error = scale == 0 ? 0.0 : sqrt(norm_difference) / scale
+        if scale == 0
+            moved = norm_difference != 0
+            state.errors[id] = moved ? Inf : 0.0
+            if moved
+                converged = false
+            end
+            continue
+        end
+        error = sqrt(norm_difference) / scale
         if !isfinite(error)
             error = Inf
         end
         state.errors[id] = error
         largest = max(largest, error)
     end
-    return largest
+    return largest, converged
 end
 
 # a failed solve of the doubling: the step length shrinks by the failure factor from the
@@ -498,11 +511,19 @@ function advance!(stepper::StepDoubling, state::StepDoublingState, run, options,
         _record!(run.stats, t_next, h, result, run.ws, wall)
         return _doubling_failure!(stepper, state, run, options, t_next, h, result)
     end
-    error = _doubling_errors!(state, run.layout, u, state.doubled)
-    accepted = error <= 1
+    error, converged = _doubling_errors!(state, run.layout, u, state.doubled)
+    accepted = converged && error <= 1
     _record!(run.stats, t_next, h, result, run.ws, wall; accepted, error)
-    # DREAM: dt = safety dt / error^exponent, from the step just measured
-    state.dt = error == 0 ? Inf : stepper.safety * h / error^stepper.exponent
+    # DREAM: dt = safety dt / error^exponent, from the step just measured. A step that only
+    # an unknown at zero fails has no error to scale by; it is retried with half its length
+    # (a choice of this package: DREAM's next step would be unbounded there)
+    state.dt = if !converged && error <= 1
+        h / 2
+    elseif error == 0
+        Inf
+    else
+        stepper.safety * h / error^stepper.exponent
+    end
     # DREAM redoes a rejected step as a new doubling (`TimeStepperAdaptive.cpp:153-156`), so the
     # unchecked steps start only after an accepted check
     state.steps_since_check = accepted ? 0 : stepper.check_every

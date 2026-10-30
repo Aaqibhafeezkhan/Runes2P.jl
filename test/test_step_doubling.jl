@@ -174,6 +174,27 @@ end
         @test stats.time_step[6] ≈ 0.2 - h0
     end
 
+    @testset "an unknown at zero with no absolute tolerance" begin
+        # DREAM accepts a step only with dx ≤ epsa + epsr x for every unknown
+        # (ConvergenceChecker::IsConverged), so with epsa = 0 and x = 0 any difference fails
+        # it; the zero scale stays out of the largest error, which sets the next step
+        rad = RadialGrid(uniform_r_faces(1, 0.5))
+        layout = UnknownLayout(rad, [RadialUnknown(:x), RadialUnknown(:y)])
+        state = Runes2P.StepDoublingState{Float64}(
+            0.1, 0, 0, [0.0, 0.0], [1e-2, 1e-2], zeros(2), zeros(2), fill(NaN, 2))
+        # x at zero after the full step and not after the halves; y within its tolerance
+        largest, converged = Runes2P._doubling_errors!(state, layout, [0.0, 1.0], [
+            1e-9, 1.0005])
+        @test !converged
+        @test largest ≈ 0.05
+        @test state.errors == [Inf, largest]
+        # no difference at the zero scale: no error there, and the step converges
+        largest, converged = Runes2P._doubling_errors!(state, layout, [0.0, 1.0], [
+            0.0, 1.0005])
+        @test converged
+        @test state.errors == [0.0, largest]
+    end
+
     @testset "a failed solve shrinks the step by the failure factor" begin
         # growth from 1 with the bound 10 and k = 1: the half steps of the initial length
         # 0.95 pass (1.9, then 3.6), the full step overshoots the bound (20) and fails,
