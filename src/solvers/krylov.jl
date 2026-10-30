@@ -114,9 +114,11 @@ function LinearAlgebra.mul!(y::AbstractVector, op::NewtonOperator, v::AbstractVe
     fill!(op.product, zero(eltype(op.product)))
     _add_products!(op.product, system.matrix_free_terms, op.state,
         op.scaled_input, system.layout, op.time)
-    corrections && _add_corrections!(
-        op.product, system.correction_terms, op.state, op.scaled_input, system.layout,
-        op.time)
+    if corrections
+        _add_corrections!(
+            op.product, system.correction_terms, op.state, op.scaled_input, system.layout,
+            op.time)
+    end
     @. y -= op.row_weights * op.product
     return y
 end
@@ -137,7 +139,8 @@ mutable struct GMRESCache{T, O <: NewtonOperator{T}, F, W, P}
 end
 
 function matrix_unchanged!(cache::GMRESCache, unchanged::Bool)
-    (cache.matrix_unchanged = unchanged; nothing)
+    cache.matrix_unchanged = unchanged
+    return nothing
 end
 
 krylov_iterations(cache::GMRESCache) = cache.iterations
@@ -193,9 +196,12 @@ function _factorize!(cache::GMRESCache, matrix, dt)
     cache.updates += 1
     started = time_ns()
     op = cache.operator
-    low_rank = cache.solver.low_rank_update && !isempty(op.system.matrix_free_terms) ?
-               (; blocks = _low_rank_blocks(op.system, op.state, op.time),
-        op.row_weights, op.scales) : nothing
+    low_rank = if cache.solver.low_rank_update && !isempty(op.system.matrix_free_terms)
+        (; blocks = _low_rank_blocks(op.system, op.state, op.time),
+            op.row_weights, op.scales)
+    else
+        nothing
+    end
     cache.factorized = factorize!(cache.factors, cache.solver.preconditioner, matrix, low_rank)
     cache.factorization_seconds += (time_ns() - started) / 1e9
     cache.factorized_dt = dt
@@ -223,7 +229,9 @@ function solve!(
     cache.updates = 0
     cache.factorization_seconds = 0.0
     fresh = _needs_factorization(cache, dt, iteration)
-    fresh && (_factorize!(cache, matrix, dt) || return :singular_matrix)
+    if fresh
+        _factorize!(cache, matrix, dt) || return :singular_matrix
+    end
     solved = _gmres!(cache, b)
     if !solved && !fresh
         # a preconditioner from an earlier iteration may have gone stale
@@ -232,7 +240,9 @@ function solve!(
         solved = _gmres!(cache, b)
     end
     # the count of the first solve with fresh factors is the reference of the count rule
-    fresh && (cache.fresh_iterations = cache.last_iterations)
+    if fresh
+        cache.fresh_iterations = cache.last_iterations
+    end
     solved || return :linear_solve_failed
     copyto!(x, cache.workspace.x)
     return :ok

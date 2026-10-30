@@ -81,19 +81,23 @@ function ProgressLog(; file::Union{Nothing, AbstractString} = nothing, io::IO = 
     milestones = sort!(collect(Float64, milestones))
     all(m -> 0 < m <= 1, milestones) ||
         throw(ArgumentError("the milestones are fractions in (0, 1]"))
-    isempty(guard_minutes) &&
+    if isempty(guard_minutes)
         throw(ArgumentError("the guard needs at least one silence limit"))
-    all(>(0), guard_minutes) ||
+    end
+    if !all(>(0), guard_minutes)
         throw(ArgumentError("the silence limits of the guard must be positive"))
-    events_shown >= 0 || throw(ArgumentError("events_shown must not be negative"))
+    end
+    if !(events_shown >= 0)
+        throw(ArgumentError("events_shown must not be negative"))
+    end
     if file !== nothing
         mkpath(dirname(abspath(file)))
         io = open(file, "a")
     end
+    request_path = request_file === nothing ? "" : String(request_file)
     return ProgressLog(
         io, file !== nothing, color, milestones, 60.0 .* collect(Float64, guard_minutes),
-        Int(events_shown), state, on_signal, request_file === nothing ? "" :
-                                             String(request_file),
+        Int(events_shown), state, on_signal, request_path,
         1, 1, time(), time(), 0, 0, Dict{String, Int}(), Threads.Atomic{Bool}(false), 0)
 end
 
@@ -104,7 +108,12 @@ function describe(log::ProgressLog)
             log.request_file)
 end
 
-Base.close(log::ProgressLog) = (log.owns_io && isopen(log.io) && close(log.io); nothing)
+function Base.close(log::ProgressLog)
+    if log.owns_io && isopen(log.io)
+        close(log.io)
+    end
+    return nothing
+end
 
 # ---------------------------------------------------------------------------------------
 # formats
@@ -122,8 +131,11 @@ function _duration(seconds::Real)
 end
 
 function _bytes(bytes::Real)
-    bytes < 1024^3 ? @sprintf("%.0f MB", bytes / 1024^2) :
-    @sprintf("%.2f GB", bytes / 1024^3)
+    if bytes < 1024^3
+        return @sprintf("%.0f MB", bytes / 1024^2)
+    else
+        return @sprintf("%.2f GB", bytes / 1024^3)
+    end
 end
 
 _number(x::Bool) = string(x)
@@ -186,14 +198,26 @@ _section(io::IO, title) = println(io, SECTION, " ", title, " ", SECTION)
 
 function _paint(log::ProgressLog, level::Logging.LogLevel, text::AbstractString)
     log.color || return text
-    code = level >= Logging.Error ? "\e[1;31m" :
-           level >= Logging.Warn ? "\e[1;33m" : "\e[1;36m"
+    code = if level >= Logging.Error
+        "\e[1;31m"
+    elseif level >= Logging.Warn
+        "\e[1;33m"
+    else
+        "\e[1;36m"
+    end
     return code * text * "\e[0m"
 end
 
 function _level_name(level::Logging.LogLevel)
-    level >= Logging.Error ? "ERROR" :
-    level >= Logging.Warn ? "WARNING" : level >= Logging.Info ? "info" : "debug"
+    if level >= Logging.Error
+        return "ERROR"
+    elseif level >= Logging.Warn
+        return "WARNING"
+    elseif level >= Logging.Info
+        return "info"
+    else
+        return "debug"
+    end
 end
 
 # ---------------------------------------------------------------------------------------
@@ -206,8 +230,11 @@ Logging.catch_exceptions(::ProgressLog) = true
 function Logging.handle_message(
         log::ProgressLog, level::Logging.LogLevel, message, _module, group, id, file,
         line; kwargs...)
-    details = isempty(kwargs) ? "" :
-              " (" * join(("$key = $(_text(value))" for (key, value) in kwargs), ", ") * ")"
+    details = if isempty(kwargs)
+        ""
+    else
+        " (" * join(("$key = $(_text(value))" for (key, value) in kwargs), ", ") * ")"
+    end
     _write_line(log, level, string(message) * details)
     return nothing
 end
@@ -230,8 +257,11 @@ function log_event!(log::ProgressLog, kind::AbstractString, level::Logging.LogLe
     count = get(log.event_counts, kind, 0) + 1
     log.event_counts[kind] = count
     if count <= log.events_shown
-        note = count == log.events_shown ?
-               " (further events of this kind are counted in the next entry)" : ""
+        note = if count == log.events_shown
+            " (further events of this kind are counted in the next entry)"
+        else
+            ""
+        end
         _write_line(log, level, kind * ": " * message * note)
     end
     return nothing
@@ -247,9 +277,12 @@ function _describe_grid_line(name, grid::AbstractDict)
     radial = grid["r_faces"]
     text = "$name: $(get(grid, "geometry", "unknown")) geometry, $(length(radial) - 1) radii from r = " *
            "$(_number(first(radial))) to $(_number(last(radial))) m"
-    momentum(m) = "$(length(m["p_faces"]) - 1) momentum cells from p = $(_number(first(m["p_faces"]))) to " *
-                  "$(_number(last(m["p_faces"]))) (first cell $(_number(m["p_faces"][2] - m["p_faces"][1]))), " *
-                  "$(length(m["xi_faces"]) - 1) pitch cells"
+    function momentum(m)
+        first_cell_width = m["p_faces"][2] - m["p_faces"][1]
+        return "$(length(m["p_faces"]) - 1) momentum cells from p = $(_number(first(m["p_faces"]))) to " *
+               "$(_number(last(m["p_faces"]))) (first cell $(_number(first_cell_width))), " *
+               "$(length(m["xi_faces"]) - 1) pitch cells"
+    end
     if haskey(grid, "momentum_grid")
         return text * ", " * momentum(grid["momentum_grid"])
     end
@@ -273,10 +306,13 @@ function write_header(log::ProgressLog, settings::AbstractDict)
     println(io, RULE)
     println(io, "Runes2P run", haskey(run, "name") ? " \"$(run["name"])\"" : "",
         ", segment ", get(segment, "index", 1))
+    tree_note = if get(code, "commit_known", false)
+        get(code, "tree_clean", false) ? " (clean tree)" : " (changed tree)"
+    else
+        ""
+    end
     println(io, "  code        Runes2P ", get(code, "package_version", "unknown"),
-        ", commit ", get(code, "commit", "unknown"),
-        get(code, "commit_known", false) ?
-        (get(code, "tree_clean", false) ? " (clean tree)" : " (changed tree)") : "",
+        ", commit ", get(code, "commit", "unknown"), tree_note,
         ", branch ", get(code, "branch", "unknown"))
     println(io, "  julia       ", get(code, "julia_version", "unknown"),
         " on ", get(environment, "hostname", "unknown"),
@@ -284,17 +320,25 @@ function write_header(log::ProgressLog, settings::AbstractDict)
         "), ", get(environment, "julia_threads", "?"),
         " Julia threads, ", get(environment, "blas_threads", "?"), " BLAS threads (",
         get(environment, "blas_libraries", "unknown"), ")")
-    println(io, "  started     ", get(environment, "start_time", "unknown"),
-        haskey(environment, "slurm_job_id") ? ", Slurm job $(environment["slurm_job_id"])" :
-        "")
+    slurm_note = if haskey(environment, "slurm_job_id")
+        ", Slurm job $(environment["slurm_job_id"])"
+    else
+        ""
+    end
+    println(io, "  started     ", get(environment, "start_time", "unknown"), slurm_note)
     if get(segment, "resumed", false)
+        sections_note = if get(segment, "settings_changed", false)
+            "changed sections: " * join(segment["changed_sections"], ", ")
+        else
+            "settings unchanged"
+        end
+        commit_note = if get(segment, "commit_changed", false)
+            ", commit changed from $(segment["previous_commit"])"
+        else
+            ""
+        end
         println(io, "  resumed     from ", segment["resumed_from"],
-            " at t = ", _number(segment["start_time"]), " s, ",
-            get(segment, "settings_changed", false) ?
-            "changed sections: " * join(segment["changed_sections"], ", ") :
-            "settings unchanged",
-            get(segment, "commit_changed", false) ?
-            ", commit changed from $(segment["previous_commit"])" : "")
+            " at t = ", _number(segment["start_time"]), " s, ", sections_note, commit_note)
     end
     println(io, "  setup hash  ", get(settings, "setup_hash", "unknown"),
         get(settings, "complete", true) ? "" : " (the record of the run is not complete)")
@@ -338,8 +382,10 @@ function write_header(log::ProgressLog, settings::AbstractDict)
     _section(io, "system")
     _print_record(io, _record(_record(settings, "system"), "equations"), "  ")
     println(io, "  time_scale = ", _number(get(_record(settings, "system"), "time_scale", NaN)))
-    isempty(_record(settings, "updates")) ||
-        (println(io, "  updates:"); _print_record(io, settings["updates"], "    "))
+    if !isempty(_record(settings, "updates"))
+        println(io, "  updates:")
+        _print_record(io, settings["updates"], "    ")
+    end
     if !isempty(_record(settings, "prescribed"))
         _section(io, "prescribed")
         _print_record(io, settings["prescribed"], "  ")
@@ -390,18 +436,24 @@ end
 function _write_state(io::IO, u::AbstractVector, layout::UnknownLayout, errors = nothing)
     for (id, unknown) in enumerate(layout.unknowns)
         name, kind = String(unknown.name), layout.kinds[id]
-        error_text = errors === nothing || isnan(errors[id]) ? "" :
-                     ", error estimate " * _number(errors[id]) * " of the tolerance"
+        error_text = if errors === nothing || isnan(errors[id])
+            ""
+        else
+            ", error estimate " * _number(errors[id]) * " of the tolerance"
+        end
         if kind === :kinetic
             moments = _kinetic_moments(u, layout, id)
             println(io, "    ", name, ": density [m^-3] ", _values(moments.densities))
             println(io, "    ", " "^length(name),
                 "  current density [A/m^2] ", _values(moments.currents),
                 ", total current [A] ", _number(moments.total_current))
+            extrema_note = if moments.negative == 0
+                ""
+            else
+                " (smallest value $(_number(moments.smallest)), largest $(_number(moments.largest)))"
+            end
             println(io, "    ", " "^length(name), "  negative cells ", moments.negative,
-                moments.negative == 0 ? "" :
-                " (smallest value $(_number(moments.smallest)), largest $(_number(moments.largest)))",
-                error_text)
+                extrema_note, error_text)
         elseif kind === :radial
             values = [radial_view(u, layout, id, ir)[c]
                       for c in 1:unknown.components, ir in 1:radial_cell_count(layout)]
@@ -468,7 +520,14 @@ function write_entry(log::ProgressLog, reason::AbstractString,
                 count(@view stats.accepted_at_residual_floor[attempts]), " at the residual floor, ",
                 count(@view stats.accepted_as_linear[attempts]), " as a linear system), last time step ",
                 _number(time_step), " s")
-        share(field) = wall > 0 ? @sprintf("%.0f %%", 100 * sum(@view getfield(stats, field)[attempts]) / wall) : "-"
+        function share(field)
+            if wall > 0
+                field_wall_time = sum(@view getfield(stats, field)[attempts])
+                return @sprintf("%.0f %%", 100 * field_wall_time / wall)
+            else
+                return "-"
+            end
+        end
         println(io, "  solver  Newton iterations ", @sprintf("%.2f", newton / max(length(attempts), 1)),
                 " per step, Krylov iterations ", @sprintf("%.2f", krylov / max(newton, 1)),
                 " per Newton iteration, factorizations ",
@@ -489,11 +548,16 @@ function write_entry(log::ProgressLog, reason::AbstractString,
     #! format: on
     hidden = [(kind, count) for (kind, count) in log.event_counts if count > 0]
     if !isempty(hidden)
+        function not_shown_note(event_count)
+            if event_count > log.events_shown
+                return " ($(event_count - log.events_shown) not shown)"
+            else
+                return ""
+            end
+        end
         println(io, "  events  since the last entry: ",
             join(
-                ("$count × $kind" *
-                 (count > log.events_shown ? " ($(count - log.events_shown) not shown)" :
-                  "")
+                ("$count × $kind" * not_shown_note(count)
                 for (kind, count) in sort!(hidden)),
                 ", "))
     end
@@ -526,7 +590,8 @@ puts Julia's own report back.
 function start_log!(
         log::ProgressLog, settings::AbstractDict, u, layout, t, times, interval, stats)
     now = time()
-    log.started = log.last_entry = now
+    log.last_entry = now
+    log.started = now
     log.last_attempt, log.last_intervals, log.guard_index, log.entries = 0, interval, 1, 0
     empty!(log.event_counts)
     log.requested[] = false
@@ -538,7 +603,12 @@ function start_log!(
     #! format: on
     write_header(log, settings)
     write_entry(log, "segment start", u, layout, t, times, interval, stats)
-    log.on_signal && (Profile.peek_report[] = () -> (log.requested[] = true; nothing))
+    if log.on_signal
+        Profile.peek_report[] = function ()
+            log.requested[] = true
+            return nothing
+        end
+    end
     return nothing
 end
 start_log!(::Nothing, settings, u, layout, t, times, interval, stats) = nothing
@@ -562,7 +632,9 @@ milestone passed, of a request by signal or of the silence guard, whichever appl
 """
 function report_progress!(
         log::ProgressLog, u, layout, t, times, interval, stats; errors = nothing)
-    log.on_signal && yield()      # the task that receives the signal runs here
+    if log.on_signal
+        yield()      # the task that receives the signal runs here
+    end
     span = last(times) - first(times)
     fraction = span > 0 ? (t - first(times)) / span : 1.0
     reason = nothing
@@ -573,13 +645,16 @@ function report_progress!(
         #! format: on
         reason = "milestone"
     end
-    _requested!(log) && (reason = "on demand")
+    if _requested!(log)
+        reason = "on demand"
+    end
     if reason === nothing && time() - log.last_entry >= log.guard_seconds[log.guard_index]
         log.guard_index = min(log.guard_index + 1, length(log.guard_seconds))
         reason = "silence"
     end
-    reason === nothing ||
+    if reason !== nothing
         write_entry(log, reason, u, layout, t, times, interval, stats; errors)
+    end
     return nothing
 end
 function report_progress!(::Nothing, u, layout, t, times, interval, stats; errors = nothing)
@@ -595,7 +670,9 @@ stretch of failed steps is not silent.
 """
 function report_step!(
         log::ProgressLog, u, layout, t, times, interval, stats; errors = nothing)
-    log.on_signal && yield()      # the task that receives the signal runs here
+    if log.on_signal
+        yield()      # the task that receives the signal runs here
+    end
     reason = nothing
     if _requested!(log)
         reason = "on demand"
@@ -603,8 +680,9 @@ function report_step!(
         log.guard_index = min(log.guard_index + 1, length(log.guard_seconds))
         reason = "silence"
     end
-    reason === nothing ||
+    if reason !== nothing
         write_entry(log, reason, u, layout, t, times, interval, stats; errors)
+    end
     return nothing
 end
 report_step!(::Nothing, u, layout, t, times, interval, stats; errors = nothing) = nothing

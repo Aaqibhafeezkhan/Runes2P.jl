@@ -92,11 +92,13 @@ function KnockOnCutoffUpdate(
     nr = radial_cell_count(operator.knockon)
     linked_operators = typeof(operator)[other for other in linked]
     for other in linked_operators
-        radial_cell_count(other.knockon) == nr ||
+        if radial_cell_count(other.knockon) != nr
             throw(DimensionMismatch("a linked knock-on operator has $(radial_cell_count(other.knockon)) " *
                                     "radii, the operator of the update $nr"))
-        other === operator &&
+        end
+        if other === operator
             throw(ArgumentError("the operator of the update is linked to itself"))
+        end
     end
     return KnockOnCutoffUpdate(
         String(name), operator, plasma_at, critical_momentum_at, placement,
@@ -112,8 +114,9 @@ function apply_update!(update::KnockOnCutoffUpdate, u, layout, t)
     source = update.plasma_at
     plasma = source isa PlasmaSource ? plasma_values(source, u, layout, t) : source(t)
     nr = radial_cell_count(operator.knockon)
-    radial_cell_count(plasma) == nr ||
+    if radial_cell_count(plasma) != nr
         throw(DimensionMismatch("plasma and knock-on grid radii differ"))
+    end
     if update.electric_field !== nothing
         field = unknown_values(u, layout, unknown_id(layout, update.electric_field))
         plasma = with_electric_field(plasma, collect(Float64, field))
@@ -147,7 +150,9 @@ function apply_update!(update::KnockOnCutoffUpdate, u, layout, t)
         update.inside_window[ir] = choice.inside_window
     end
     changed = cutoffs != operator.p_cutoff
-    changed && (update.rebuilds[] += set_cutoff!(operator, cutoffs))
+    if changed
+        update.rebuilds[] += set_cutoff!(operator, cutoffs)
+    end
     changed |= _set_linked_cutoffs!(update, cutoffs)
     return changed
 end
@@ -196,12 +201,14 @@ function describe(update::KnockOnCutoffUpdate, context::DescriptionContext)
         record["plasma"] = _callable_name(update.plasma_at)
         record["plasma_table"] = prescribed_table!(context, update.plasma_at)
     end
-    update.electric_field === nothing ||
-        (record["electric_field"] = String(update.electric_field))
-    isempty(update.linked) ||
-        (record["linked_operators"] = SettingsRecord("operator_$k" =>
-                                                         describe(other, context)
-        for (k, other) in enumerate(update.linked)))
+    if update.electric_field !== nothing
+        record["electric_field"] = String(update.electric_field)
+    end
+    if !isempty(update.linked)
+        record["linked_operators"] = SettingsRecord("operator_$k" =>
+                                                        describe(other, context)
+        for (k, other) in enumerate(update.linked))
+    end
     return record
 end
 
@@ -226,11 +233,12 @@ function check_update(update::KnockOnCutoffUpdate, system)
     temperature = _bulk_temperature_unknown(system.equations)
     temperature === nothing && return nothing
     source = update.plasma_at
-    source isa PlasmaFromUnknowns && source.temperature === temperature ||
+    if !(source isa PlasmaFromUnknowns && source.temperature === temperature)
         throw(ArgumentError("the knock-on cutoff update $(update.name) takes a prescribed temperature, while the " *
                             "terms of the cold bulk read the unknown $temperature: give it " *
                             "PlasmaFromUnknowns(plasma_at; temperature = :$temperature), which it reads at the " *
                             "start of each step"))
+    end
     return nothing
 end
 
@@ -243,9 +251,12 @@ function _checked_updates(updates)
     allunique(names) ||
         throw(ArgumentError("the updates of a run need different names, got $(join(names, ", "))"))
     for name in names
-        isempty(name) && throw(ArgumentError("an update needs a name"))
-        occursin('/', name) &&
+        if isempty(name)
+            throw(ArgumentError("an update needs a name"))
+        end
+        if occursin('/', name)
             throw(ArgumentError("the name \"$name\" of an update must not contain '/'"))
+        end
     end
     return list
 end

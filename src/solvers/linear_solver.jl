@@ -61,7 +61,9 @@ function _low_rank_blocks(system::EquationSystem, u, t)
     blocks = LowRankBlock[]
     for bound in system.matrix_free_terms
         found = low_rank_jacobian(bound.term, u, system.layout, bound.row, t)
-        found === nothing || append!(blocks, found)
+        if found !== nothing
+            append!(blocks, found)
+        end
     end
     return blocks
 end
@@ -131,7 +133,8 @@ mutable struct SparseLUCache{F, S, W}
 end
 
 function matrix_unchanged!(cache::SparseLUCache, unchanged::Bool)
-    (cache.matrix_unchanged = unchanged; nothing)
+    cache.matrix_unchanged = unchanged
+    return nothing
 end
 
 requires_stored_jacobian(::SparseLU) = true
@@ -170,10 +173,16 @@ function solve!(
         lu!(cache.factorization, matrix; check = false)
         cache.factorization_seconds = (time_ns() - started) / 1e9
         cache.factorizations += 1
-        cache.factorized = issuccess(cache.factorization) && _update_low_rank!(cache, u, t)
+        cache.factorized = if issuccess(cache.factorization)
+            _update_low_rank!(cache, u, t)
+        else
+            false
+        end
         cache.factorized || return :singular_matrix
     end
     ldiv!(x, cache.factorization, b)
-    cache.low_rank === nothing || _apply_low_rank_correction!(x, cache.low_rank)
+    if cache.low_rank !== nothing
+        _apply_low_rank_correction!(x, cache.low_rank)
+    end
     return :ok
 end
