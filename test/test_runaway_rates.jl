@@ -35,6 +35,25 @@ const DREAM_RUNAWAY_RATE_DATA = reference_file("dream_runaway_rates.h5")
                   read(corrected["tauEETh"]) rtol = 1e-8
         end
 
+        @testset "critical momenta of a plasma state" begin
+            # DREAM ran with lnlambda = CONSTANT, whose Ec_free and Ec_tot take the relativistic
+            # logarithm: `coulomb_logarithm = :relativistic` of the critical momenta. The
+            # plasma is fully ionized deuterium, so the free and the total density are n_tot.
+            # No reference set ran with THERMAL, the default, and stores the critical fields.
+            free_fields = read(corrected["Ecfree"])
+            total_fields = read(corrected["Ectot"])
+            for k in eachindex(fields)
+                plasma = PlasmaState(cold_electron_temperature = [temperatures[k]],
+                    cold_electron_density = [densities[k]],
+                    ions = [IonSpecies("D", 1, 1, [total_densities[k]])],
+                    electric_field = [fields[k]], magnetic_field = [5.0])
+                @test free_critical_momentum(plasma, 1; coulomb_logarithm = :relativistic) ≈
+                      critical_momentum(fields[k], free_fields[k]) rtol = 1e-7
+                @test total_critical_momentum(plasma, 1; coulomb_logarithm = :relativistic) ≈
+                      critical_momentum(fields[k], total_fields[k]) rtol = 1e-7
+            end
+        end
+
         @testset "Connor-Hastie rate ($variant)" for (variant, corrections) in ((
             "connor_hastie", false),
             ("connor_hastie_corrected", true))

@@ -112,41 +112,60 @@ end
 
 # critical momenta of a plasma state
 
+# the logarithm of the critical fields Ec_free and Ec_tot for the Coulomb logarithm of the
+# collisions (RunawayFluid::CalculateDerivedQuantities, src/Equations/RunawayFluid.cpp:205-209)
+function _critical_field_logarithm(coulomb_logarithm::Symbol, free_electron_density, temperature)
+    coulomb_logarithm in (:thermal, :energy_dependent, :relativistic) ||
+        throw(ArgumentError("coulomb_logarithm must be :thermal, :energy_dependent or " *
+                            ":relativistic, not $coulomb_logarithm"))
+    if coulomb_logarithm === :thermal
+        return thermal_coulomb_logarithm(free_electron_density, temperature)
+    end
+    return relativistic_coulomb_logarithm(free_electron_density, temperature)
+end
+
 """
-    free_critical_momentum(plasma, ir)
+    free_critical_momentum(plasma, ir; coulomb_logarithm=:thermal)
 
 Critical momentum at radius `ir` from the Connor-Hastie critical field of the cold
-electrons with the relativistic Coulomb logarithm (DREAM's `Ec_free`,
-`RunawayFluid.cpp`), [`critical_momentum`](@ref) of `|E|`. Screening and pitch-angle
-scattering raise the critical momentum, so this is a lower estimate.
+electrons (DREAM's `Ec_free`, `RunawayFluid.cpp`), [`critical_momentum`](@ref) of `|E|`.
+Screening and pitch-angle scattering raise the critical momentum, so this is a lower
+estimate.
 
-The logarithm is the relativistic one whatever the Coulomb logarithm of the collisions. This
-departs from DREAM, which takes the thermal logarithm for `Ec_free` and `Ec_tot` when
-`collisions/lnlambda` is `THERMAL`, its default and the default of [`CollisionSettings`](@ref)
-(`RunawayFluid::CalculateDerivedQuantities`, `src/Equations/RunawayFluid.cpp:205-209`); see
-the departures on the docs page *Comparison with DREAM*.
+`coulomb_logarithm` is the model of the Coulomb logarithm of the collisions, the field of
+the same name of [`CollisionSettings`](@ref), whose default it shares. As in DREAM
+(`RunawayFluid::CalculateDerivedQuantities`, `src/Equations/RunawayFluid.cpp:205-209`), the
+critical field takes the thermal logarithm ([`thermal_coulomb_logarithm`](@ref)) for
+`:thermal`, DREAM's `THERMAL`, and the relativistic one
+([`relativistic_coulomb_logarithm`](@ref)) for `:energy_dependent` and `:relativistic`,
+DREAM's `ENERGY_DEPENDENT` and `CONSTANT`. A run passes the `coulomb_logarithm` of its
+collisions; `:relativistic` gives the relativistic logarithm whatever the collisions take.
 
 The Coulomb logarithm takes the free electron density, the cold, hot and runaway
-electrons together, as DREAM's `lnLambdaC` does (agreement to 1e-8).
+electrons together, as DREAM's `lnLambdaC` (agreement to 1e-8) and `lnLambdaT`
+(`CoulombLogarithm::evaluateLnLambdaT`, `src/Equations/CoulombLogarithm.cpp:90-94`) do.
 Before the thermal quench of a fully kinetic run most electrons are hot, and the cold
 density alone overstates the logarithm.
 """
-function free_critical_momentum(plasma::PlasmaState, ir::Integer)
-    logarithm = relativistic_coulomb_logarithm(free_electron_density(plasma, ir),
+function free_critical_momentum(plasma::PlasmaState, ir::Integer;
+        coulomb_logarithm::Symbol = :thermal)
+    logarithm = _critical_field_logarithm(
+        coulomb_logarithm, free_electron_density(plasma, ir),
         plasma.cold_electron_temperature[ir])
     field = critical_field(plasma.cold_electron_density[ir], logarithm)
     return critical_momentum(abs(plasma.electric_field[ir]), field)
 end
 
 """
-    total_critical_momentum(plasma, ir)
+    total_critical_momentum(plasma, ir; coulomb_logarithm=:thermal)
 
 Critical momentum at radius `ir` from the Connor-Hastie critical field of all electrons,
-free and bound, with the relativistic Coulomb logarithm of the free electrons (DREAM's
-`Ec_tot`, `RunawayFluid.cpp`), [`critical_momentum`](@ref) of `|E|`. `Inf` where the
-field is below that critical field. The logarithm is the relativistic one whatever the
-Coulomb logarithm of the collisions, as in [`free_critical_momentum`](@ref), which states the
-departure from DREAM.
+free and bound, with the Coulomb logarithm of the free electrons (DREAM's `Ec_tot`,
+`RunawayFluid.cpp`), [`critical_momentum`](@ref) of `|E|`. `Inf` where the field is below
+that critical field. `coulomb_logarithm` chooses the logarithm as in
+[`free_critical_momentum`](@ref), by DREAM's rule (`RunawayFluid::CalculateDerivedQuantities`,
+`src/Equations/RunawayFluid.cpp:205-209`): the thermal one for `:thermal`, the default, and
+the relativistic one for `:energy_dependent` and `:relativistic`.
 
 It is not DREAM's effective critical momentum (`other/fluid/pCrit`, Hesslow et al.), which
 takes the partial screening of the ions into account in the slowing down and the
@@ -157,9 +176,11 @@ in a hot plasma where the effective one has none, below the thermal momentum. Ru
 (`RunawayFluid.cpp:647-653`; not in `FLUID_HESSLOW`, whose `p⋆` differs); no function returns
 it, and it is not the default of `critical_momentum_at`.
 """
-function total_critical_momentum(plasma::PlasmaState, ir::Integer)
+function total_critical_momentum(plasma::PlasmaState, ir::Integer;
+        coulomb_logarithm::Symbol = :thermal)
     free = free_electron_density(plasma, ir)
-    logarithm = relativistic_coulomb_logarithm(free, plasma.cold_electron_temperature[ir])
+    logarithm = _critical_field_logarithm(coulomb_logarithm, free,
+        plasma.cold_electron_temperature[ir])
     field = critical_field(free + bound_electron_density(plasma, ir), logarithm)
     return critical_momentum(abs(plasma.electric_field[ir]), field)
 end

@@ -62,6 +62,29 @@ using HDF5
             @test case.knockon.p_cutoff == fill(expected.p_cutoff, 2)
         end
 
+        # the default ceiling with the relativistic logarithm, the former default, which
+        # sets a higher threshold
+        case = _checkpoint_case()
+        relativistic = KnockOnCutoffUpdate(case.knockon, case.plasma_at;
+            coulomb_logarithm = :relativistic)
+        for t in case.times
+            before = copy(case.knockon.p_cutoff)
+            Runes2P.apply_update!(relativistic, case.u0, case.layout, t)
+            plasma = case.plasma_at(t)
+            for ir in 1:2
+                temperature = plasma.cold_electron_temperature[ir]
+                threshold = total_critical_momentum(plasma, ir; coulomb_logarithm = :relativistic)
+                @test threshold > total_critical_momentum(plasma, ir)
+                target = cutoff_target(temperature, threshold)
+                expected = choose_cutoff_face(
+                    faces, target.p_cutoff, momentum_at_energy(temperature), threshold;
+                    current_cutoff = before[ir])
+                @test case.knockon.p_cutoff[ir] == expected.p_cutoff
+            end
+        end
+        @test describe(relativistic, DescriptionContext())["coulomb_logarithm"] ==
+              "relativistic"
+
         # the placement `:window`: inside the window, kept while it stays inside
         case = _checkpoint_case()
         window_update = KnockOnCutoffUpdate(
@@ -105,13 +128,30 @@ using HDF5
         @test free_of_threshold.inside_window == [true, true]
 
         # the critical fields of DREAM: the cold electrons, and all electrons, with the
-        # relativistic Coulomb logarithm of the cold ones
+        # Coulomb logarithm of the free ones, thermal by default, as DREAM's with
+        # lnlambda = THERMAL, and relativistic for the other two models
         plasma = case.plasma_at(0.0)
-        logarithm = relativistic_coulomb_logarithm(1e20, 1000.0)
-        critical = critical_field(1e20, logarithm)
-        @test free_critical_momentum(plasma, 1) == critical_momentum(1.0, critical)
-        @test free_critical_momentum(plasma, 1) ≈ 1 / sqrt(1.0 / critical - 1) rtol = 1e-14
+        thermal = thermal_coulomb_logarithm(1e20, 1000.0)
+        @test free_critical_momentum(plasma, 1) ==
+              critical_momentum(1.0, critical_field(1e20, thermal))
+        @test free_critical_momentum(plasma, 1) ==
+              free_critical_momentum(plasma, 1; coulomb_logarithm = :thermal)
         @test total_critical_momentum(plasma, 1) == free_critical_momentum(plasma, 1)     # no bound electrons
+        logarithm = relativistic_coulomb_logarithm(1e20, 1000.0)
+        @test logarithm > thermal
+        critical = critical_field(1e20, logarithm)
+        for model in (:relativistic, :energy_dependent)
+            @test free_critical_momentum(plasma, 1; coulomb_logarithm = model) ==
+                  critical_momentum(1.0, critical)
+            @test total_critical_momentum(plasma, 1; coulomb_logarithm = model) ==
+                  critical_momentum(1.0, critical)
+        end
+        @test free_critical_momentum(plasma, 1; coulomb_logarithm = :relativistic) ≈
+              1 / sqrt(1.0 / critical - 1) rtol = 1e-14
+        @test free_critical_momentum(plasma, 1; coulomb_logarithm = :relativistic) >
+              free_critical_momentum(plasma, 1)
+        @test_throws ArgumentError free_critical_momentum(plasma, 1; coulomb_logarithm = :constant)
+        @test_throws ArgumentError total_critical_momentum(plasma, 1; coulomb_logarithm = :constant)
         argon = zeros(19, 2)
         argon[1, :] .= 5e19                     # neutral: 18 bound electrons each
         with_argon = PlasmaState(cold_electron_temperature = [1000.0, 1000.0],
@@ -119,12 +159,18 @@ using HDF5
             ions = [IonSpecies("D", 1, 1, fill(1e20, 2)), IonSpecies("Ar", 18, argon)],
             electric_field = [1.0, 0.5], magnetic_field = [5.0, 5.0])
         @test free_critical_momentum(with_argon, 1) == free_critical_momentum(plasma, 1)
+        @test total_critical_momentum(with_argon, 1) ==
+              critical_momentum(1.0, critical_field(1e20 + 18 * 5e19, thermal))
         total = critical_field(1e20 + 18 * 5e19, logarithm)
-        @test total_critical_momentum(with_argon, 1) == critical_momentum(1.0, total)
-        @test total_critical_momentum(with_argon, 1) >
-              3 * free_critical_momentum(with_argon, 1)
-        @test total_critical_momentum(with_argon, 2) == Inf          # 0.5 V/m is below the total critical field
-        @test isfinite(free_critical_momentum(with_argon, 2))
+        @test total_critical_momentum(with_argon, 1; coulomb_logarithm = :relativistic) ==
+              critical_momentum(1.0, total)
+        for model in (:thermal, :relativistic)
+            @test total_critical_momentum(with_argon, 1; coulomb_logarithm = model) >
+                  3 * free_critical_momentum(with_argon, 1; coulomb_logarithm = model)
+            # 0.5 V/m is below the total critical field
+            @test total_critical_momentum(with_argon, 2; coulomb_logarithm = model) == Inf
+            @test isfinite(free_critical_momentum(with_argon, 2; coulomb_logarithm = model))
+        end
         # Before the quench of a fully kinetic run most free electrons are hot. The Coulomb
         # logarithm takes all free electrons, as DREAM's lnLambdaC does, and the free
         # critical field the cold ones. The values are those of a synthetic hot plasma before
@@ -133,13 +179,16 @@ using HDF5
         hot = PlasmaState(
             cold_electron_temperature = [5000.0], cold_electron_density = [1e-2 * 1e20],
             ions = [IonSpecies("D", 1, 1, [1e20])], electric_field = [1.0], magnetic_field = [5.0])
-        all_free = relativistic_coulomb_logarithm(1e20, 5000.0)
-        cold_only = relativistic_coulomb_logarithm(1e-2 * 1e20, 5000.0)
-        @test cold_only > all_free
-        @test free_critical_momentum(hot, 1) ==
-              critical_momentum(1.0, critical_field(1e-2 * 1e20, all_free))
-        @test total_critical_momentum(hot, 1) ==
-              critical_momentum(1.0, critical_field(1e20, all_free))
+        for (model, coulomb_logarithm) in ((:thermal, thermal_coulomb_logarithm),
+            (:relativistic, relativistic_coulomb_logarithm))
+            all_free = coulomb_logarithm(1e20, 5000.0)
+            cold_only = coulomb_logarithm(1e-2 * 1e20, 5000.0)
+            @test cold_only > all_free
+            @test free_critical_momentum(hot, 1; coulomb_logarithm = model) ==
+                  critical_momentum(1.0, critical_field(1e-2 * 1e20, all_free))
+            @test total_critical_momentum(hot, 1; coulomb_logarithm = model) ==
+                  critical_momentum(1.0, critical_field(1e20, all_free))
+        end
 
         # restoring a state sets the operator, and the kernels are those of a fresh operator
         state = Runes2P.update_state(update)
@@ -159,6 +208,7 @@ using HDF5
         @test record["per_radius"] === true
         @test record["thermal_factor"] == 4.0
         @test record["critical_momentum"] == "total_critical_momentum"
+        @test record["coulomb_logarithm"] == "thermal"
         @test record["plasma"] == "plasma_at"
         @test record["plasma_table"] == "table_1"
         @test describe(window_update, DescriptionContext())["placement"] == "window"
@@ -169,6 +219,8 @@ using HDF5
         @test_throws ArgumentError KnockOnCutoffUpdate(case.knockon, case.plasma_at; thermal_factor = 0)
         @test_throws ArgumentError KnockOnCutoffUpdate(case.knockon, case.plasma_at; no_ceiling_factor = 1)
         @test_throws ArgumentError KnockOnCutoffUpdate(case.knockon, case.plasma_at; placement = :nearest)
+        @test_throws ArgumentError KnockOnCutoffUpdate(case.knockon, case.plasma_at;
+            coulomb_logarithm = :constant)
         @test_throws ArgumentError integrate(
             case.system, case.u0, case.times; updates = (update, case.update()))
         @test_throws ArgumentError integrate(case.system, case.u0, case.times; updates = (1,))
