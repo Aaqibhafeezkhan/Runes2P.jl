@@ -1,4 +1,13 @@
+```@raw html
+<p align="center">
+  <img class="docs-light-only" alt="Runes2P" src="assets/wordmark.svg" width="360">
+  <img class="docs-dark-only" alt="Runes2P" src="assets/wordmark-dark.svg" width="360">
+</p>
+```
+
 # Runes2P
+
+The name stands for RUNaway Electron Solver in 2 momentum (P) dimensions: the electron distribution is resolved in the magnitude of the momentum and in its pitch.
 
 ```@docs
 Runes2P

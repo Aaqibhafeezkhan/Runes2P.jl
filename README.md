@@ -1,6 +1,8 @@
-<p align="center"><img alt="Runes2P" src="docs/src/assets/logo.svg" width="160"></p>
-
 # Runes2P
+
+<p align="center"><img alt="Runes2P" src="docs/src/assets/wordmark.svg" width="360"></p>
+
+RUNaway Electron Solver in 2 momentum (P) dimensions: the electron distribution is resolved in the magnitude of the momentum and in its pitch.
 
 Runes2P is a relativistic electron kinetic solver for runaway electrons in the style of [DREAM](https://github.com/chalmersplasmatheory/DREAM), written in Julia.
 It solves the Fokker-Planck equation of the electrons on momentum grids per radius.
