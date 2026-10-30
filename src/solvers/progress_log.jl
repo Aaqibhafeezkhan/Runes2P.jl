@@ -522,8 +522,8 @@ function write_entry(log::ProgressLog, reason::AbstractString,
                 _number(time_step), " s")
         function share(field)
             if wall > 0
-                part_wall_time = sum(@view getfield(stats, field)[attempts])
-                return @sprintf("%.0f %%", 100 * part_wall_time / wall)
+                field_wall_time = sum(@view getfield(stats, field)[attempts])
+                return @sprintf("%.0f %%", 100 * field_wall_time / wall)
             else
                 return "-"
             end
