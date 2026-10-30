@@ -229,8 +229,12 @@ Runes2P.sparsity!(entries, ::PulseSourceTerm, layout, row) = entries
         @test stats.error[checked] == [0.0, 0.0, 0.0]
         @test all(==(:converged), stats.status)
         @test solution.states[1, end] ≈ 0.5
+    end
+
+    @testset "the step after such a rejection follows from the other errors" begin
         # a decaying y whose error is within its tolerance: the step is rejected with an
-        # error below 1, and the next step follows from that error by DREAM's rule
+        # error below 1, and the next step follows from that error by DREAM's rule, longer
+        # than the step rejected
         k, h0 = 0.1, 1.0
         decay = (RadialUnknown(:y),
             Equation(:y, TimeDerivative(), LinearTerm(:y; coefficient = -k)))
@@ -238,11 +242,11 @@ Runes2P.sparsity!(entries, ::PulseSourceTerm, layout, row) = entries
         solution = integrate(system, [0.0, 1.0], [0.0, 10.0]; stepper = StepDoubling(initial_step = h0))
         stats = solution.statistics
         checked = findall(==(:step), stats.kind)
-        error = _doubling_error(k, h0, 1e-2)
-        @test error < 1
+        step_error = _doubling_error(k, h0, 1e-2)
+        @test step_error < 1
         @test !stats.accepted[checked[1]]
-        @test stats.error[checked[1]] ≈ error
-        @test stats.time_step[checked[2]] ≈ 0.95 * h0 / error
+        @test stats.error[checked[1]] ≈ step_error
+        @test stats.time_step[checked[2]] ≈ 0.95 * h0 / step_error
     end
 
     @testset "a failed solve shrinks the step by the failure factor" begin
