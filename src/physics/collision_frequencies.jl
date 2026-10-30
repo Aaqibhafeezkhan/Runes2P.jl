@@ -221,7 +221,7 @@ W. Heitler, Proc. R. Soc. Lond. A 146, 83 (1934), doi:10.1098/rspa.1934.0140) an
 DREAM's line 234 writes the constant `4/3` of the formula as an integer division, which is 1
 in C++, so DREAM's stopping power is 6.3 to 6.5 % above this one for `0.1 ≤ p ≤ 1`, 3.1 %
 at `p = 10` and 1.7 % at `p = 100`. Runes2P keeps `4/3`;
-`constant = :dream` gives DREAM's value from `p ≈ 0.1`, within 0.02 %, for the comparisons
+`constant = :dream` gives DREAM's value from `p ≈ 0.1`, within about 0.02 %, for the comparisons
 with DREAM. Below it `constant = :dream` does not reproduce DREAM: DREAM takes the integral
 term `∫₀^X ln(1 + x)/x dx` from a Steffen spline on 50 points in `0 ≤ X ≤ 10`
 (`SlowingDownFrequency.cpp:66-80`), and its stopping power is 3.2 % below that of

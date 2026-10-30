@@ -34,7 +34,7 @@ end
                                   electric_field=:electric_field, p_cutoff=0.01)
 
 DREAM's kinetic Rosenbluth-Putvinski avalanche source (`AVALANCHE_MODE_KINETIC`,
-`src/Equations/Kinetic/AvalancheSourceRP.cpp`, placed by `src/Settings/Equations/f_hot.cpp:116-126`)
+`src/Equations/Kinetic/AvalancheSourceRP.cpp`, placed by `src/Settings/Equations/f_hot.cpp:116-127`)
 in the equation of the kinetic unknown `kinetic` on `grid`: the knock-on electrons that a
 fluid runaway density `n_re` above the grid creates on the electrons of the total density
 `n_tot` (free and bound), at every momentum cell above `p_cutoff` and at the pitch

@@ -7,10 +7,10 @@
 # doi:10.1017/S002237781700099X, §3.1: the growth rate is independent of p_c for
 # p_c ≲ p_crit): p_c < p_crit.
 # Lower bound (Embréus 2018, §2.1: stationary targets need p_c ≫ p_Te, and the grid must
-# resolve p_c; DREAM's docs give no lower bound): p_c ≳ k p_Te. The reason, that the
-# momentum and energy that the gain-only source creates stay small, and the factor
-# k = thermal_factor = 4 are choices of this package (see the docs page Choices of this
-# package).
+# resolve p_c; DREAM's docs give no lower bound): p_c ≳ k p_Te, the reasoning of this
+# package, so that the momentum and energy that the gain-only source creates stay small. The
+# factor k = thermal_factor = 4 is a choice of this package (see the docs page Choices of
+# this package).
 # In a disruption the lower bound is high early in the thermal quench and the upper bound
 # low in the current quench, so a fixed p_c may not satisfy both at all times; DREAM runs
 # have to change pCutAvalanche between restarts.

@@ -111,7 +111,6 @@ The pitch grid of the runaway grid is the same at all radii and independent of t
 | factor of the cutoff without a threshold | `no_ceiling_factor = 10` |
 | placement of [`KnockOnCutoffUpdate`](@ref) | `placement = :energy_midpoint` |
 | lower bound of the window of [`cutoff_window`](@ref) and of `placement = :window`, in units of the thermal momentum | `thermal_factor = 4` |
-| Coulomb logarithm of [`free_critical_momentum`](@ref) and [`total_critical_momentum`](@ref) | the relativistic logarithm, whatever the logarithm of the collisions |
 
 ``W_\mathrm{cut}`` is the kinetic energy at the cutoff and ``W_c`` that at the critical momentum ``p_c``, by default from [`total_critical_momentum`](@ref).
 [`KnockOnCutoffUpdate`](@ref) applies the rule at the start of the run and after every accepted step, at every radius (`per_radius = true`).
@@ -119,8 +118,6 @@ In DREAM the cutoff (`pCutAvalanche`) is fixed within a run and changes only bet
 The cutoff is a face of the knock-on grid, kept while the target lies between its neighbouring faces ([`choose_cutoff_face`](@ref)).
 The lower bound keeps the cutoff above the thermal momentum, so that the momentum and energy that the knock-on source creates without a matching loss stay small.
 DREAM's documentation gives an upper bound for `pCutAvalanche`, the critical momentum, and no lower bound.
-DREAM takes the thermal logarithm for its `Ec_free` and `Ec_tot` when `collisions/lnlambda` is `THERMAL`.
-No option reproduces it, so in a run with the thermal logarithm the critical momentum of [`KnockOnCutoffUpdate`](@ref), and with it the cutoff, departs from DREAM's, which takes `Ec_tot` with the thermal logarithm.
 
 ## Linear solvers
 
