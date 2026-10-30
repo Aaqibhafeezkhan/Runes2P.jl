@@ -188,6 +188,9 @@ Where no critical momentum exists (the electric field below the critical field),
 A face is kept while the target stays between its neighbouring faces ([`choose_cutoff_face`](@ref)), so the kernels are rebuilt rarely.
 The placement and `no_ceiling_factor` are choices of this package (see [Choices of this package](../choices.md)).
 The threshold is [`total_critical_momentum`](@ref) by default.
+Its critical field takes the Coulomb logarithm named by the keyword `coulomb_logarithm` of [`KnockOnCutoffUpdate`](@ref), as DREAM's critical fields do.
+The default `:thermal` gives the thermal logarithm, and the other models the relativistic one.
+A run whose collisions take another model passes it, and `:relativistic` is allowed in any run.
 DREAM keeps one cutoff for all radii and times.
 
 With a hot-tail and a runaway grid the pairings of the two grids share one cutoff, through the keyword `linked` of [`KnockOnCutoffUpdate`](@ref), so that every knock-on above it is counted once.

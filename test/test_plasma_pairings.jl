@@ -114,6 +114,23 @@
             (;
                 equations = [Equation(:f, TimeDerivative(), FokkerPlanckTerm(:f, operator()))])) ===
               nothing
+        # the critical momentum takes the Coulomb logarithm of the collisions
+        energy_dependent = CollisionSettings(; mode = :full, screening = :complete,
+            coulomb_logarithm = :energy_dependent)
+        collisions = (;
+            equations = [Equation(:f, TimeDerivative(),
+            FokkerPlanckTerm(:f, operator(); settings = energy_dependent))])
+        @test_throws "coulomb_logarithm = :energy_dependent" Runes2P.check_update(prescribed, collisions)
+        for logarithm in (:energy_dependent, :relativistic)
+            matching = KnockOnCutoffUpdate(
+                KnockOnOperator(hot, hot, cutoff), knockon_plasma;
+                coulomb_logarithm = logarithm)
+            @test Runes2P.check_update(matching, collisions) === nothing
+        end
+        own_threshold = KnockOnCutoffUpdate(
+            KnockOnOperator(hot, hot, cutoff), knockon_plasma;
+            critical_momentum_at = (plasma, ir) -> 1.0)
+        @test Runes2P.check_update(own_threshold, collisions) === nothing
     end
 
     # the terms of the ion charge states and their energies (one numbered test per check)
