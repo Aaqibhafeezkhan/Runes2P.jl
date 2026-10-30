@@ -37,8 +37,9 @@ same name of [`CollisionSettings`](@ref), whose default `:thermal` it shares. Th
 ceiling [`total_critical_momentum`](@ref), and [`free_critical_momentum`](@ref), take it:
 the thermal logarithm for `:thermal` and the relativistic one for `:energy_dependent` and
 `:relativistic`, as DREAM's `Ec_tot` and `Ec_free` do (`RunawayFluid::CalculateDerivedQuantities`,
-`src/Equations/RunawayFluid.cpp:205-209`). Another function given as `critical_momentum_at`
-is called without it.
+`src/Equations/RunawayFluid.cpp:205-209`). The update does not see the collisions of the
+run, so a run whose [`CollisionSettings`](@ref) take another logarithm passes it here.
+Another function given as `critical_momentum_at` is called without it.
 
 - `placement = :energy_midpoint` (the default, a choice of this package; see the docs page
   *Choices of this package*) takes the rule of
@@ -175,8 +176,7 @@ end
 # the runaway threshold of the cutoff: the critical momenta of the package take the Coulomb
 # logarithm of the update, a function of the user is called without it
 function _runaway_threshold(critical_momentum_at, plasma, ir, coulomb_logarithm)
-    critical_momentum_at(
-        plasma, ir)
+    return critical_momentum_at(plasma, ir)
 end
 function _runaway_threshold(::typeof(total_critical_momentum), plasma, ir, coulomb_logarithm)
     return total_critical_momentum(plasma, ir; coulomb_logarithm)
