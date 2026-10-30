@@ -32,8 +32,22 @@ Until the first release, every change is listed under "Unreleased", with the sub
 - `thermal_coulomb_logarithm`, `relativistic_coulomb_logarithm`, `coulomb_logarithm` and `braams_karney_conductivity` take the density first; until now the temperature came first ([#134](https://github.com/osrep/Runes2P.jl/pull/134)).
   The new orders are `thermal_coulomb_logarithm(free_electron_density, temperature)` and `relativistic_coulomb_logarithm(free_electron_density, temperature)`.
   `coulomb_logarithm(collision, model, p, free_electron_density, temperature)` and `braams_karney_conductivity(free_electron_density, temperature, effective_charge)` follow.
+- `free_critical_momentum` and `total_critical_momentum` take the thermal Coulomb logarithm by default, as DREAM's default run does; until now they took the relativistic one ([#158](https://github.com/osrep/Runes2P.jl/pull/158)).
+  So the default ceiling of the cutoff of `KnockOnCutoffUpdate` moves.
+  Their new keyword `coulomb_logarithm` takes the Coulomb logarithm of the collisions: `:thermal`, or `:energy_dependent` and `:relativistic`, which give the former values.
+  `KnockOnCutoffUpdate` takes the same keyword for its default ceiling, and its settings record has the new key `"coulomb_logarithm"`.
+  A run refuses its default `:thermal` next to a Fokker-Planck term whose collisions take another model.
+  `OUTPUT_FORMAT_VERSION` is 0.0.2 for the new key.
 
 ### Removed
 
 - `with_state_ions`, `threshold_split`, `local_layout`, `resolved_pitch_options`, `write_header`, `write_entry` and `log_event!` are no longer exported ([#122](https://github.com/osrep/Runes2P.jl/pull/122)).
   They remain reachable as `Runes2P.<name>`, but they are internal and may change without an entry here.
+
+### Fixed
+
+- The like-species ratio N²²/M²² of the three-mode `FieldParticleOperator` is −2625/8385, the value of eq. (5.22) of Hirshman and Sigmar (1981) ([#156](https://github.com/osrep/Runes2P.jl/pull/156)).
+  The former −2125/8385 came from a misprint of N²² in Sugama et al. (2019), their equation (C5).
+  The conductivity of the default three-mode model moves by up to 0.03 %, depending on the effective charge.
+- `StepDoubling` rejects a step in which an unknown with no absolute tolerance is zero after the full step and not after the two half steps, as DREAM's acceptance does; before, it accepted it ([#157](https://github.com/osrep/Runes2P.jl/pull/157)).
+  The next step follows from the largest error of the other unknowns, as in DREAM, and is half the step tried when that error is zero.

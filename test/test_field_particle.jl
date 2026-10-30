@@ -1,7 +1,8 @@
 # Momentum-conserving field-particle term of the electron-electron collisions:
-# conservation, the matrix elements of the test-particle operator against
-# Braginskii's, the Lorentz limit and the Spitzer-Härm conductivity, the steady state of
-# a run with a prescribed field, and the Woodbury update of the solvers.
+# conservation, the matrix elements of the test-particle operator against Braginskii's,
+# the field-particle ratios against the like-species sums, the Lorentz limit and the
+# Spitzer-Härm conductivity, the steady state of a run with a prescribed field, and the
+# Woodbury update of the solvers.
 import LinearAlgebra
 using Random: Xoshiro
 
@@ -117,14 +118,24 @@ const SPITZER_HARM = Dict(1 => 0.5816, 2 => 0.6833, 4 => 0.7849, 16 => 0.9225)
         @test elements ./ elements[1, 1] ≈ expected rtol = 1e-3
     end
 
+    @testset "field-particle ratios against the like-species sums" begin
+        # (M + N)/M⁰⁰ = (M/M⁰⁰)(1 + N/M): zero in row and column 0 by momentum conservation,
+        # and 2, 3/2, 45/8 from the like-species elements -√2, -(3/4)√2, -(45/16)√2 over
+        # M⁰⁰ = -1/√2 (Hirshman and Sigmar 1981, eqs. (4.11)-(4.17), (5.21), (5.22) at x = 1)
+        test_ratios = [1 3/4 15/32; 3/4 59/16 417/128; 15/32 417/128 8385/1024]
+        sums = test_ratios .* (1 .+ Runes2P.LIKE_SPECIES_FIELD_TO_TEST_RATIOS)
+        @test sums ≈ [0 0 0; 0 2 3/2; 0 3/2 45/8] atol = 1e-12
+        @test Runes2P.LIKE_SPECIES_FIELD_TO_TEST_RATIOS[3, 3] ≈ -175 / 559
+    end
+
     @testset "Lorentz limit" begin
         # without cold electrons the term vanishes with the e-e collisions
         @test _field_particle_conductivity(; Z = 1, cold_fraction = 1e-10) ≈ 1 atol = 3e-3
     end
 
     @testset "conductivity against Spitzer-Härm" begin
-        # three modes: within 0.3% of γ_E at every Z (320 p cells: -0.22%, +0.30%, +0.07%,
-        # +0.10%); the rank-one momentum-restoring model is 11% below at Z = 1
+        # three modes: within 0.3% of γ_E at every Z (320 p cells: -0.19%, +0.30%, +0.07%,
+        # +0.13%); the rank-one momentum-restoring model is 11% below at Z = 1
         for Z in (1, 2, 4, 16)
             @test _field_particle_conductivity(; Z) ≈ SPITZER_HARM[Z] rtol = 5e-3
         end

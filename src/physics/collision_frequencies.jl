@@ -219,9 +219,13 @@ W. Heitler, Proc. R. Soc. Lond. A 146, 83 (1934), doi:10.1098/rspa.1934.0140) an
 `4(ln 2γ − 1/3)` for `γ ≫ 1` (W. Heitler, The Quantum Theory of Radiation, 3rd ed., 1954).
 
 DREAM's line 234 writes the constant `4/3` of the formula as an integer division, which is 1
-in C++, so DREAM's stopping power is 6.3 to 6.5 % above this one for `p ≤ 1`, 3.1 % at
-`p = 10` and 1.7 % at `p = 100`. Runes2P keeps `4/3`;
-`constant = :dream` gives DREAM's value, for the comparisons with DREAM. DREAM
+in C++, so DREAM's stopping power is 6.3 to 6.5 % above this one for `0.1 ≤ p ≤ 1`, 3.1 %
+at `p = 10` and 1.7 % at `p = 100`. Runes2P keeps `4/3`;
+`constant = :dream` gives DREAM's value from `p ≈ 0.1`, within about 0.02 %, for the comparisons
+with DREAM. Below it `constant = :dream` does not reproduce DREAM: DREAM takes the integral
+term `∫₀^X ln(1 + x)/x dx` from a Steffen spline on 50 points in `0 ≤ X ≤ 10`
+(`SlowingDownFrequency.cpp:66-80`), and its stopping power is 3.2 % below that of
+`constant = :dream` at `p = 0.001`, 2.8 % above this one. DREAM
 returns 0 at `p = 0`; the limit is `16/3`, and the slowing-down frequency is 0 there anyway.
 """
 function bremsstrahlung_cross_section(p::Real; constant::Symbol = :koch_motz)

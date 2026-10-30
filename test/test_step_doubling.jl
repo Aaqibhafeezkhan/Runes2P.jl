@@ -1,9 +1,10 @@
 # DREAM's step doubling (`TimeStepperAdaptive.cpp`) on a linear decay whose
 # backward-Euler steps are known in closed form: the error estimate, the step sequence by
 # DREAM's rule with its rejections, the steps between checks, the failure path, the
-# record of the stepper and the resume from a checkpoint. The comparison with DREAM's
-# own sequence is in test_time_stepping_dream.jl. The helpers are those of
-# test_time_stepping.jl.
+# record of the stepper and the resume from a checkpoint, and the acceptance of an unknown
+# at zero with no absolute tolerance, on synthetic states and in a run with its retry. The
+# comparison with DREAM's own sequence is in test_time_stepping_dream.jl. The helpers are
+# those of test_time_stepping.jl.
 using HDF5
 
 # du/dt = -k u: one backward-Euler step u/(1 + k h), two half steps u/(1 + k h/2)²; the
@@ -32,6 +33,24 @@ function _dream_sequence(k, h0, rel, t_end; safety = 0.95)
     end
     return checks, u
 end
+
+# a source `rate` before the time `until` and none after it: from x = 0, a backward-Euler
+# step that ends after `until` leaves x at zero, while its first half step adds to it
+struct PulseSourceTerm <: EquationTerm
+    rate::Float64
+    until::Float64
+end
+Runes2P.dependencies(::PulseSourceTerm) = Symbol[]
+function Runes2P.rhs!(out, term::PulseSourceTerm, u, layout, row, t)
+    if t < term.until
+        for ir in 1:radial_cell_count(layout), a in unknown_range(layout, row, ir)
+
+            out[a] += term.rate
+        end
+    end
+    return out
+end
+Runes2P.sparsity!(entries, ::PulseSourceTerm, layout, row) = entries
 
 @testset "step doubling" begin
     @testset "settings" begin
@@ -172,6 +191,62 @@ end
         @test stats.kind == [:half_step, :half_step, :step, :half_step, :half_step, :step]
         @test stats.error[[3, 6]] == [0.0, 0.0]
         @test stats.time_step[6] ≈ 0.2 - h0
+    end
+
+    @testset "an unknown at zero with no absolute tolerance" begin
+        # DREAM accepts a step only with dx ≤ epsa + epsr x for every unknown
+        # (ConvergenceChecker::IsConverged), so with epsa = 0 and x = 0 any difference fails
+        # it; the zero scale stays out of the largest error, which sets the next step
+        rad = RadialGrid(uniform_r_faces(1, 0.5))
+        layout = UnknownLayout(rad, [RadialUnknown(:x), RadialUnknown(:y)])
+        state = Runes2P.StepDoublingState{Float64}(
+            0.1, 0, 0, [0.0, 0.0], [1e-2, 1e-2], zeros(2), zeros(2), fill(NaN, 2))
+        # x at zero after the full step and not after the halves; y within its tolerance
+        largest, converged = Runes2P._doubling_errors!(state, layout, [0.0, 1.0], [
+            1e-9, 1.0005])
+        @test !converged
+        @test largest ≈ 0.05
+        @test state.errors == [Inf, largest]
+        # no difference at the zero scale: no error there, and the step converges
+        largest, converged = Runes2P._doubling_errors!(state, layout, [0.0, 1.0], [
+            0.0, 1.0005])
+        @test converged
+        @test state.errors == [0.0, largest]
+    end
+
+    @testset "a run rejects the step that an unknown at zero fails" begin
+        # x = 0 with the pulse until 0.75: the full step of 1 leaves x at zero, the half steps
+        # give 0.5, so the step converges with no error and is rejected all the same. With no
+        # other error to scale by, it is retried with half its length (a choice of this
+        # package), which ends inside the pulse; then the error is zero, and the next step
+        # runs to the end.
+        system = single_unknown_system(TimeDerivative(), PulseSourceTerm(1.0, 0.75))
+        solution = integrate(system, [0.0], [0.0, 2.0]; stepper = StepDoubling(initial_step = 1.0))
+        stats = solution.statistics
+        checked = findall(==(:step), stats.kind)
+        @test stats.time_step[checked] ≈ [1.0, 0.5, 1.5]
+        @test stats.accepted[checked] == [false, true, true]
+        @test stats.error[checked] == [0.0, 0.0, 0.0]
+        @test all(==(:converged), stats.status)
+        @test solution.states[1, end] ≈ 0.5
+    end
+
+    @testset "the step after such a rejection follows from the other errors" begin
+        # a decaying y whose error is within its tolerance: the step is rejected with an
+        # error below 1, and the next step follows from that error by DREAM's rule, longer
+        # than the step rejected
+        k, h0 = 0.1, 1.0
+        decay = (RadialUnknown(:y),
+            Equation(:y, TimeDerivative(), LinearTerm(:y; coefficient = -k)))
+        system = single_unknown_system(TimeDerivative(), PulseSourceTerm(1.0, 0.75); extra = (decay,))
+        solution = integrate(system, [0.0, 1.0], [0.0, 10.0]; stepper = StepDoubling(initial_step = h0))
+        stats = solution.statistics
+        checked = findall(==(:step), stats.kind)
+        step_error = _doubling_error(k, h0, 1e-2)
+        @test step_error < 1
+        @test !stats.accepted[checked[1]]
+        @test stats.error[checked[1]] ≈ step_error
+        @test stats.time_step[checked[2]] ≈ 0.95 * h0 / step_error
     end
 
     @testset "a failed solve shrinks the step by the failure factor" begin

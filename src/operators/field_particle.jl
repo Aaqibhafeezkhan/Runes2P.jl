@@ -76,13 +76,18 @@ end
 
 # Ratios N^{jk}/M^{jk} of the field-particle to the test-particle matrix elements of the
 # linearized Landau operator for like species (equal mass and temperature), j, k = 0, 1, 2,
-# in the Laguerre basis v∥ L_j^{(3/2)}(x²) f_M: Sugama et al., Phys. Plasmas 26 (2019),
-# doi 10.1063/1.5115440, appendix C, eqs. (C2)-(C5) at α = 1. Row and column 0 are -1 by
-# momentum conservation (N^{0k} = -M^{0k}). M¹¹ = -59/(16√2), N¹¹ = 27/(16√2),
-# M¹² = -417/(128√2), N¹² = 225/(128√2), M²² = -8385/(1024√2), N²² = 2125/(1024√2).
+# in the Laguerre basis v∥ L_j^{(3/2)}(x²) f_M: S. P. Hirshman and D. J. Sigmar, Nucl.
+# Fusion 21, 1079 (1981), doi:10.1088/0029-5515/21/9/003, eqs. (4.11)-(4.17), (5.21) and
+# (5.22) at x = 1, and P. Helander and D. J. Sigmar, Collisional Transport in Magnetized
+# Plasmas (Cambridge, 2002), p. 278. Row and column 0 are -1 by momentum conservation
+# (N^{0k} = -M^{0k}). M¹¹ = -59/(16√2), N¹¹ = 27/(16√2), M¹² = -417/(128√2),
+# N¹² = 225/(128√2), M²² = -8385/(1024√2), N²² = 2625/(1024√2), so that M + N gives the
+# like-species elements -√2, -(3/4)√2 and -(45/16)√2. Sugama et al., Phys. Plasmas 26,
+# 102108 (2019), doi:10.1063/1.5115440, eqs. (C2)-(C5) at α = 1, agree but for N²², which
+# its eq. (C5) prints with 2125.
 const LIKE_SPECIES_FIELD_TO_TEST_RATIOS = [-1.0 -1.0 -1.0
                                            -1.0 -27/59 -225/417
-                                           -1.0 -225/417 -2125/8385]
+                                           -1.0 -225/417 -2625/8385]
 
 # generalized Laguerre polynomial L_j^{(3/2)}(y), j = 0, 1, 2
 function _laguerre(j, y)
@@ -103,7 +108,8 @@ Model field-particle term of the linearized electron-electron collisions, of ran
 per radius. It conserves parallel momentum exactly, and it reproduces the matrix elements
 of the Landau field-particle operator between the first `modes` Laguerre modes of the
 `l = 1` part of `f`, as the improved Sugama operator does (Sugama et al., Phys. Plasmas
-26 (2019), doi 10.1063/1.5115440):
+26, 102108 (2019), doi:10.1063/1.5115440), with the like-species ratios of S. P. Hirshman
+and D. J. Sigmar, Nucl. Fusion 21, 1079 (1981), doi:10.1088/0029-5515/21/9/003:
 
     C_fp(f) = Σ_ab g_a A_ab (ℓ_b · f),   ℓ_b = C_eeᵀ (m ∘ L_b),   g_a = f_M ℓ_a / Δ𝒱,
 

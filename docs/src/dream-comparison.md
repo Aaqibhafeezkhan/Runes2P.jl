@@ -293,6 +293,8 @@ The reasons of the defaults that are choices of this package are on [Choices of 
 - Each charge state has a lower limit relative to the density of its species ([`ion_densities_unknown`](@ref)).
   DREAM's `MaximalPhysicalStepLength` damps ``T_\mathrm{cold}``, ``n_\mathrm{tot}``, ``n_\mathrm{cold}``, where they are unknowns ``W_\mathrm{cold}``, ``W_i`` and the species densities ``N_i``, and ``\sum Z_0^2 n`` per radius; the charge states have no limit of their own (`src/Solver/SolverNonLinear.cpp:441-508`).
 - A lower limit shortens only steps towards the limit, never growth ([`LowerLimit`](@ref)).
+- A doubled step that an unknown at zero with no absolute tolerance fails, while every other unknown has no error, is retried with half its length ([`StepDoubling`](@ref)).
+  DREAM's next step is unbounded there (`src/TimeStepper/TimeStepperAdaptive.cpp:458-482`).
 - The ion rows take the sign convention of every other row, so [`IonDiffusionTerm`](@ref) takes a positive coefficient (DREAM: `src/Equations/Fluid/IonTransientTerm.cpp:78`).
 - [`coronal_equilibrium`](@ref) multiplies the ratios of the rates in log space, where DREAM multiplies them directly (`src/Settings/IonEquilibrium.cpp:100-137`).
 - The derivatives of the ADAS coefficients are exact, without DREAM's floors in the Jacobian ([`adas_coefficient`](@ref), [`IonRateTerm`](@ref)).

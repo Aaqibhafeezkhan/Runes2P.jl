@@ -188,6 +188,9 @@ Where no critical momentum exists (the electric field below the critical field),
 A face is kept while the target stays between its neighbouring faces ([`choose_cutoff_face`](@ref)), so the kernels are rebuilt rarely.
 The placement and `no_ceiling_factor` are choices of this package (see [Choices of this package](../choices.md)).
 The threshold is [`total_critical_momentum`](@ref) by default.
+Its critical field takes the Coulomb logarithm named by the keyword `coulomb_logarithm` of [`KnockOnCutoffUpdate`](@ref), as DREAM's critical fields do.
+The default `:thermal` gives the thermal logarithm, and the other models the relativistic one.
+A run whose collisions take another model passes it, and `:relativistic` is allowed in any run.
 DREAM keeps one cutoff for all radii and times.
 
 With a hot-tail and a runaway grid the pairings of the two grids share one cutoff, through the keyword `linked` of [`KnockOnCutoffUpdate`](@ref), so that every knock-on above it is counted once.
@@ -242,6 +245,7 @@ It is cut at zero so that the exchange keeps its sign.
 - The default knock-on operator against a quadrature reference, and its physics limits: `test/test_knockon_reference.jl`, `test/test_knockon_physics.jl`.
 - An avalanche run against DREAM's Boltzmann knock-on mode: `test/test_avalanche_dream.jl`.
 - The Rosenbluth-Putvinski source and the fluid growth rate against DREAM: `test/test_avalanche_rp_dream.jl`.
-- The field-particle term: momentum conservation, the matrix elements of the test-particle operator against Braginskii's, the Lorentz limit and the Spitzer-Härm conductivity: `test/test_field_particle.jl`.
+- The field-particle term, `test/test_field_particle.jl`: momentum conservation, the matrix elements of the test-particle operator against Braginskii's, and the field-particle ratios against the like-species sums.
+  The same file checks the Lorentz limit and the Spitzer-Härm conductivity.
 
 The conductivity is that of L. Spitzer and R. Härm, Phys. Rev. 89, 977 (1953), doi:10.1103/PhysRev.89.977.

@@ -110,11 +110,14 @@ The pitch grid of the runaway grid is the same at all radii and independent of t
 | rule of [`cutoff_target`](@ref) | ``W_\mathrm{cut} = \sqrt{T W_c}`` where the critical momentum is finite and ``W_c > T``, else `no_ceiling_factor` times ``T`` |
 | factor of the cutoff without a threshold | `no_ceiling_factor = 10` |
 | placement of [`KnockOnCutoffUpdate`](@ref) | `placement = :energy_midpoint` |
+| lower bound of the window of [`cutoff_window`](@ref) and of `placement = :window`, in units of the thermal momentum | `thermal_factor = 4` |
 
 ``W_\mathrm{cut}`` is the kinetic energy at the cutoff and ``W_c`` that at the critical momentum ``p_c``, by default from [`total_critical_momentum`](@ref).
 [`KnockOnCutoffUpdate`](@ref) applies the rule at the start of the run and after every accepted step, at every radius (`per_radius = true`).
 In DREAM the cutoff (`pCutAvalanche`) is fixed within a run and changes only between restarts.
 The cutoff is a face of the knock-on grid, kept while the target lies between its neighbouring faces ([`choose_cutoff_face`](@ref)).
+The lower bound keeps the cutoff above the thermal momentum, so that the momentum and energy that the knock-on source creates without a matching loss stay small.
+DREAM's documentation gives an upper bound for `pCutAvalanche`, the critical momentum, and no lower bound.
 
 ## Linear solvers
 
@@ -124,6 +127,17 @@ The cutoff is a face of the knock-on grid, kept while the target lies between it
 
 When a step needs more Krylov iterations than the restart length, restarted GMRES can stagnate, and the step ends with `:linear_solve_failed`.
 The Krylov basis holds `restart_length` vectors.
+
+## Time stepping
+
+| Choice | Value |
+|---|---|
+| next step of [`StepDoubling`](@ref) after a step that an unknown at zero fails while every other unknown has no error | half the step |
+
+DREAM rejects a step in which an unknown with no absolute tolerance is zero after the full step and not after the two half steps.
+It takes the next step from the largest error of the other unknowns, as [`StepDoubling`](@ref) does.
+When that error is zero, DREAM's next step is unbounded; halving the step tried keeps the retry finite.
+DREAM has no finite behaviour to reproduce there, so no option gives DREAM's.
 
 ## Examples
 

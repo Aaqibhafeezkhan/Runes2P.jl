@@ -222,7 +222,9 @@ function effective_critical_field(plain::CollisionModel, ir::Integer; dual = not
 end
 
 # the Connor-Hastie field of all electrons, free and bound, with the relativistic Coulomb
-# logarithm of the free electrons (DREAM's Ec_tot, RunawayFluid.cpp:200-210)
+# logarithm of the free electrons (DREAM's Ec_tot, RunawayFluid.cpp:200-210), also where
+# DREAM's Ec_tot takes the thermal one (lines 205-209); it only brackets the root of
+# effective_critical_field
 function _connor_hastie_total_field(plasma::PlasmaState, ir)
     free = free_electron_density(plasma, ir)
     logarithm = relativistic_coulomb_logarithm(free, plasma.cold_electron_temperature[ir])
