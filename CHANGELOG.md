@@ -43,5 +43,5 @@ Until the first release, every change is listed under "Unreleased", with the sub
 - The like-species ratio N²²/M²² of the three-mode `FieldParticleOperator` is −2625/8385, the value of eq. (5.22) of Hirshman and Sigmar (1981) ([#156](https://github.com/osrep/Runes2P.jl/pull/156)).
   The former −2125/8385 came from a misprint of N²² in Sugama et al. (2019), their equation (C5).
   The conductivity of the default three-mode model moves by up to 0.03 %, depending on the effective charge.
-- `StepDoubling` rejects a step in which an unknown with no absolute tolerance is zero after the full step and not after the two half steps, as DREAM's acceptance does; before, it accepted it ([#PR](https://github.com/osrep/Runes2P.jl/pull/PR)).
+- `StepDoubling` rejects a step in which an unknown with no absolute tolerance is zero after the full step and not after the two half steps, as DREAM's acceptance does; before, it accepted it ([#157](https://github.com/osrep/Runes2P.jl/pull/157)).
   The retry takes half the step tried.
