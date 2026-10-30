@@ -4,10 +4,12 @@
 # "Runaway avalanching": the cutoff "must be chosen to be smaller than the critical momentum
 # for runaway generation, otherwise the cutoff will act as the effective critical momentum";
 # O. Embréus, A. Stahl and T. Fülöp, J. Plasma Phys. 84, 905840102 (2018),
-# doi:10.1017/S002237781700099X, §3.1: the growth rate is independent of p_c for
-# p_c ≲ p_crit): p_c < p_crit.
-# Lower bound (Embréus 2018, §2.1: stationary targets need p_c ≫ p_Te, and the grid must
-# resolve p_c; DREAM's docs give no lower bound): p_c ≳ k p_Te, the reasoning of this
+# doi:10.1017/S002237781700099X, whose p_m and p_c are p_c and p_crit here, §3.1: the growth
+# rate is nearly independent of p_c for p_c ≲ p_crit, within a few per cent with the full
+# conservative operator): p_c < p_crit.
+# Lower bound (the same article, §2.1 and the end of §2.2: the operator assumes stationary
+# targets, which needs p_c ≫ p_Te, and the momentum grid spacing must be much smaller than
+# p_c; DREAM's docs give no lower bound): p_c ≳ k p_Te, the reasoning of this
 # package, so that the momentum and energy that the gain-only source creates stay small. The
 # factor k = thermal_factor = 4 is a choice of this package (see the docs page Choices of
 # this package).
