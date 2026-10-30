@@ -36,6 +36,8 @@ Until the first release, every change is listed under "Unreleased", with the sub
   So the default ceiling of the cutoff of `KnockOnCutoffUpdate` moves.
   Their new keyword `coulomb_logarithm` takes the Coulomb logarithm of the collisions: `:thermal`, or `:energy_dependent` and `:relativistic`, which give the former values.
   `KnockOnCutoffUpdate` takes the same keyword for its default ceiling, and its settings record has the new key `"coulomb_logarithm"`.
+  A run refuses its default `:thermal` next to collisions that take another model.
+  `OUTPUT_FORMAT_VERSION` is 0.0.2 for the new key.
 
 ### Removed
 

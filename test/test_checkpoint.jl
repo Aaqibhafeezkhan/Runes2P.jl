@@ -179,10 +179,10 @@ using HDF5
         hot = PlasmaState(
             cold_electron_temperature = [5000.0], cold_electron_density = [1e-2 * 1e20],
             ions = [IonSpecies("D", 1, 1, [1e20])], electric_field = [1.0], magnetic_field = [5.0])
-        for (model, coulomb_logarithm) in ((:thermal, thermal_coulomb_logarithm),
+        for (model, logarithm_of) in ((:thermal, thermal_coulomb_logarithm),
             (:relativistic, relativistic_coulomb_logarithm))
-            all_free = coulomb_logarithm(1e20, 5000.0)
-            cold_only = coulomb_logarithm(1e-2 * 1e20, 5000.0)
+            all_free = logarithm_of(1e20, 5000.0)
+            cold_only = logarithm_of(1e-2 * 1e20, 5000.0)
             @test cold_only > all_free
             @test free_critical_momentum(hot, 1; coulomb_logarithm = model) ==
                   critical_momentum(1.0, critical_field(1e-2 * 1e20, all_free))

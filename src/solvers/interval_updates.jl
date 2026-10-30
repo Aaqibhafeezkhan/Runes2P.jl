@@ -37,9 +37,11 @@ same name of [`CollisionSettings`](@ref), whose default `:thermal` it shares. Th
 ceiling [`total_critical_momentum`](@ref), and [`free_critical_momentum`](@ref), take it:
 the thermal logarithm for `:thermal` and the relativistic one for `:energy_dependent` and
 `:relativistic`, as DREAM's `Ec_tot` and `Ec_free` do (`RunawayFluid::CalculateDerivedQuantities`,
-`src/Equations/RunawayFluid.cpp:205-209`). The update does not see the collisions of the
-run, so a run whose [`CollisionSettings`](@ref) take another logarithm passes it here.
-Another function given as `critical_momentum_at` is called without it.
+`src/Equations/RunawayFluid.cpp:205-209`). The update does not take the logarithm from the
+collisions of the run: a run whose [`CollisionSettings`](@ref) take another model passes it
+here, and the run refuses the default `:thermal` next to a Fokker-Planck term whose
+collisions take another model. `:relativistic` is allowed in any run. Another function given as
+`critical_momentum_at` is called without it.
 
 - `placement = :energy_midpoint` (the default, a choice of this package; see the docs page
   *Choices of this package*) takes the rule of
@@ -257,16 +259,35 @@ Nothing by default.
 check_update(update::IntervalUpdate, system) = nothing
 
 # the cutoff follows the temperature of the bulk: the unknown of the temperature when the
-# terms of the bulk read one
+# terms of the bulk read one; its critical momentum takes the Coulomb logarithm of the
+# collisions, as DREAM's
 function check_update(update::KnockOnCutoffUpdate, system)
     temperature = _bulk_temperature_unknown(system.equations)
-    temperature === nothing && return nothing
     source = update.plasma_at
-    if !(source isa PlasmaFromUnknowns && source.temperature === temperature)
+    if temperature !== nothing &&
+       !(source isa PlasmaFromUnknowns && source.temperature === temperature)
         throw(ArgumentError("the knock-on cutoff update $(update.name) takes a prescribed temperature, while the " *
                             "terms of the cold bulk read the unknown $temperature: give it " *
                             "PlasmaFromUnknowns(plasma_at; temperature = :$temperature), which it reads at the " *
                             "start of each step"))
+    end
+    _check_cutoff_logarithm(update, system.equations)
+    return nothing
+end
+
+# the thermal logarithm of the critical momentum next to collisions that take another one
+function _check_cutoff_logarithm(update::KnockOnCutoffUpdate, equations)
+    update.coulomb_logarithm === :thermal || return nothing
+    any(f -> update.critical_momentum_at === f,
+        (total_critical_momentum, free_critical_momentum)) || return nothing
+    for equation in equations, term in equation.terms
+
+        term isa FokkerPlanckTerm || continue
+        model = term.settings.coulomb_logarithm
+        model === :thermal && continue
+        throw(ArgumentError("the knock-on cutoff update $(update.name) takes the thermal Coulomb logarithm, " *
+                            "while the collisions of the run take :$model: give it " *
+                            "coulomb_logarithm = :$model, as DREAM's critical fields follow the collisions"))
     end
     return nothing
 end

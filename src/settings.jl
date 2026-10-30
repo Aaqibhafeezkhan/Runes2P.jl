@@ -14,7 +14,7 @@ using LinearAlgebra: BLAS
 Version of the output file format, written as the string `"major.minor.patch"` in the
 root attribute `format_version`. It counts up with every change of the file's content.
 """
-const OUTPUT_FORMAT_VERSION = v"0.0.1"
+const OUTPUT_FORMAT_VERSION = v"0.0.2"
 
 "The format version as written to files, `\"major.minor.patch\"`."
 output_format_version() = string(OUTPUT_FORMAT_VERSION)

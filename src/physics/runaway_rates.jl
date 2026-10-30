@@ -139,7 +139,7 @@ critical field takes the thermal logarithm ([`thermal_coulomb_logarithm`](@ref))
 `:thermal`, DREAM's `THERMAL`, and the relativistic one
 ([`relativistic_coulomb_logarithm`](@ref)) for `:energy_dependent` and `:relativistic`,
 DREAM's `ENERGY_DEPENDENT` and `CONSTANT`. A run passes the `coulomb_logarithm` of its
-collisions; `:relativistic` gives the relativistic logarithm whatever the collisions take.
+collisions, or `:relativistic` for the relativistic logarithm in any run.
 
 The Coulomb logarithm takes the free electron density, the cold, hot and runaway
 electrons together, as DREAM's `lnLambdaC` (agreement to 1e-8) and `lnLambdaT`
