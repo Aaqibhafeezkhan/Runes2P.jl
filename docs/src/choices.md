@@ -120,7 +120,7 @@ The cutoff is a face of the knock-on grid, kept while the target lies between it
 The lower bound keeps the cutoff above the thermal momentum, so that the momentum and energy that the knock-on source creates without a matching loss stay small.
 DREAM's documentation gives an upper bound for `pCutAvalanche`, the critical momentum, and no lower bound.
 DREAM takes the thermal logarithm for its `Ec_free` and `Ec_tot` when `collisions/lnlambda` is `THERMAL`.
-No option reproduces it, so in a run with the thermal logarithm the critical momentum of [`KnockOnCutoffUpdate`](@ref), and with it the cutoff, departs from one taken from `Ec_tot`.
+No option reproduces it, so in a run with the thermal logarithm the critical momentum of [`KnockOnCutoffUpdate`](@ref), and with it the cutoff, departs from DREAM's, which takes `Ec_tot` with the thermal logarithm.
 
 ## Linear solvers
 

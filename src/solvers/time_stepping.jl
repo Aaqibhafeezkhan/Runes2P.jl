@@ -324,7 +324,8 @@ The tolerances are the [`Tolerance`](@ref)s the system holds for the time-step e
 `relative_tolerance` and no absolute tolerance (DREAM's default absolute tolerance is
 zero for every unknown but the runaway density, the runaway distribution `f_re` and the
 runaway current, which get 1e-10, 1e-10 and `e c 1e-10`;
-`ConvergenceChecker::GetDefaultAbsTol`, `ConvergenceChecker.cpp:110-120`). An unknown with both tolerances zero is left out of the check. A step whose
+`ConvergenceChecker::GetDefaultAbsTol`, `ConvergenceChecker.cpp:110-120`). An unknown with
+both tolerances zero is left out of the check. A step whose
 solve fails is retried with `failure_factor` times its length, at most `max_failures`
 times in a row (DREAM's `STEP_REDUCTION_AT_EXCEPTION` and `MAX_STEPS_WITH_EXCEPTION`);
 in a step between checks DREAM ends the run instead, Runes2P retries there too.
