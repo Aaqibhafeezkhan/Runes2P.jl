@@ -127,14 +127,13 @@ The names of the unknowns a [`PlasmaSource`](@ref) reads.
 source_dependencies(::Union{Nothing, PlasmaSource}) = ()
 # the ions need the density as an unknown (constructor)
 function source_dependencies(source::PlasmaFromUnknowns)
-    read_unknowns = if source.density === nothing
-        (source.temperature,)
+    if source.density === nothing
+        return (source.temperature,)
     elseif source.ions === nothing
-        (source.temperature, source.density)
+        return (source.temperature, source.density)
     else
-        (source.temperature, source.density, source.ions)
+        return (source.temperature, source.density, source.ions)
     end
-    return read_unknowns
 end
 
 """

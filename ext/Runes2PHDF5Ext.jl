@@ -178,6 +178,8 @@ function _read_unknown(group, entry, name, radial::RadialGrid)
             starts = read(entry["group_starts"])
             [starts[k]:(k == length(starts) ? components : starts[k + 1] - 1)
              for k in eachindex(starts)]
+        else
+            nothing
         end
         return RadialUnknown(Symbol(name); components, scale, nonnegative = limit, groups)
     else
