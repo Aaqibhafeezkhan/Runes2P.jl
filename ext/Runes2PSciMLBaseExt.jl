@@ -44,10 +44,8 @@ function Runes2P.ode_function(system::EquationSystem)
     # a term lagged to the start of the step: in the ODE form that is the state itself, and
     # the stored Jacobian leaves out the derivative of the lagged part
     has_lagged_term(equation) = any(lags_in_ode_form(term) for term in equation.terms)
-    #! format: off
     any(has_lagged_term(equation) for equation in system.equations) &&
-        return ODEFunction{true}(f!; mass_matrix=M)
-    #! format: on
+        return ODEFunction{true}(f!; mass_matrix = M)
     if isempty(system.matrix_free_terms) && isempty(system.explicit_terms) &&
        system.stored_jacobian_exact
         function jac!(J, u, p, t)

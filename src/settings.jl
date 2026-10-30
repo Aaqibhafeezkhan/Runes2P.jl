@@ -645,11 +645,11 @@ function describe(term::RadiatedPowerTerm, context::DescriptionContext)
         record["kinetic_ionization"] = describe(term.kinetic_ionization, context)
     end
     # the ADF11 files of each element, by name: the cache itself is not part of the record
-    #! format: off
-    record["adf11_files"] = SettingsRecord(element => SettingsRecord(String(class) => basename(getproperty(tables, class).source)
-                                                                     for class in ADF11_CLASSES)
-                                           for (element, tables) in term.tables)
-    #! format: on
+    files = SettingsRecord()
+    for (element, tables) in term.tables
+        files[element] = _adf11_file_names(tables, ADF11_CLASSES)
+    end
+    record["adf11_files"] = files
     return _describe_plasma_source!(record, term.plasma, context)
 end
 
@@ -672,12 +672,21 @@ function describe(term::IonRateTerm, context::DescriptionContext)
         record["kinetic_ionization"] = describe(term.kinetic_ionization, context)
     end
     # the ADF11 files of each element, by name: the cache itself is not part of the record
-    #! format: off
-    record["adf11_files"] = SettingsRecord(name => SettingsRecord(String(class) => basename(getproperty(tables, class).source)
-                                                                  for class in (:scd, :acd))
-                                           for (name, tables) in zip(c.names, term.tables))
-    #! format: on
+    files = SettingsRecord()
+    for (name, tables) in zip(c.names, term.tables)
+        files[name] = _adf11_file_names(tables, (:scd, :acd))
+    end
+    record["adf11_files"] = files
     return record
+end
+
+# the names of the ADF11 files of the classes `classes` in `tables`, by class
+function _adf11_file_names(tables, classes)
+    file_names = SettingsRecord()
+    for class in classes
+        file_names[String(class)] = basename(getproperty(tables, class).source)
+    end
+    return file_names
 end
 
 function settings_fields(::Type{<:KnockOnTerm})
@@ -784,6 +793,7 @@ function _describe_profile(profile)
     end
 end
 
+# the record of a radial profile, or of a plain value
 function _describe_profile_or_value(v)
     if _is_radial_profile(v)
         return _describe_profile(v)
