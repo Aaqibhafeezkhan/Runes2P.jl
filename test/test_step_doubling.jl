@@ -1,10 +1,10 @@
 # DREAM's step doubling (`TimeStepperAdaptive.cpp`) on a linear decay whose
 # backward-Euler steps are known in closed form: the error estimate, the step sequence by
 # DREAM's rule with its rejections, the steps between checks, the failure path, the
-# record of the stepper and the resume from a checkpoint, and on synthetic states the
-# acceptance of an unknown at zero with no absolute tolerance. The comparison with DREAM's
-# own sequence is in test_time_stepping_dream.jl. The helpers are those of
-# test_time_stepping.jl.
+# record of the stepper and the resume from a checkpoint, and the acceptance of an unknown
+# at zero with no absolute tolerance, on synthetic states and in a run with its retry. The
+# comparison with DREAM's own sequence is in test_time_stepping_dream.jl. The helpers are
+# those of test_time_stepping.jl.
 using HDF5
 
 # du/dt = -k u: one backward-Euler step u/(1 + k h), two half steps u/(1 + k h/2)²; the
@@ -230,7 +230,7 @@ Runes2P.sparsity!(entries, ::PulseSourceTerm, layout, row) = entries
         @test all(==(:converged), stats.status)
         @test solution.states[1, end] ≈ 0.5
         # a decaying y whose error is within its tolerance: the step is rejected with an
-        # error of at most 1, and the next step follows from that error by DREAM's rule
+        # error below 1, and the next step follows from that error by DREAM's rule
         k, h0 = 0.1, 1.0
         decay = (RadialUnknown(:y),
             Equation(:y, TimeDerivative(), LinearTerm(:y; coefficient = -k)))
