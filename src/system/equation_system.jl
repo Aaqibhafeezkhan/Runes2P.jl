@@ -14,7 +14,7 @@ with `absolute` in the unknown's physical units. `group` adds `group Σ |x_k|` o
 components `k` of the entry's group at its radius ([`component_groups`](@ref)): the
 tolerance of a charge state relative to the density of its species, so that a trace
 impurity is converged on its own scale (DREAM tests the 2-norm of the whole ion block with
-an absolute tolerance of 0, `src/ConvergenceChecker.cpp:110-119, 193`). A `group`
+an absolute tolerance of 0, `src/ConvergenceChecker.cpp:110-120, 193`). A `group`
 part needs a radial unknown: [`EquationSystem`](@ref) refuses it on a kinetic or scalar
 unknown.
 """

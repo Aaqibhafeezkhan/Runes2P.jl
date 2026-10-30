@@ -322,8 +322,10 @@ option reproduces it.
 The tolerances are the [`Tolerance`](@ref)s the system holds for the time-step error
 (`time_step_tolerances` of [`EquationSystem`](@ref)); an unknown without one gets
 `relative_tolerance` and no absolute tolerance (DREAM's default absolute tolerance is
-zero for every unknown but the runaway density and current, which get 1e-10 and
-`e c 1e-10`). An unknown with both tolerances zero is left out of the check. A step whose
+zero for every unknown but the runaway density, the runaway distribution `f_re` and the
+runaway current, which get 1e-10, 1e-10 and `e c 1e-10`;
+`ConvergenceChecker::GetDefaultAbsTol`, `ConvergenceChecker.cpp:110-120`). An unknown with
+both tolerances zero is left out of the check. A step whose
 solve fails is retried with `failure_factor` times its length, at most `max_failures`
 times in a row (DREAM's `STEP_REDUCTION_AT_EXCEPTION` and `MAX_STEPS_WITH_EXCEPTION`);
 in a step between checks DREAM ends the run instead, Runes2P retries there too.
@@ -501,7 +503,7 @@ function advance!(stepper::StepDoubling, state::StepDoublingState, run, options,
     _record!(run.stats, t_next, h, result, run.ws, wall; accepted, error)
     # DREAM: dt = safety dt / error^exponent, from the step just measured
     state.dt = error == 0 ? Inf : stepper.safety * h / error^stepper.exponent
-    # DREAM redoes a rejected step as a new doubling (`TimeStepperAdaptive.cpp:152-155`), so the
+    # DREAM redoes a rejected step as a new doubling (`TimeStepperAdaptive.cpp:153-156`), so the
     # unchecked steps start only after an accepted check
     state.steps_since_check = accepted ? 0 : stepper.check_every
     state.failures = 0

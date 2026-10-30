@@ -42,6 +42,8 @@ state of the update. `critical_momentum_at(plasma, ir)` gives the runaway thresh
 - `placement = :window` takes a face inside `thermal_factor · p_Te ≤ p_c < p_crit`
   ([`cutoff_window`](@ref)), kept while it stays inside the window
   ([`choose_cutoff`](@ref)), which lets the cutoff come close to either bound.
+  `thermal_factor = 4` is a choice of this package (see the docs page *Choices of this
+  package*).
 - `per_radius = false` gives every radius the cutoff of the largest temperature and the
   smallest critical momentum over the radii, the one value DREAM can take.
 
