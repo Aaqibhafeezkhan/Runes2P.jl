@@ -71,11 +71,12 @@ function check_update(update::RechesterRosenbluthUpdate, system)
     # an interface or a boundary flux reads
     for equation in system.equations, outer in equation.terms,
         term in (outer, _coefficient_sources(outer)...)
-        has_plasma_source(term) && term.operator === update.operator &&
+        if has_plasma_source(term) && term.operator === update.operator
             throw(ArgumentError("the update $(update.name) sets the radial transport of the operator of the " *
                                 "Fokker-Planck term of $(equation.unknown) with a plasma source, whose rebuild " *
                                 "clears it. Give the " *
                                 "radial transport an operator and a FokkerPlanckTerm of its own."))
+        end
     end
     return nothing
 end
@@ -87,7 +88,9 @@ function restore_update!(update::RechesterRosenbluthUpdate, state::AbstractVecto
         throw(DimensionMismatch("the stored levels of $(update.name) have $(length(state)) radial faces, " *
                                 "the operator $(length(update.delta_b_over_b))"))
     # a run that stopped before its first interval has no levels yet
-    any(isnan, state) || _set_levels!(update, collect(Float64, state))
+    if !any(isnan, state)
+        _set_levels!(update, collect(Float64, state))
+    end
     return update
 end
 
@@ -105,7 +108,8 @@ function describe(update::RechesterRosenbluthUpdate, context::DescriptionContext
         "safety_factor" => _plain(update.safety_factor),
         "delta_b_over_b" => describe_prescribed_levels(update.delta_b_over_b_at, context;
             points = update.operator.grid.radial_grid.r_faces))
-    _is_radial_profile(update.safety_factor_profile) &&
-        (record["safety_factor_profile"] = _describe_profile(update.safety_factor_profile))
+    if _is_radial_profile(update.safety_factor_profile)
+        record["safety_factor_profile"] = _describe_profile(update.safety_factor_profile)
+    end
     return record
 end

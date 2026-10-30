@@ -40,21 +40,28 @@ function Leg(duration::Real; steps::Union{Nothing, Integer} = nothing,
     duration > 0 || throw(ArgumentError("Leg($duration): the duration must be positive"))
     given = (steps !== nothing, saves !== nothing, dt !== nothing, save_dt !== nothing)
     if given == (true, true, false, false)
-        steps >= 1 ||
+        if !(steps >= 1)
             throw(ArgumentError("Leg($duration; steps=$steps, saves=$saves): steps must be at least 1"))
-        1 <= saves <= steps ||
+        end
+        if !(1 <= saves <= steps)
             throw(ArgumentError("Leg($duration; steps=$steps, saves=$saves): saves must lie between 1 and steps"))
+        end
         return Leg(Val(:checked), Float64(duration), Int(steps), Int(saves))
     elseif given == (false, false, true, true)
         name = "Leg($duration; dt=$dt, save_dt=$save_dt)"
-        dt > 0 && save_dt > 0 ||
+        if !(dt > 0 && save_dt > 0)
             throw(ArgumentError("$name: dt and save_dt must be positive"))
-        save_dt >= dt || throw(ArgumentError("$name: save_dt must not be shorter than dt"))
+        end
+        if !(save_dt >= dt)
+            throw(ArgumentError("$name: save_dt must not be shorter than dt"))
+        end
         return Leg(Val(:checked), Float64(duration), _count(duration, dt, "dt", name),
             _count(duration, save_dt, "save_dt", name))
     elseif given == (false, false, false, true)
         name = "Leg($duration; save_dt=$save_dt)"
-        save_dt > 0 || throw(ArgumentError("$name: save_dt must be positive"))
+        if !(save_dt > 0)
+            throw(ArgumentError("$name: save_dt must be positive"))
+        end
         return Leg(Val(:checked), Float64(duration), 0, _count(duration, save_dt, "save_dt", name))
     end
     names = join([n for (n, g) in zip(("steps", "saves", "dt", "save_dt"), given) if g], ", ")
@@ -96,8 +103,12 @@ function time_points(legs; start::Real = 0.0)
         else
             push!(times, leg_end)
             for k in 1:leg.saves
-                push!(save_times, k == leg.saves ? leg_end :
-                                  leg_start + k * leg.duration / leg.saves)
+                save_time = if k == leg.saves
+                    leg_end
+                else
+                    leg_start + k * leg.duration / leg.saves
+                end
+                push!(save_times, save_time)
             end
         end
     end

@@ -225,8 +225,11 @@ function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver = Newto
         end
         limit = u.lower_limit
         limit === nothing && continue
-        reference = limit.reference in (nothing, :group) ? 0 :
-                    unknown_id(layout, limit.reference)
+        reference = if limit.reference in (nothing, :group)
+            0
+        else
+            unknown_id(layout, limit.reference)
+        end
         for (k, range) in enumerate(_unknown_ranges(layout, id))
             append!(limited, range)
             append!(limit_value, fill(limit.value, length(range)))
@@ -237,8 +240,12 @@ function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver = Newto
                     push!(limit_reference, range[g])
                 end
             else
-                ref_index = reference == 0 ? (1:0) :
-                            (r = first(unknown_range(layout, reference, k)); r:r)
+                ref_index = if reference == 0
+                    1:0
+                else
+                    r = first(unknown_range(layout, reference, k))
+                    r:r
+                end
                 append!(limit_reference, fill(ref_index, length(range)))
             end
         end
@@ -286,11 +293,14 @@ function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver = Newto
     for i in 1:n
         column = system.mass_columns[i]
         for k in nzrange(matrix, column)
-            matrix.rowval[k] == i && (diagonal_positions[i] = k)
+            if matrix.rowval[k] == i
+                diagonal_positions[i] = k
+            end
         end
     end
-    all(>(0), diagonal_positions) ||
+    if !all(>(0), diagonal_positions)
         error("the Jacobian pattern lacks the entries of the mass matrix")
+    end
     fill!(matrix.nzval, zero(T))
     matrix.nzval[diagonal_positions] .= one(T)
     cache = linear_solver_cache(solver.linear_solver, matrix, system, row_weights, scales)
@@ -310,7 +320,9 @@ function _checked_residual!(F, u, u_old, system, t, dt; reference = u_old)
     try
         residual!(F, u, u_old, system, t, dt; reference)
     catch err
-        err isa DomainError || rethrow()
+        if !(err isa DomainError)
+            rethrow()
+        end
         return :domain_error
     end
     return all(isfinite, F) ? :ok : :non_finite_residual
@@ -446,7 +458,10 @@ function newton_solve!(
     krylov = 0
     updates = 0
     smallest_step = 1.0
-    jacobian_seconds = residual_seconds = factorization_seconds = solve_seconds = 0.0
+    jacobian_seconds = 0.0
+    residual_seconds = 0.0
+    factorization_seconds = 0.0
+    solve_seconds = 0.0
     #! format: off
     result(status, iterations, initial; residual_floor=false, linear_step=false) =
         NewtonResult(status, iterations, initial, isempty(ws.residual_norms) ? initial : last(ws.residual_norms),
@@ -472,7 +487,9 @@ function newton_solve!(
             try
                 jacobian!(ws.jacobian, system, u, t)
             catch err
-                err isa DomainError || rethrow()
+                if !(err isa DomainError)
+                    rethrow()
+                end
                 return result(:domain_error, iteration - 1, initial)
             end
             jacobian_seconds += (time_ns() - started) / 1e9
@@ -516,11 +533,19 @@ function newton_solve!(
         push!(ws.residual_norms, _residual_norm(ws, ws.residual))
         push!(ws.step_lengths, step)
         residual_small = last(ws.residual_norms) <= solver.residual_tolerance
-        update_converged = all(eachindex(u)) do i
-            abs(ws.update[i]) <=
-            ws.absolute[i] + ws.relative[i] * abs(u[i]) + ws.rate_tolerance[i] / dt +
-            (iszero(ws.group_tolerance[i]) ? 0.0 :
-             ws.group_tolerance[i] * _magnitude(u, ws.group_ranges[i]))
+        update_converged = true
+        for i in eachindex(u)
+            group_absolute = if iszero(ws.group_tolerance[i])
+                0.0
+            else
+                ws.group_tolerance[i] * _magnitude(u, ws.group_ranges[i])
+            end
+            if !(abs(ws.update[i]) <=
+                 ws.absolute[i] + ws.relative[i] * abs(u[i]) + ws.rate_tolerance[i] / dt +
+                 group_absolute)
+                update_converged = false
+                break
+            end
         end
         # A linear system with the exact matrix and an accurate solve: once the update (the
         # error estimate of the previous iterate) passes, no further iteration can improve
