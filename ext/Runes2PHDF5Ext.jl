@@ -148,34 +148,42 @@ function _read_layout(group)
     scalars = Symbol(read(group["scalars"]))
     entries = group["unknowns"]
     order = read(group["order"])
-    unknowns = map(order) do name
-        entry = entries[name]
-        kind, scale = read(entry["kind"]), read(entry["scale"])
-        limit = if haskey(entry, "lower_limit_tolerance")
-            reference = haskey(entry, "lower_limit_reference") ?
-                        Symbol(read(entry["lower_limit_reference"])) : nothing
-            value = haskey(entry, "lower_limit_value") ? read(entry["lower_limit_value"]) :
-                    0.0
-            LowerLimit(; value, tolerance = read(entry["lower_limit_tolerance"]), reference)
-        else
-            false
-        end
-        if kind == "scalar"
-            ScalarUnknown(Symbol(name); scale, nonnegative = limit)
-        elseif kind == "radial"
-            components = read(entry["components"])
-            groups = if haskey(entry, "group_starts")
-                starts = read(entry["group_starts"])
-                [starts[k]:(k == length(starts) ? components : starts[k + 1] - 1)
-                 for k in eachindex(starts)]
-            end
-            RadialUnknown(Symbol(name); components, scale, nonnegative = limit, groups)
-        else
-            grid = _read_kinetic_grid(group["grids"][read(entry["grid"])], radial)
-            KineticUnknown(Symbol(name), grid; scale, nonnegative = limit)
-        end
-    end
+    unknowns = [_read_unknown(group, entries[name], name, radial) for name in order]
     return UnknownLayout(radial, unknowns; scalars)
+end
+
+# the unknown `name` of the layout group `group` from its entry `entry`
+function _read_unknown(group, entry, name, radial::RadialGrid)
+    kind, scale = read(entry["kind"]), read(entry["scale"])
+    limit = if haskey(entry, "lower_limit_tolerance")
+        reference = if haskey(entry, "lower_limit_reference")
+            Symbol(read(entry["lower_limit_reference"]))
+        else
+            nothing
+        end
+        value = if haskey(entry, "lower_limit_value")
+            read(entry["lower_limit_value"])
+        else
+            0.0
+        end
+        LowerLimit(; value, tolerance = read(entry["lower_limit_tolerance"]), reference)
+    else
+        false
+    end
+    if kind == "scalar"
+        return ScalarUnknown(Symbol(name); scale, nonnegative = limit)
+    elseif kind == "radial"
+        components = read(entry["components"])
+        groups = if haskey(entry, "group_starts")
+            starts = read(entry["group_starts"])
+            [starts[k]:(k == length(starts) ? components : starts[k + 1] - 1)
+             for k in eachindex(starts)]
+        end
+        return RadialUnknown(Symbol(name); components, scale, nonnegative = limit, groups)
+    else
+        grid = _read_kinetic_grid(group["grids"][read(entry["grid"])], radial)
+        return KineticUnknown(Symbol(name), grid; scale, nonnegative = limit)
+    end
 end
 
 # ---------------------------------------------------------------------------------------
@@ -185,29 +193,42 @@ function _write_statistics(group, stats::SolverStatistics)
     for field in fieldnames(SolverStatistics)
         value = getfield(stats, field)
         isempty(value) && continue   # a segment without a step: an absent dataset is an empty one
-        group[String(field)] = eltype(value) === Symbol ? String.(value) :
-                               eltype(value) === Bool ? UInt8.(value) : value
+        group[String(field)] = if eltype(value) === Symbol
+            String.(value)
+        elseif eltype(value) === Bool
+            UInt8.(value)
+        else
+            value
+        end
     end
     return group
 end
 
 function _read_statistics(group)
-    values = map(fieldnames(SolverStatistics)) do field
-        type = fieldtype(SolverStatistics, field)
-        haskey(group, String(field)) || return type()
-        data = read(group[String(field)])
-        eltype(type) === Symbol ? Symbol.(data) :
-        eltype(type) === Bool ? data .!= 0 : convert(type, data)
-    end
+    values = map(field -> _read_statistics_field(group, field), fieldnames(SolverStatistics))
     return SolverStatistics(values...)
+end
+
+# the field `field` of `SolverStatistics` from the group `group`; empty when absent
+function _read_statistics_field(group, field::Symbol)
+    type = fieldtype(SolverStatistics, field)
+    haskey(group, String(field)) || return type()
+    data = read(group[String(field)])
+    if eltype(type) === Symbol
+        return Symbol.(data)
+    elseif eltype(type) === Bool
+        return data .!= 0
+    else
+        return convert(type, data)
+    end
 end
 
 function _append_statistics!(all::SolverStatistics, part::SolverStatistics)
     attempts = length(all.time)
     for field in fieldnames(SolverStatistics)
         values = getfield(part, field)
-        append!(getfield(all, field), field === :iteration_attempt ? values .+ attempts :
-                                      values)
+        shifted = field === :iteration_attempt ? values .+ attempts : values
+        append!(getfield(all, field), shifted)
     end
     return all
 end
@@ -227,12 +248,19 @@ function _statistics_of(stats::SolverStatistics, attempts::AbstractVector{<:Inte
     kept = Set(attempts)
     iterations = findall(in(kept), stats.iteration_attempt)
     position = Dict(attempt => k for (k, attempt) in enumerate(attempts))
-    values = map(fieldnames(SolverStatistics)) do field
-        data = getfield(stats, field)
-        field === :iteration_attempt && return Int[position[a] for a in data[iterations]]
-        startswith(String(field), "iteration_") ? data[iterations] : data[attempts]
-    end
+    kept_field(field) = _kept_statistics_field(stats, field, attempts, iterations, position)
+    values = map(kept_field, fieldnames(SolverStatistics))
     return SolverStatistics(values...)
+end
+
+# the entries of the field `field` of `stats` kept by `_statistics_of`: the attempts
+# `attempts`, the iterations `iterations`, and the attempt numbers renumbered by `position`
+function _kept_statistics_field(
+        stats::SolverStatistics, field::Symbol, attempts, iterations,
+        position)
+    data = getfield(stats, field)
+    field === :iteration_attempt && return Int[position[a] for a in data[iterations]]
+    return startswith(String(field), "iteration_") ? data[iterations] : data[attempts]
 end
 
 # ---------------------------------------------------------------------------------------
@@ -241,11 +269,15 @@ end
 function _write_root(file, settings::AbstractDict)
     attributes(file)["format_version"] = Runes2P.output_format_version()
     code = get(settings, "code", nothing)
-    code === nothing && (code = Runes2P.code_version())
+    if code === nothing
+        code = Runes2P.code_version()
+    end
     attributes(file)["runes2p_commit"] = code["commit"]
     attributes(file)["runes2p_version"] = code["package_version"]
     attributes(file)["runes2p_tree_clean"] = UInt8(code["tree_clean"])
-    isempty(settings) || _write_record(file, "settings", settings)
+    if !isempty(settings)
+        _write_record(file, "settings", settings)
+    end
     return file
 end
 
@@ -269,15 +301,20 @@ function _write_solution(filename::AbstractString, solution::TimeSolution)
         _write_statistics(create_group(file, "solver_statistics"), solution.statistics)
         updates = create_group(file, "update_states")
         for (name, states) in solution.update_states
-            isempty(states) || (updates[name] = states)
+            if !isempty(states)
+                updates[name] = states
+            end
         end
     end
     return filename
 end
 
 function Runes2P.write_output(filename::AbstractString, solution::TimeSolution; atomic::Bool = false)
-    atomic ? write_atomically(temporary -> _write_solution(temporary, solution), filename) :
-    _write_solution(filename, solution)
+    if atomic
+        write_atomically(temporary -> _write_solution(temporary, solution), filename)
+    else
+        _write_solution(filename, solution)
+    end
     return filename
 end
 
@@ -306,8 +343,9 @@ end
 
 function Runes2P.write_checkpoint(filename::AbstractString, stored::StoredState; previous = nothing)
     # a checkpoint that cannot be read does not replace the good one before it
-    previous !== nothing && isfile(filename) && !HDF5.ishdf5(filename) &&
-        (previous = nothing)
+    if previous !== nothing && isfile(filename) && !HDF5.ishdf5(filename)
+        previous = nothing
+    end
     write_atomically(filename; previous) do temporary
         h5open(temporary, "w") do file
             _write_root(file, stored.settings)
@@ -343,12 +381,16 @@ function Runes2P.read_state(filename::AbstractString; time_index::Union{Nothing,
     return h5open(filename, "r") do file
         _check_version(file, filename)
         layout = _read_layout(file["layout"])
-        settings = haskey(file, "settings") ? _read_record(file["settings"]) :
-                   Dict{String, Any}()
+        settings = if haskey(file, "settings")
+            _read_record(file["settings"])
+        else
+            Dict{String, Any}()
+        end
         times = haskey(file, "time") ? read(file["time"]) : Float64[]
         if haskey(file, "checkpoint")
-            time_index === nothing || time_index == 1 ||
+            if !(time_index === nothing || time_index == 1)
                 throw(ArgumentError("$filename is a checkpoint, which holds one state"))
+            end
             group = file["checkpoint"]
             state = vec(_read_states(file["unknowns"], layout, 1:1))
             stepper = _read_record(group["stepper"])
@@ -358,12 +400,15 @@ function Runes2P.read_state(filename::AbstractString; time_index::Union{Nothing,
                 _read_record(group["summary"]), stepper, String(filename))
         end
         index = time_index === nothing ? length(times) : Int(time_index)
-        1 <= index <= length(times) ||
+        if !(1 <= index <= length(times))
             throw(ArgumentError("$filename has $(length(times)) saved states, there is no state $index"))
+        end
         segment = get(settings, "segment", Dict{String, Any}())
-        updates = haskey(file, "update_states") ?
-                  _read_update_states(file["update_states"], index) :
-                  Dict{String, Vector{Float64}}()
+        updates = if haskey(file, "update_states")
+            _read_update_states(file["update_states"], index)
+        else
+            Dict{String, Vector{Float64}}()
+        end
         return StoredState(Float64(times[index]),
             vec(_read_states(file["unknowns"], layout, index:index)), layout,
             updates, settings, Int(get(segment, "index", 1)),
@@ -389,9 +434,10 @@ function Runes2P.read_checkpoint(settings::CheckpointSettings)
             push!(unreadable, file)
         end
     end
-    isempty(unreadable) ||
+    if !isempty(unreadable)
         throw(ArgumentError("no checkpoint of the run can be read ($(join(unreadable, ", "))): repair or remove " *
                             "them to start the run again from its initial state"))
+    end
     return nothing
 end
 
@@ -401,14 +447,21 @@ end
 function _read_solution(filename::AbstractString)
     return h5open(filename, "r") do file
         _check_version(file, filename)
-        haskey(file, "checkpoint") &&
+        if haskey(file, "checkpoint")
             throw(ArgumentError("$filename is a checkpoint, read it with read_state"))
+        end
         layout = _read_layout(file["layout"])
         times = haskey(file, "time") ? read(file["time"]) : Float64[]
-        states = isempty(times) ? zeros(length(layout), 0) :
-                 _read_states(file["unknowns"], layout, 1:length(times))
-        settings = haskey(file, "settings") ? _read_record(file["settings"]) :
-                   Dict{String, Any}()
+        states = if isempty(times)
+            zeros(length(layout), 0)
+        else
+            _read_states(file["unknowns"], layout, 1:length(times))
+        end
+        settings = if haskey(file, "settings")
+            _read_record(file["settings"])
+        else
+            Dict{String, Any}()
+        end
         updates = Dict{String, Matrix{Float64}}()
         if haskey(file, "update_states")
             for name in keys(file["update_states"])
@@ -439,41 +492,45 @@ function Runes2P.read_output(filenames::AbstractString...)
     statistics = SolverStatistics()
     # the segments of one run start one after the other, and each saved time appears once:
     # segments in the wrong order, or of two runs from the same start, are refused
-    all(k -> _start_time(parts[k]) >= _start_time(parts[k - 1]), 2:length(parts)) ||
+    if !all(k -> _start_time(parts[k]) >= _start_time(parts[k - 1]), 2:length(parts))
         throw(ArgumentError("the files are not the segments of one run in order: a segment starts before the one given before it"))
+    end
     # each segment resumed from the one before it, where both records say so: a fresh run
     # under the name of an earlier one leaves the higher segments of that run
     for k in 2:length(parts)
         record = get(parts[k].settings, "segment", Dict{String, Any}())
         index = get(get(parts[k - 1].settings, "segment", Dict{String, Any}()), "index", nothing)
         from = get(record, "resumed_from_segment", nothing)
-        from === nothing || index === nothing || from == index ||
+        if !(from === nothing || index === nothing || from == index)
             throw(ArgumentError("$(filenames[k]) resumed from segment $from, and $(filenames[k-1]) is segment " *
                                 "$index: the files are not the segments of one run"))
+        end
         hash = get(record, "previous_setup_hash", "unknown")
         previous = get(parts[k - 1].settings, "setup_hash", nothing)
-        hash == "unknown" || previous === nothing || hash == previous ||
+        if !(hash == "unknown" || previous === nothing || hash == previous)
             throw(ArgumentError("$(filenames[k]) resumed from a segment with another setup than " *
                                 "$(filenames[k-1]): the files are not the segments of one run"))
+        end
     end
     # a segment without a saved state has no update states either
     names = Set{String}()
     foreach(part -> union!(names, keys(part.update_states)), parts)
     updates = Dict(name => Matrix{Float64}[] for name in names)
     for (k, part) in enumerate(parts)
-        Runes2P.unknown_names(part.layout) == Runes2P.unknown_names(first_part.layout) &&
-        length(part.layout) == length(first_part.layout) ||
+        if !(Runes2P.unknown_names(part.layout) ==
+             Runes2P.unknown_names(first_part.layout) &&
+             length(part.layout) == length(first_part.layout))
             throw(ArgumentError("$(filenames[k]) has another layout than $(first(filenames)); " *
                                 "read the segments of a run whose unknowns changed one by one"))
+        end
         # what a segment did after the start of the following one is repeated by it: the
         # statistics are cut by the count of attempts the following segment resumed
         # from (a failed attempt is recorded at the time it aimed at), and by the start time
         # of the following segment where a record has no count (a resume from an output
         # file, the last segment)
         limit = k < length(parts) ? _start_time(parts[k + 1]) : Inf
-        #! format: off
-        before, after = _attempts_before(part), k < length(parts) ? _attempts_before(parts[k+1]) : nothing
-        #! format: on
+        before = _attempts_before(part)
+        after = k < length(parts) ? _attempts_before(parts[k + 1]) : nothing
         if before !== nothing && after !== nothing
             #! format: off
             _append_statistics!(statistics, _statistics_first(part.statistics, after - before))
@@ -483,19 +540,23 @@ function Runes2P.read_output(filenames::AbstractString...)
         end
         kept = findall(<=(limit), part.times)
         isempty(kept) && continue
-        Set(keys(part.update_states)) == names ||
+        if Set(keys(part.update_states)) != names
             throw(ArgumentError("$(filenames[k]) has other interval updates than the other files"))
+        end
         append!(times, part.times[kept])
         push!(columns, part.states[:, kept])
         for (name, states) in part.update_states
             push!(updates[name], states[:, kept])
         end
     end
-    all(>(0), diff(times)) ||
+    if !all(>(0), diff(times))
         throw(ArgumentError("the files are not the segments of one run in order"))
-    states = isempty(columns) ?
-             zeros(eltype(first_part.states), length(first_part.layout), 0) :
-             reduce(hcat, columns)
+    end
+    states = if isempty(columns)
+        zeros(eltype(first_part.states), length(first_part.layout), 0)
+    else
+        reduce(hcat, columns)
+    end
     return TimeSolution(first_part.layout, times, states, statistics, last(parts).settings,
         Dict(name => reduce(hcat, parts) for (name, parts) in updates if !isempty(parts)))
 end

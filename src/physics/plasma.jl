@@ -154,11 +154,10 @@ radius.
 function PlasmaState(; cold_electron_temperature, ions, electric_field, magnetic_field,
         cold_electron_density = nothing)
     ions = collect(ions)
-    if cold_electron_density === nothing
-        density = [free_electron_density(ions, ir)
-                   for ir in eachindex(cold_electron_temperature)]
+    density = if cold_electron_density === nothing
+        [free_electron_density(ions, ir) for ir in eachindex(cold_electron_temperature)]
     else
-        density = cold_electron_density
+        cold_electron_density
     end
     T = promote_type(
         eltype(cold_electron_temperature), eltype(density), eltype(electric_field),

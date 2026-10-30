@@ -127,12 +127,12 @@ The names of the unknowns a [`PlasmaSource`](@ref) reads.
 source_dependencies(::Union{Nothing, PlasmaSource}) = ()
 # the ions need the density as an unknown (constructor)
 function source_dependencies(source::PlasmaFromUnknowns)
-    if source.density === nothing
-        read_unknowns = (source.temperature,)
+    read_unknowns = if source.density === nothing
+        (source.temperature,)
     elseif source.ions === nothing
-        read_unknowns = (source.temperature, source.density)
+        (source.temperature, source.density)
     else
-        read_unknowns = (source.temperature, source.density, source.ions)
+        (source.temperature, source.density, source.ions)
     end
     return read_unknowns
 end
@@ -250,10 +250,10 @@ function plasma_values(source::PlasmaFromUnknowns, u, layout, t; ion_state = u)
         density = unknown_values(u, layout, unknown_id(layout, source.density))
         T[_value(density[ir]) for ir in 1:nr]
     end
-    if source.ions === nothing
-        ions = base.ions
+    ions = if source.ions === nothing
+        base.ions
     else
-        ions = _ions_from_unknowns(
+        _ions_from_unknowns(
             base.ions, ion_state, layout, source.ions, source.composition)
     end
     return PlasmaState{T}(
@@ -409,10 +409,10 @@ function changed_plasma!(
     time = Float64(_value(t))
     # ions of another state (lagged): the shortcut compares the unknowns of `u` alone
     ion_state === u && _key_current(key, source, time, u, layout) && return nothing
-    if ion_state === u
-        plasma = plasma_values(source, u, layout, t)
+    plasma = if ion_state === u
+        plasma_values(source, u, layout, t)
     else
-        plasma = plasma_values(source, u, layout, t; ion_state)
+        plasma_values(source, u, layout, t; ion_state)
     end
     changed = update_key!(key, plasma; electric_field)
     key.time[] = time
@@ -459,10 +459,10 @@ function _dual_plasma(plasma::PlasmaState{Float64}, with_density::Bool, with_ion
     D = ForwardDiff.Dual{PlasmaColumnTag, Float64, K}
     seeded(x, k) = D(x, ForwardDiff.Partials(ntuple(i -> Float64(i == k), Val(K))))
     temperature = [seeded(x, 1) for x in plasma.cold_electron_temperature]
-    if with_density
-        density = [seeded(x, 2) for x in plasma.cold_electron_density]
+    density = if with_density
+        [seeded(x, 2) for x in plasma.cold_electron_density]
     else
-        density = D.(plasma.cold_electron_density)
+        D.(plasma.cold_electron_density)
     end
     ions = IonSpecies{D}[]
     k = with_density ? 2 : 1

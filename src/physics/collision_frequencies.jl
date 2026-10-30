@@ -698,17 +698,17 @@ function parallel_diffusion_frequency(model::CollisionModel, ir, p)
     z = zero(p * model.scaled_bessel_k0[ir])
     (model.settings.mode === :full && p != 0) || return z
     theta = _normalized_temperature(model, ir)
-    if model.settings.screened_diffusion === :maxwellian
+    nu_s = if model.settings.screened_diffusion === :maxwellian
         if model.settings.bremsstrahlung_diffusion === :dream
-            nu_s = slowing_down_frequency(model, ir, p)
+            slowing_down_frequency(model, ir, p)
         else
-            nu_s = _collisional_slowing_down(model, ir, p)
+            _collisional_slowing_down(model, ir, p)
         end
     else  # free electrons only
-        nu_s = COLLISION_PREFACTOR * (1 + p^2) / p^3 *
-               _coulomb_logarithm(model, :electron_electron, p, ir) *
-               _thermal_slowing_down_factor(model, ir, p) *
-               model.plasma.cold_electron_density[ir]
+        COLLISION_PREFACTOR * (1 + p^2) / p^3 *
+        _coulomb_logarithm(model, :electron_electron, p, ir) *
+        _thermal_slowing_down_factor(model, ir, p) *
+        model.plasma.cold_electron_density[ir]
     end
     return theta * sqrt(1 + p^2) * nu_s
 end

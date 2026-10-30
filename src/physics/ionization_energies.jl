@@ -106,10 +106,10 @@ function ion_mass(species::IonSpecies; table::Symbol = :standard)
         throw(ArgumentError("table must be :standard or :dream, not $table"))
     Z = species.nuclear_charge
     if Z == 1
-        if table === :standard
-            isotopes = HYDROGEN_ISOTOPE_MASSES
+        isotopes = if table === :standard
+            HYDROGEN_ISOTOPE_MASSES
         else
-            isotopes = DREAM_HYDROGEN_ISOTOPE_MASSES
+            DREAM_HYDROGEN_ISOTOPE_MASSES
         end
         return get(isotopes, atomic_element(species.name), isotopes["D"])
     end

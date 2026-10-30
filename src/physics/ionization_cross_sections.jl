@@ -216,10 +216,10 @@ end
 # the mean secondary energy [eV] of the spectrum `spectrum`: :opal, Opal et al. with the width
 # `width` (mean_secondary_energy), or :beb, Kim and Rudd with the binding energy I
 function secondary_spectrum_mean(spectrum::Symbol, width, E, I, cut)
-    if spectrum === :beb
-        mean_energy = beb_mean_secondary_energy(E, I, cut)
+    mean_energy = if spectrum === :beb
+        beb_mean_secondary_energy(E, I, cut)
     else
-        mean_energy = mean_secondary_energy(width, E, I, cut)
+        mean_secondary_energy(width, E, I, cut)
     end
     return mean_energy
 end

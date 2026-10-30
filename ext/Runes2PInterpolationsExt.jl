@@ -42,8 +42,13 @@ _text(x) = sprint(show, x; context = :module => Interpolations)
 # the interpolation method, from the innermost interpolation (a scaled interpolation wraps a
 # B-spline)
 function _method(itp)
-    hasproperty(itp, :it) ? _text(itp.it) :
-    hasproperty(itp, :itp) ? _method(itp.itp) : "unknown"
+    if hasproperty(itp, :it)
+        return _text(itp.it)
+    elseif hasproperty(itp, :itp)
+        return _method(itp.itp)
+    else
+        return "unknown"
+    end
 end
 
 _extrapolation(itp::AbstractInterpolation) = "Throw()"   # an error beyond the last point
@@ -64,7 +69,9 @@ function Runes2P.describe(profile::AbstractInterpolation)
             record["knots_$k"] = _plain(points)
         end
     end
-    profile isa FilledExtrapolation && (record["fill_value"] = _plain(profile.fillvalue))
+    if profile isa FilledExtrapolation
+        record["fill_value"] = _plain(profile.fillvalue)
+    end
     return record
 end
 
