@@ -1,7 +1,8 @@
 # DREAM's step doubling (`TimeStepperAdaptive.cpp`) on a linear decay whose
 # backward-Euler steps are known in closed form: the error estimate, the step sequence by
 # DREAM's rule with its rejections, the steps between checks, the failure path, the
-# record of the stepper and the resume from a checkpoint. The comparison with DREAM's
+# record of the stepper and the resume from a checkpoint, and on synthetic states the
+# acceptance of an unknown at zero with no absolute tolerance. The comparison with DREAM's
 # own sequence is in test_time_stepping_dream.jl. The helpers are those of
 # test_time_stepping.jl.
 using HDF5
@@ -172,6 +173,27 @@ end
         @test stats.kind == [:half_step, :half_step, :step, :half_step, :half_step, :step]
         @test stats.error[[3, 6]] == [0.0, 0.0]
         @test stats.time_step[6] ≈ 0.2 - h0
+    end
+
+    @testset "an unknown at zero with no absolute tolerance" begin
+        # DREAM accepts a step only with dx ≤ epsa + epsr x for every unknown
+        # (ConvergenceChecker::IsConverged), so with epsa = 0 and x = 0 any difference fails
+        # it; the zero scale stays out of the largest error, which sets the next step
+        rad = RadialGrid(uniform_r_faces(1, 0.5))
+        layout = UnknownLayout(rad, [RadialUnknown(:x), RadialUnknown(:y)])
+        state = Runes2P.StepDoublingState{Float64}(
+            0.1, 0, 0, [0.0, 0.0], [1e-2, 1e-2], zeros(2), zeros(2), fill(NaN, 2))
+        # x at zero after the full step and not after the halves; y within its tolerance
+        largest, converged = Runes2P._doubling_errors!(state, layout, [0.0, 1.0], [
+            1e-9, 1.0005])
+        @test !converged
+        @test largest ≈ 0.05
+        @test state.errors == [Inf, largest]
+        # no difference at the zero scale: no error there, and the step converges
+        largest, converged = Runes2P._doubling_errors!(state, layout, [0.0, 1.0], [
+            0.0, 1.0005])
+        @test converged
+        @test state.errors == [0.0, largest]
     end
 
     @testset "a failed solve shrinks the step by the failure factor" begin

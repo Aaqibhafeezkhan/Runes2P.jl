@@ -128,6 +128,17 @@ DREAM's documentation gives an upper bound for `pCutAvalanche`, the critical mom
 When a step needs more Krylov iterations than the restart length, restarted GMRES can stagnate, and the step ends with `:linear_solve_failed`.
 The Krylov basis holds `restart_length` vectors.
 
+## Time stepping
+
+| Choice | Value |
+|---|---|
+| next step of [`StepDoubling`](@ref) after a step that an unknown at zero fails while every other unknown has no error | half the step |
+
+DREAM rejects a step in which an unknown with no absolute tolerance is zero after the full step and not after the two half steps.
+It takes the next step from the largest error of the other unknowns, as [`StepDoubling`](@ref) does.
+When that error is zero, DREAM's next step is unbounded; halving the step tried keeps the retry finite.
+DREAM has no finite behaviour to reproduce there, so no option gives DREAM's.
+
 ## Examples
 
 The parameter values of the scripts of `examples/` come from DREAM's examples or are choices of this package, cited in each script.
