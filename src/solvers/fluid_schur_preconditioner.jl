@@ -119,8 +119,9 @@ function _kinetic_range(layout::UnknownLayout, ir)
     isempty(ranges) && return 1:0
     sort!(ranges; by = first)
     for k in 2:length(ranges)
-        first(ranges[k]) == last(ranges[k - 1]) + 1 ||
+        if first(ranges[k]) != last(ranges[k - 1]) + 1
             throw(ArgumentError("the kinetic unknowns of radius $ir are not contiguous in the layout"))
+        end
     end
     return first(first(ranges)):last(last(ranges))
 end
@@ -130,11 +131,12 @@ function _radial_lines(layout::UnknownLayout, matrix::SparseMatrixCSC{T}) where 
     lines = Vector{Vector{Int}}()
     for (id, unknown) in enumerate(layout.unknowns)
         layout.kinds[id] === :kinetic || continue
-        all(==(layout.sizes[id, 1]), layout.sizes[id, :]) &&
-        unknown.grid.radial_overlaps !== nothing &&
-        all(has_identical_grids, unknown.grid.radial_overlaps) ||
+        if !(all(==(layout.sizes[id, 1]), layout.sizes[id, :]) &&
+             unknown.grid.radial_overlaps !== nothing &&
+             all(has_identical_grids, unknown.grid.radial_overlaps))
             throw(ArgumentError("the radial lines of FluidSchurLU need one pitch grid for all radii: " *
                                 "$(unknown.name) has pitch grids that differ between radii"))
+        end
         for q in 1:layout.sizes[id, 1]
             push!(lines, [first(unknown_range(layout, id, ir)) + q - 1 for ir in 1:nr])
         end
@@ -147,8 +149,12 @@ function _radial_lines(layout::UnknownLayout, matrix::SparseMatrixCSC{T}) where 
 
         row = index[l, ir]
         diagonal[l, ir] = _entry_position(matrix, row, row)
-        ir > 1 && (lower[l, ir] = _entry_position(matrix, row, index[l, ir - 1]))
-        ir < nr && (upper[l, ir] = _entry_position(matrix, row, index[l, ir + 1]))
+        if ir > 1
+            lower[l, ir] = _entry_position(matrix, row, index[l, ir - 1])
+        end
+        if ir < nr
+            upper[l, ir] = _entry_position(matrix, row, index[l, ir + 1])
+        end
     end
     return RadialLines(index, lower, diagonal, upper, zeros(T, count, nr),
         zeros(T, count, nr), zeros(T, count, nr),
@@ -186,9 +192,10 @@ function preconditioner_factors(p::FluidSchurLU, matrix::SparseMatrixCSC{T}, lay
         row = matrix.rowval[k]
         row_radius, column_radius = kinetic_radius[row], kinetic_radius[column]
         if row_radius > 0 && column_radius == 0
-            radius[column] == 0 || radius[column] == row_radius ||
+            if !(radius[column] == 0 || radius[column] == row_radius)
                 throw(ArgumentError("a kinetic row of radius $row_radius couples to a radial unknown of radius " *
                                     "$(radius[column]): FluidSchurLU eliminates the kinetic blocks radius by radius"))
+            end
             push!(coupled_sets[row_radius], fluid_position[column])
             push!(kf[row_radius], (
                 row - first(kinetic_ranges[row_radius]) + 1, fluid_position[column], k))
@@ -215,8 +222,9 @@ function preconditioner_factors(p::FluidSchurLU, matrix::SparseMatrixCSC{T}, lay
     end
     lines = with_lines ? _radial_lines(layout, matrix) : nothing
     # without kinetic couplings between radii the lines would be a diagonal step
-    lines !== nothing && all(==(0), lines.lower) && all(==(0), lines.upper) &&
-        (lines = nothing)
+    if lines !== nothing && all(==(0), lines.lower) && all(==(0), lines.upper)
+        lines = nothing
+    end
     #! format: off
     return FluidSchurFactors(matrix, kinetic_ranges, fluid, blocks, block_positions, factorizations,
                              Union{Nothing,LowRankCorrection{T}}[nothing for _ in 1:nr], coupled, kf, fk,
@@ -232,7 +240,9 @@ end
 # y = A_kk,r⁻¹ x with the Woodbury update of the block
 function _kinetic_solve!(y, factors::FluidSchurFactors, ir, x)
     ldiv!(y, factors.factorizations[ir], x)
-    factors.low_rank[ir] === nothing || _apply_low_rank_correction!(y, factors.low_rank[ir])
+    if factors.low_rank[ir] !== nothing
+        _apply_low_rank_correction!(y, factors.low_rank[ir])
+    end
     return y
 end
 
@@ -307,8 +317,11 @@ function factorize!(factors::FluidSchurFactors{T}, ::FluidSchurLU,
         for ir in axes(lines.index, 2), l in axes(lines.index, 1)
 
             lines.a[l, ir] = lines.lower[l, ir] == 0 ? zero(T) : nzval[lines.lower[l, ir]]
-            lines.b[l, ir] = lines.diagonal[l, ir] == 0 ? zero(T) :
-                             nzval[lines.diagonal[l, ir]]
+            lines.b[l, ir] = if lines.diagonal[l, ir] == 0
+                zero(T)
+            else
+                nzval[lines.diagonal[l, ir]]
+            end
             lines.c[l, ir] = lines.upper[l, ir] == 0 ? zero(T) : nzval[lines.upper[l, ir]]
             lines.b[l, ir] == 0 && return false
         end
@@ -333,8 +346,9 @@ function _schur_solve!(y, factors::FluidSchurFactors, x)
             fluid_work[row] -= values[e] * output[column]
         end
     end
-    factors.schur_factorization === nothing ||
+    if factors.schur_factorization !== nothing
         ldiv!(factors.schur_factorization, fluid_work)
+    end
     @inbounds for (m, i) in enumerate(factors.fluid)
         y[i] = fluid_work[m]
     end

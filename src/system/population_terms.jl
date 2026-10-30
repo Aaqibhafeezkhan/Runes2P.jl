@@ -84,16 +84,21 @@ function _source_shape!(
     m = momentum_grid(grid, ir)
     # a DomainError: with the temperature an unknown, a Newton iterate can reach it, and the
     # solvers take that as a failed solve
-    kind === :lowest_cell || temperature > 0 ||
+    if !(kind === :lowest_cell || temperature > 0)
         throw(DomainError(temperature,
             "the temperature of the particle source must be positive, it is " *
             "$temperature at radius $ir"))
+    end
     theta = temperature / Constants.ELECTRON_REST_ENERGY
     for j in axes(values, 2), (i, p) in enumerate(m.p_centers)
 
-        values[i, j] = kind === :lowest_cell ? (i == 1 ? 1.0 : 0.0) :
-                       kind === :maxwellian ? exp(-p^2 / (2theta)) :
-                       exp(-p^2 / (sqrt(1 + p^2) + 1) / theta)    # γ − 1 = p²/(γ + 1)
+        values[i, j] = if kind === :lowest_cell
+            i == 1 ? 1.0 : 0.0
+        elseif kind === :maxwellian
+            exp(-p^2 / (2theta))
+        else
+            exp(-p^2 / (sqrt(1 + p^2) + 1) / theta)    # γ − 1 = p²/(γ + 1)
+        end
     end
     jacobian = phase_space_jacobian(grid, ir)
     norm = zero(eltype(values))
@@ -101,10 +106,11 @@ function _source_shape!(
 
         norm += jacobian[i, j] * m.p_widths[i] * m.xi_widths[j] * values[i, j]
     end
-    norm > 0 && isfinite(norm) ||
+    if !(norm > 0 && isfinite(norm))
         throw(DomainError(temperature,
             "the shape of the particle source at radius $ir has no finite density on " *
             "the momentum grid at the temperature $temperature"))
+    end
     values ./= norm / grid.radial_grid.spatial_jacobian[ir]
     return values
 end
@@ -115,9 +121,10 @@ function _shape_at(term::ParticleSourceTerm, u, layout, t)
     time = Float64(_value(t))
     built = !isempty(term.temperatures)
     if term.temperature isa Symbol
-        u === nothing &&
+        if u === nothing
             throw(ArgumentError("a particle source with the temperature $(term.temperature) as an " *
                                 "unknown needs the state of the system"))
+        end
         temperatures = [_value(x)
                         for x in unknown_values(u, layout, unknown_id(layout, term.temperature))]
     else
@@ -126,8 +133,9 @@ function _shape_at(term::ParticleSourceTerm, u, layout, t)
         temperatures = _temperatures(term.temperature, time)
     end
     term.time[] = time
-    length(temperatures) == radial_cell_count(term.grid) ||
+    if length(temperatures) != radial_cell_count(term.grid)
         throw(DimensionMismatch("the temperature needs one value per radius"))
+    end
     update_key!(term.temperatures, temperatures) || return term.shape
     try
         for ir in 1:radial_cell_count(term.grid)
@@ -164,9 +172,11 @@ function _dual_shapes(term::ParticleSourceTerm, u, layout)
 end
 
 function rhs!(out, term::ParticleSourceTerm, u, layout, row, t)
-    shapes = term.temperature isa Symbol && eltype(u) <: ForwardDiff.Dual ?
-             _dual_shapes(term, u, layout) :
-             _shape_at(term, u, layout, t)
+    shapes = if term.temperature isa Symbol && eltype(u) <: ForwardDiff.Dual
+        _dual_shapes(term, u, layout)
+    else
+        _shape_at(term, u, layout, t)
+    end
     magnitude = unknown_values(u, layout, unknown_id(layout, term.source))
     for ir in 1:radial_cell_count(layout)
         added = kinetic_view(out, layout, row, ir)
@@ -302,7 +312,9 @@ _electric_field_of(term::MomentumBoundaryFluxTerm) = _electric_field_of(term.sou
 function dependencies(term::MomentumBoundaryFluxTerm)
     field = _electric_field_of(term)
     names = field === nothing ? [term.kinetic] : [term.kinetic, field]
-    has_plasma_columns(term) && append!(names, _plasma_column_unknowns(term.source))
+    if has_plasma_columns(term)
+        append!(names, _plasma_column_unknowns(term.source))
+    end
     return unique!(names)
 end
 function is_linear(term::MomentumBoundaryFluxTerm)
@@ -428,14 +440,15 @@ function add_jacobian!(J, term::MomentumBoundaryFluxTerm, u, layout, row, t)
                     op, PerturbedArray(f, (i, other, ir)), np + 1, j, ir, nothing, field)
                 derivative = ForwardDiff.partials(flux, 1)
                 #! format: off
-                derivative == 0 || _add_entry!(J, r, _kinetic_index(layout, id, ir, i, other), weight * derivative)
+                if derivative != 0
+                    _add_entry!(J, r, _kinetic_index(layout, id, ir, i, other), weight * derivative)
+                end
                 #! format: on
             end
             if field !== nothing
                 flux = _p_flux(op, f, np + 1, j, ir, nothing, PerturbedField(field, ir))
-                _add_entry!(
-                    J, r, first(unknown_range(layout, unknown_id(layout, field_name), ir)),
-                    weight * ForwardDiff.partials(flux, 1))
+                field_column = first(unknown_range(layout, unknown_id(layout, field_name), ir))
+                _add_entry!(J, r, field_column, weight * ForwardDiff.partials(flux, 1))
             end
         end
     end
@@ -452,8 +465,9 @@ function sparsity!(entries, term::MomentumBoundaryFluxTerm, layout, row)
 
             push!(entries, (r, _kinetic_index(layout, id, ir, i, j)))
         end
-        field === nothing ||
+        if field !== nothing
             push!(entries, (r, first(unknown_range(layout, unknown_id(layout, field), ir))))
+        end
     end
     return entries
 end
@@ -505,13 +519,16 @@ function MaxwellianSourceTerm(kinetic::Symbol, grid::KineticGrid{T}, temperature
         throw(ArgumentError("target_density must be a number or one value per radius"))
     bulk_momentum > 0 || throw(ArgumentError("bulk_momentum must be positive"))
     theta = T(temperature) / T(Constants.ELECTRON_REST_ENERGY)
-    bulk_cells = map(1:radial_cell_count(grid)) do ir
+    bulk_cells = Int[]
+    for ir in 1:radial_cell_count(grid)
         m = momentum_grid(grid, ir)
-        count(<=(bulk_momentum), m.p_centers)
+        push!(bulk_cells, count(<=(bulk_momentum), m.p_centers))
     end
-    all(>(0), bulk_cells) ||
+    if !all(>(0), bulk_cells)
         throw(ArgumentError("bulk_momentum is below the first momentum cell"))
-    shape = map(1:radial_cell_count(grid)) do ir
+    end
+    shape = Matrix{T}[]
+    for ir in 1:radial_cell_count(grid)
         m = momentum_grid(grid, ir)
         values = [exp(-p^2 / (2theta)) for p in m.p_centers, _ in 1:pitch_cell_count(m)]
         jacobian = phase_space_jacobian(grid, ir)
@@ -520,7 +537,7 @@ function MaxwellianSourceTerm(kinetic::Symbol, grid::KineticGrid{T}, temperature
                    for i in 1:momentum_cell_count(m), j in 1:pitch_cell_count(m)) /
                grid.radial_grid.spatial_jacobian[ir]
         #! format: on
-        values ./ norm
+        push!(shape, values ./ norm)
     end
     return MaxwellianSourceTerm{T, typeof(target_density)}(
         kinetic, grid, shape, bulk_cells, target_density,
@@ -540,9 +557,10 @@ function validate(term::MaxwellianSourceTerm, layout, row)
         _same_momentum_grids(term.grid, kinetic_grid(layout, k)) ||
             throw(DimensionMismatch("the term's grid does not match $(layout.unknowns[k].name)"))
     end
-    term.target_density isa AbstractVector &&
-        length(term.target_density) != radial_cell_count(layout) &&
+    if term.target_density isa AbstractVector &&
+       length(term.target_density) != radial_cell_count(layout)
         throw(DimensionMismatch("target_density needs one value per radius"))
+    end
     return nothing
 end
 

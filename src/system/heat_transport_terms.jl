@@ -85,9 +85,12 @@ function HeatTransportTerm(;
                             "not $edge"))
     model = given[1] || given[2] ? :prescribed : :rechester_rosenbluth
     if model === :rechester_rosenbluth
-        major_radius === nothing &&
+        if major_radius === nothing
             throw(ArgumentError("the Rechester-Rosenbluth model needs the major radius"))
-        major_radius > 0 || throw(ArgumentError("the major radius must be positive"))
+        end
+        if !(major_radius > 0)
+            throw(ArgumentError("the major radius must be positive"))
+        end
     end
     level = something(diffusion, diffusion_at, delta_b_over_b, delta_b_over_b_at)
     return HeatTransportTerm(
@@ -109,10 +112,13 @@ function validate(term::HeatTransportTerm, layout, row)
     end
     # both edges of DREAM take the distance of the last two centres, which one radius does
     # not have
-    term.edge in (:constant_gradient_dream, :absorbing_dream) &&
-        radial_cell_count(layout) < 2 &&
+    if term.edge in (:constant_gradient_dream, :absorbing_dream) &&
+       radial_cell_count(layout) < 2
         throw(ArgumentError("the edge $(term.edge) needs two radii at least, as in DREAM"))
-    term.level_in_time || _heat_level_faces(term, layout.radial_grid, 0.0)
+    end
+    if !term.level_in_time
+        _heat_level_faces(term, layout.radial_grid, 0.0)
+    end
     return nothing
 end
 
@@ -121,14 +127,16 @@ end
 function _heat_level_faces(term::HeatTransportTerm, rg::RadialGrid, t)
     if term.level_in_time
         term.time[] == t && !isempty(term.faces[]) && return term.faces[]
-        values = collect(Float64, radial_values(level_over_step(term.level, t), rg.r_faces))
+        level = level_over_step(term.level, t)
+        values = collect(Float64, radial_values(level, rg.r_faces))
         term.time[] = t
     else
         isempty(term.faces[]) || return term.faces[]
         values = collect(Float64, radial_values(term.level, rg.r_faces))
     end
-    all(>=(0), values) ||
+    if !all(>=(0), values)
         throw(ArgumentError("the level of the heat transport must not be negative"))
+    end
     term.faces[] = values
     return values
 end
@@ -136,8 +144,9 @@ end
 # the safety factor on the faces, evaluated once: a profile is never evaluated inside the
 # Newton iteration
 function _heat_safety_factor_faces(term::HeatTransportTerm, rg::RadialGrid)
-    isempty(term.safety_factor_faces[]) &&
-        (term.safety_factor_faces[] = collect(Float64, radial_values(term.safety_factor, rg.r_faces)))
+    if isempty(term.safety_factor_faces[])
+        term.safety_factor_faces[] = collect(Float64, radial_values(term.safety_factor, rg.r_faces))
+    end
     return term.safety_factor_faces[]
 end
 
@@ -218,7 +227,8 @@ function heat_flux_through_edge(term::HeatTransportTerm, u, layout, t)
     rg = layout.radial_grid
     T = unknown_values(u, layout, unknown_id(layout, term.temperature))
     n = unknown_values(u, layout, unknown_id(layout, term.density))
-    return -term.coefficient * _heat_flux(term, rg, _heat_level_faces(term, rg, t),
-        _heat_safety_factor_faces(term, rg), n, T,
-        radial_cell_count(rg) + 1)
+    levels = _heat_level_faces(term, rg, t)
+    q = _heat_safety_factor_faces(term, rg)
+    return -term.coefficient *
+           _heat_flux(term, rg, levels, q, n, T, radial_cell_count(rg) + 1)
 end

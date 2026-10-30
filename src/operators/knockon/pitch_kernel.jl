@@ -85,13 +85,17 @@ function pitch_kernel_column_split!(column::AbstractVector, xi_faces::AbstractVe
         primary_cell, nodes, weights)
     nxi = length(column)
     lower, upper = primary_cell
-    upper > lower || throw(ArgumentError("the primary cell must have positive width"))
+    if !(upper > lower)
+        throw(ArgumentError("the primary cell must have positive width"))
+    end
     theta_s = acos(clamp(xi_s, -one(xi_s), one(xi_s)))
     cuts = [lower, upper]
     for face in xi_faces
         theta_face = acos(clamp(face, -one(face), one(face)))
         for x in (cos(theta_face + theta_s), cos(theta_face - theta_s))
-            lower < x < upper && push!(cuts, x)
+            if lower < x < upper
+                push!(cuts, x)
+            end
         end
     end
     sort!(cuts)
@@ -216,22 +220,28 @@ function MollerPitchKernel(
         p_upper = min(knockon.p_faces[i + 1], max_knockon_momentum(p1))
         if xi_star_mode === :centre
             xi_s = xi_star(knockon.p_centers[i], p1)
-            in_range = dream_compatible ?
-                       knockon.p_faces[i + 1] > p_cutoff &&
-                       gamma(knockon.p_faces[i]) < gamma(p1) - 1 :
-                       p_upper > p_lower
+            in_range = if dream_compatible
+                knockon.p_faces[i + 1] > p_cutoff &&
+                    gamma(knockon.p_faces[i]) < gamma(p1) - 1
+            else
+                p_upper > p_lower
+            end
         else
             in_range = p_upper > p_lower
-            xi_s = in_range ? xi_star((p_lower + p_upper) / 2, p1) :
-                   xi_star(knockon.p_centers[i], p1)
+            xi_s = if in_range
+                xi_star((p_lower + p_upper) / 2, p1)
+            else
+                xi_star(knockon.p_centers[i], p1)
+            end
         end
         pair_xi_star[i, k] = xi_s
         (in_range && isfinite(xi_s)) || continue
         # ξ* at the cell centre of a knock-on cell wider than the primary's reach
-        xi_s <= 1 + 8 * eps(T) ||
+        if !(xi_s <= 1 + 8 * eps(T))
             throw(ArgumentError("ξ* = $xi_s > 1 for knock-on cell $i (centre $(knockon.p_centers[i])) and " *
                                 "primary cell $k (p1 = $p1): the knock-on grid is coarser than the " *
                                 "primary grid; use xi_star_mode = :interval or :midpoint"))
+        end
         if xi_star_mode === :interval
             # the whole ξ* range of the pair must be inside the table: the hat functions
             # are a partition of unity there, which keeps the production exact
@@ -248,8 +258,11 @@ function MollerPitchKernel(
     spacing = (highest - lowest) / (table_size - 1)
     xi_star_values = [lowest + m * spacing for m in 0:(table_size - 1)]
 
-    nodes, weights = primary_pitch === :centre ? ([zero(T)], [T(2)]) :
-                     gauss(T, primary_pitch_points)
+    nodes, weights = if primary_pitch === :centre
+        ([zero(T)], [T(2)])
+    else
+        gauss(T, primary_pitch_points)
+    end
     nxi_knockon, nxi_primary = pitch_cell_count(knockon), pitch_cell_count(primary)
     table = zeros(T, nxi_knockon, nxi_primary, table_size)
     for m in 1:table_size, l in 1:nxi_primary
@@ -266,8 +279,9 @@ function MollerPitchKernel(
                 primary_cell = (primary.xi_faces[l], primary.xi_faces[l + 1]),
                 nodes, weights)
         end
-        norm > 0 || no_contributing_pairs ||
+        if !(norm > 0 || no_contributing_pairs)
             throw(ErrorException("empty knock-on pitch column at l = $l, ξ* = $(xi_star_values[m])"))
+        end
     end
 
     lower_slice = ones(Int, np_knockon, np_primary)
