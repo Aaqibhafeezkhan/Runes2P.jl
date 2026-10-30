@@ -1,8 +1,8 @@
 # Momentum-conserving field-particle term of the electron-electron collisions:
-# conservation, the matrix elements of the test-particle operator against
-# Braginskii's, the field-particle ratios against the like-species sums, the Lorentz limit
-# and the Spitzer-Härm conductivity, the steady state of
-# a run with a prescribed field, and the Woodbury update of the solvers.
+# conservation, the matrix elements of the test-particle operator against Braginskii's,
+# the field-particle ratios against the like-species sums, the Lorentz limit and the
+# Spitzer-Härm conductivity, the steady state of a run with a prescribed field, and the
+# Woodbury update of the solvers.
 import LinearAlgebra
 using Random: Xoshiro
 
@@ -134,8 +134,8 @@ const SPITZER_HARM = Dict(1 => 0.5816, 2 => 0.6833, 4 => 0.7849, 16 => 0.9225)
     end
 
     @testset "conductivity against Spitzer-Härm" begin
-        # three modes: within 0.4% of γ_E at every Z (320 p cells: -0.11%, +0.39%, +0.18%,
-        # +0.25%); the rank-one momentum-restoring model is 11% below at Z = 1
+        # three modes: within 0.3% of γ_E at every Z (320 p cells: -0.19%, +0.30%, +0.07%,
+        # +0.13%); the rank-one momentum-restoring model is 11% below at Z = 1
         for Z in (1, 2, 4, 16)
             @test _field_particle_conductivity(; Z) ≈ SPITZER_HARM[Z] rtol = 5e-3
         end
