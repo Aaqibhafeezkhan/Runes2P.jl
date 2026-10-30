@@ -242,6 +242,7 @@ It is cut at zero so that the exchange keeps its sign.
 - The default knock-on operator against a quadrature reference, and its physics limits: `test/test_knockon_reference.jl`, `test/test_knockon_physics.jl`.
 - An avalanche run against DREAM's Boltzmann knock-on mode: `test/test_avalanche_dream.jl`.
 - The Rosenbluth-Putvinski source and the fluid growth rate against DREAM: `test/test_avalanche_rp_dream.jl`.
-- The field-particle term: momentum conservation, the matrix elements of the test-particle operator against Braginskii's, the Lorentz limit and the Spitzer-Härm conductivity: `test/test_field_particle.jl`.
+- The field-particle term, `test/test_field_particle.jl`: momentum conservation, the matrix elements of the test-particle operator against Braginskii's, and the field-particle ratios against the like-species sums.
+  The same file checks the Lorentz limit and the Spitzer-Härm conductivity.
 
 The conductivity is that of L. Spitzer and R. Härm, Phys. Rev. 89, 977 (1953), doi:10.1103/PhysRev.89.977.

@@ -37,3 +37,9 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 - `with_state_ions`, `threshold_split`, `local_layout`, `resolved_pitch_options`, `write_header`, `write_entry` and `log_event!` are no longer exported ([#122](https://github.com/osrep/Runes2P.jl/pull/122)).
   They remain reachable as `Runes2P.<name>`, but they are internal and may change without an entry here.
+
+### Fixed
+
+- The like-species ratio N²²/M²² of the three-mode `FieldParticleOperator` is −2625/8385, the value of eq. (5.22) of Hirshman and Sigmar (1981) ([#156](https://github.com/osrep/Runes2P.jl/pull/156)).
+  The former −2125/8385 came from a misprint of N²² in Sugama et al. (2019), their equation (C5).
+  The conductivity of the default three-mode model moves by up to 0.03 %, depending on the effective charge.
