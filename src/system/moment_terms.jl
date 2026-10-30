@@ -57,8 +57,9 @@ function _refresh!(envelopes::RegionEnvelopes, grid::KineticGrid, u, layout, t)
     radii = radial_cell_count(grid)
     if !isempty(region_temperature(envelopes.region))
         # a limit that follows the state is compared at every evaluation
-        u === nothing &&
+        if u === nothing
             throw(ArgumentError("a region that follows the temperature unknown needs the state"))
+        end
         values = [_value(x) for x in _state_limits(envelopes.region, u, layout)]
     else
         built && (!is_time_dependent(envelopes.region) || envelopes.time[] == time) &&
@@ -66,8 +67,9 @@ function _refresh!(envelopes::RegionEnvelopes, grid::KineticGrid, u, layout, t)
         values = _limit_values(envelopes.region.limit, time)
     end
     limits = values isa Real ? Iterators.repeated(values, radii) : values
-    values isa Real || length(values) == radii ||
+    if !(values isa Real || length(values) == radii)
         throw(DimensionMismatch("the limit of the momentum region has $(length(values)) values for $radii radii"))
+    end
     envelopes.time[] = time
     update_key!(envelopes.limits, limits) || return envelopes
     try
@@ -158,8 +160,8 @@ function _add_density_moment!(
             n += _envelope_value(envelope, i) * jacobian[i, j] * m.p_widths[i] *
                  m.xi_widths[j] * f[i, j]
         end
-        out[first(unknown_range(layout, row, ir))] += term.coefficient * n /
-                                                      grid.radial_grid.spatial_jacobian[ir]
+        r = first(unknown_range(layout, row, ir))
+        out[r] += term.coefficient * n / grid.radial_grid.spatial_jacobian[ir]
     end
     return out
 end
@@ -248,7 +250,9 @@ function _add_threshold_column!(weight, J, envelopes, grid, u, layout, row, id)
 
             value += ForwardDiff.partials(envelope[i], 1) * weight(ir, i, j) * f[i, j]
         end
-        _add_entry!(J, first(unknown_range(layout, row, ir)), first(unknown_range(layout, T_id, ir)), value)
+        r = first(unknown_range(layout, row, ir))
+        column = first(unknown_range(layout, T_id, ir))
+        _add_entry!(J, r, column, value)
     end
     return J
 end
@@ -309,8 +313,8 @@ function rhs!(out, term::CurrentMomentTerm, u, layout, row, t)
         j = _current_moment(momentum_grid(grid, ir), term.pitch_weights[ir], phase_space_jacobian(grid, ir),
                             kinetic_view(u, layout, id, ir), _moment_envelope(term.envelopes, grid, ir, u, layout, t))
         #! format: on
-        out[first(unknown_range(layout, row, ir))] += term.coefficient * j /
-                                                      grid.radial_grid.spatial_jacobian[ir]
+        r = first(unknown_range(layout, row, ir))
+        out[r] += term.coefficient * j / grid.radial_grid.spatial_jacobian[ir]
     end
     return out
 end

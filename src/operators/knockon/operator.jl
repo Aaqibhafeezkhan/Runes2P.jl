@@ -72,13 +72,20 @@ function _pair_slice_weights!(
     spacing = length(xi_star_values) > 1 ? xi_star_values[2] - xi_star_values[1] : zero(T)
     slice_count = length(xi_star_values)
     lowest = first(xi_star_values)
-    position(x) = spacing > 0 ? clamp((x - lowest) / spacing, 0, slice_count - 1) : zero(T)
+    function position(x)
+        if spacing > 0
+            return clamp((x - lowest) / spacing, 0, slice_count - 1)
+        else
+            return zero(T)
+        end
+    end
     xi_lower, xi_upper = xi_star(p_lower, p1), xi_star(p_upper, p1)
     # outside the table the clamped hat functions would pile the pair onto an edge slice
     margin = 1e-10 * max(spacing, eps(T))
-    (lowest - margin <= xi_lower && xi_upper <= last(xi_star_values) + margin) ||
+    if !(lowest - margin <= xi_lower && xi_upper <= last(xi_star_values) + margin)
         throw(ErrorException("the ξ* range [$xi_lower, $xi_upper] of a knock-on pair leaves the table " *
                              "[$lowest, $(last(xi_star_values))]"))
+    end
     # a quadrature point at position s contributes to the slices floor(s) + 1 and + 2
     m_lower = floor(Int, position(xi_lower)) + 1
     m_upper = clamp(floor(Int, position(xi_upper)) + 2, m_lower, slice_count)
@@ -86,13 +93,17 @@ function _pair_slice_weights!(
     cuts = T[p_lower]
     for m in (m_lower + 1):(m_upper - 1)
         p = momentum_at_xi_star(xi_star_values[m], p1)
-        p_lower < p < p_upper && push!(cuts, p)
+        if p_lower < p < p_upper
+            push!(cuts, p)
+        end
     end
     push!(cuts, p_upper)
     beta1 = p1 / sqrt(1 + p1^2)
     total = zero(T)
     for sub in (1, 2, 4, 8, 16, 32, 64, 128)
-        sub > 1 && copyto!(view(previous, m_lower:m_upper), view(acc, m_lower:m_upper))
+        if sub > 1
+            copyto!(view(previous, m_lower:m_upper), view(acc, m_lower:m_upper))
+        end
         fill!(view(acc, m_lower:m_upper), zero(T))
         total = zero(T)
         for q in 1:(length(cuts) - 1)
@@ -150,8 +161,9 @@ function KnockOnKernels(knockon::MomentumGrid{T}, primary::MomentumGrid{T}, p_cu
             m_lower, m_upper, total = _pair_slice_weights!(
                 accumulator, previous, pitch.xi_star_values,
                 p_lower, p_upper, p1, flux, nodes, weights)
-            total > 0 ||
+            if !(total > 0)
                 throw(ErrorException("no knock-on production in the ξ* range of pair ($i, $k)"))
+            end
             # rescale to the analytic flux, so that the production stays exactly the
             # energy kernel's for any quadrature (and carries the same round-off in a sliver
             # of a cell)
@@ -180,7 +192,8 @@ function KnockOnKernels(knockon::MomentumGrid{T}, primary::MomentumGrid{T}, p_cu
     end
 
     slice_primaries = [findall(view(used, m, :)) for m in 1:slice_count]
-    slice_offsets = cumsum([0; length.(slice_primaries)[1:(end - 1)]])
+    slice_primary_counts = length.(slice_primaries)
+    slice_offsets = cumsum([0; slice_primary_counts[1:(end - 1)]])
     column = zeros(Int, slice_count, np_primary)
     for m in 1:slice_count, (c, k) in enumerate(slice_primaries[m])
 
@@ -325,9 +338,10 @@ function set_cutoff!(op::KnockOnOperator{T}, p_cutoff::Union{
     # the new kernels are built before the operator changes, so a failure (a cutoff or a
     # grid the kernels refuse) leaves it as it was
     built = Dict{keytype(op.cache), KnockOnKernels{T}}()
-    kernels = map(1:nr) do ir
+    kernels = Vector{KnockOnKernels{T}}(undef, nr)
+    for ir in 1:nr
         key = _kernel_key(op, ir, cutoffs[ir])
-        get(op.cache, key) do
+        kernels[ir] = get(op.cache, key) do
             get!(built, key) do
                 KnockOnKernels(
                     momentum_grid(op.knockon, ir), momentum_grid(op.primary, ir),
@@ -337,18 +351,23 @@ function set_cutoff!(op::KnockOnOperator{T}, p_cutoff::Union{
     end
     merge!(op.cache, built)
     # counted only once the kernels are built, so a failed call changes nothing
-    cutoffs == op.p_cutoff || (op.revision += 1)
+    if cutoffs != op.p_cutoff
+        op.revision += 1
+    end
     copyto!(op.p_cutoff, cutoffs)
     copyto!(op.kernels, kernels)
     # keep only the kernels in use
     in_use = Set(_kernel_key(op, ir, op.p_cutoff[ir]) for ir in 1:nr)
     for key in collect(keys(op.cache))
-        key in in_use || delete!(op.cache, key)
+        if !(key in in_use)
+            delete!(op.cache, key)
+        end
     end
     if op.method === :blas
         column_count = maximum(k -> k.column_count, op.kernels)
-        column_count > size(op.slice_products, 2) &&
-            (op.slice_products = zeros(T, size(op.slice_products, 1), column_count))
+        if column_count > size(op.slice_products, 2)
+            op.slice_products = zeros(T, size(op.slice_products, 1), column_count)
+        end
     end
     return length(built)
 end
@@ -519,8 +538,9 @@ function knockon_linear_operator(
         op::KnockOnOperator{T}, total_electron_density::AbstractVector;
         scale = one(T)) where {T}
     knockon_size, primary_size = size(op.knockon), size(op.primary)
-    length(total_electron_density) == radial_cell_count(op.knockon) ||
+    if length(total_electron_density) != radial_cell_count(op.knockon)
         throw(DimensionMismatch("total_electron_density must have one entry per radius"))
+    end
     function product!(result, v, a, b)
         if iszero(b)
             fill!(result, zero(eltype(result)))

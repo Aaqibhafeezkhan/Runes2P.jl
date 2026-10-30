@@ -12,9 +12,9 @@ These rules hold for every contribution, by people and by coding agents alike.
   `feat/<topic>` names an integration branch only (below); a new feature in one pull request takes the type of its main change.
   The topic is a few lowercase words joined by hyphens, for example `fix/pmax-boundary`.
 - Open a pull request as a draft while it is in progress.
-  The lint, the format check, the component tests and the docs build run on every push to a pull request.
+  The lint, the code style check, the format check, the component tests and the docs build run on every push to a pull request.
   The full suite runs once a pull request into `dev` or `main` is marked ready, and again on every push after that.
-  A merge into `dev` or `main` runs the lint, the format check and the component tests again, on `dev` with the deployment of the docs in place of the docs build.
+  A merge into `dev` or `main` runs the lint, the code style check, the format check and the component tests again, on `dev` with the deployment of the docs in place of the docs build.
   The full suite runs on `dev` once a week.
 - Five checks are required for a merge into `dev` or `main`: Markdown lint, Format check, Component tests, Documentation build and Full suite.
 - A pull request into `dev` must be up to date with `dev`.
@@ -102,18 +102,28 @@ The header of `docs/make.jl` gives the command of a live local preview.
 
 These rules hold for `src/` and `ext/`, where the physics and the numerics are read and checked; tests, examples and scripts may be denser.
 New and changed code follows them.
-The formatter sets the layout only, so the reviews check these rules.
+The formatter sets the layout only, so the reviews check these rules, helped by the script of the last item.
 
 - Control flow is written with `if`.
   `cond && action` and `cond || action` are not used for a side effect, an assignment or a `throw`.
-  An early return, such as `cond && return x`, is allowed anywhere.
+  An early return, such as `cond && return x`, is allowed anywhere, and so are `cond && continue` and `cond && break`.
   The one exception is a check of an argument at the start of a function, in either form, such as `length(x) == n || throw(DimensionMismatch("..."))`.
+  A check is at the start of a function when only other checks and the assignments it reads come before it.
+- A check rewritten from `cond || throw(...)` into an `if` keeps its condition.
+  An ordered or compound condition is negated as `if !(cond)`, since a simplified comparison can differ for `NaN`.
+  A negated equality is written `a != b` or `a !== b`.
+- An `if` that gives one variable its value is written `x = if ... else ... end`, unless a conditional expression `a ? b : c` of one line fits.
+  An `if` that gives the value of a function has a `return` in each branch.
 - One statement per line: no `;` between statements, and no assignment inside an expression.
 - A conditional expression `a ? b : c` chooses between two simple values, short enough for one line, and is never nested.
 - An intermediate quantity gets a name, the name of the physical quantity where there is one, instead of a long chain of calls or broadcasts.
   A line that transcribes a cited formula may stay one expression, so that it can be compared with its source.
 - A comprehension or generator has one level; a nested one, or a `map` or `foreach` whose function takes more than one line, is written as a loop.
 - No composition of functions with `∘` as an operator in code, and no chains of `|>`.
+- `python3 scripts/check_code_style.py <file> ...` finds the simplest breaks of these rules.
+  It reports an assignment or a call ending in `!` after `&&` or `||`, and a `throw` or `error` after them outside the checks at the start of a function.
+  It also reports a nested or two-line `a ? b : c`, a `;` between two statements, a chain of `|>` and `∘` as an operator.
+  CI runs it on the lines a pull request adds, and on every line of `src/` and `ext/` after a push to `dev` or `main`; the reviews check the rest.
 
 ## Physics values and their sources
 

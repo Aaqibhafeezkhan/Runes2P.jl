@@ -45,10 +45,12 @@ function KnockOnTerm(primary::Symbol, operator::KnockOnOperator{T}; target_densi
     target_density isa Union{Symbol, AbstractVector} ||
         throw(ArgumentError("target_density must be an unknown name or a vector"))
     grid = operator.knockon
-    lagged = treatment === :explicit_primary && target_density isa Symbol ?
-             [zeros(T, momentum_cell_count(grid, ir), pitch_cell_count(grid, ir))
-              for ir in 1:radial_cell_count(grid)] :
-             Matrix{T}[]
+    lagged = if treatment === :explicit_primary && target_density isa Symbol
+        [zeros(T, momentum_cell_count(grid, ir), pitch_cell_count(grid, ir))
+         for ir in 1:radial_cell_count(grid)]
+    else
+        Matrix{T}[]
+    end
     prepared_from = [similar(source) for source in lagged]
     return KnockOnTerm(primary, operator, target_density, treatment,
         lagged, Ref(false), prepared_from, Ref(0), Ref(0))
@@ -64,14 +66,22 @@ lags_in_ode_form(term::KnockOnTerm) = _lagged_primary(term)
 # linear in the primary with a prescribed target density; bilinear when it is an unknown
 is_linear(term::KnockOnTerm) = _lagged_primary(term) || !(term.target_density isa Symbol)
 function dependencies(term::KnockOnTerm)
-    _lagged_primary(term) ? [term.target_density] :
-    term.target_density isa Symbol ? [term.primary, term.target_density] : [term.primary]
+    if _lagged_primary(term)
+        return [term.target_density]
+    elseif term.target_density isa Symbol
+        return [term.primary, term.target_density]
+    else
+        return [term.primary]
+    end
 end
 coupling(term::KnockOnTerm) = _lagged_primary(term) ? :sparse : :matrix_free
 jacobian_assembly(term::KnockOnTerm) = _lagged_primary(term) ? :direct : :automatic
 function treatment(term::KnockOnTerm)
-    term.treatment === :explicit_primary ?
-    (term.target_density isa Symbol ? :implicit : :explicit) : term.treatment
+    if term.treatment === :explicit_primary
+        return term.target_density isa Symbol ? :implicit : :explicit
+    else
+        return term.treatment
+    end
 end
 
 function validate(term::KnockOnTerm, layout, row)
@@ -84,18 +94,22 @@ function validate(term::KnockOnTerm, layout, row)
             momentum_cell_count(op.knockon, ir), pitch_cell_count(op.knockon, ir))
         primary_shape = (
             momentum_cell_count(op.primary, ir), pitch_cell_count(op.primary, ir))
-        layout.shapes[row, ir] == knockon_shape ||
+        if layout.shapes[row, ir] != knockon_shape
             throw(DimensionMismatch("the knock-on grid does not match $(layout.unknowns[row].name)"))
-        layout.shapes[primary, ir] == primary_shape ||
+        end
+        if layout.shapes[primary, ir] != primary_shape
             throw(DimensionMismatch("the primary grid does not match $(term.primary)"))
+        end
     end
     if term.target_density isa Symbol
         density = unknown_id(layout, term.target_density)
-        layout.kinds[density] === :radial && layout.sizes[density, 1] == 1 ||
+        if !(layout.kinds[density] === :radial && layout.sizes[density, 1] == 1)
             throw(ArgumentError("the target density must be a radial unknown with one component"))
+        end
     else
-        length(term.target_density) == radial_cell_count(layout) ||
+        if length(term.target_density) != radial_cell_count(layout)
             throw(DimensionMismatch("target_density needs one value per radius"))
+        end
     end
     return nothing
 end
@@ -115,8 +129,10 @@ function prepare_step!(term::KnockOnTerm, u_old, layout, row, t)
     if term.prepared[] && term.prepared_revision[] == term.operator.revision
         same = true
         for ir in 1:radial_cell_count(layout)
-            _same_primary(term.prepared_from[ir], kinetic_view(u_old, layout, primary, ir)) ||
-                (same = false; break)
+            if !_same_primary(term.prepared_from[ir], kinetic_view(u_old, layout, primary, ir))
+                same = false
+                break
+            end
         end
         same && return nothing
     end
@@ -142,9 +158,10 @@ end
 
 function rhs!(out, term::KnockOnTerm, u, layout, row, t)
     if _lagged_primary(term)
-        term.prepared[] ||
+        if !term.prepared[]
             throw(ArgumentError("the knock-on source of the previous time level is not set: it is set by residual! " *
                                 "and by the right-hand side of the system (prepare_step!)"))
+        end
         density = unknown_id(layout, term.target_density)
         for ir in 1:radial_cell_count(layout)
             added = kinetic_view(out, layout, row, ir)

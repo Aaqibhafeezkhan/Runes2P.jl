@@ -83,12 +83,14 @@ function PitchOverlap(left_xi_faces::AbstractVector{T}, right_xi_faces::Abstract
             j_right += 1
         end
     end
-    (j_left == left_count + 1 && j_right == right_count + 1) ||
+    if !(j_left == left_count + 1 && j_right == right_count + 1)
         throw(ArgumentError("the ξ faces of the two grids could not be merged (a cell narrower than " *
                             "1e-12 of the interval)"))
+    end
     measures = T[measure(faces[s], faces[s + 1]) for s in eachindex(left_cells)]
-    all(>(0), measures) ||
+    if !all(>(0), measures)
         throw(ArgumentError("the measure of every overlap cell must be positive"))
+    end
     left_ranges = _cell_ranges(left_cells, left_count)
     right_ranges = _cell_ranges(right_cells, right_count)
     left_measures = T[measure(left_xi_faces[j], left_xi_faces[j + 1]) for j in 1:left_count]

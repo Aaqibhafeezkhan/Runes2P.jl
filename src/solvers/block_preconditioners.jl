@@ -49,12 +49,16 @@ end
 
 function _preconditioner_blocks(layout::UnknownLayout)
     ranges = [radius_block_range(layout, ir) for ir in 1:radial_cell_count(layout)]
-    isempty(scalar_block_range(layout)) || push!(ranges, scalar_block_range(layout))
+    if !isempty(scalar_block_range(layout))
+        push!(ranges, scalar_block_range(layout))
+    end
     covered = falses(length(layout))
     for range in ranges
         covered[range] .= true
     end
-    all(covered) || error("the radius and scalar blocks do not cover the layout")
+    if !all(covered)
+        error("the radius and scalar blocks do not cover the layout")
+    end
     return ranges
 end
 
@@ -95,8 +99,8 @@ function BlockFactors(preconditioner::BlockPreconditioner, matrix::SparseMatrixC
 end
 
 function _refactorize!(factors::BlockFactors, ::RadiusBlockLU, k)
-    (lu!(factors.factorizations[k], factors.matrices[k]; check = false);
-        issuccess(factors.factorizations[k]))
+    lu!(factors.factorizations[k], factors.matrices[k]; check = false)
+    return issuccess(factors.factorizations[k])
 end
 
 function _refactorize!(factors::BlockFactors, p::RadiusBlockILU, k)
@@ -136,8 +140,9 @@ function LinearAlgebra.ldiv!(y::AbstractVector, factors::BlockFactors, x::Abstra
         range, input, output = factors.ranges[k], factors.input[k], factors.output[k]
         copyto!(input, 1, x, first(range), length(range))
         ldiv!(output, factors.factorizations[k], input)
-        factors.low_rank[k] === nothing ||
+        if factors.low_rank[k] !== nothing
             _apply_low_rank_correction!(output, factors.low_rank[k])
+        end
         copyto!(y, first(range), output, 1, length(range))
     end
     return y

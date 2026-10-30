@@ -46,8 +46,11 @@ function PlasmaState(radial_grid::RadialGrid; cold_electron_temperature,
         ions, electric_field, magnetic_field,
         cold_electron_density = nothing)
     centers = radial_grid.r_centers
-    density = cold_electron_density === nothing ? nothing :
-              radial_values(cold_electron_density, centers)
+    density = if cold_electron_density === nothing
+        nothing
+    else
+        radial_values(cold_electron_density, centers)
+    end
     return PlasmaState(;
         cold_electron_temperature = radial_values(cold_electron_temperature, centers),
         ions,

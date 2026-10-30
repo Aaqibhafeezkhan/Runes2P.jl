@@ -11,8 +11,11 @@ Thermal Coulomb logarithm `14.9 - ½ ln(n/10²⁰) + ln(T/keV)` for the free-ele
 zero for a vanishing density.
 """
 function thermal_coulomb_logarithm(free_electron_density, temperature)
-    free_electron_density == 0 ? zero(temperature) :
-    14.9 - 0.5 * log(free_electron_density / 1e20) + log(temperature / 1e3)
+    if free_electron_density == 0
+        return zero(temperature)
+    else
+        return 14.9 - 0.5 * log(free_electron_density / 1e20) + log(temperature / 1e3)
+    end
 end
 
 """
@@ -23,8 +26,11 @@ free-electron density `free_electron_density` (`n`) [m⁻³] and the temperature
 (`T`) [eV], zero for a vanishing density.
 """
 function relativistic_coulomb_logarithm(free_electron_density, temperature)
-    free_electron_density == 0 ? zero(temperature) :
-    14.6 + 0.5 * log(temperature / (free_electron_density / 1e20))
+    if free_electron_density == 0
+        return zero(temperature)
+    else
+        return 14.6 + 0.5 * log(temperature / (free_electron_density / 1e20))
+    end
 end
 
 """
@@ -41,8 +47,9 @@ function coulomb_logarithm(collision::Symbol, model::Symbol, p, free_electron_de
         return relativistic_coulomb_logarithm(free_electron_density, temperature)
     thermal = thermal_coulomb_logarithm(free_electron_density, temperature)
     model === :thermal && return thermal
-    model === :energy_dependent ||
+    if model !== :energy_dependent
         throw(ArgumentError("unknown Coulomb logarithm model $model"))
+    end
     # the thermal value at p = 0, the limit of the formula below: its square root of zero has
     # no derivative when p carries one (the dual numbers of the plasma columns at the face p = 0)
     _value(p) == 0 && return thermal

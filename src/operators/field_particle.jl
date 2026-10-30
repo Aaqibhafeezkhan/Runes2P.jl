@@ -44,7 +44,9 @@ function electron_electron_operator(
         throw(ArgumentError("the electron-electron operator takes collision mode :full or :superthermal"))
     op = AdvectionDiffusion(grid; scheme, p_lower_boundary, p_upper_boundary)
     C = eltype(plasma.cold_electron_temperature)
-    C === Float64 || (op = similar_coefficients(op, C))
+    if C !== Float64
+        op = similar_coefficients(op, C)
+    end
     model = CollisionModel(plasma, settings)
     diffusion = settings.mode === :full
     np, nxi, nr = size(grid)
@@ -56,7 +58,9 @@ function electron_electron_operator(
             nu = _electron_electron_slowing_down_frequency(model, ir, p)
             for j in 1:nxi
                 op.advection_p[k, j, ir] -= p * nu
-                diffusion && (op.diffusion_p_p[k, j, ir] += theta * sqrt(1 + p^2) * nu)
+                if diffusion
+                    op.diffusion_p_p[k, j, ir] += theta * sqrt(1 + p^2) * nu
+                end
             end
         end
         nxi == 1 && continue
@@ -81,7 +85,15 @@ const LIKE_SPECIES_FIELD_TO_TEST_RATIOS = [-1.0 -1.0 -1.0
                                            -1.0 -225/417 -2125/8385]
 
 # generalized Laguerre polynomial L_j^{(3/2)}(y), j = 0, 1, 2
-_laguerre(j, y) = j == 0 ? one(y) : j == 1 ? 5 / 2 - y : 35 / 8 - 7y / 2 + y^2 / 2
+function _laguerre(j, y)
+    if j == 0
+        return one(y)
+    elseif j == 1
+        return 5 / 2 - y
+    else
+        return 35 / 8 - 7y / 2 + y^2 / 2
+    end
+end
 
 """
     FieldParticleOperator(grid, plasma, settings=CollisionSettings();
@@ -181,10 +193,11 @@ function set_field_particle_coefficients!(
     # without cold electrons the e-e collisions and the restoring shapes vanish, which points
     # to wrong input data or settings: checked before the collision model reads the density
     for ir in 1:nr
-        plasma.cold_electron_density[ir] > 0 ||
+        if !(plasma.cold_electron_density[ir] > 0)
             throw(DomainError(plasma.cold_electron_density[ir],
                 "no cold electrons at radius $ir: the field-particle term needs collision mode " *
                 ":full with a thermal bulk at every radius (check the input data and the settings)"))
+        end
     end
     K = op.modes
     collisions = operator_matrix(electron_electron_operator(grid, plasma, settings; scheme = op.scheme))
@@ -215,17 +228,18 @@ function set_field_particle_coefficients!(
         phi = hcat((pxi .* _laguerre.(d - 1, x2) .* maxwellian for d in 1:K)...)
         shapes = maxwellian .* ell ./ volume
         for a in 1:K
-            shapes[:, a] .-= (sum(volume .* shapes[:, a]) / sum(volume .* maxwellian)) .*
-                             maxwellian
+            density_ratio = sum(volume .* shapes[:, a]) / sum(volume .* maxwellian)
+            shapes[:, a] .-= density_ratio .* maxwellian
         end
         test_elements = transpose(ell) * phi            # T_bd
         shape_elements = transpose(W) * shapes          # G_ca
         A = shape_elements \ ((ratios .* test_elements) / test_elements)
         # a DomainError: a rebuild in a run with a changing plasma reaches it, and the solvers
         # take that as a failed solve
-        all(isfinite, A) ||
+        if !all(isfinite, A)
             throw(DomainError(plasma.cold_electron_temperature[ir],
                 "the restoring shapes are degenerate at radius $ir at this cold-electron temperature"))
+        end
         op.loss_functionals[ir] .= ell
         op.restoring_shapes[ir] .= shapes * A
     end
@@ -321,12 +335,17 @@ has_plasma_source(term::FieldParticleTerm) = term.plasma !== nothing
 
 # a plasma from the unknowns is lagged: prepare_step! rebuilds the term
 function refresh_coefficients!(term::FieldParticleTerm, u, layout, t)
-    is_state_dependent(term.plasma) ? term.operator :
-    _rebuild_coefficients!(term, u, layout, t)
+    if is_state_dependent(term.plasma)
+        return term.operator
+    else
+        return _rebuild_coefficients!(term, u, layout, t)
+    end
 end
 
 function prepare_step!(term::FieldParticleTerm, u_old, layout, row, t)
-    is_state_dependent(term.plasma) && _rebuild_coefficients!(term, u_old, layout, t)
+    if is_state_dependent(term.plasma)
+        _rebuild_coefficients!(term, u_old, layout, t)
+    end
     return nothing
 end
 

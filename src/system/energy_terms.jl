@@ -21,9 +21,10 @@ dependencies(term::ProductTerm) = unique([term.first, term.second])
 
 function validate(term::ProductTerm, layout, row)
     for id in (unknown_id(layout, term.first), unknown_id(layout, term.second), row)
-        layout.kinds[id] === :radial && layout.sizes[id, 1] == 1 ||
+        if !(layout.kinds[id] === :radial && layout.sizes[id, 1] == 1)
             throw(ArgumentError("ProductTerm takes and adds to radial unknowns with one component, not " *
                                 "$(layout.unknowns[id].name)"))
+        end
     end
     return nothing
 end
@@ -41,7 +42,8 @@ function sparsity!(entries, term::ProductTerm, layout, row)
     for ir in 1:radial_cell_count(layout)
         r = first(unknown_range(layout, row, ir))
         for name in dependencies(term)
-            push!(entries, (r, first(unknown_range(layout, unknown_id(layout, name), ir))))
+            id = unknown_id(layout, name)
+            push!(entries, (r, first(unknown_range(layout, id, ir))))
         end
     end
     return entries
@@ -302,13 +304,16 @@ end
 function validate(term::RunawayFluidEnergyTransferTerm, layout, row, t)
     for id in (unknown_id(layout, term.runaway_density), unknown_id(layout, term.temperature),
         unknown_id(layout, term.density), row)
-        layout.kinds[id] === :radial && layout.sizes[id, 1] == 1 ||
+        if !(layout.kinds[id] === :radial && layout.sizes[id, 1] == 1)
             throw(ArgumentError("RunawayFluidEnergyTransferTerm takes and adds to radial unknowns with one " *
                                 "component, not $(layout.unknowns[id].name)"))
+        end
     end
-    term.ions === nothing ||
-        _check_ion_unknown(layout, unknown_id(layout, term.ions),
-            IonComposition(plasma_values(term.plasma, nothing, nothing, t)))
+    if term.ions !== nothing
+        ions_id = unknown_id(layout, term.ions)
+        composition = IonComposition(plasma_values(term.plasma, nothing, nothing, t))
+        _check_ion_unknown(layout, ions_id, composition)
+    end
     return nothing
 end
 function validate(term::RunawayFluidEnergyTransferTerm, layout, row)
@@ -337,8 +342,8 @@ function sparsity!(entries, term::RunawayFluidEnergyTransferTerm, layout, row)
     for ir in 1:radial_cell_count(layout), name in dependencies(term)
 
         r = first(unknown_range(layout, row, ir))
-        append!(entries, ((r, c)
-        for c in unknown_range(layout, unknown_id(layout, name), ir)))
+        id = unknown_id(layout, name)
+        append!(entries, ((r, c) for c in unknown_range(layout, id, ir)))
     end
     return entries
 end
