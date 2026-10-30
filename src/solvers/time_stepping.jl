@@ -309,11 +309,17 @@ half the length and one of the full length from the same state, so the error est
 two solves per step of progress. The error of an unknown is the 2-norm of the difference
 between the full step and the two half steps over the 2-norm of the full step,
 `‖u_full - u_half‖ / (absolute + relative ‖u_full‖)`, taken over every entry of the unknown
-at every radius; the error of the step is the largest over the unknowns. The step is
-accepted when it is at most 1, and its solution is that of the full step, as in DREAM. The
-next step is `safety · h / error^exponent` in either case, without a cap on its growth
-(DREAM: safety 0.95, exponent 1.0; its stabiliser, exponent 0.7 with a memory of the last
-error, is compiled out). `check_every` steps between two checked steps are taken at the
+at every radius; the error of the step is the largest over the unknowns. An unknown whose
+scale is zero, at zero with no absolute tolerance, stays out of that largest error but fails
+the step when it moves between the full and the half steps, as DREAM's acceptance
+`dx ≤ epsa + epsr x` does (`ConvergenceChecker::IsConverged`). The step is accepted when no
+such unknown fails it and its error is at most 1, and its solution is that of the full step,
+as in DREAM. The next step is `safety · h / error^exponent` in either case, without a cap on
+its growth (DREAM: safety 0.95, exponent 1.0; its stabiliser, exponent 0.7 with a memory of
+the last error, is compiled out); a step that only an unknown at zero fails is retried with
+half its length, and its record shows it rejected with an error of at most 1 (a choice of
+this package, since DREAM's next step is unbounded there; see the docs page *Choices of this
+package*). `check_every` steps between two checked steps are taken at the
 current length without a check, the documented intent of DREAM's `checkevery`. DREAM's code
 takes them from a stale `initTime`, with the lengths `h₁ − h₀`, `−h₀`, `−(h₀ + h₁)`, and
 `checkevery + 1` of them (`TimeStepperAdaptive.cpp:119-122`, `145-152`, `334-338`), so no
@@ -423,7 +429,7 @@ end
 # out (NaN). An unknown whose scale is zero, an unknown at zero with no absolute tolerance,
 # is left out of the largest error, as DREAM leaves it out of the next step length, but a
 # nonzero difference there fails the step, as DREAM's acceptance `dx ≤ epsa + epsr x`
-# does (`ConvergenceChecker::IsConverged`, `TimeStepperAdaptive.cpp:456-466`); its error
+# does (`ConvergenceChecker::IsConverged`, `TimeStepperAdaptive.cpp:456-469`); its error
 # is Inf.
 function _doubling_errors!(state::StepDoublingState, layout, full, doubled)
     largest = 0.0

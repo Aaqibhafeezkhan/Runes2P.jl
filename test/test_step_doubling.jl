@@ -1,7 +1,8 @@
 # DREAM's step doubling (`TimeStepperAdaptive.cpp`) on a linear decay whose
 # backward-Euler steps are known in closed form: the error estimate, the step sequence by
 # DREAM's rule with its rejections, the steps between checks, the failure path, the
-# record of the stepper and the resume from a checkpoint. The comparison with DREAM's
+# record of the stepper and the resume from a checkpoint, and on synthetic states the
+# acceptance of an unknown at zero with no absolute tolerance. The comparison with DREAM's
 # own sequence is in test_time_stepping_dream.jl. The helpers are those of
 # test_time_stepping.jl.
 using HDF5
