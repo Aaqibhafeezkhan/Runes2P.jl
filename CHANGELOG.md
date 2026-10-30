@@ -40,5 +40,5 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Fixed
 
-- The like-species ratio N²²/M²² of the three-mode `FieldParticleOperator` is −2625/8385, the value of Hirshman and Sigmar, Nucl. Fusion 21, 1079 (1981), eq. (5.22), in place of the misprint −2125/8385 ([#PR](https://github.com/osrep/Runes2P.jl/pull/PR)).
+- The like-species ratio N²²/M²² of the three-mode `FieldParticleOperator` is −2625/8385, the value of Hirshman and Sigmar, Nucl. Fusion 21, 1079 (1981), eq. (5.22), in place of the misprint −2125/8385 ([#156](https://github.com/osrep/Runes2P.jl/pull/156)).
   The conductivity of the default three-mode model changes by about 3e-4 relative.
