@@ -1,6 +1,7 @@
 # Momentum-conserving field-particle term of the electron-electron collisions:
 # conservation, the matrix elements of the test-particle operator against
-# Braginskii's, the Lorentz limit and the Spitzer-Härm conductivity, the steady state of
+# Braginskii's, the field-particle ratios against the like-species sums, the Lorentz limit
+# and the Spitzer-Härm conductivity, the steady state of
 # a run with a prescribed field, and the Woodbury update of the solvers.
 import LinearAlgebra
 using Random: Xoshiro
