@@ -39,16 +39,21 @@ jobs:
       code: ${{ steps.changes.outputs.code }}
     steps:
       - uses: actions/checkout@v7
+        if: github.event_name == 'pull_request'
         with:
           fetch-depth: 0
       - uses: julia-actions/setup-julia@v3
+        if: github.event_name == 'pull_request'
         with:
           version: "1.13.1"
       - name: Classify the changes
         id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.base_ref }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            julia scripts/code_changes.jl "origin/${{ github.base_ref }}"
+          if [ "$EVENT" = "pull_request" ]; then
+            julia scripts/code_changes.jl "origin/$BASE"
           else
             echo "code=true" >> "$GITHUB_OUTPUT"
           fi
