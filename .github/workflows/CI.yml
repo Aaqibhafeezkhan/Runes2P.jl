@@ -1,8 +1,8 @@
 # The checks of every pull request, drafts included, and of every push to dev and main: the
 # markdown lint, the code style check, the format check, the component tests and the strict
 # documentation build. A pull request that changes no code (scripts/code_changes.jl: markdown,
-# docs/src/, and Julia files whose code is the same without docstrings and comments) skips the
-# component tests; a skipped job counts as passed for the required checks.
+# docs/src/, and Julia files outside test/ whose code is the same without docstrings and
+# comments) skips the component tests; a skipped job counts as passed for the required checks.
 # A push to another branch runs nothing, since its pull request runs the same checks. The full
 # suite is in FullSuite.yml.
 name: CI

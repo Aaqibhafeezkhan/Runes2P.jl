@@ -9,9 +9,9 @@
 #
 # - a markdown file (`*.md`);
 # - a file under `docs/src/`, which the documentation build checks;
-# - a Julia file that is in both trees and whose parsed code is the same in both once its
-#   docstrings are removed: the parser drops comments and line numbers, so a change of
-#   comments, docstrings or layout does not count.
+# - a Julia file outside `test/` that is in both trees and whose parsed code is the same in
+#   both once its docstrings are removed: the parser drops comments and line numbers, so a
+#   change of comments, docstrings or layout does not count.
 #
 # A Julia file whose docstrings a test reads (`DOCSTRINGS_READ_BY_TESTS`) changes code with
 # any change. Every other file changes code, among them a Julia file that is added, deleted or renamed, or
@@ -34,7 +34,9 @@ function _without_docs(x)
     for (k, arg) in enumerate(x.args)
         # the line number of a macro call is its second argument
         if arg isa LineNumberNode
-            x.head === :macrocall && k == 2 && push!(args, nothing)
+            if x.head === :macrocall && k == 2
+                push!(args, nothing)
+            end
             continue
         end
         push!(args, _without_docs(arg))
@@ -65,6 +67,7 @@ _file_at(ref, path) = _git("show", "$ref:$path")
 function changes_code(base::AbstractString, status::AbstractString, path::AbstractString)
     endswith(path, ".md") && return false
     startswith(path, "docs/src/") && return false
+    startswith(path, "test/") && return true
     (status == "M" && endswith(path, ".jl")) || return true
     path in DOCSTRINGS_READ_BY_TESTS && return true
     merge_base = strip(_git("merge-base", base, "HEAD"))
