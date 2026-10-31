@@ -5,7 +5,9 @@
 # push to dev or main runs nothing: a pull request must be up to date with its base before the
 # merge, so its run has tested the merged tree. The weekly run catches changes from outside the
 # repository (new versions of packages, a new runner image) and renews the depot cache of dev,
-# which the runs of pull requests restore.
+# which the runs of pull requests restore. A pull request that changes no code
+# (scripts/code_changes.jl, as in CI.yml) skips the suite; its check "Full suite" is then
+# skipped, which counts as passed, as on a draft.
 name: Full suite
 
 on:
@@ -34,11 +36,44 @@ env:
   RUNES2P_REGRESSION_RTOL: "1e-13"
 
 jobs:
+  # whether the pull request changes code, the same job as in CI.yml; a weekly or manual run
+  # changes code. A failure of this job leaves the output empty, and the suite runs.
+  changes:
+    name: Code changes
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      code: ${{ steps.changes.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+      - uses: julia-actions/setup-julia@v3
+        if: github.event_name == 'pull_request'
+        with:
+          version: "1.13.1"
+      - name: Classify the changes
+        id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            julia scripts/code_changes.jl "origin/$BASE"
+          else
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          fi
+
   # the indices 1 to n of the groups of test/groups.toml, for the matrix, and the ADAS cache,
   # filled once here for all groups
   setup:
     name: Test groups
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    needs: changes
+    if: >-
+      ${{ !cancelled() && needs.changes.result != 'skipped' &&
+      needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:

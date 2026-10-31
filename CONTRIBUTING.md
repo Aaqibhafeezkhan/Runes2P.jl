@@ -14,6 +14,8 @@ These rules hold for every contribution, by people and by coding agents alike.
 - Open a pull request as a draft while it is in progress.
   The lint, the code style check, the format check, the component tests and the docs build run on every push to a pull request.
   The full suite runs once a pull request into `dev` or `main` is marked ready, and again on every push after that.
+  A pull request that changes no code skips the component tests and the full suite, and the skipped checks count as passed.
+  No code means markdown files, files under `docs/src/`, and Julia files outside `test/` whose code stays the same without docstrings and comments; `scripts/code_changes.jl` decides, and its header lists the exceptions.
   A merge into `dev` or `main` runs the lint, the code style check, the format check and the component tests again, on `dev` with the deployment of the docs in place of the docs build.
   The full suite runs on `dev` once a week.
 - Five checks are required for a merge into `dev` or `main`: Markdown lint, Format check, Component tests, Documentation build and Full suite.
