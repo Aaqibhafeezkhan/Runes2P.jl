@@ -28,8 +28,9 @@ env:
   JULIA_CPU_TARGET: "x86-64-v3"
 
 jobs:
-  # whether the pull request changes code; a push changes code. A failure of this job leaves
-  # the output empty, and the jobs that read it run.
+  # whether the pull request changes code; a push changes code. The job is the same in
+  # FullSuite.yml. A failure of this job leaves the output empty, and the jobs that read it
+  # run.
   changes:
     name: Code changes
     runs-on: ubuntu-latest

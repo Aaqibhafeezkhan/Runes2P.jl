@@ -14,10 +14,11 @@
 #   change of comments, docstrings or layout does not count.
 #
 # A Julia file whose docstrings a test reads (`DOCSTRINGS_READ_BY_TESTS`) changes code with
-# any change. Every other file changes code, among them a Julia file that is added, deleted or renamed, or
-# that does not parse. The script prints the files that change code, and writes `code=true`
-# or `code=false` to the file `$GITHUB_OUTPUT` when it is set. The exit code is 0 unless git
-# fails.
+# any change. Every other file changes code, among them a Julia file that is added, deleted
+# or renamed, or that does not parse. The script prints the files that change code, and
+# writes `code=true` or `code=false` to the file `$GITHUB_OUTPUT` when it is set. The exit
+# code is 0 unless git fails. The jobs "Code changes" of CI.yml and FullSuite.yml run it,
+# and are kept the same.
 
 # the files whose docstrings a test reads: test_chianti_ionization.jl checks the source that
 # the docstring of CHIANTI_IONIZATION_FITS cites

@@ -36,8 +36,8 @@ env:
   RUNES2P_REGRESSION_RTOL: "1e-13"
 
 jobs:
-  # whether the pull request changes code, as in CI.yml; a weekly or manual run changes code.
-  # A failure of this job leaves the output empty, and the suite runs.
+  # whether the pull request changes code, the same job as in CI.yml; a weekly or manual run
+  # changes code. A failure of this job leaves the output empty, and the suite runs.
   changes:
     name: Code changes
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
