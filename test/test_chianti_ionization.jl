@@ -50,7 +50,8 @@ using ForwardDiff
             @info "no CHIANTI files at $directory (RUNES2P_CHIANTI_DIR): the regeneration of the table is skipped"
             @test_skip isdir(directory)
         end
-        # the docstring cites the version and the read date of the header of the data file
+        # the docstring cites the version and the read date of the header of the data file;
+        # scripts/code_changes.jl lists its file, so that a change of the docstring runs the tests
         metadata = Runes2P.parse_data_file(joinpath(Runes2P.DATA_DIRECTORY,
             "chianti_ionization.toml"))["metadata"]
         source = match(r"^CHIANTI (\S+) .*, read on (\S+)$", metadata["version_or_date"])

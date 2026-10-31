@@ -122,6 +122,7 @@ What is still compiled per case:
 - A helper that a second file needs moves into `helpers.jl`, with a comment naming the file it came from, and its name into the export list.
 - A new test file goes into a group of its tier in `groups.toml`, or into the group `component` when it tests one building block in isolation.
   A file that runs longer than about ten minutes alone gets a group of its own.
+- A test that reads a docstring (`@doc name`) adds the file of that docstring to `DOCSTRINGS_READ_BY_TESTS` of `scripts/code_changes.jl`, so that a change of the docstring runs the tests.
 - A test of a record (a settings record, a type name in an output file) does not depend on the module the test runs in.
 - Each new piece of physics gets a check against a reference independent of DREAM: an analytic limit, the literature, a manufactured solution or a converged result.
   An agreement with DREAM shows that both codes use the same method, not that the method is right.
