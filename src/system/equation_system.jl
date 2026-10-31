@@ -552,6 +552,57 @@ function fill_initial_values!(u::AbstractVector, system::EquationSystem, t::Real
 end
 
 """
+    fill_maxwellian!(u, layout, unknown, density, temperature; shape=:relativistic_maxwellian)
+
+Fill the kinetic unknown `unknown` of the state `u` with a Maxwellian of the density
+`density` [m⁻³] and the temperature `temperature` [eV], profiles in any form of
+[`radial_values`](@ref) on the cell centres of the radial grid. Returns `u`.
+
+The shape is that of [`ParticleSourceTerm`](@ref) at the cell centres: `exp(-(γ − 1)/Θ)`
+with `Θ = T/mₑc²` for `:relativistic_maxwellian`, or `exp(-p²/2Θ)` for `:maxwellian`. It is
+scaled at each radius so that its moment [`density`](@ref) on the grid equals the profile.
+This is DREAM's initial distribution of a fully kinetic run: the relativistic Maxwellian at
+the cell centres, rescaled to the density on the grid (`ConstructEquation_f_maxwellian` in
+`src/Settings/Equations/distribution.cpp`, with `rescaleMaxwellian` true for `f_hot` in
+`src/Settings/Equations/f_hot.cpp`, DREAM v26.5).
+
+Throws an `ArgumentError` for an unknown that is not kinetic, another `shape`, a density
+that is negative or not finite, or a temperature that is not positive or not finite, and a
+`DimensionMismatch` for a profile with another number of values than radii; these leave `u`
+as it was. A `DomainError` for a Maxwellian with no density on the momentum grid (a
+temperature far below the first momentum cell) comes after the radii before it are filled.
+"""
+function fill_maxwellian!(
+        u::AbstractVector, layout::UnknownLayout, unknown::Symbol, density,
+        temperature; shape::Symbol = :relativistic_maxwellian)
+    shape in (:relativistic_maxwellian, :maxwellian) ||
+        throw(ArgumentError("shape must be :relativistic_maxwellian or :maxwellian, not $shape"))
+    id = unknown_id(layout, unknown)
+    layout.kinds[id] === :kinetic ||
+        throw(ArgumentError("$unknown is not a kinetic unknown"))
+    grid = kinetic_grid(layout, id)
+    centers = grid.radial_grid.r_centers
+    densities = radial_values(density, centers)
+    temperatures = radial_values(temperature, centers)
+    for ir in 1:radial_cell_count(grid)
+        if !(isfinite(densities[ir]) && densities[ir] >= 0)
+            throw(ArgumentError("the density of the Maxwellian must be finite and not negative, " *
+                                "it is $(densities[ir]) at radius $ir"))
+        end
+        if !(isfinite(temperatures[ir]) && temperatures[ir] > 0)
+            throw(ArgumentError("the temperature of the Maxwellian must be finite and positive, " *
+                                "it is $(temperatures[ir]) at radius $ir"))
+        end
+    end
+    for ir in 1:radial_cell_count(grid)
+        f = kinetic_view(u, layout, id, ir)
+        _source_shape!(f, shape, grid, ir, temperatures[ir])
+        f .*= densities[ir]
+    end
+    return u
+end
+
+"""
     mass_matrix(system)
 
 Mass matrix `M`, constant: 1 in the rows with a time derivative, in the column of the

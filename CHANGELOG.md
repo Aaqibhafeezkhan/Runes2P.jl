@@ -8,6 +8,7 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Added
 
+- `fill_maxwellian!` fills a distribution of the state with a Maxwellian from profiles of the density and the temperature, rescaled to the density on the grid as DREAM starts a fully kinetic run ([#162](https://github.com/osrep/Runes2P.jl/pull/162)).
 - `validate`, `has_plasma_columns`, `plasma_column_sparsity!` and `add_plasma_columns!`, the functions that a new term implements and the system calls, are declared `public` ([#126](https://github.com/osrep/Runes2P.jl/pull/126)).
 
 ### Changed

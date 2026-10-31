@@ -86,6 +86,7 @@ By default it is the scale of the unknown whose time derivative the row holds, o
 
 `Equation(...; initial_value = :from_equation)` sets an algebraic unknown from its row at the start of a run, as DREAM's `INITRULE_EVAL_EQUATION` does ([`fill_initial_values!`](@ref)).
 The thermal energy of the cold electrons takes its initial value this way.
+[`fill_maxwellian!`](@ref) fills a distribution with a Maxwellian from profiles of the density and the temperature, the start of a fully kinetic run in DREAM.
 
 ## Terms
 

@@ -169,8 +169,9 @@ export ParticleSourceTerm, source_shape, MomentumBoundaryFluxTerm
 export normalized_conductivity, effective_charge, braams_karney_conductivity,
        test_particle_conductivity_fraction
 export kinetic_conductivity, ConductivityModel, ConductivityTerm, conductivity_at
-export residual!, fill_initial_values!, mass_matrix, jacobian_sparsity, jacobian_prototype,
-       jacobian_operator, jacobian_colors, residual_scales, ode_function
+export residual!, fill_initial_values!, fill_maxwellian!, mass_matrix
+export jacobian_sparsity, jacobian_prototype, jacobian_operator, jacobian_colors,
+       residual_scales, ode_function
 export FluidSchurLU
 export LinearSolver, SparseLU, GMRES, RadiusBlockLU, RadiusBlockILU, NewtonSolver,
        NewtonWorkspace, NewtonResult, newton_solve!, invalidate_jacobian!

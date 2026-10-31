@@ -108,7 +108,7 @@ function _source_shape!(
     end
     if !(norm > 0 && isfinite(norm))
         throw(DomainError(temperature,
-            "the shape of the particle source at radius $ir has no finite density on " *
+            "the shape at radius $ir has no finite density on " *
             "the momentum grid at the temperature $temperature"))
     end
     values ./= norm / grid.radial_grid.spatial_jacobian[ir]
