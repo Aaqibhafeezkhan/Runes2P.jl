@@ -186,7 +186,7 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 | time-varying magnetic field | `TIME_VARYING_B_MODE_INCLUDE` | ➖ not implemented |
 | analytic or prescribed distribution | `DISTRIBUTION_MODE_ANALYTICAL`, `PRESCRIBED` | ➖ not implemented |
 | non-relativistic hot-tail equation | `F_HOT_DIST_MODE_NONREL` | ➖ not implemented |
-| initial distribution | `setInitialProfiles`, `setInitialValue` | 🚧 partial: any state array of the caller on the grid of the run; no Maxwellian from profiles of ``n`` and ``T`` and no interpolation from another grid |
+| initial distribution | `setInitialProfiles`, `setInitialValue` | 🚧 partial: any state array of the caller on the grid of the run, or DREAM's Maxwellian from profiles of ``n`` and ``T`` ([`fill_maxwellian!`](@ref)); no interpolation from another grid |
 | initial runaway distributions | `INIT_FORWARD`, `XI_NEGATIVE`, `XI_POSITIVE`, `ISOTROPIC`, `AVALANCHE`, `PRESCRIBED` | 🚧 partial: any state array of the caller, no packaged shapes |
 
 ### Solver and time stepping
