@@ -1,6 +1,8 @@
 # The checks of every pull request, drafts included, and of every push to dev and main: the
 # markdown lint, the code style check, the format check, the component tests and the strict
-# documentation build.
+# documentation build. A pull request that changes no code (scripts/code_changes.jl: markdown,
+# docs/src/, and Julia files outside test/ whose code is the same without docstrings and
+# comments) skips the component tests; a skipped job counts as passed for the required checks.
 # A push to another branch runs nothing, since its pull request runs the same checks. The full
 # suite is in FullSuite.yml.
 name: CI
@@ -26,6 +28,36 @@ env:
   JULIA_CPU_TARGET: "x86-64-v3"
 
 jobs:
+  # whether the pull request changes code; a push changes code. The job is the same in
+  # FullSuite.yml. A failure of this job leaves the output empty, and the jobs that read it
+  # run.
+  changes:
+    name: Code changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      code: ${{ steps.changes.outputs.code }}
+    steps:
+      - uses: actions/checkout@v7
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+      - uses: julia-actions/setup-julia@v3
+        if: github.event_name == 'pull_request'
+        with:
+          version: "1.13.1"
+      - name: Classify the changes
+        id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            julia scripts/code_changes.jl "origin/$BASE"
+          else
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          fi
+
   # the markdown rules of CONTRIBUTING.md: the lines a pull request changes, or every tracked
   # markdown file on a push
   lint:
@@ -84,9 +116,12 @@ jobs:
             exit 1
           fi
 
-  # the group `component` of test/groups.toml at -O0, which compiles faster
+  # the group `component` of test/groups.toml at -O0, which compiles faster; skipped when the
+  # pull request changes no code
   component:
     name: Component tests
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     # actions: write lets julia-actions/cache delete the depot caches of earlier runs
