@@ -562,9 +562,9 @@ The shape is that of [`ParticleSourceTerm`](@ref) at the cell centres: `exp(-(γ
 with `Θ = T/mₑc²` for `:relativistic_maxwellian`, or `exp(-p²/2Θ)` for `:maxwellian`. It is
 scaled at each radius so that its moment [`density`](@ref) on the grid equals the profile.
 This is DREAM's initial distribution of a fully kinetic run: the relativistic Maxwellian at
-the cell centres, rescaled to the density on the grid (`ConstructEquation_f_maxwellian`,
-`src/Settings/Equations/distribution.cpp:368-411`; `rescaleMaxwellian` is true for `f_hot`,
-`src/Settings/Equations/f_hot.cpp:97`).
+the cell centres, rescaled to the density on the grid (`ConstructEquation_f_maxwellian` in
+`src/Settings/Equations/distribution.cpp`, with `rescaleMaxwellian` true for `f_hot` in
+`src/Settings/Equations/f_hot.cpp`, DREAM v26.5).
 
 Throws an `ArgumentError` for an unknown that is not kinetic, another `shape`, a density
 that is negative or not finite, or a temperature that is not positive or not finite, and a
