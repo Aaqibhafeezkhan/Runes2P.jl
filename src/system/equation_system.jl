@@ -566,8 +566,10 @@ the cell centres, rescaled to the density on the grid (`ConstructEquation_f_maxw
 `src/Settings/Equations/distribution.cpp:368-411`; `rescaleMaxwellian` is true for `f_hot`,
 `src/Settings/Equations/f_hot.cpp:97`).
 
-Throws an `ArgumentError` for a negative density, and a `DomainError` for a temperature
-that is not positive or a Maxwellian with no density on the momentum grid.
+Throws an `ArgumentError` for an unknown that is not kinetic, another `shape`, a negative
+density or a temperature that is not positive, a `DimensionMismatch` for a profile with
+another number of values than radii, and a `DomainError` for a Maxwellian with no density
+on the momentum grid.
 """
 function fill_maxwellian!(
         u::AbstractVector, layout::UnknownLayout, unknown::Symbol, density,
@@ -585,6 +587,10 @@ function fill_maxwellian!(
         if !(densities[ir] >= 0)
             throw(ArgumentError("the density of the Maxwellian must not be negative, it is " *
                                 "$(densities[ir]) at radius $ir"))
+        end
+        if !(temperatures[ir] > 0)
+            throw(ArgumentError("the temperature of the Maxwellian must be positive, it is " *
+                                "$(temperatures[ir]) at radius $ir"))
         end
         f = kinetic_view(u, layout, id, ir)
         _source_shape!(f, shape, grid, ir, temperatures[ir])

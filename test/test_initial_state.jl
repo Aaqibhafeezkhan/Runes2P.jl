@@ -94,7 +94,7 @@ using QuadGK: quadgk
             u, layout, :f, 1e19, 100.0; shape = :lowest_cell)
         @test_throws "must not be negative" fill_maxwellian!(
             u, layout, :f, [1e19, -1.0], 100.0)
-        @test_throws DomainError fill_maxwellian!(u, layout, :f, 1e19, [100.0, 0.0])
+        @test_throws "must be positive" fill_maxwellian!(u, layout, :f, 1e19, [100.0, 0.0])
         @test_throws DimensionMismatch fill_maxwellian!(u, layout, :f, [1e19], 100.0)
     end
 end
