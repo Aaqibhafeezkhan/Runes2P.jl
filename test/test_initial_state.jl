@@ -1,7 +1,8 @@
 # The initial state of a run: a Maxwellian from profiles of the density and the temperature,
 # whose density on the grid is the profile, whose energy is the mean kinetic energy by
 # quadrature, and whose values at the cell centres follow DREAM's shape, on a grid shared by
-# the radii and on grids per radius.
+# the radii and on grids per radius. These helpers build a state without a system;
+# test_initial_values.jl tests the initial values that the rows of a system give.
 using QuadGK: quadgk
 
 @testset "initial state" begin
@@ -31,7 +32,6 @@ using QuadGK: quadgk
             @test all(j -> f[:, j, ir] == f[:, 1, ir], 2:4)
         end
         # the energy: the mean kinetic energy by quadrature, 3/2 n T well below mₑc²
-        unknown_values(u, layout, 1) .= temperatures
         out = zeros(length(u))
         Runes2P.rhs!(out, EnergyMomentTerm(:f, grid), u, layout, 3, 0.0)
         e = Constants.ELEMENTARY_CHARGE
@@ -92,9 +92,17 @@ using QuadGK: quadgk
         @test_throws "not a kinetic unknown" fill_maxwellian!(u, layout, :n, 1e19, 100.0)
         @test_throws "shape must be" fill_maxwellian!(
             u, layout, :f, 1e19, 100.0; shape = :lowest_cell)
-        @test_throws "must not be negative" fill_maxwellian!(
+        # a refused value at the second radius leaves the first one as it was
+        @test_throws "finite and not negative" fill_maxwellian!(
             u, layout, :f, [1e19, -1.0], 100.0)
-        @test_throws "must be positive" fill_maxwellian!(u, layout, :f, 1e19, [100.0, 0.0])
+        @test all(iszero, u)
+        @test_throws "finite and not negative" fill_maxwellian!(u, layout, :f, Inf, 100.0)
+        @test_throws "finite and positive" fill_maxwellian!(
+            u, layout, :f, 1e19, [100.0, 0.0])
+        @test_throws "finite and positive" fill_maxwellian!(u, layout, :f, 1e19, Inf)
+        @test all(iszero, u)
+        # a temperature far below the first momentum cell leaves no density on the grid
+        @test_throws DomainError fill_maxwellian!(u, layout, :f, 1e19, 1e-6)
         @test_throws DimensionMismatch fill_maxwellian!(u, layout, :f, [1e19], 100.0)
     end
 end
