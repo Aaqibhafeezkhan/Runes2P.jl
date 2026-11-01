@@ -110,7 +110,10 @@ def arguments(argv=None):
                         help="1 (a departure, the cylinder has no shaping) or the linear 1.0 to 1.15 of ASDEXU.py:49")
     parser.add_argument("--scheme", choices=sorted(SCHEMES), default="tcdf",
                         help="advection interpolation of f_hot (generate.py:239, 335; TCDF in scenario 1)")
-    parser.add_argument("--nt-ioniz", type=int, default=None, help="steps of phase 1 (default: the scenario's)")
+    parser.add_argument("--nt-ioniz", type=int, default=None,
+                        help="steps of phase 1 (default: the scenario's); 500 with --scenario 1 --elongation 1, "
+                             "since DREAM's first step of 1e-7 s, of the scenario's 200, fails with a non-finite "
+                             "value in its Newton iteration, and 500 steps of 4e-8 s converge")
     parser.add_argument("--nt-quench", type=int, default=None, help="steps of phase 2 (default: the scenario's)")
     parser.add_argument("--t-ioniz", type=float, default=None, help="length of phase 1 [s] (default: the scenario's)")
     parser.add_argument("--t-quench", type=float, default=None,
