@@ -21,6 +21,12 @@ TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 Runes2P = {path = ".."}
 
 [compat]
+ForwardDiff = "1.4.6"
 HDF5 = "0.17.4"
 Interpolations = "0.16.3"
+Krylov = "0.10.10"
+LazyArtifacts = "1"
+LinearOperators = "2.14.3"
+QuadGK = "2.11.3"
 SciMLBase = "3"
+TOML = "1"
