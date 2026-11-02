@@ -160,7 +160,8 @@ export ohmic_heating_term, RadiatedPowerTerm, radiated_power
 export HeatTransportTerm, heat_flux_through_edge
 export IonEnergyExchangeTerm, set_ion_thermal_energy!, ion_temperatures, ion_mass
 export total_energy_equation, RunawayFluidEnergyTransferTerm,
-       free_electron_energy_transfer_term, KineticEnergyLossTerm, InterfaceEnergyFluxTerm
+       free_electron_energy_transfer_term, KineticEnergyLossTerm, InterfaceEnergyFluxTerm,
+       FrictionEnergyTransferTerm, FRICTION_TRANSFER_SETTINGS
 export FokkerPlanckTerm, prescribed_fokker_planck_term, KnockOnTerm, LinearTerm,
        DensityMomentTerm, CurrentMomentTerm, MaxwellianSourceTerm, LayoutKineticArray,
        kinetic_array

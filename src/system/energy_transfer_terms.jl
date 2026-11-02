@@ -23,8 +23,10 @@ operators of the plasma, collision settings, scheme and boundaries of `source`:
 
 - `part = :free_electrons`: `C_a` the electron-electron part ([`electron_electron_operator`](@ref)),
   `C_b = 0`: the energy that the electrons give to the free cold electrons, the friction
-  and, in the fully kinetic mode, the energy diffusion. For a superthermal electron it is
-  DREAM's `∫ v F_s f` of `CollisionalEnergyTransferKineticTerm`. With `coefficient = 1` it
+  and, in the fully kinetic mode, the energy diffusion. For a superthermal electron it is the
+  `∫ v F_s f` of DREAM's `CollisionalEnergyTransferKineticTerm` as the energy change of the
+  operator, without the energy that the friction carries out through `p = 0`; that term
+  itself, as a moment, is [`FrictionEnergyTransferTerm`](@ref). With `coefficient = 1` it
   is the channel of the runaway grid into the total energy of the electrons on the
   hot-tail grid ([`total_energy_equation`](@ref)).
 - `part = :sinks`: `C_a` the collisions of `source` without the field, `C_b` their
@@ -281,6 +283,163 @@ function add_jacobian!(J, term::KineticEnergyLossTerm, u, layout, row, t)
 end
 
 function sparsity!(entries, term::KineticEnergyLossTerm, layout, row)
+    id = unknown_id(layout, term.kinetic)
+    others = setdiff(dependencies(term), [term.kinetic])
+    for ir in 1:radial_cell_count(layout)
+        r = first(unknown_range(layout, row, ir))
+        for s in unknown_range(layout, id, ir)
+            push!(entries, (r, s))
+        end
+        for name in others
+            append!(entries, ((r, c)
+            for c in unknown_range(layout, unknown_id(layout, name), ir)))
+        end
+    end
+    return entries
+end
+
+"""
+    FrictionEnergyTransferTerm(kinetic, grid, plasma; settings=FRICTION_TRANSFER_SETTINGS,
+                               coefficient=1)
+
+`coefficient` times the power [W/m³] that the electrons of the kinetic unknown `kinetic` on
+`grid` give to the free cold electrons by friction, for the row of the temperature of the
+cold electrons, as the moment
+
+```math
+P = \\frac{1}{V'} \\sum_{ij} m_e c\\, v_i\\, p_i\\, ν_s(p_i)\\, f_{ij}\\, 𝒱'_{ij} Δp_i Δξ_j,
+```
+
+with `v` and `p` at the momentum cell centres and the slowing-down frequency `ν_s`
+([`slowing_down_frequency`](@ref)) of `settings` and of `plasma`, a [`PlasmaState`](@ref), a
+function of time that returns one, or a [`PlasmaSource`](@ref) such as
+[`PlasmaFromUnknowns`](@ref). This is DREAM's `CollisionalEnergyTransferKineticTerm`
+(`src/Equations/Fluid/CollisionalEnergyTransferKineticTerm.cpp`, DREAM v26.5), the heating of
+the cold electrons by `f_hot` in a run without the full collision frequencies
+(`src/Settings/Equations/T_cold.cpp:318-340`). The default `settings`,
+[`FRICTION_TRANSFER_SETTINGS`](@ref), are those DREAM fixes for it: the superthermal
+frequencies with complete screening, so that the electrons collide with the cold electrons
+alone, the energy-dependent Coulomb logarithm and no bremsstrahlung.
+
+The moment reads the distribution at the cell centres, so it holds whatever scheme the
+operator of `f` takes, and it counts the energy of an electron until it leaves the grid,
+also through `p = 0` where the friction of the superthermal frequencies carries it out
+(compare [`KineticEnergyLossTerm`](@ref), the energy change of the electron-electron
+operator itself). The term is linear in `f`. With a plasma of unknowns its Jacobian holds the
+columns of the temperature, the density and, when the plasma reads them, the ion charge
+states, as DREAM's.
+"""
+struct FrictionEnergyTransferTerm{S} <: EquationTerm
+    kinetic::Symbol
+    grid::KineticGrid{Float64}
+    source::S
+    settings::CollisionSettings
+    coefficient::Float64
+end
+
+"""
+    FRICTION_TRANSFER_SETTINGS
+
+The collision settings of [`FrictionEnergyTransferTerm`](@ref): `mode = :superthermal`,
+`screening = :complete`, `coulomb_logarithm = :energy_dependent`, `bremsstrahlung = :neglect`,
+the settings that DREAM's `CollisionalEnergyTransferKineticTerm` fixes for its slowing-down
+frequency (`src/Equations/Fluid/CollisionalEnergyTransferKineticTerm.cpp:20-27`, DREAM v26.5):
+the mode, the screening and the logarithm set there, and no bremsstrahlung as its comment
+states, which is DREAM's default.
+"""
+const FRICTION_TRANSFER_SETTINGS = CollisionSettings(; mode = :superthermal,
+    screening = :complete, coulomb_logarithm = :energy_dependent, bremsstrahlung = :neglect)
+
+function FrictionEnergyTransferTerm(kinetic::Symbol, grid::KineticGrid, plasma;
+        settings::CollisionSettings = FRICTION_TRANSFER_SETTINGS, coefficient::Real = 1.0)
+    return FrictionEnergyTransferTerm(
+        kinetic, grid, plasma_source(plasma), settings, Float64(coefficient))
+end
+
+function dependencies(term::FrictionEnergyTransferTerm)
+    unique([term.kinetic; collect(Symbol, source_dependencies(term.source))])
+end
+is_linear(term::FrictionEnergyTransferTerm) = !is_state_dependent(term.source)
+jacobian_assembly(::FrictionEnergyTransferTerm) = :direct
+
+function validate(term::FrictionEnergyTransferTerm, layout, row)
+    id = unknown_id(layout, term.kinetic)
+    layout.kinds[id] === :kinetic ||
+        throw(ArgumentError("FrictionEnergyTransferTerm needs a kinetic unknown"))
+    layout.kinds[row] === :radial && layout.sizes[row, 1] == 1 ||
+        throw(ArgumentError("FrictionEnergyTransferTerm adds to a radial unknown with one component"))
+    _same_momentum_grids(kinetic_grid(layout, id), term.grid) ||
+        throw(ArgumentError("the grid of FrictionEnergyTransferTerm is not that of $(term.kinetic)"))
+    ions = ion_dependency(term.source)
+    if ions !== nothing
+        _check_ion_unknown(layout, unknown_id(layout, ions),
+            IonComposition(plasma_values(term.source.prescribed, nothing, nothing, 0.0)))
+    end
+    return nothing
+end
+
+# mₑc v p ν_s 𝒱' Δp Δξ / V' of every cell of radius ir, in the number type of the plasma
+function _friction_weights(term::FrictionEnergyTransferTerm, model, ir)
+    m = momentum_grid(term.grid, ir)
+    V = phase_space_jacobian(term.grid, ir)
+    T = eltype(model.free_electron_density)
+    weights = zeros(T, momentum_cell_count(m), pitch_cell_count(m))
+    for i in 1:momentum_cell_count(m)
+        p = m.p_centers[i]
+        v = Constants.SPEED_OF_LIGHT * p / sqrt(1 + p^2)
+        power = Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT * v * p *
+                slowing_down_frequency(model, ir, p)
+        for j in 1:pitch_cell_count(m)
+            weights[i, j] = power * V[i, j] * m.p_widths[i] * m.xi_widths[j] /
+                            term.grid.radial_grid.spatial_jacobian[ir]
+        end
+    end
+    return weights
+end
+
+function rhs!(out, term::FrictionEnergyTransferTerm, u, layout, row, t)
+    id = unknown_id(layout, term.kinetic)
+    model = CollisionModel(plasma_values(term.source, u, layout, t), term.settings)
+    for ir in 1:radial_cell_count(layout)
+        weights = _friction_weights(term, model, ir)
+        power = sum(weights .* kinetic_view(u, layout, id, ir))
+        out[first(unknown_range(layout, row, ir))] += term.coefficient * power
+    end
+    return out
+end
+
+function add_jacobian!(J, term::FrictionEnergyTransferTerm, u, layout, row, t)
+    id = unknown_id(layout, term.kinetic)
+    plasma = plasma_values(term.source, u, layout, t)
+    model = CollisionModel(plasma, term.settings)
+    for ir in 1:radial_cell_count(layout)
+        r = first(unknown_range(layout, row, ir))
+        weights = _friction_weights(term, model, ir)
+        for j in axes(weights, 2), i in axes(weights, 1)
+
+            _add_entry!(J, r, _kinetic_index(layout, id, ir, i, j),
+                term.coefficient * weights[i, j])
+        end
+    end
+    # the columns of the plasma unknowns: the weights of a plasma with derivative parts
+    if is_state_dependent(term.source)
+        with_ions = ion_dependency(term.source) !== nothing
+        dual = CollisionModel(
+            dual_plasma(plasma, term.source.density !== nothing, with_ions), term.settings)
+        for ir in 1:radial_cell_count(layout)
+            weights = _friction_weights(term, dual, ir)
+            power = term.coefficient * sum(weights .* kinetic_view(u, layout, id, ir))
+            partials = ForwardDiff.partials(power)
+            columns = plasma_columns(term.source, layout, ir; with_ions)
+            for (k, column) in enumerate(columns)
+                _add_entry!(J, first(unknown_range(layout, row, ir)), column, partials[k])
+            end
+        end
+    end
+    return J
+end
+
+function sparsity!(entries, term::FrictionEnergyTransferTerm, layout, row)
     id = unknown_id(layout, term.kinetic)
     others = setdiff(dependencies(term), [term.kinetic])
     for ir in 1:radial_cell_count(layout)
