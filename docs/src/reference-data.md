@@ -9,6 +9,7 @@ The generator scripts, the build of DREAM and the regeneration are in `reference
 | Set | Source | Files |
 |---|---|---|
 | `dream-v26.5` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a` | 16 |
+| `dream-v26.5-disruption` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a`: the disruption chain from its initialization | 2 |
 | `dream-boltzmann-eqterm-93d27e17` | DREAM branch `boltzmann-eqterm`, commit `93d27e1763827e19dafb1fe790e99c2688ad6d62` | 6 |
 | `gsl-2.8` | GSL 2.8 of conda-forge | 1 |
 
@@ -22,6 +23,7 @@ The DREAM file and line citations in the code and on these pages refer to DREAM 
 Each set is published as a tarball with its files at the top level:
 
 - <https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5/dream-v26.5.tar.gz>
+- <https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5-disruption/dream-v26.5-disruption.tar.gz>
 - <https://deep.reak.bme.hu/~data/runes2p/reference/dream-boltzmann-eqterm-93d27e17/dream-boltzmann-eqterm-93d27e17.tar.gz>
 - <https://deep.reak.bme.hu/~data/runes2p/reference/gsl-2.8/gsl-2.8.tar.gz>
 
@@ -33,6 +35,8 @@ Each set is published as a tarball with its files at the top level:
 | `dream_cold_energy.h5` | `dream-v26.5` | `cold_energy_fluid.py` | `test_cold_energy_dream.jl` |
 | `dream_cooling_positivity.h5` | `dream-v26.5` | `cooling_positivity.py` | `test_cooling_dream.jl` |
 | `dream_disruption_small.h5` | `dream-v26.5` | `disruption_kinetic.py` | `test_disruption_dream.jl` |
+| `dream_disruption_chain_small.h5` | `dream-v26.5-disruption` | `disruption_kinetic.py` | none yet: the initialization and the chain of the disruption case |
+| `dream_disruption_superthermal_small.h5` | `dream-v26.5-disruption` | `disruption_kinetic.py --mode superthermal` | none yet: the disruption case in the superthermal mode |
 | `dream_dreicer_kinetic.h5` | `dream-v26.5` | `dreicer_kinetic.py` | `test_runaway_physics.jl` |
 | `dream_example_runaway.h5` | `dream-v26.5` | `example_runaway.py` | `test_example_runaway.jl` |
 | `dream_flux_limiters.h5` | `dream-v26.5` | `flux_limiters.py` | `test_flux_limiters_dream.jl` |

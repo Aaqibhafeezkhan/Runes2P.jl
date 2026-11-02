@@ -12,6 +12,7 @@ Each script in `cases/` states its case, its overrides and the test that reads i
 | Set | Source | Files |
 |---|---|---|
 | `dream-v26.5` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a` | 16 |
+| `dream-v26.5-disruption` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a`: the disruption chain from its initialization | 2 |
 | `dream-boltzmann-eqterm-93d27e17` | DREAM branch `boltzmann-eqterm`, commit `93d27e1763827e19dafb1fe790e99c2688ad6d62` | 6 |
 | `gsl-2.8` | GSL 2.8 of conda-forge | 1 |
 
@@ -24,6 +25,7 @@ The DREAM file and line citations in the code refer to DREAM commit `93d27e1` (b
 Each set is published as a tarball at `https://deep.reak.bme.hu/~data/runes2p/reference/<set>/<set>.tar.gz`:
 
 - https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5/dream-v26.5.tar.gz
+- https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5-disruption/dream-v26.5-disruption.tar.gz
 - https://deep.reak.bme.hu/~data/runes2p/reference/dream-boltzmann-eqterm-93d27e17/dream-boltzmann-eqterm-93d27e17.tar.gz
 - https://deep.reak.bme.hu/~data/runes2p/reference/gsl-2.8/gsl-2.8.tar.gz
 
@@ -48,13 +50,14 @@ The logs go to `logs/`.
 ## Regenerate
 
 ```bash
-bash run_all.sh                       # all three sets
+bash run_all.sh                       # all four sets
 bash run_all.sh gsl-2.8               # named sets only
 ONLY="kinetic_operator" bash run_all.sh dream-v26.5
 ```
 
 A first argument that is not the name of a set is the data directory, which defaults to this folder.
 `run_all.sh` checks that the DREAM checkout of each set is at its commit before it runs a case.
+The set `dream-v26.5-disruption` runs on the build of `dream-v26.5`, so it needs no checkout of its own.
 
 ## Layout
 

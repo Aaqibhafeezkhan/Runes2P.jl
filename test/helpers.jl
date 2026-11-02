@@ -30,6 +30,9 @@ const DREAM_REFERENCE_SETS = Dict(
     "dream-v26.5" =>
         (branch = "v26.5", commit = "ecdd5e146537c77602c9d7cc76b36100200e4b9a",
             S_ava_sign = -1),
+    "dream-v26.5-disruption" =>
+        (branch = "v26.5", commit = "ecdd5e146537c77602c9d7cc76b36100200e4b9a",
+            S_ava_sign = -1),
     "dream-boltzmann-eqterm-93d27e17" => (branch = "boltzmann-eqterm",
         commit = "93d27e1763827e19dafb1fe790e99c2688ad6d62",
         S_ava_sign = 1))
@@ -41,6 +44,10 @@ const REFERENCE_FILES = Dict(
     "dream_collisions.h5" => (set = "dream-v26.5", example_commit = nothing),
     "dream_cooling_positivity.h5" => (set = "dream-v26.5", example_commit = nothing),
     "dream_disruption_small.h5" => (set = "dream-v26.5", example_commit = nothing),
+    "dream_disruption_chain_small.h5" =>
+        (set = "dream-v26.5-disruption", example_commit = nothing),
+    "dream_disruption_superthermal_small.h5" =>
+        (set = "dream-v26.5-disruption", example_commit = nothing),
     "dream_dreicer_kinetic.h5" => (set = "dream-v26.5", example_commit = nothing),
     "dream_example_runaway.h5" =>
         (set = "dream-v26.5", example_commit = "6b5708b85ea7f7bf506f2c381ebb285d1dac527f"),
