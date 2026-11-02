@@ -13,7 +13,10 @@ default, with these settings:
   avalanche term above p_max (generate.py:313, 329), the bremsstrahlung stopping power on;
 - elongation 1 in place of the linear 1.0 to 1.15 of ASDEXU.py:49 (a departure and a
   choice of this package: the cylinder of Runes2P has no shaping; see the docs page
-  *Choices of this package*).
+  *Choices of this package*);
+- 500 steps of phase 1 at elongation 1, passed as `--nt-ioniz 500`: the default stays the
+  200 of scenario 1, with which DREAM's first step fails (see the docs page *Choices of
+  this package*).
 
 The chain: a one-step run for the conductivity of the initial plasma, the field of the
 prescribed current profile of ASDEXU.getCurrentDensity, two runs of 1 s in 3 steps with
@@ -27,9 +30,9 @@ sizes, the mode, the advection scheme, the scenario, the step counts. The defaul
 those of generate.py and ASDEXU.py, cited next to each.
 
 Usage (from reference/dream, with the environment that run_all.sh sets for <set>), the full case and its extract for the comparison:
-    pixi run python <set>/cases/disruption_kinetic.py --outdir <directory>
-    pixi run python <set>/cases/disruption_kinetic.py --outdir <directory> --run-from 3 \\
-        --extract <directory>/extract.h5
+    pixi run python <set>/cases/disruption_kinetic.py --outdir <directory> --nt-ioniz 500
+    pixi run python <set>/cases/disruption_kinetic.py --outdir <directory> --nt-ioniz 500 \\
+        --run-from 3 --extract <directory>/extract.h5
 """
 import argparse
 import json
@@ -110,7 +113,9 @@ def arguments(argv=None):
                         help="1 (a departure, the cylinder has no shaping) or the linear 1.0 to 1.15 of ASDEXU.py:49")
     parser.add_argument("--scheme", choices=sorted(SCHEMES), default="tcdf",
                         help="advection interpolation of f_hot (generate.py:239, 335; TCDF in scenario 1)")
-    parser.add_argument("--nt-ioniz", type=int, default=None, help="steps of phase 1 (default: the scenario's)")
+    parser.add_argument("--nt-ioniz", type=int, default=None,
+                        help="steps of phase 1 (default: the scenario's); pass 500 with --scenario 1 "
+                             "--elongation 1 (docs: Choices of this package)")
     parser.add_argument("--nt-quench", type=int, default=None, help="steps of phase 2 (default: the scenario's)")
     parser.add_argument("--t-ioniz", type=float, default=None, help="length of phase 1 [s] (default: the scenario's)")
     parser.add_argument("--t-quench", type=float, default=None,
