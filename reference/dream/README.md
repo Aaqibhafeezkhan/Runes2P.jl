@@ -77,6 +77,7 @@ None of these build and output folders is tracked.
 
 The HDF5 files hold a `created` time stamp.
 A rerun reproduces the numbers, not the bytes of the files.
+A rerun of `dream_disruption_small.h5` also writes the conductivity of each phase, which the published file has not; its other datasets are the same.
 
 A tarball is packed from `out/<set>/`, with the files at mode 644:
 

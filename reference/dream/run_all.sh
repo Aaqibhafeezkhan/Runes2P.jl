@@ -31,7 +31,8 @@ V265_CASES=(
     "collision_frequencies dream_collisions.h5"
     "cold_energy_fluid dream_cold_energy.h5"
     "cooling_positivity dream_cooling_positivity.h5 np=200 nxi=5 nt=1000 t_final=10 t_end=1e-3 reltol=1e-10 save=10 variants=centred,tcdf"
-    "disruption_kinetic dream_disruption_small.h5"
+    # the published file holds the two phases
+    "disruption_kinetic dream_disruption_small.h5 --test-data-runs ionization,quench"
     "runaway_rates dream_runaway_rates.h5"
     "dreicer_kinetic dream_dreicer_kinetic.h5"
     "example_runaway dream_example_runaway.h5"

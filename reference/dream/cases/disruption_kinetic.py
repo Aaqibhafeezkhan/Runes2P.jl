@@ -25,7 +25,7 @@ conductivity (generate.py:221-231), the superthermal collision frequencies in th
 (generate.py:342-344), T_cold restarted at 1 eV with T_cold, W_cold, n_hot and n_cold not taken
 from the initialization (generate.py:346-356), and no particle source: the example sets it in
 the kinetic modes only (generate.py:358-361), and DREAM builds it only with the full collision
-frequencies (src/Settings/Equations/f_hot.cpp:163-197).
+frequencies (src/Settings/Equations/f_hot.cpp:163-197 at v26.5).
 
 The chain: a one-step run for the conductivity of the initial plasma, the field of the
 prescribed current profile of ASDEXU.getCurrentDensity, two runs of 1 s in 3 steps with
@@ -112,14 +112,16 @@ def arguments(argv=None):
                         help="generate.py --kinetic, --superthermal or --fluid; superthermal takes np2 uniform "
                              "cells and ignores np1 and psep")
     parser.add_argument("--nr", type=int, default=15, help="radial cells (generate.py:32)")
-    parser.add_argument("--np1", type=int, default=60, help="momentum cells below psep (generate.py:35; not in superthermal)")
+    parser.add_argument("--np1", type=int, default=60,
+                        help="momentum cells below psep (generate.py:35; not in superthermal)")
     parser.add_argument("--np2", type=int, default=80, help="momentum cells from psep to pmax (generate.py:36)")
     parser.add_argument("--nxi", type=int, default=15, help="pitch cells (generate.py:40)")
     parser.add_argument("--xi-grid", choices=("uniform", "biuniform_theta"), default="uniform",
                         help="uniform (generate.py:204) or a grid biuniform in theta, 10 of the cells "
                              "below theta = 0.5")
     parser.add_argument("--pmax", type=float, default=0.8, help="p_max of the hot-tail grid (generate.py:42)")
-    parser.add_argument("--psep", type=float, default=0.05, help="end of the dense momentum cells (generate.py:43; not in superthermal)")
+    parser.add_argument("--psep", type=float, default=0.05,
+                        help="end of the dense momentum cells (generate.py:43; not in superthermal)")
     parser.add_argument("--elongation", choices=("1", "asdexu"), default="1",
                         help="1 (a departure, the cylinder has no shaping) or the linear 1.0 to 1.15 of ASDEXU.py:49")
     parser.add_argument("--scheme", choices=sorted(SCHEMES), default="tcdf",
@@ -143,9 +145,13 @@ def arguments(argv=None):
     parser.add_argument("--extract", type=Path, default=None,
                         help="write the compact comparison file of the phases to this path")
     parser.add_argument("--test-data", type=Path, default=None,
-                        help="write DREAM's outputs of every run of the chain in --outdir (the unknowns, the "
+                        help="write DREAM's outputs of the runs of the chain in --outdir (the unknowns, the "
                              "conductivity, the grids) to this path, the reference of the Runes2P tests of the "
-                             "coupled system (dream_disruption_small.h5, dream_disruption_chain_small.h5)")
+                             "coupled system (dream_disruption_small.h5, dream_disruption_chain_small.h5, "
+                             "dream_disruption_superthermal_small.h5)")
+    parser.add_argument("--test-data-runs", default=",".join(RUNS),
+                        help="the runs that --test-data writes, separated by commas (default: all; "
+                             "dream_disruption_small.h5 holds ionization,quench)")
     return parser.parse_args(argv)
 
 
@@ -439,8 +445,8 @@ def stored_arguments(args):
 
 
 def test_data(args):
-    """DREAM's outputs of the runs of the chain that the output directory holds, as the Runes2P
-    tests read them: per run the unknowns of TEST_UNKNOWNS that it has at every saved time, the
+    """DREAM's outputs of the runs of the chain that the output directory holds, of those named by
+    --test-data-runs, as the Runes2P tests read them: per run the unknowns of TEST_UNKNOWNS that it has at every saved time, the
     conductivity of the fluid quantities where DREAM saved it, the times and the grids, with the
     provenance. The runs before the phases (conductivity, init, init_rescaled) are those of the
     initialization of the case."""
@@ -450,7 +456,7 @@ def test_data(args):
         out.attrs["arguments"] = json.dumps(stored_arguments(args))
         base.provenance(out)
         for name in RUNS:
-            if not path(args, name).exists():
+            if name not in args.test_data_runs.split(",") or not path(args, name).exists():
                 continue
             with h5py.File(path(args, name), "r") as res:
                 group = out.create_group(name)

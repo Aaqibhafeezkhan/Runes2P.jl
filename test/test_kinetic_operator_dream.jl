@@ -87,7 +87,7 @@ end
                        if haskey(DREAM_REFERENCE_SETS, file.set)])
         set = reference_set(name)
         dream = DREAM_REFERENCE_SETS[set]
-        checkout = joinpath(@__DIR__, "..", "reference", "dream", set, "DREAM")
+        checkout = joinpath(@__DIR__, "..", "reference", "dream", dream.build, "DREAM")
         h5open(reference_file(name)) do h5
             attr = attributes(h5)
             @test read(attr["dream_commit"]) == dream.commit

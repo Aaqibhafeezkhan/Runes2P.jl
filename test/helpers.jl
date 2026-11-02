@@ -25,17 +25,18 @@ export write_adf11, SquareRootDecayTerm, ArctangentTerm, ConstantSourceTerm, Exc
 # and the commit that its files store as `dream_branch` and `dream_commit`, and `S_ava_sign`,
 # the factor that turns the stored `hottail/S_ava` into the source: DREAM v26.5 stores the
 # source with the sign of the operator, the branch boltzmann-eqterm flips it to the sign of
-# the source (src/OtherQuantityHandler.cpp).
+# the source (src/OtherQuantityHandler.cpp), and `build`, the folder of reference/dream/ with the
+# DREAM checkout that made it (dream-v26.5-disruption shares that of dream-v26.5).
 const DREAM_REFERENCE_SETS = Dict(
     "dream-v26.5" =>
         (branch = "v26.5", commit = "ecdd5e146537c77602c9d7cc76b36100200e4b9a",
-            S_ava_sign = -1),
+            S_ava_sign = -1, build = "dream-v26.5"),
     "dream-v26.5-disruption" =>
         (branch = "v26.5", commit = "ecdd5e146537c77602c9d7cc76b36100200e4b9a",
-            S_ava_sign = -1),
+            S_ava_sign = -1, build = "dream-v26.5"),
     "dream-boltzmann-eqterm-93d27e17" => (branch = "boltzmann-eqterm",
         commit = "93d27e1763827e19dafb1fe790e99c2688ad6d62",
-        S_ava_sign = 1))
+        S_ava_sign = 1, build = "dream-boltzmann-eqterm-93d27e17"))
 
 # every data file with its set and, for the output of a DREAM example, the `example_commit`
 # that it stores: the last commit that changed the example in the DREAM of the set
