@@ -1,6 +1,6 @@
 # Reference data
 
-The tests compare Runes2P with the output of DREAM and of GSL stored in three reference sets, so they do not run DREAM themselves.
+The tests compare Runes2P with the output of DREAM and of GSL stored in four reference sets, so they do not run DREAM themselves.
 The DREAM cases are DREAM's public examples, run with their own settings and a few stated overrides, and synthetic cases written for one comparison each.
 The generator scripts, the build of DREAM and the regeneration are in `reference/` of the repository.
 
@@ -9,6 +9,7 @@ The generator scripts, the build of DREAM and the regeneration are in `reference
 | Set | Source | Files |
 |---|---|---|
 | `dream-v26.5` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a` | 16 |
+| `dream-v26.5-disruption` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a`: the disruption chain from its initialization | 2 |
 | `dream-boltzmann-eqterm-93d27e17` | DREAM branch `boltzmann-eqterm`, commit `93d27e1763827e19dafb1fe790e99c2688ad6d62` | 6 |
 | `gsl-2.8` | GSL 2.8 of conda-forge | 1 |
 
@@ -22,6 +23,7 @@ The DREAM file and line citations in the code and on these pages refer to DREAM 
 Each set is published as a tarball with its files at the top level:
 
 - <https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5/dream-v26.5.tar.gz>
+- <https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5-disruption/dream-v26.5-disruption.tar.gz>
 - <https://deep.reak.bme.hu/~data/runes2p/reference/dream-boltzmann-eqterm-93d27e17/dream-boltzmann-eqterm-93d27e17.tar.gz>
 - <https://deep.reak.bme.hu/~data/runes2p/reference/gsl-2.8/gsl-2.8.tar.gz>
 
@@ -33,6 +35,8 @@ Each set is published as a tarball with its files at the top level:
 | `dream_cold_energy.h5` | `dream-v26.5` | `cold_energy_fluid.py` | `test_cold_energy_dream.jl` |
 | `dream_cooling_positivity.h5` | `dream-v26.5` | `cooling_positivity.py` | `test_cooling_dream.jl` |
 | `dream_disruption_small.h5` | `dream-v26.5` | `disruption_kinetic.py` | `test_disruption_dream.jl` |
+| `dream_disruption_chain_small.h5` | `dream-v26.5-disruption` | `disruption_kinetic.py` | no test; the disruption case from its initialization, fully kinetic |
+| `dream_disruption_superthermal_small.h5` | `dream-v26.5-disruption` | `disruption_kinetic.py --mode superthermal` | no test; the disruption case from its initialization, superthermal |
 | `dream_dreicer_kinetic.h5` | `dream-v26.5` | `dreicer_kinetic.py` | `test_runaway_physics.jl` |
 | `dream_example_runaway.h5` | `dream-v26.5` | `example_runaway.py` | `test_example_runaway.jl` |
 | `dream_flux_limiters.h5` | `dream-v26.5` | `flux_limiters.py` | `test_flux_limiters_dream.jl` |
@@ -65,7 +69,8 @@ For the output of a DREAM example it also names the last DREAM commit that chang
 
 Every DREAM file records `dream_commit`, `dream_branch` and `petsc_version` as attributes.
 `test/test_kinetic_operator_dream.jl` checks the commit and the branch of every DREAM file against its set.
-With the DREAM checkout of a set at `reference/dream/<set>/DREAM` it also checks that the checkout is at that commit, and that each example is unchanged since its recorded commit.
+With the DREAM checkout of a set's build at `reference/dream/<build>/DREAM` it also checks that the checkout is at that commit, and that each example is unchanged since its recorded commit.
+The build is named after its set; `dream-v26.5-disruption` uses that of `dream-v26.5`.
 Without the checkout these checks are skipped.
 
 Test nodes without network need the sets installed beforehand, on a node that has network:
@@ -78,6 +83,6 @@ julia --project=test -e 'using Pkg; Pkg.Artifacts.ensure_all_artifacts_installed
 
 `reference/dream/README.md` describes the build and the regeneration.
 The toolchain is the pixi environment of `reference/dream/pixi.toml`, with PETSc built from source for both DREAM builds.
-`build_all.sh` checks out the commit of each set and builds DREAM, and `run_all.sh` runs the cases of the named sets into `out/<set>/`.
+`build_all.sh` checks out the commit of each DREAM build and builds it, and `run_all.sh` runs the cases of the named sets into `out/<set>/`.
 `run_all.sh` checks that the DREAM checkout of each set is at its commit before it runs a case.
 The HDF5 files hold a `created` time stamp, so a rerun with the same build gives the same data but not the same bytes.

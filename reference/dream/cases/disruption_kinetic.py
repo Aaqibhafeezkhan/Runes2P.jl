@@ -18,6 +18,15 @@ default, with these settings:
   200 of scenario 1, with which DREAM's first step fails (see the docs page *Choices of
   this package*).
 
+`--mode superthermal` runs `generate.py --superthermal` (MODE_SUPERTHERMAL): the hot-tail grid
+of NP_KIN2 uniform cells without the fine region below psep (generate.py:218-219), the initial
+Maxwellian scaled by 0.9999 so that a trace cold population remains, without DREAM's corrected
+conductivity (generate.py:221-231), the superthermal collision frequencies in the phases
+(generate.py:342-344), T_cold restarted at 1 eV with T_cold, W_cold, n_hot and n_cold not taken
+from the initialization (generate.py:346-356), and no particle source: the example sets it in
+the kinetic modes only (generate.py:358-361), and DREAM builds it only with the full collision
+frequencies (src/Settings/Equations/f_hot.cpp:163-197 at v26.5).
+
 The chain: a one-step run for the conductivity of the initial plasma, the field of the
 prescribed current profile of ASDEXU.getCurrentDensity, two runs of 1 s in 3 steps with
 that field rescaled to I_p (the initial current), then phase 1 (ionization of the injected
@@ -91,7 +100,7 @@ SCENARIOS = [
 SCHEMES = {"tcdf": FHot.AD_INTERP_TCDF, "upwind": FHot.AD_INTERP_UPWIND, "central": FHot.AD_INTERP_CENTRED,
            "smart": FHot.AD_INTERP_SMART, "muscl": FHot.AD_INTERP_MUSCL, "ospre": FHot.AD_INTERP_OSPRE,
            "quick": FHot.AD_INTERP_QUICK}
-MODES = ("kinetic", "fluid")
+MODES = ("kinetic", "superthermal", "fluid")
 RUNS = ("conductivity", "init", "init_rescaled", "ionization", "quench")
 
 
@@ -99,16 +108,20 @@ def arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--outdir", required=True, type=Path, help="directory of the DREAM settings and outputs")
     parser.add_argument("--scenario", type=int, default=1, help="scenario of generate.py (default 1)")
-    parser.add_argument("--mode", choices=MODES, default="kinetic", help="generate.py --kinetic or --fluid")
+    parser.add_argument("--mode", choices=MODES, default="kinetic",
+                        help="generate.py --kinetic, --superthermal or --fluid; superthermal takes np2 uniform "
+                             "cells and ignores np1 and psep")
     parser.add_argument("--nr", type=int, default=15, help="radial cells (generate.py:32)")
-    parser.add_argument("--np1", type=int, default=60, help="momentum cells below psep (generate.py:35)")
+    parser.add_argument("--np1", type=int, default=60,
+                        help="momentum cells below psep (generate.py:35; not in superthermal)")
     parser.add_argument("--np2", type=int, default=80, help="momentum cells from psep to pmax (generate.py:36)")
     parser.add_argument("--nxi", type=int, default=15, help="pitch cells (generate.py:40)")
     parser.add_argument("--xi-grid", choices=("uniform", "biuniform_theta"), default="uniform",
                         help="uniform (generate.py:204) or a grid biuniform in theta, 10 of the cells "
                              "below theta = 0.5")
     parser.add_argument("--pmax", type=float, default=0.8, help="p_max of the hot-tail grid (generate.py:42)")
-    parser.add_argument("--psep", type=float, default=0.05, help="end of the dense momentum cells (generate.py:43)")
+    parser.add_argument("--psep", type=float, default=0.05,
+                        help="end of the dense momentum cells (generate.py:43; not in superthermal)")
     parser.add_argument("--elongation", choices=("1", "asdexu"), default="1",
                         help="1 (a departure, the cylinder has no shaping) or the linear 1.0 to 1.15 of ASDEXU.py:49")
     parser.add_argument("--scheme", choices=sorted(SCHEMES), default="tcdf",
@@ -132,8 +145,13 @@ def arguments(argv=None):
     parser.add_argument("--extract", type=Path, default=None,
                         help="write the compact comparison file of the phases to this path")
     parser.add_argument("--test-data", type=Path, default=None,
-                        help="write DREAM's outputs of the two phases (the unknowns, the grids) to this path, the "
-                             "reference of the Runes2P test of the coupled system (dream_disruption_small.h5)")
+                        help="write DREAM's outputs of the runs of the chain in --outdir (the unknowns, the "
+                             "conductivity, the grids) to this path, the reference of the Runes2P tests of the "
+                             "coupled system (dream_disruption_small.h5, dream_disruption_chain_small.h5, "
+                             "dream_disruption_superthermal_small.h5)")
+    parser.add_argument("--test-data-runs", default=",".join(RUNS),
+                        help="the runs that --test-data writes, separated by commas (default: all; "
+                             "dream_disruption_small.h5 holds ionization,quench)")
     return parser.parse_args(argv)
 
 
@@ -213,6 +231,8 @@ def chain(args):
     t_ioniz, nt_ioniz, t_quench, nt_quench = phase_times(args)
     scenario = SCENARIOS[args.scenario]
     kinetic = args.mode == "kinetic"
+    superthermal = args.mode == "superthermal"
+    hot = kinetic or superthermal                                                        # mode != MODE_FLUID
     todo = range(args.run_from, args.run_to + 1)
 
     ds, rT, T0 = baseline(args)
@@ -225,22 +245,27 @@ def chain(args):
     nfree, rn0 = ds.eqsys.n_i.getFreeElectronDensity()
 
     # generate.py getBaseline, part 2: the initial current
-    if kinetic:
+    if hot:
         ds.hottailgrid.setEnabled(True)
         ds.collisions.collfreq_mode = Collisions.COLLFREQ_MODE_FULL                      # generate.py:198
         ds.hottailgrid.setNxi(args.nxi)                                                  # generate.py:204
         ds.hottailgrid.setPmax(args.pmax)                                                # generate.py:214
-        ds.hottailgrid.setNp(args.np1 + args.np2)                                        # generate.py:216
-        if args.xi_grid == "uniform":
+        if kinetic:
+            ds.hottailgrid.setNp(args.np1 + args.np2)                                    # generate.py:216
             ds.hottailgrid.setBiuniformGrid(psep=args.psep, npsep=args.np1)              # generate.py:217
         else:
+            ds.hottailgrid.setNp(args.np2)                                               # generate.py:218-219
+        if args.xi_grid != "uniform":
             # the faces of Runes2P's biuniform_theta_xi_faces(nxi, 10, 0.5), as custom faces: DREAM's
             # own setBiuniformGrid(thetasep=...) does not survive the copy of the settings at
             # 93d27e1 (XiGrid.fromdict takes int() of an array)
-            ds.hottailgrid.setBiuniformGrid(psep=args.psep, npsep=args.np1)
             theta = np.concatenate([np.linspace(0, 0.5, 11), np.linspace(0.5, np.pi, args.nxi - 10 + 1)[1:]])
             ds.hottailgrid.xigrid.setCustomGridPoints(np.cos(theta)[::-1])
-        ds.eqsys.f_hot.setInitialProfiles(rn0=rn0, n0=nfree, rT0=rT, T0=T0)              # generate.py:231
+        # a trace cold population in the superthermal mode, without the corrected conductivity
+        scale = 0.9999 if superthermal else 1.0                                          # generate.py:221-225
+        if superthermal:
+            ds.eqsys.j_ohm.setCorrectedConductivity(False)                               # generate.py:229
+        ds.eqsys.f_hot.setInitialProfiles(rn0=rn0, n0=scale * nfree, rT0=rT, T0=T0)      # generate.py:231
         ds.eqsys.f_hot.setHotRegionThreshold(5)                                          # generate.py:234
         ds.eqsys.f_hot.setBoundaryCondition(bc=FHot.BC_F_0)                              # generate.py:237
         ds.eqsys.f_hot.setAdvectionInterpolationMethod(ad_int=SCHEMES[args.scheme],
@@ -265,7 +290,7 @@ def chain(args):
         ds.solver.setLinearSolver(Solver.LINEAR_SOLVER_LU)
     ds.solver.setMaxIterations(100)
     ds.solver.tolerance.set(reltol=1e-7)
-    if kinetic:
+    if hot:
         ds.solver.tolerance.set("n_hot", abstol=1e5)                                     # generate.py:282-283
         ds.solver.tolerance.set("j_hot", abstol=1)
     if 1 in todo:
@@ -287,15 +312,20 @@ def chain(args):
     ds1 = DREAMSettings(ds)
     ignorelist = ["n_i", "N_i", "W_i"]
     ds1.eqsys.n_re.setEceff(RunawayElectrons.COLLQTY_ECEFF_MODE_FULL)                     # generate.py:313
-    if kinetic:
+    if hot:
         ds1.eqsys.n_re.setAvalanche(RunawayElectrons.AVALANCHE_MODE_KINETIC, pCutAvalanche=0.01)   # generate.py:329
         ds1.eqsys.n_re.setDreicer(RunawayElectrons.DREICER_RATE_DISABLED)                 # generate.py:333
         ds1.eqsys.f_hot.setAdvectionInterpolationMethod(ad_int=SCHEMES[args.scheme],
                                                          ad_jac=FHot.AD_INTERP_JACOBIAN_FULL)  # generate.py:335
         ds1.eqsys.n_i.setIonization(Ions.IONIZATION_MODE_KINETIC_APPROX_JAC)             # generate.py:340
+    if superthermal:
+        ds1.collisions.collfreq_mode = Collisions.COLLFREQ_MODE_SUPERTHERMAL              # generate.py:342-344
+        ds1.eqsys.T_cold.setInitialProfile(temperature=1)                                # generate.py:346-356
+        ignorelist += ["T_cold", "W_cold", "n_hot", "n_cold"]
+    if kinetic:
         ds1.eqsys.f_hot.setParticleSource(FHot.PARTICLE_SOURCE_EXPLICIT,
                                           shape=FHot.PARTICLE_SOURCE_SHAPE_DELTA)          # generate.py:361
-    else:
+    if not hot:
         ds1.eqsys.n_re.setAvalanche(RunawayElectrons.AVALANCHE_MODE_FLUID_HESSLOW)       # generate.py:316
         ds1.eqsys.n_re.setDreicer(RunawayElectrons.DREICER_RATE_NEURAL_NETWORK)          # generate.py:317
         ds1.eqsys.f_hot.setInitialProfiles(rn0=rn0, n0=nfree, rT0=rT, T0=T0)             # generate.py:319
@@ -307,7 +337,7 @@ def chain(args):
     ds1.solver.tolerance.set(reltol=reltol)                                              # generate.py:375-387
     ds1.solver.tolerance.set(unknown="n_re", reltol=reltol, abstol=1e5)
     ds1.solver.tolerance.set(unknown="j_re", reltol=reltol, abstol=1e-10 * 1e5)
-    if kinetic:
+    if hot:
         ds1.solver.tolerance.set(unknown="f_hot", reltol=reltol, abstol=1e5)
         ds1.solver.tolerance.set(unknown="n_hot", reltol=reltol, abstol=1e5)
         ds1.solver.tolerance.set(unknown="j_hot", reltol=reltol, abstol=1e-5)
@@ -341,6 +371,10 @@ def chain(args):
     # generate.py:478-480 switches scenario 0 to upwind in kinetic mode; with --scheme the
     # scheme is the argument's in both phases, and scenario 0 keeps the switch of the example
     if args.scenario == 0 and kinetic and args.scheme == "tcdf":
+        ds2.eqsys.f_hot.setAdvectionInterpolationMethod(ad_int=FHot.AD_INTERP_UPWIND,
+                                                         ad_jac=FHot.AD_INTERP_JACOBIAN_FULL)
+    # generate.py:476-477, likewise for scenarios 2 and 3 in the superthermal mode
+    if args.scenario in (2, 3) and superthermal and args.scheme == "tcdf":
         ds2.eqsys.f_hot.setAdvectionInterpolationMethod(ad_int=FHot.AD_INTERP_UPWIND,
                                                          ad_jac=FHot.AD_INTERP_JACOBIAN_FULL)
     if 4 in todo:
@@ -411,22 +445,31 @@ def stored_arguments(args):
 
 
 def test_data(args):
-    """DREAM's outputs of the two phases as the Runes2P test reads them: per phase the unknowns of
-    TEST_UNKNOWNS at every saved time, the times and the grids, with the provenance."""
+    """DREAM's outputs of the runs of the chain that the output directory holds, of those named by
+    --test-data-runs, as the Runes2P tests read them: per run the unknowns of TEST_UNKNOWNS that it has at every saved time, the
+    conductivity of the fluid quantities where DREAM saved it, the times and the grids, with the
+    provenance. The runs before the phases (conductivity, init, init_rescaled) are those of the
+    initialization of the case."""
     args.test_data.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(args.test_data, "w") as out:
         out.attrs["source"] = "disruption_kinetic.py"
         out.attrs["arguments"] = json.dumps(stored_arguments(args))
         base.provenance(out)
-        for name in ("ionization", "quench"):
+        for name in RUNS:
+            if name not in args.test_data_runs.split(",") or not path(args, name).exists():
+                continue
             with h5py.File(path(args, name), "r") as res:
                 group = out.create_group(name)
                 for q in TEST_UNKNOWNS:
-                    group[f"eqsys/{q}"] = res[f"eqsys/{q}"][:]
+                    if f"eqsys/{q}" in res:
+                        group[f"eqsys/{q}"] = res[f"eqsys/{q}"][:]
+                if "other/fluid/conductivity" in res:
+                    group["other/fluid/conductivity"] = res["other/fluid/conductivity"][:]
                 for q in ("t", "r", "r_f"):
                     group[f"grid/{q}"] = res[f"grid/{q}"][:]
                 for q in ("p1_f", "p2_f"):
-                    group[f"grid/hottail/{q}"] = res[f"grid/hottail/{q}"][:]
+                    if f"grid/hottail/{q}" in res:
+                        group[f"grid/hottail/{q}"] = res[f"grid/hottail/{q}"][:]
     print(f"wrote {args.test_data}")
 
 

@@ -61,7 +61,7 @@ Where the test nodes have no network, install them beforehand on a node that has
 julia --project=test -e 'using Pkg; Pkg.Artifacts.ensure_all_artifacts_installed("test/Artifacts.toml"; include_lazy=true)'
 ```
 
-The checks of the DREAM commit, of the history of DREAM's examples and of DREAM's table of ADAS files need the DREAM checkout of each set at `reference/dream/<set>/DREAM` (`reference/dream/README.md`).
+The checks of the DREAM commit, of the history of DREAM's examples and of DREAM's table of ADAS files need the DREAM checkout of each build at `reference/dream/<build>/DREAM`, named after its set (`reference/dream/README.md`).
 Without it they are skipped.
 
 ## Optimisation level
