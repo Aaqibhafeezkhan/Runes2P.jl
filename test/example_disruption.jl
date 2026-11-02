@@ -1,6 +1,8 @@
 # The system of Runes2P for DREAM's disruption case (reference/dream/cases/disruption_kinetic.py:
 # DREAM's examples/Disruptions/generate.py, scenario 1, with examples/Disruptions/ASDEXU.py):
-# the builder of test_disruption_dream.jl and test_disruption_initialization_dream.jl.
+# the builder of test_disruption_dream.jl, test_disruption_initialization_dream.jl and
+# test_disruption_chain_dream.jl, with the comparison of a phase with DREAM (`phase_differences`)
+# and the budgets of the assembled system with their bounds (`budgets`, `check_budgets`).
 # `build` gives the system of one of the two phases of the case (the ionization of the
 # injected D and Ar, or the thermal and current quench), started from DREAM's state at its
 # start (`initial_state`) or from Runes2P's own initialization (`initialize`, then
@@ -582,4 +584,97 @@ function budgets(case, solution)
         drift, field = abs(ΔW - field_work) / abs(ΔW),
         field_energy_start = -field_energy(solution.states[:, 1]) / (4π * sum(weights)),
         field_energy_change = -ΔW / (4π * sum(weights)), channels, labels)
+end
+
+# the quantities of the comparison with DREAM per radius, (DREAM's name => Runes2P's unknown)
+const COMPARED = ("T_cold" => :cold_electron_temperature, "E_field" => :electric_field,
+    "n_cold" => :cold_electron_density, "n_hot" => :hot_electron_density,
+    "n_tot" => :total_electron_density, "j_ohm" => :ohmic_current_density,
+    "j_hot" => :hot_electron_current_density, "psi_p" => :poloidal_flux,
+    "W_cold" => :cold_thermal_energy, "n_re" => :runaway_density,
+    "j_re" => :runaway_current_density)
+
+"""
+    phase_differences(case, solution, dream; per_radius=("n_re", "j_re"))
+
+The largest relative difference of each quantity of a phase of `case` against DREAM's run of
+the phase `dream` (`read_dream_state`) over the steps of `solution` after the first: of the radial
+quantities the largest difference over the radii relative to DREAM's largest value over the
+radii at each step, of `f_hot`, `n_i` and `W_i` the same over the cells, charge states or
+species of each radius, and of `I_p` the difference relative to DREAM's value. The quantities
+of `per_radius` are compared at each radius relative to DREAM's largest value at that radius
+over the phase: the runaway density differs by 15 orders of magnitude between the radii. With
+`per_radius = ()` they are compared over the radii as the others. Returns a `Dict` of DREAM's names.
+"""
+function phase_differences(case, solution, dream; per_radius = ("n_re", "j_re"))
+    layout = case.layout
+    steps = 2:length(solution.times)
+    ours_at(m, ours) = unknown_values(solution.states[:, m], layout, unknown_id(layout, ours))
+    errors = Dict{String, Float64}()
+    for (name, ours) in COMPARED
+        errors[name] = if name in per_radius
+            maximum(abs(ours_at(m, ours)[ir] - dream[name][ir, m]) /
+                    maximum(abs, dream[name][ir, :])
+            for ir in 1:case.nr, m in steps)
+        else
+            maximum(maximum(abs, ours_at(m, ours) .- dream[name][:, m]) /
+                    maximum(abs, dream[name][:, m])
+            for m in steps)
+        end
+    end
+    f_id, ions_id = unknown_id(layout, :f), unknown_id(layout, :ion_densities)
+    energy_id = unknown_id(layout, :ion_thermal_energy)
+    errors["f_hot"] = maximum(maximum(abs,
+                                  kinetic_view(solution.states[:, m], layout, f_id, ir) .-
+                                  dream["f_hot"][:, :, ir, m]) /
+                              maximum(abs, dream["f_hot"][:, :, ir, m])
+    for ir in 1:case.nr, m in steps)
+    errors["n_i"] = maximum(maximum(abs,
+                                radial_view(solution.states[:, m], layout, ions_id, ir) .-
+                                dream["n_i"][ir, :, m]) /
+                            maximum(abs, dream["n_i"][ir, :, m])
+    for ir in 1:case.nr, m in steps)
+    errors["W_i"] = maximum(maximum(abs,
+                                radial_view(solution.states[:, m], layout, energy_id, ir) .-
+                                dream["W_i"][ir, :, m]) /
+                            maximum(abs, dream["W_i"][ir, :, m])
+    for ir in 1:case.nr, m in steps)
+    current = only(unknown_range(layout, unknown_id(layout, :plasma_current)))
+    errors["I_p"] = maximum(abs(solution.states[current, m] - dream["I_p"][m]) /
+                            abs(dream["I_p"][m]) for m in steps)
+    return errors
+end
+
+# the closures of the assembled system (`budgets`), independent of DREAM: round-off bounds, at
+# least 50 times the values measured at -O0 in the phases started from DREAM's state
+# (test_disruption_dream.jl; compat = dream / runes2p, ionization and quench). The chain of
+# test_disruption_chain_dream.jl stays below them as well, at least 28 times (the exchange,
+# 3.6e-15, at the default optimisation level).
+#! format: off
+const BUDGETS = (species=1e-13,     # 3.2e-16 / 4.7e-16, 3.2e-16 / 3.2e-16
+                 exchange=1e-13,    # 2.7e-15 / 1.3e-15, 5.1e-16 / 1.3e-15
+                 diffusion=1e-13,   # 7.0e-17 / 7.3e-17, 0 / 7.3e-17
+                 closure=1e-12,     # 7.9e-15 / 1.1e-14, 4.4e-15 / 4.2e-15, the row of W_cold against its channels
+                 field=1e-8)        # 1.8e-10 / 1.2e-11, 2.7e-12 / 1.3e-11 of a change that is 3e-6 and 3e-5 of the energy
+#! format: on
+# the drift of ∫f − n_cold − n_hot, relative to n_cold, per phase: the deposition of the ionization
+# phase moves it at the Newton level of the particle-source row (2.7e-8 measured); in the quench it
+# is round-off (7.9e-16 / 6.9e-16), and the bound pins the knock-on number of the kinetic source
+# against the ProductTerm of the particle source, 3e-9 of n_cold over the phase, to 3e-5
+const DRIFT = Dict("ionization" => 1e-6, "quench" => 1e-13)
+
+# the budgets of the assembled system against their bounds, the drift against the bound of the
+# phase, and the change of the magnetic energy against 0, as (name, value, bound) for a test
+# `value < bound`: the magnetic energy falls over the phase, as the field works on the currents.
+# The tests are the callers', so that a script can include this file without Test.
+function budget_checks(case, solution, label, drift_bound)
+    b = budgets(case, solution)
+    checks = [(name, getfield(b, name), getfield(BUDGETS, name))
+              for name in (:species, :exchange, :diffusion, :closure, :field)]
+    push!(checks, (:drift, b.drift, drift_bound))
+    push!(checks, (:field_energy_change, b.field_energy_change, 0.0))
+    for (name, value, _) in checks
+        @info "the disruption case, $label: $name $value"
+    end
+    return checks
 end
