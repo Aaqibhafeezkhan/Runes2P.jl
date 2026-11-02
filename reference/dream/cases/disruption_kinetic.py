@@ -21,7 +21,7 @@ default, with these settings:
 `--mode superthermal` runs `generate.py --superthermal` (MODE_SUPERTHERMAL): the hot-tail grid
 of NP_KIN2 uniform cells without the fine region below psep (generate.py:218-219), the initial
 Maxwellian scaled by 0.9999 so that a trace cold population remains, without DREAM's corrected
-conductivity (generate.py:222-231), the superthermal collision frequencies in the phases
+conductivity (generate.py:221-231), the superthermal collision frequencies in the phases
 (generate.py:342-344), T_cold restarted at 1 eV with T_cold, W_cold, n_hot and n_cold not taken
 from the initialization (generate.py:346-356), and no particle source, which DREAM builds only
 with the full collision frequencies (generate.py:358-361).
@@ -140,8 +140,9 @@ def arguments(argv=None):
     parser.add_argument("--extract", type=Path, default=None,
                         help="write the compact comparison file of the phases to this path")
     parser.add_argument("--test-data", type=Path, default=None,
-                        help="write DREAM's outputs of the two phases (the unknowns, the grids) to this path, the "
-                             "reference of the Runes2P test of the coupled system (dream_disruption_small.h5)")
+                        help="write DREAM's outputs of every run of the chain in --outdir (the unknowns, the "
+                             "conductivity, the grids) to this path, the reference of the Runes2P tests of the "
+                             "coupled system (dream_disruption_small.h5, dream_disruption_chain_small.h5)")
     return parser.parse_args(argv)
 
 

@@ -77,7 +77,9 @@ run_dream_set() {  # run_dream_set <set> <build> <commit> <branch label> <case l
         local extra=()
         if [[ $script == disruption_kinetic ]]; then
             read -r -a extra <<< "$DISRUPTION_ARGS ${args:-}"
-            extra+=(--outdir "$work/${file%.h5}" --test-data "$out/$file")
+            # the working directory is the file's name without dream_ and .h5 (disruption_small)
+            local stem=${file#dream_}
+            extra+=(--outdir "$work/${stem%.h5}" --test-data "$out/$file")
         else
             extra=("$out/$file")
             [[ -z ${args:-} ]] || { local a; read -r -a a <<< "$args"; extra+=("${a[@]}"); }
