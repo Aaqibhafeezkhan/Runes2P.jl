@@ -17,6 +17,11 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Changed
 
+- `NewtonSolver` accepts a stiff step at the round-off floor of its residual at the first iterate that reaches it ([#179](https://github.com/osrep/Runes2P.jl/pull/179)).
+  Every row above `residual_tolerance` must be within its round-off bound `eps Σ_j |(∂F/∂u)_ij u_j|`, computed from the stored Jacobian when that holds every implicit term exactly.
+  Until now such a step waited for the residual to stop decreasing, which at the floor wanders for a few iterations; that stall test stays where the bound is not available.
+  The accepted states change at round-off (in the disruption case at DREAM's resolution, 1e-14 of the bulk entries of `f`), and the Newton count of that quench falls by about 5 %.
+
 - `radial_values(u, layout, id)`, the view of a radial unknown over the radii, is renamed `unknown_values(u, layout, id)` ([#123](https://github.com/osrep/Runes2P.jl/pull/123)).
   `radial_values(profile, points)`, the evaluation of a radial profile, keeps its name.
 - `FreeElectronEnergyTransferTerm` is renamed `free_electron_energy_transfer_term`, and `PrescribedFokkerPlanckTerm` is renamed `prescribed_fokker_planck_term`, since both are functions that build a term ([#124](https://github.com/osrep/Runes2P.jl/pull/124)).
