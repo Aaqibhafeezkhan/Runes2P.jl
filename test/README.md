@@ -10,7 +10,7 @@ The test suite: its layout, its tiers and groups, how to run it, and the rules f
 | `groups.toml` | the groups of test files, each with its tier |
 | `helpers.jl` | the module `TestHelpers`: definitions that several test files use |
 | `example_cases.jl` | setups built from DREAM's examples, shared by the tests |
-| `example_disruption.jl` | the system of DREAM's disruption case started from DREAM's state, and the budgets of its closures, used by `test_disruption_dream.jl` |
+| `example_disruption.jl` | the system of DREAM's disruption case started from DREAM's state, its initialization (DREAM's runs 0 to 2) with the state it hands to the ionization phase, and the budgets of its closures, used by `test_disruption_dream.jl` and `test_disruption_initialization_dream.jl` |
 | `test_*.jl` | the test files |
 | `*_helpers.jl` | a file that one test file includes, not a test file of its own |
 | `Artifacts.toml` | the reference data of the comparison tests, one lazy artifact per set: DREAM's output written by the cases of `reference/dream/cases/`, and GSL's values of `reference/gsl/` |

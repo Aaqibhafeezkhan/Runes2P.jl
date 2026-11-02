@@ -223,6 +223,22 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 | DREAM's settings files | `DREAMSettings` | ➖ not implemented |
 | Python interface and plotting | `py/DREAM` | ➖ not implemented: the Julia API |
 
+## The disruption case
+
+The coupled reference case is DREAM's disruption of `examples/Disruptions/generate.py`, scenario 1, fully kinetic, in a cylinder, at the size of a test.
+Its case script is `reference/dream/cases/disruption_kinetic.py` ([Reference data](reference-data.md)).
+Each part of the case is compared with DREAM's output at every saved step.
+
+| Part | DREAM | Runes2P | Test |
+|---|---|---|---|
+| initialization | runs 0 to 2: the conductivity of the initial plasma, the field of the prescribed current profile, then 1 s in 3 steps from the Maxwellian with that field, twice, the second time with the field rescaled to the plasma current | the same runs, with the field and the temperature held by algebraic rows, and the state at the start of the ionization phase from their end and the ions of the settings | `test_disruption_initialization_dream.jl` |
+| ionization phase | run 3: the ionization of the injected D and Ar | started from DREAM's state at the start of the phase | `test_disruption_dream.jl` |
+| thermal and current quench | run 4 | started from DREAM's state at the start of the phase | `test_disruption_dream.jl` |
+
+- The initialization agrees with DREAM to 8e-10 in the field, the currents, the poloidal flux and the plasma current.
+- It agrees to 3e-11 in `f_hot` and the hot-electron density; DREAM's Newton tolerance of these runs is 1e-7.
+- The state that the initialization hands to the ionization phase agrees with DREAM's first state of that phase to 8e-10.
+
 ## What Runes2P has that DREAM does not
 
 - Exponential fitting, the default scheme of [`fokker_planck_operator`](@ref) ([Positivity and flux limiters](model/positivity.md#Exponential-fitting)).
