@@ -234,10 +234,14 @@ Each part of the case is compared with DREAM's output at every saved step.
 | initialization | runs 0 to 2: the conductivity of the initial plasma, the field of the prescribed current profile, then 1 s in 3 steps from the Maxwellian with that field, twice, the second time with the field rescaled to the plasma current | the same runs, with the field and the temperature held by algebraic rows, and the state at the start of the ionization phase from their end and the ions of the settings | `test_disruption_initialization_dream.jl` |
 | ionization phase | run 3: the ionization of the injected D and Ar | started from DREAM's state at the start of the phase | `test_disruption_dream.jl` |
 | thermal and current quench | run 4 | started from DREAM's state at the start of the phase | `test_disruption_dream.jl` |
+| the chain end to end | runs 0 to 4 | the initialization, then each phase from Runes2P's own end state of the run before it | `test_disruption_chain_dream.jl` |
 
 - The initialization agrees with DREAM to 8e-10 in the field, the currents, the poloidal flux and the plasma current.
 - It agrees to 3e-11 in `f_hot` and the hot-electron density; DREAM's Newton tolerance of these runs is 1e-7.
 - The state that the initialization hands to the ionization phase agrees with DREAM's first state of that phase to 8e-10.
+- End to end, the phases agree with DREAM as closely as when they start from DREAM's state: 4e-5 in `f_hot`, 4e-7 in the field.
+- The poloidal flux and the plasma current carry the differences of the initialization, 3e-10 and 1e-11, against 7e-13 and 1e-12 from DREAM's state.
+- With Runes2P's defaults the chain runs end to end as well, and the budgets of its closures hold within the bounds of the phases started from DREAM's state.
 
 ## What Runes2P has that DREAM does not
 

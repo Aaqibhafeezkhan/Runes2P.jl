@@ -164,3 +164,9 @@ name = "full-9"
 tier = "full"
 # every piece of the ion model together in one run: a group of its own, with no measured run time
 files = ["test_ion_integration.jl"]
+
+[[group]]
+name = "full-10"
+tier = "full"
+# 6.1 minutes: the disruption chain end to end at both compat values, a group of its own
+files = ["test_disruption_chain_dream.jl"]
