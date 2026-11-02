@@ -133,7 +133,7 @@ The Krylov basis holds `restart_length` vectors.
 | Choice | Value |
 |---|---|
 | next step of [`StepDoubling`](@ref) after a step that an unknown at zero fails while every other unknown has no error | half the step |
-| round-off bound of a residual row of [`NewtonSolver`](@ref) on a stiff step | `c eps Σ_j \|(∂F/∂u)_ij u_j\|` with `c = 1` |
+| round-off bound of a residual row of [`NewtonSolver`](@ref) on a stiff step | `c = 1` in the bound `c eps Σ_j abs((∂F/∂u)_ij u_j)` |
 | Newton iteration after an iterate that passes both tests with negative entries in a kinetic unknown | one more for the schemes of [`POLISHED_SCHEMES`](@ref), turned off after [`POLISH_MISSES`](@ref) steps in a row that it does not clean, `polish_negatives = :auto` of [`NewtonSolver`](@ref) |
 
 DREAM rejects a step in which an unknown with no absolute tolerance is zero after the full step and not after the two half steps.

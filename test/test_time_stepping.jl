@@ -539,6 +539,9 @@ end
     @test result.status === :converged
     @test result.residual_floor
     @test result.iterations == 2
+    # the residual fell by more than 10 % in the second iteration, so the stall did not fire
+    # and the round-off bound accepted the step
+    @test ws.residual_norms[2] < 0.9 * ws.residual_norms[1]
     @test result.residual_norm > NewtonSolver().residual_tolerance
     difference = (u_old[1] - u_old[2]) / (1 + 2 * rate)
     # the difference, 5e-13, is resolved to the round-off of the entries near 0.5
@@ -548,8 +551,7 @@ end
     @test Runes2P._checked_residual!(F, u, u_old, system, 1.0, 1.0) === :ok
     @test Runes2P._residual_at_round_off(ws, F, u, 1.0)
     # an iterate off the solution by ±1e-6 has a residual of about 2e6 against a bound near
-    # 2e-4:
-    # it is not at the floor, and the iteration must go on
+    # 2e-4: it is not at the floor
     off = u .+ [1e-6, -1e-6]
     @test Runes2P._checked_residual!(F, off, u_old, system, 1.0, 1.0) === :ok
     @test !Runes2P._residual_at_round_off(ws, F, off, 1.0)

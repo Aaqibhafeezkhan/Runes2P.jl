@@ -38,19 +38,24 @@ Settings of the Newton iteration of a backward-Euler step.
   iterate: in a bulk cell of a kinetic unknown the fluxes of the Fokker-Planck stencil
   through the cell exceed their net term, which the particle source balances, by many
   orders of magnitude, and more so for a long step. The waiver of the residual floor then
-  accepts an iterate whose update test passes when one of two tests holds, in this order:
+  accepts an iterate whose update test passes when one of two tests holds:
   - The round-off bound. Every row whose scaled residual exceeds `residual_tolerance` is
-    within its round-off bound, `|F_i| ≤ c eps Σ_j |(∂F/∂u)_ij u_j|` (both sides scaled
-    by the row's weight), with `∂F/∂u = M/dt - J` from the stored Jacobian `J` of the
-    iteration. Each term of the row carries a rounding error of about `eps` times its own
-    size, so no iterate brings the row lower; `c = 1` is a choice of this package (see
-    the docs page *Choices of this package*), about 2.5 times the largest residual
-    measured at the floor. The step is accepted at the first iteration that reaches the
-    floor. The bound needs every implicit term in the stored Jacobian, exactly: it is not
-    used with a matrix-free term or an approximate stored block ([`jacobian_kind`](@ref)).
+    within its round-off bound, `|F_i| ≤ c eps Σ_j |(∂F/∂u)_ij u_j|`, with
+    `∂F/∂u = M/dt - J` from the stored Jacobian `J` of the iteration. The terms of the row
+    carry rounding errors of about `eps` times their sizes, so no iterate brings the row
+    lower; `|(∂F/∂u)_ij u_j|` estimates the size of a term by its linearization, exact for
+    a term linear in `u_j` and off by a factor of order one or more for a strongly
+    nonlinear one, at the level of `eps` either way. The explicit terms, which are not in
+    `J`, and the start state of the transient are left out, so the bound errs low and the
+    stall below then serves. The factor `c = 1` is a choice of this package (see the docs
+    page *Choices of this package*). The step is accepted at the first iteration that
+    reaches the floor. The bound needs every implicit term in the stored Jacobian,
+    exactly: it is not used with a matrix-free term or an approximate stored block
+    ([`jacobian_kind`](@ref)).
   - The stall. The residual stops decreasing (it grew, or fell by less than 10%, in the
-    last iteration). It serves where the bound is not available; the residual at the
-    floor wanders, so the stall can take a few iterations more than the bound.
+    last iteration). It serves where the bound is not available or does not hold; the
+    residual at the floor wanders, so the stall can take a few iterations more than the
+    bound.
 
   Such a step is flagged (`residual_floor` in [`NewtonResult`](@ref),
   `accepted_at_residual_floor` in [`SolverStatistics`](@ref)): the residual is above
@@ -60,12 +65,11 @@ Settings of the Newton iteration of a backward-Euler step.
   `η` contracts the error by about `η` per iteration, so both of its tests apply only
   when the last linear solve was accurate to `floor_linear_tolerance` (always true for
   direct solvers; for [`GMRES`](@ref) its `relative_tolerance`), and never when the
-  Newton matrix is itself approximate (a term with [`jacobian_kind`](@ref)`(term) ===
-  :approximate` solved on the stored matrix): such a quasi-Newton iteration converges
-  linearly by design, its residual falls by a constant factor per iteration that the
-  stall would mistake for the floor, and only the residual criterion holds it. A row
-  above both `residual_tolerance` and its round-off bound is not at the floor, and the
-  iteration goes on.
+  Newton matrix is itself approximate (a term with
+  [`jacobian_kind`](@ref)`(term) === :approximate` solved on the stored matrix): such a
+  quasi-Newton iteration converges linearly by design, its residual falls by a constant
+  factor per iteration that the stall would mistake for the floor, and only the residual
+  criterion holds it.
 - A system that is linear in the state (every implicit term [`is_linear`](@ref)) with an
   exact Newton matrix and a linear solve accurate to `floor_linear_tolerance` is accepted as
   soon as the update test passes, without the residual test (`linear_acceptance`, flagged as
@@ -135,8 +139,8 @@ Base.@kwdef struct NewtonSolver{L <: LinearSolver}
 end
 
 # the factor c of the round-off bound c eps Σ_j |(∂F/∂u)_ij u_j| of a residual row
-# (the docstring of NewtonSolver), a choice of this package: the residuals at the floor
-# of the disruption case at DREAM's resolution were at most 0.41 of the bound with c = 1
+# (the docstring of NewtonSolver), a choice of this package (the docs page Choices of
+# this package gives its reason)
 const ROUND_OFF_FACTOR = 1.0
 
 """
@@ -436,9 +440,12 @@ function _residual_norm(ws::NewtonWorkspace, F)
 end
 
 # Σ_j |(∂F/∂u)_ij u_j| per row i, with ∂F/∂u = M/dt - J from the stored Jacobian J: the
-# size of the terms of row i, each of which carries a rounding error of about eps times
-# its size. J is that of the iteration, assembled at the iterate before its update; for an
-# update that passed its test the difference is below the accuracy of the bound.
+# size of the terms of row i by their linearization, each of which carries a rounding
+# error of about eps times its size. The explicit terms and the start state of the
+# transient are left out, and M/dt and J_ii count as one coefficient, so the sum errs low,
+# which only makes the bound stricter. J is that of the iteration, assembled at the iterate
+# before its update; for an update that passed its test the difference is below the
+# accuracy of the bound.
 function _round_off_sizes!(ws::NewtonWorkspace, u, dt)
     J, sizes = ws.jacobian, ws.round_off
     mass = ws.system.mass
@@ -792,7 +799,7 @@ function newton_solve!(
         # the error unless the solve was accurate, so both waivers need that; so does an
         # approximate Newton matrix (a quasi-Newton iteration). The bound is computed from
         # the stored Jacobian, which must then hold every implicit term exactly; where it
-        # cannot, the stall serves alone.
+        # cannot, or where a row is above it, the stall serves as before.
         accurate_solve = linear_tolerance(ws.cache) <= solver.floor_linear_tolerance
         residual_stalled = length(ws.residual_norms) > 1 &&
                            last(ws.residual_norms) >= 0.9 * ws.residual_norms[end - 1] &&
