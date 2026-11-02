@@ -167,11 +167,12 @@ The reference case `reference/dream/cases/disruption_kinetic.py` runs the disrup
 |---|---|
 | scenario of the disruption chain | `--scenario 1`, the full-conversion scenario |
 | elongation of the radial grid | `--elongation 1`, a cylinder without shaping |
-| steps of phase 1 | `--nt-ioniz 500`, steps of 4e-8 s |
+| steps of phase 1 | `--nt-ioniz 500`, steps of 4e-8 s, passed with `--elongation 1` (the default is the 200 of scenario 1) |
 
 The DREAM paper runs scenarios 1 and 4, and `generate.py` runs scenario 0 by default, which `--scenario 0` reproduces.
 The cylinder of Runes2P has no shaping, so the case departs from the elongation of `ASDEXU.py`, linear from 1.0 to 1.15 in the radius, which `--elongation asdexu` reproduces.
-At `--elongation 1` phase 1 runs 500 steps instead of the 200 of scenario 1, so that each step is 4e-8 s instead of 1e-7 s.
-With 200 steps DREAM's first step fails: its Newton iteration meets a non-finite value (`brent.c:69: computed function value is infinite or NaN`), also in the retry of the step.
+At `--elongation 1` the case is run with `--nt-ioniz 500`, so that each step of phase 1 is 4e-8 s instead of the 1e-7 s of the 200 steps of scenario 1.
+The default of the script stays the scenario's count.
+In DREAM runs with `--linear-solver mkl`, with 200 steps the first step fails: its Newton iteration meets a non-finite value (`brent.c:69: computed function value is infinite or NaN`), also in the retry of the step.
 With 500 steps phase 1 converges, and phase 2 runs its 1500 steps.
-The step of 4e-8 s is also that of the reduced case of `test/test_disruption_dream.jl`.
+The step of 4e-8 s is also that of the case at the size of a test in `test/test_disruption_dream.jl`.
