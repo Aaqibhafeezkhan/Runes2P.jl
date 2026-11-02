@@ -67,8 +67,10 @@ end
     initial_field(radial)
 
 Run 0 of the case and the field of the prescribed current (generate.py:143-184, 247-254):
-the conductivity of the initial plasma (Braams and Karney, which is DREAM's of Sauter in a
-cylinder, at the temperature of `initial_temperature` and the D background), and the field
+the conductivity of the initial plasma at the temperature of `initial_temperature` and the D
+background, that of Braams and Karney, which is DREAM's of Sauter in a cylinder (the
+neoclassical correction is 1 without trapped particles: `evaluateSauterElectricConductivity`
+of src/Equations/RunawayFluid.cpp, DREAM v26.5), and the field
 `E0 = j0 j(r) / σ(r)` with the profile of `current_profile` scaled so that `Σ 2π r Δr j0 j`
 is the plasma current. Returns `(; conductivity, electric_field)`.
 """
@@ -151,7 +153,8 @@ function build_initialization(start, electric_field; scheme::Symbol = :tcdf,
             derived(:free_electron_density,
                 WeightedSumTerm(:ion_densities, free_electron_weights(BACKGROUND)),
                 minus(:free_electron_density)),
-            # DREAM's explicit particle source without avalanche: dn_free/dt = S
+            # DREAM's explicit particle source without avalanche, dn_free/dt = S, with the default
+            # Maxwellian shape (py/DREAM/Settings/Equations/HotElectronDistribution.py:55-56)
             Equation(:particle_source, TimeDerivative(:free_electron_density),
                 LinearTerm(:particle_source)),
             Equation(:f, TimeDerivative(), fp,
@@ -183,9 +186,10 @@ function initialization_state(case)
     temperature = initial_temperature(case.radial.r_centers)
     unknown_values(u, layout, unknown_id(layout, :cold_electron_temperature)) .= temperature
     unknown_values(u, layout, unknown_id(layout, :electric_field)) .= case.electric_field
-    ions = background_ions(case.nr)
+    densities = only(background_ions(case.nr)).charge_state_densities
+    ions_id = unknown_id(layout, :ion_densities)
     for ir in 1:case.nr
-        radial_view(u, layout, unknown_id(layout, :ion_densities), ir) .= only(ions).charge_state_densities[:, ir]
+        radial_view(u, layout, ions_id, ir) .= densities[:, ir]
     end
     fill_maxwellian!(u, layout, :f, DENSITY, temperature)
     return u
@@ -251,7 +255,8 @@ end
 The state at the start of the ionization phase of `case` (`build`) from the state `u` at the
 end of the initialization of the case `initialization` (`build_initialization`), as DREAM's
 `fromOutput(..., ignore = ['n_i', 'N_i', 'W_i'])` (generate.py:311, 394): every unknown of the
-initialization by name, and the ions from the settings (generate.py:159, 439-440), the fully
+initialization by name but the ions and the free-electron density and the particle source,
+which follow from them, and the ions from the settings (generate.py:159, 439-440), the fully
 ionized D background at the uniform density and the temperature of the case, the injected D
 and Ar neutral at 1 eV. The free-electron density follows from the ions; the particle source
 starts at zero. The cold and total densities of the initialization are kept, as in DREAM,
@@ -260,20 +265,20 @@ and their rows set them from the new ions in the first step.
 function initial_state_after_initialization(case, initialization, u)
     layout, source = case.layout, initialization.layout
     state = zeros(length(layout))
-    for name in (:electric_field, :poloidal_flux, :total_current_density, :plasma_current,
-        :edge_poloidal_flux, :wall_poloidal_flux, :cold_electron_density,
-        :hot_electron_density, :runaway_density, :total_electron_density,
-        :cold_electron_temperature, :cold_thermal_energy, :ohmic_current_density,
-        :hot_electron_current_density, :runaway_current_density, :f)
+    for unknown in source.unknowns
+        name = unknown.name
+        if name in (:ion_densities, :free_electron_density, :particle_source)
+            continue
+        end
         state[_entries(layout, name)] .= u[_entries(source, name)]
     end
     temperature = initial_temperature(case.radial.r_centers)
-    ions_id, energy_id = unknown_id(layout, :ion_densities),
-    unknown_id(layout, :ion_thermal_energy)
+    ions_id = unknown_id(layout, :ion_densities)
+    energy_id = unknown_id(layout, :ion_thermal_energy)
     injected = Dict("D_inj" => INJECTED_DEUTERIUM, "Ar" => INJECTED_ARGON)
     for ir in 1:case.nr
-        states, energies = radial_view(state, layout, ions_id, ir),
-        radial_view(state, layout, energy_id, ir)
+        states = radial_view(state, layout, ions_id, ir)
+        energies = radial_view(state, layout, energy_id, ir)
         for (s, name) in enumerate(COMPOSITION.names)
             components = species_components(COMPOSITION, s)
             if name == "D"

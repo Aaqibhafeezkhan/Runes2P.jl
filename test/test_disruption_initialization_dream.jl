@@ -6,9 +6,12 @@
 # field of the prescribed current (run 0), 1 s in 3 steps from the Maxwellian with that field
 # held (run 1), and again with the field rescaled to the plasma current (run 2). The start of run 1
 # and each saved step after the start of runs 1 and 2 are compared with DREAM's, and the state
-# handed to the ionization phase with DREAM's first state of that phase. The runaway density and current are compared over the radii:
-# at the second radius n_re is 0.008 m⁻³, 1e-14 of the first radius, fed by the far tail of f
-# (down to 4e-116 m⁻³ per cell), and differs by up to 8e-4 there. Needs the ADF11 cache.
+# handed to the ionization phase with DREAM's first state of that phase. The runaway density and
+# current are compared over the radii: at the second radius n_re is 0.008 m⁻³, 1e-14 of the first
+# radius, fed by the far tail of f (down to 4e-116 m⁻³ per cell), and differs by up to 8e-4 there.
+# The D background stays fully ionized but for a recombination of up to 3e-8 of it, so the
+# particle source is near zero in these runs and its Maxwellian shape is barely exercised. Needs
+# the ADF11 cache.
 using HDF5
 include(joinpath(@__DIR__, "example_disruption.jl"))
 
@@ -34,6 +37,9 @@ const TOLERANCES = Dict("E_field" => 1e-8,    # 7.7e-10, run 2 (the rescale by I
 # the state handed to the ionization phase against DREAM's first state of that phase, per unknown
 # relative to its largest value: the differences of the end of run 2 (7.7e-10 measured)
 const HANDOVER = 1e-8
+# run 0 (the conductivity and the field of the prescribed current) and the state at the start of
+# run 1: round-off (1.2e-15 measured)
+const ROUND_OFF = 1e-13
 
 const NAMES = ("E_field" => :electric_field, "j_ohm" => :ohmic_current_density,
     "j_hot" => :hot_electron_current_density, "j_re" => :runaway_current_density,
@@ -43,7 +49,8 @@ const NAMES = ("E_field" => :electric_field, "j_ohm" => :ohmic_current_density,
     "T_cold" => :cold_electron_temperature)
 
 # the largest difference of each quantity over the radii and the saved steps `steps`, relative
-# to the largest value of DREAM over the radii at each step
+# to the largest value of DREAM over the radii at each step; for f_hot and n_i, over the cells
+# and the charge states at each radius and step
 function differences(run, dream, steps)
     layout, solution = run.case.layout, run.solution
     errors = Dict{String, Float64}()
@@ -82,9 +89,9 @@ end
         conductivity = h5open(h5 -> read(h5["conductivity/other/fluid/conductivity"]), file, "r")
         init = initialize(dream["init"])
         # run 0: the conductivity of the initial plasma and the field of the prescribed current
-        @test maximum(abs, init.field.conductivity ./ conductivity[:, 1] .- 1) < 1e-13
+        @test maximum(abs, init.field.conductivity ./ conductivity[:, 1] .- 1) < ROUND_OFF
         @test maximum(abs, init.field.electric_field ./ dream["init"]["E_field"][:, 1] .-
-                           1) < 1e-13
+                           1) < ROUND_OFF
         for (name, run) in (("init", init.first), ("init_rescaled", init.second))
             @test all(run.solution.statistics.accepted)
             @test run.solution.times == dream[name]["t"]
@@ -95,7 +102,7 @@ end
                 errors = differences(run, dream[name], 1:1)
                 for quantity in setdiff(sort!(collect(keys(errors))), (
                     "j_hot", "n_re", "j_re"))
-                    @test errors[quantity] < 1e-12
+                    @test errors[quantity] < ROUND_OFF
                 end
             end
             errors = differences(run, dream[name], 2:length(run.solution.times))
@@ -115,7 +122,8 @@ end
             entries = _entries(case.layout, unknown.name)
             reference = maximum(abs, theirs[entries])
             difference = maximum(abs, ours[entries] .- theirs[entries])
-            @info "the hand-over to the ionization phase: $(unknown.name) $(difference / max(reference, floatmin()))"
+            relative = difference / max(reference, floatmin())
+            @info "the hand-over to the ionization phase: $(unknown.name) $relative"
             @test difference <= HANDOVER * reference
         end
     end
