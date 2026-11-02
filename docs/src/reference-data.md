@@ -1,6 +1,6 @@
 # Reference data
 
-The tests compare Runes2P with the output of DREAM and of GSL stored in three reference sets, so they do not run DREAM themselves.
+The tests compare Runes2P with the output of DREAM and of GSL stored in four reference sets, so they do not run DREAM themselves.
 The DREAM cases are DREAM's public examples, run with their own settings and a few stated overrides, and synthetic cases written for one comparison each.
 The generator scripts, the build of DREAM and the regeneration are in `reference/` of the repository.
 

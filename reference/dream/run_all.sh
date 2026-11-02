@@ -11,7 +11,7 @@
 # The data directory holds pixi.toml, pixi.lock and scripts/ of this folder, and what
 # build_all.sh builds there: petsc/ and one directory per DREAM build with DREAM/ and build/
 # (dream-v26.5-disruption runs on the build of dream-v26.5).
-# The case scripts are copied into <set>/cases/, because they find dreami, the DREAM checkout
+# The case scripts are copied into <build>/cases/, because they find dreami, the DREAM checkout
 # and PETSc relative to their own folder. The outputs go to out/<set>/, the working files to
 # work/<set>/ and the logs to logs/.
 set -euo pipefail

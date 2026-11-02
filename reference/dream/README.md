@@ -61,12 +61,12 @@ The set `dream-v26.5-disruption` runs on the build of `dream-v26.5`, so it needs
 
 ## Layout
 
-- `cases/`: the 22 case scripts of the two DREAM sets.
+- `cases/`: the 22 case scripts of the DREAM sets.
 - `scripts/`: the fetch and build steps that `pixi.toml` runs as tasks.
 - `petsc/`: the shared PETSc, made by `build_all.sh`.
-- `<set>/DREAM/`, `<set>/build/`: the DREAM checkout and build of a set.
-  `<set>/petsc` links to the shared PETSc.
-- `<set>/cases/`: the copies of the case scripts that `run_all.sh` runs.
+- `<build>/DREAM/`, `<build>/build/`: the DREAM checkout and build of a set, named after the set; `dream-v26.5-disruption` uses that of `dream-v26.5`.
+  `<build>/petsc` links to the shared PETSc.
+- `<build>/cases/`: the copies of the case scripts that `run_all.sh` runs.
   They find `dreami`, the DREAM checkout and PETSc relative to their own folder.
 - `out/<set>/`: the output files of a set, the content of its tarball.
 - `work/<set>/` and `logs/`: working files and the log of every case.

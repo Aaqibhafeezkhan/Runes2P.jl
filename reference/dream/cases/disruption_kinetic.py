@@ -23,8 +23,9 @@ of NP_KIN2 uniform cells without the fine region below psep (generate.py:218-219
 Maxwellian scaled by 0.9999 so that a trace cold population remains, without DREAM's corrected
 conductivity (generate.py:221-231), the superthermal collision frequencies in the phases
 (generate.py:342-344), T_cold restarted at 1 eV with T_cold, W_cold, n_hot and n_cold not taken
-from the initialization (generate.py:346-356), and no particle source, which DREAM builds only
-with the full collision frequencies (generate.py:358-361).
+from the initialization (generate.py:346-356), and no particle source: the example sets it in
+the kinetic modes only (generate.py:358-361), and DREAM builds it only with the full collision
+frequencies (src/Settings/Equations/f_hot.cpp:163-197).
 
 The chain: a one-step run for the conductivity of the initial plasma, the field of the
 prescribed current profile of ASDEXU.getCurrentDensity, two runs of 1 s in 3 steps with
@@ -107,16 +108,18 @@ def arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--outdir", required=True, type=Path, help="directory of the DREAM settings and outputs")
     parser.add_argument("--scenario", type=int, default=1, help="scenario of generate.py (default 1)")
-    parser.add_argument("--mode", choices=MODES, default="kinetic", help="generate.py --kinetic, --superthermal or --fluid; np2 is the whole grid of superthermal")
+    parser.add_argument("--mode", choices=MODES, default="kinetic",
+                        help="generate.py --kinetic, --superthermal or --fluid; superthermal takes np2 uniform "
+                             "cells and ignores np1 and psep")
     parser.add_argument("--nr", type=int, default=15, help="radial cells (generate.py:32)")
-    parser.add_argument("--np1", type=int, default=60, help="momentum cells below psep (generate.py:35)")
+    parser.add_argument("--np1", type=int, default=60, help="momentum cells below psep (generate.py:35; not in superthermal)")
     parser.add_argument("--np2", type=int, default=80, help="momentum cells from psep to pmax (generate.py:36)")
     parser.add_argument("--nxi", type=int, default=15, help="pitch cells (generate.py:40)")
     parser.add_argument("--xi-grid", choices=("uniform", "biuniform_theta"), default="uniform",
                         help="uniform (generate.py:204) or a grid biuniform in theta, 10 of the cells "
                              "below theta = 0.5")
     parser.add_argument("--pmax", type=float, default=0.8, help="p_max of the hot-tail grid (generate.py:42)")
-    parser.add_argument("--psep", type=float, default=0.05, help="end of the dense momentum cells (generate.py:43)")
+    parser.add_argument("--psep", type=float, default=0.05, help="end of the dense momentum cells (generate.py:43; not in superthermal)")
     parser.add_argument("--elongation", choices=("1", "asdexu"), default="1",
                         help="1 (a departure, the cylinder has no shaping) or the linear 1.0 to 1.15 of ASDEXU.py:49")
     parser.add_argument("--scheme", choices=sorted(SCHEMES), default="tcdf",
