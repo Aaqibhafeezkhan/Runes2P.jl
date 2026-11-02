@@ -48,8 +48,8 @@ V265_CASES=(
     "rp_avalanche dream_rp_avalanche.h5"
     "self_consistent_field dream_self_consistent_field.h5"
 )
-# the disruption chain of test/test_disruption_dream.jl from its initialization, runs 0 to 4,
-# fully kinetic and superthermal
+# the disruption case of test/test_disruption_dream.jl from its initialization, runs 0 to 4,
+# fully kinetic (read by test/test_disruption_initialization_dream.jl) and superthermal
 DISRUPTION_CASES=(
     "disruption_kinetic dream_disruption_chain_small.h5"
     "disruption_kinetic dream_disruption_superthermal_small.h5 --mode superthermal"

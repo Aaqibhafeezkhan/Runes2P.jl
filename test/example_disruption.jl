@@ -1,9 +1,11 @@
 # The system of Runes2P for DREAM's disruption case (reference/dream/cases/disruption_kinetic.py:
-# DREAM's examples/Disruptions/generate.py, scenario 1, with examples/Disruptions/ASDEXU.py),
-# from DREAM's state at the start of one of the two phases of the case (the ionization of
-# the injected D and Ar, or the thermal and current quench): the builder of
-# test_disruption_dream.jl. With compat = dream it takes DREAM's settings of the case, with
-# compat = runes2p the defaults of Runes2P.
+# DREAM's examples/Disruptions/generate.py, scenario 1, with examples/Disruptions/ASDEXU.py):
+# the builder of test_disruption_dream.jl and test_disruption_initialization_dream.jl.
+# `build` gives the system of one of the two phases of the case (the ionization of the
+# injected D and Ar, or the thermal and current quench), started from DREAM's state at its
+# start (`initial_state`) or from Runes2P's own initialization (`initialize`, then
+# `initial_state_after_initialization`). With compat = dream it takes DREAM's settings of the
+# case, with compat = runes2p the defaults of Runes2P.
 using Runes2P, HDF5
 
 const WALL_RADIUS = 0.55            # ASDEXU.py:24
@@ -11,6 +13,291 @@ const DIFFUSIVITY = 4000.0          # m²/s, generate.py:502 (scenario 1)
 const P_CUT = 0.01                  # generate.py:329
 const THRESHOLD = 5.0               # generate.py:234
 const COMPOSITION = IonComposition(["D" => 1, "D_inj" => 1, "Ar" => 18])
+
+# the initialization of the case, generate.py getBaseline, parts 1 and 2 (lines 141-303)
+const MINOR_RADIUS = 0.5            # ASDEXU.py:23
+const MAGNETIC_FIELD = 2.5          # T, ASDEXU.py:25, uniform with R0 = ∞
+const PLASMA_CURRENT = 800e3        # A, ASDEXU.py:27
+const DENSITY = 2.6e19              # m⁻³, ASDEXU.py:30, uniform
+const CENTRAL_TEMPERATURE = 5.8e3   # eV, ASDEXU.py:31
+const TEMPERATURE_WIDTH = 0.4653    # ASDEXU.py:96, getInitialTemperature
+const INITIALIZATION_TIME = 1.0     # s, generate.py:270
+const INITIALIZATION_STEPS = 3      # generate.py:271
+# the injected densities of scenario 1 as fractions of DENSITY, fracDinj and fracAr
+# (generate.py:502)
+const INJECTED_DEUTERIUM = 1.0
+const INJECTED_ARGON = 1.0
+const INJECTED_TEMPERATURE = 1.0    # eV, generate.py:439-440
+# the ions of the initialization: the D background alone, generate.py:159
+const BACKGROUND = IonComposition(["D" => 1])
+
+"""
+    initial_temperature(r)
+
+ASDEXU.getInitialTemperature, `T0 exp(-((r/a)/0.4653)²)` on 100 points from 0 to `a`, at
+the radii `r` by linear interpolation of those points, as DREAM takes the profile of
+`T_cold.setPrescribedData` (examples/Disruptions/ASDEXU.py:83-97, generate.py:155-156).
+"""
+function initial_temperature(r)
+    points = collect(range(0, MINOR_RADIUS; length = 100))
+    values = @. CENTRAL_TEMPERATURE * exp(-((points / MINOR_RADIUS) / TEMPERATURE_WIDTH)^2)
+    function interpolate(x)
+        k = clamp(searchsortedlast(points, x), 1, length(points) - 1)
+        weight = (x - points[k]) / (points[k + 1] - points[k])
+        return values[k] + weight * (values[k + 1] - values[k])
+    end
+    return interpolate.(r)
+end
+
+# ASDEXU.getCurrentDensity (ASDEXU.py:116-131), (1 − (r/a)⁴)^1.5, at the cell centres, to be
+# scaled to I_p
+current_profile(r) = @. (1 - (r / MINOR_RADIUS)^4)^1.5
+
+# the nuclear charge of each charge state of a composition, the weights of the total density
+charge_state_nuclear_charges(c) = Float64[Z for Z in c.nuclear_charges for _ in 0:Z]
+
+# the fully ionized D background at the uniform density (generate.py:159), per radius
+function background_ions(nr)
+    densities = zeros(2, nr)
+    densities[2, :] .= DENSITY
+    return [IonSpecies("D", 1, densities)]
+end
+
+"""
+    initial_field(radial)
+
+Run 0 of the case and the field of the prescribed current (generate.py:143-184, 247-254):
+the conductivity of the initial plasma at the temperature of `initial_temperature` and the D
+background, that of Braams and Karney, which is DREAM's of Sauter in a cylinder (the
+neoclassical correction is 1 without trapped particles: `evaluateSauterElectricConductivity`
+of src/Equations/RunawayFluid.cpp, DREAM v26.5), and the field
+`E0 = j0 j(r) / σ(r)` with the profile of `current_profile` scaled so that `Σ 2π r Δr j0 j`
+is the plasma current. Returns `(; conductivity, electric_field)`.
+"""
+function initial_field(radial)
+    nr = radial_cell_count(radial)
+    plasma = PlasmaState(;
+        cold_electron_temperature = initial_temperature(radial.r_centers),
+        ions = background_ions(nr), electric_field = zeros(nr),
+        magnetic_field = fill(MAGNETIC_FIELD, nr))
+    conductivity = [braams_karney_conductivity(plasma, ir) for ir in 1:nr]
+    j = current_profile(radial.r_centers)
+    j0 = PLASMA_CURRENT / sum(Runes2P.cross_section_weights(radial) .* j)
+    return (; conductivity, electric_field = j0 .* j ./ conductivity)
+end
+
+"""
+    build_initialization(start, electric_field; scheme=:tcdf, compat=:dream)
+
+The system of runs 1 and 2 of the case (generate.py:193-303) on the grids of `start`, with
+the field `electric_field` per radius: the hot-tail distribution with the full collision
+frequencies and the D background alone, the field and the temperature held at their
+prescribed values, DREAM's corrected conductivity, the fluid ionization of D, the explicit
+particle source with DREAM's default Maxwellian shape, and the flux through `p_max` into the
+runaway density, without avalanche or kinetic ionization (set in the phases only). The field
+and the temperature stay unknowns, held by algebraic rows, since the kinetic terms read them
+from the state. Ampère's law, the plasma current and the flux at the edge and the wall stay
+as in the phases: DREAM computes them with the field prescribed, and the ionization phase
+starts from their values.
+"""
+function build_initialization(start, electric_field; scheme::Symbol = :tcdf,
+        compat::Symbol = :dream)
+    radial = RadialGrid(start["r_f"])
+    grid = cylindrical_grid(MomentumGrid(start["p1_f"], start["p2_f"]), radial)
+    nr = radial_cell_count(radial)
+    prescribed = PlasmaState(; cold_electron_temperature = fill(10.0, nr),
+        ions = background_ions(nr), electric_field = zeros(nr),
+        magnetic_field = fill(start["B"], nr))
+    (; region, fp, conductivity) = kinetic_terms(grid, prescribed; scheme, compat)
+    minus(name) = LinearTerm(name; coefficient = -1)
+    current(; kwargs...) = CurrentMomentTerm(:f, grid; pitch_rule = :cell_center, kwargs...)
+    # the initial values of the moments and the closures come from their rows
+    derived(name, terms...) = Equation(name, Algebraic(), terms...;
+        initial_value = :from_equation)
+    unknowns = vcat(
+        induction_unknowns(radial; electric_field_scale = 1.0, current_density_scale = 1e6),
+        [
+            ion_densities_unknown(BACKGROUND),
+            RadialUnknown(:cold_electron_density; scale = 1e19), RadialUnknown(
+                :hot_electron_density; scale = 1e17),
+            RadialUnknown(:runaway_density; scale = 1e15), RadialUnknown(:total_electron_density; scale = 1e20),
+            RadialUnknown(:free_electron_density; scale = 1e19), RadialUnknown(:particle_source; scale = 1e24),
+            RadialUnknown(:cold_electron_temperature; scale = 100.0),
+            RadialUnknown(:cold_thermal_energy; scale = 1e4),
+            RadialUnknown(:ohmic_current_density; scale = 1e6), RadialUnknown(
+                :hot_electron_current_density; scale = 1e5),
+            RadialUnknown(:runaway_current_density; scale = 1e5),
+            KineticUnknown(:f, grid; scale = 1e19)])
+    layout = UnknownLayout(radial, unknowns)
+    # Faraday's law gives way to the prescribed field; the other induction rows stay
+    induction = [eq
+                 for eq in induction_equations(radial; wall_radius = WALL_RADIUS,
+                         loop_voltage_at_wall = 0.0)
+                 if eq.unknown !== :electric_field]
+    population = only(population_equations(BACKGROUND; hot_density = :hot_electron_density,
+        runaway_density = :runaway_density))
+    equations = vcat(induction,
+        [
+            Equation(:electric_field, Algebraic(), PrescribedValueTerm(electric_field),
+                minus(:electric_field)),
+            Equation(:cold_electron_temperature, Algebraic(),
+                PrescribedValueTerm(initial_temperature(radial.r_centers)),
+                minus(:cold_electron_temperature)),
+            Equation(:ion_densities, TimeDerivative(), IonRateTerm(BACKGROUND)),
+            derived(:cold_electron_density, population.terms...),
+            derived(:hot_electron_density, DensityMomentTerm(:f, grid; region),
+                minus(:hot_electron_density)),
+            derived(:total_electron_density,
+                WeightedSumTerm(:ion_densities, charge_state_nuclear_charges(BACKGROUND)),
+                minus(:total_electron_density)),
+            derived(:free_electron_density,
+                WeightedSumTerm(:ion_densities, free_electron_weights(BACKGROUND)),
+                minus(:free_electron_density)),
+            # DREAM's explicit particle source without avalanche, dn_free/dt = S, with the default
+            # Maxwellian shape (py/DREAM/Settings/Equations/HotElectronDistribution.py:55-56)
+            Equation(:particle_source, TimeDerivative(:free_electron_density),
+                LinearTerm(:particle_source)),
+            Equation(:f, TimeDerivative(), fp,
+                ParticleSourceTerm(:particle_source, grid, :cold_electron_temperature;
+                    shape = :relativistic_maxwellian)),
+            Equation(:runaway_density, TimeDerivative(), MomentumBoundaryFluxTerm(:f, fp)),
+            derived(:runaway_current_density,
+                LinearTerm(:runaway_density;
+                    coefficient = Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT),
+                minus(:runaway_current_density)),
+            derived(:hot_electron_current_density, current(; region),
+                minus(:hot_electron_current_density)),
+            derived(
+                :ohmic_current_density, current(), minus(:hot_electron_current_density),
+                conductivity, minus(:ohmic_current_density)),
+            derived(:total_current_density, LinearTerm(:ohmic_current_density),
+                LinearTerm(:hot_electron_current_density), LinearTerm(:runaway_current_density),
+                minus(:total_current_density)),
+            thermal_energy_equation()])
+    return (; layout, equations, grid, radial, nr, electric_field)
+end
+
+# the given part of the state at the start of runs 1 and 2: the Maxwellian of the free
+# electrons at the temperature of the case (generate.py:231), the D background and the
+# prescribed field
+function initialization_state(case)
+    layout = case.layout
+    u = zeros(length(layout))
+    temperature = initial_temperature(case.radial.r_centers)
+    unknown_values(u, layout, unknown_id(layout, :cold_electron_temperature)) .= temperature
+    unknown_values(u, layout, unknown_id(layout, :electric_field)) .= case.electric_field
+    densities = only(background_ions(case.nr)).charge_state_densities
+    ions_id = unknown_id(layout, :ion_densities)
+    for ir in 1:case.nr
+        radial_view(u, layout, ions_id, ir) .= densities[:, ir]
+    end
+    fill_maxwellian!(u, layout, :f, DENSITY, temperature)
+    return u
+end
+
+# the rest of the state at the start: the moments and the closures from their rows, and the
+# flux of Ampère's law from the current
+function complete_initialization_state!(u, case, system)
+    layout = case.layout
+    fill_initial_values!(u, system, 0.0)
+    j_tot = unknown_values(u, layout, unknown_id(layout, :total_current_density))
+    flux = initial_poloidal_flux(case.radial, collect(j_tot); wall_radius = WALL_RADIUS)
+    unknown_values(u, layout, unknown_id(layout, :poloidal_flux)) .= flux.poloidal_flux
+    for name in (:plasma_current, :edge_poloidal_flux, :wall_poloidal_flux)
+        u[only(unknown_range(layout, unknown_id(layout, name)))] = getfield(flux, name)
+    end
+    return u
+end
+
+# one run of the initialization with the field `electric_field`: 1 s in 3 steps
+function run_initialization(start, electric_field; kwargs...)
+    case = build_initialization(start, electric_field; kwargs...)
+    times = collect(range(0, INITIALIZATION_TIME; length = INITIALIZATION_STEPS + 1))
+    u0 = initialization_state(case)
+    system = EquationSystem(case.layout, case.equations; time_scale = times[2] - times[1],
+        initial_state = u0)
+    complete_initialization_state!(u0, case, system)
+    solution = integrate(system, u0, times; stepper = FixedSteps())
+    return (; case, solution)
+end
+
+"""
+    initialize(start; scheme=:tcdf, compat=:dream)
+
+Runes2P's initialization of the case on the grids of `start`, as DREAM's runs 0 to 2
+(generate.py:141-303): the field of the prescribed current from the conductivity of the
+initial plasma (`initial_field`), run 1 with that field from the Maxwellian, then run 2,
+again from the Maxwellian, with the field of run 1 rescaled by `I_p / I_p(end)` of run 1
+(generate.py:295-303), so that its current ends at the plasma current. Returns
+`(; field, first, second)`, with `field` of `initial_field` and the case and the solution of
+each run.
+"""
+function initialize(start; kwargs...)
+    field = initial_field(RadialGrid(start["r_f"]))
+    first = run_initialization(start, field.electric_field; kwargs...)
+    layout = first.case.layout
+    current = only(unknown_range(layout, unknown_id(layout, :plasma_current)))
+    final = first.solution.states[:, end]
+    rescaled = unknown_values(final, layout, unknown_id(layout, :electric_field)) .*
+               PLASMA_CURRENT ./ final[current]
+    second = run_initialization(start, collect(rescaled); kwargs...)
+    return (; field, first, second)
+end
+
+# the entries of the unknown `name` in a state of `layout`, over all radii
+function _entries(layout, name)
+    reduce(vcat, collect.(Runes2P._unknown_ranges(layout, unknown_id(layout, name))))
+end
+
+"""
+    initial_state_after_initialization(case, initialization, u)
+
+The state at the start of the ionization phase of `case` (`build`) from the state `u` at the
+end of the initialization of the case `initialization` (`build_initialization`), as DREAM's
+`fromOutput(..., ignore = ['n_i', 'N_i', 'W_i'])` (generate.py:311, 394): every unknown of the
+initialization by name but the ions and the free-electron density and the particle source,
+which follow from them, and the ions from the settings (generate.py:159, 439-440), the fully
+ionized D background at the uniform density and the temperature of the case, the injected D
+and Ar neutral at 1 eV. The free-electron density follows from the ions; the particle source
+starts at zero. The cold and total densities of the initialization are kept, as in DREAM,
+and their rows set them from the new ions in the first step.
+"""
+function initial_state_after_initialization(case, initialization, u)
+    layout, source = case.layout, initialization.layout
+    state = zeros(length(layout))
+    for unknown in source.unknowns
+        name = unknown.name
+        if name in (:ion_densities, :free_electron_density, :particle_source)
+            continue
+        end
+        state[_entries(layout, name)] .= u[_entries(source, name)]
+    end
+    temperature = initial_temperature(case.radial.r_centers)
+    ions_id = unknown_id(layout, :ion_densities)
+    energy_id = unknown_id(layout, :ion_thermal_energy)
+    injected = Dict("D_inj" => INJECTED_DEUTERIUM, "Ar" => INJECTED_ARGON)
+    for ir in 1:case.nr
+        states = radial_view(state, layout, ions_id, ir)
+        energies = radial_view(state, layout, energy_id, ir)
+        for (s, name) in enumerate(COMPOSITION.names)
+            components = species_components(COMPOSITION, s)
+            if name == "D"
+                states[components[2]] = DENSITY
+                energies[s] = THERMAL_ENERGY_FACTOR * DENSITY * temperature[ir]
+            else
+                states[components[1]] = injected[name] * DENSITY
+                energies[s] = THERMAL_ENERGY_FACTOR * injected[name] * DENSITY *
+                              INJECTED_TEMPERATURE
+            end
+        end
+    end
+    free = unknown_values(state, layout, unknown_id(layout, :free_electron_density))
+    for ir in 1:case.nr
+        free[ir] = sum(free_electron_weights(COMPOSITION) .*
+                       radial_view(state, layout, ions_id, ir))
+    end
+    return state
+end
 
 # DREAM's output of a run, an HDF5 file or group with DREAM's groups eqsys and grid: (name =>
 # array) with the time last, as HDF5 gives DREAM's arrays to Julia
@@ -25,7 +312,7 @@ function read_dream_state(h5)
     data["r_f"] = read(h5["grid/r_f"])
     data["p1_f"] = read(h5["grid/hottail/p1_f"])
     data["p2_f"] = read(h5["grid/hottail/p2_f"])
-    data["B"] = 2.5     # ASDEXU.py:25, uniform with R0 = ∞
+    data["B"] = MAGNETIC_FIELD
     return data
 end
 
@@ -36,6 +323,34 @@ function collision_settings(compat)
         ion_size_table = :dream, bremsstrahlung = :stopping_power, bremsstrahlung_diffusion = :dream,
         bremsstrahlung_constant = :dream) :
     CollisionSettings(; mode = :full, screening = :partial, coulomb_logarithm = :energy_dependent)
+end
+
+# the kinetic part shared by the phases (`build`) and the initialization
+# (`build_initialization`) on `grid`, with the ions of `prescribed` as unknowns: the collision
+# settings, the hot region, the Fokker-Planck term of f with the field of the unknown and DREAM's
+# corrected conductivity of the ohmic current
+function kinetic_terms(grid, prescribed; scheme, compat)
+    settings = collision_settings(compat)
+    # the hot region: DREAM's 5 thermal momenta for compat = dream; for runes2p, which splits the
+    # ionization with CHIANTI's cross sections, the minimum of that split, 7
+    factor = if compat === :dream
+        THRESHOLD
+    else
+        Runes2P.MINIMUM_SPLIT_THRESHOLD_FACTORS[:chianti]
+    end
+    region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor))
+    plasma = PlasmaFromUnknowns(prescribed; ions = :ion_densities, temperature_floor = 0.01)
+    operator = AdvectionDiffusion(grid; scheme, p_upper_boundary = :f_zero)
+    fp = FokkerPlanckTerm(
+        :f, operator; plasma, settings, synchrotron = compat === :runes2p,
+        electric_field = :electric_field,
+        lagged = compat === :dream ? () : :ions)
+    conductivity = ConductivityTerm(:electric_field,
+        ConductivityModel(
+            PlasmaFromUnknowns(prescribed; ions = :ion_densities,
+                temperature_floor = 0.01);
+            kinetic = :dream_fit))
+    return (; settings, region, fp, conductivity)
 end
 
 function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream, diffusivity::Real = DIFFUSIVITY)
@@ -49,25 +364,9 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream, diffusivi
     prescribed = PlasmaState(; cold_electron_temperature = fill(10.0, nr),
         ions = background, electric_field = zeros(nr),
         magnetic_field = fill(start["B"], nr))
-    settings = collision_settings(compat)
-    # the hot region: DREAM's 5 thermal momenta for compat = dream; for runes2p, which splits the
-    # ionization with CHIANTI's cross sections, the minimum of that split, 7
-    factor = compat === :dream ? THRESHOLD :
-             Runes2P.MINIMUM_SPLIT_THRESHOLD_FACTORS[:chianti]
-    region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor))
-    plasma = PlasmaFromUnknowns(prescribed; ions = :ion_densities, temperature_floor = 0.01)
-    operator = AdvectionDiffusion(grid; scheme, p_upper_boundary = :f_zero)
-    fp = FokkerPlanckTerm(
-        :f, operator; plasma, settings, synchrotron = compat === :runes2p,
-        electric_field = :electric_field,
-        lagged = compat === :dream ? () : :ions)
+    (; settings, region, fp, conductivity) = kinetic_terms(grid, prescribed; scheme, compat)
     minus(name) = LinearTerm(name; coefficient = -1)
     current(; kwargs...) = CurrentMomentTerm(:f, grid; pitch_rule = :cell_center, kwargs...)
-    conductivity = ConductivityTerm(:electric_field,
-        ConductivityModel(
-            PlasmaFromUnknowns(prescribed; ions = :ion_densities,
-                temperature_floor = 0.01);
-            kinetic = :dream_fit))
     # the cross sections of the kinetic ionization: DREAM's form and fits for compat = dream,
     # CHIANTI's continued by the Bethe theory for runes2p
     kinetic = KineticIonizationTerm(COMPOSITION, :f, grid; region,
@@ -82,7 +381,6 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream, diffusivi
     split = compat === :dream ? NamedTuple() : (kinetic_ionization = kinetic,)
     external = ExternalAvalancheTerm(prescribed; p_cutoff = p_max, settings, fluid_ions...)
     internal = rosenbluth_putvinski_rate(P_CUT, p_max)
-    nuclear(c) = Float64[Z for Z in c.nuclear_charges for _ in 0:Z]
     unknowns = vcat(
         induction_unknowns(radial; electric_field_scale = 1.0, current_density_scale = 1e6),
         [
@@ -112,7 +410,7 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream, diffusivi
             Equation(:hot_electron_density, Algebraic(),
                 DensityMomentTerm(:f, grid; region), minus(:hot_electron_density)),
             Equation(:total_electron_density, Algebraic(),
-                WeightedSumTerm(:ion_densities, nuclear(COMPOSITION)),
+                WeightedSumTerm(:ion_densities, charge_state_nuclear_charges(COMPOSITION)),
                 minus(:total_electron_density)),
             Equation(:free_electron_density, Algebraic(),
                 WeightedSumTerm(:ion_densities, free_electron_weights(COMPOSITION)),
