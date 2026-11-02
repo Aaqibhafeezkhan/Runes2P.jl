@@ -67,8 +67,8 @@ The binary-encounter-Bethe spectrum of Y.-K. Kim and M. E. Rudd, Physical Review
 `spectrum = :opal` takes the spectrum of C. B. Opal, W. K. Peterson and E. C. Beaty, The Journal of Chemical Physics 55, 4100 (1971), [doi:10.1063/1.1676707](https://doi.org/10.1063/1.1676707).
 It takes the width of the neutral element in [`SECONDARY_SPECTRUM_WIDTHS`](@ref) for every charge state.
 The fluid coefficient of the split ([`fluid_ionization_coefficient`](@ref)) has no floor, so with a Maxwellian `f` the kinetic and fluid rates add up to the ADAS rate.
-Where the threshold lies in the first momentum cell, [`Runes2P.threshold_split`](@ref) holds the part below it, ``1 - f_>``, at the weight of that cell.
-The grid holds no smaller part below a threshold, and the fluid coefficient stays finite.
+Where the threshold lies in the first momentum cell, [`Runes2P.threshold_split`](@ref) takes the part below it, ``1 - f_>``, as the weight of that cell.
+At the threshold factors of the split nearly the whole Maxwellian then lies in that cell, below the threshold, and the fluid coefficient stays finite.
 There the two rates add up to the ADAS rate only to within that part, and a warning names the radius and the temperature.
 At a threshold factor below that of its form, [`IonRateTerm`](@ref) and [`RadiatedPowerTerm`](@ref) refuse the split.
 The factor 5 is the hot-region threshold of DREAM's disruption example, and the default hot region of [`ThermalMomentum`](@ref) takes 7 for every form.

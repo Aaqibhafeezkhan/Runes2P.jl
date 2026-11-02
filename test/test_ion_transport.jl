@@ -53,10 +53,12 @@ end
 
     @testset "a species absent at some radii, under GMRES with an inexact preconditioner" begin
         # Argon at the outer radii only. Its lower limit is relative to the argon density at
-        # the radius, which is 0 at the inner radii, so a negative update of an argon state
-        # there refuses the step. The neutral argon, which the charged diffusion leaves alone,
-        # stays at exactly 0 under an exact LU; so it must under GMRES with an incomplete
-        # factorization as the preconditioner, whose solve is accurate only to its tolerance.
+        # the radius, which is 0 at the inner radii at the start, so a negative update of an
+        # argon state there refuses the step. The charged argon diffuses into those radii from
+        # zero, and every step must be accepted under GMRES with an incomplete factorization as
+        # the preconditioner, whose solve is accurate only to its tolerance, as under an exact
+        # LU. The neutral argon, which the charged diffusion leaves alone (its rows are
+        # uncoupled), stays at exactly 0.
         nr = 12
         radial = RadialGrid(uniform_r_faces(nr, 1.0))
         layout = UnknownLayout(radial, [ion_densities_unknown(TRANSPORT_COMPOSITION)])

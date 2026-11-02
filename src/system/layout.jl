@@ -70,8 +70,9 @@ end
 Unknown with `components` values at each radius (e.g. `:electric_field`, or
 `:ion_densities` with one component per charge state). `groups` splits the components into
 consecutive ranges, such as the charge states of each ion species
-([`component_groups`](@ref)). An unknown that declares groups, even a single one, takes the
-tolerances relative to the sum over each group ([`tolerance`](@ref), [`StepController`](@ref)).
+([`component_groups`](@ref)). An unknown that declares groups, even a single one, takes by
+default the tolerances relative to the sum over each group ([`tolerance`](@ref),
+[`StepController`](@ref)).
 """
 struct RadialUnknown
     name::Symbol
