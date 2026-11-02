@@ -3,7 +3,8 @@
 # friction on free electrons F = e E_c / β² with the critical field of Connor and Hastie,
 # E_c = n e³ lnΛ / (4π ε₀² mₑ c²) (J. W. Connor and R. J. Hastie, Nucl. Fusion 15, 415 (1975)),
 # so that P = v F = c e E_c / β; its Jacobian against central differences of its residual, with
-# the temperature, the cold density and the ion charge states as unknowns.
+# the temperature, the cold density and the ion charge states as unknowns. The Coulomb logarithm
+# is the package's (`coulomb_logarithm`), an input that the reference shares.
 using SparseArrays
 
 @testset "FrictionEnergyTransferTerm" begin
@@ -45,9 +46,8 @@ using SparseArrays
             state = copy(u)
             f = kinetic_view(state, layout, f_id, ir)
             f[i, 2] = 1.0
-            # the density of the electrons of that cell
-            cell_density = phase_space_jacobian(grid, ir)[i, 2] * m.p_widths[i] *
-                           m.xi_widths[2] / radial.spatial_jacobian[ir]
+            # the density of the electrons of that cell, from the density moment of the grid
+            cell_density = Runes2P.density(grid, kinetic_array(state, layout, f_id))[ir]
             p = m.p_centers[i]
             beta = p / sqrt(1 + p^2)
             logarithm = coulomb_logarithm(:electron_electron, :energy_dependent, p,
@@ -68,8 +68,10 @@ using SparseArrays
     end
 
     @testset "the Jacobian against central differences" begin
-        for ions in (nothing, :ion_densities)
-            plasma = PlasmaFromUnknowns(prescribed; ions)
+        variants = (PlasmaFromUnknowns(prescribed; density = nothing),
+            PlasmaFromUnknowns(prescribed), PlasmaFromUnknowns(prescribed; ions = :ion_densities))
+        for plasma in variants
+            ions = Runes2P.ion_dependency(plasma)
             term = FrictionEnergyTransferTerm(:f, grid, plasma; coefficient = -2.0)
             Runes2P.validate(term, layout, row)
             @test !Runes2P.is_linear(term)
@@ -86,10 +88,14 @@ using SparseArrays
                     unknown_id(layout, :cold_electron_temperature)))...,
                 collect.(Runes2P._unknown_ranges(layout,
                     unknown_id(layout, :cold_electron_density)))...,
+                collect(unknown_range(layout, f_id, 1))[[2, 33]],
                 collect(unknown_range(layout, f_id, 2))[[1, 7, 40]])
             if ions !== nothing
-                append!(columns, collect(unknown_range(layout,
-                    unknown_id(layout, :ion_densities), 1))[[2, 4]])
+                for ir in 1:nr
+                    append!(columns,
+                        collect(unknown_range(layout,
+                            unknown_id(layout, :ion_densities), ir))[[2, 4]])
+                end
             end
             rows = [first(unknown_range(layout, row, ir)) for ir in 1:nr]
             for column in columns
@@ -124,5 +130,6 @@ using SparseArrays
         @test FRICTION_TRANSFER_SETTINGS.mode === :superthermal
         @test FRICTION_TRANSFER_SETTINGS.screening === :complete
         @test FRICTION_TRANSFER_SETTINGS.bremsstrahlung === :neglect
+        @test FRICTION_TRANSFER_SETTINGS.coulomb_logarithm === :energy_dependent
     end
 end

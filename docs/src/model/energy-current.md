@@ -36,6 +36,7 @@ With a runaway grid, [`free_electron_energy_transfer_term`](@ref) takes its plac
 
 The channels other than [`SecondaryHeatingTerm`](@ref) are those of DREAM's equation of ``T_\mathrm{cold}`` (`src/Settings/Equations/T_cold.cpp`, DREAM v26.5), and [`RadiatedPowerTerm`](@ref) takes DREAM's radiation with `radiation = :dream` and `bremsstrahlung_corrections = :dream`.
 With a hot-tail grid, DREAM adds the collisional transfer from the hot-tail distribution, except in its fully kinetic mode (`collfreq_mode` FULL), where it leaves the transfer out.
+The transfer from a runaway grid it adds in every mode.
 [`FrictionEnergyTransferTerm`](@ref) is that transfer: the moment ``\frac{1}{V'} \sum_{ij} m_e c\, v_i p_i\, \nu_s(p_i) f_{ij} \mathcal{V}'_{ij} \Delta p_i \Delta\xi_j`` at the cell centres, with the superthermal frequencies on the cold electrons alone.
 As a moment of `f` it takes any scheme of the operator, and it counts the energy of an electron until it leaves the grid, also through ``p = 0``.
 `test/test_cold_energy_dream.jl` compares the row with ohmic heating, radiation and heat diffusion with DREAM in its fluid mode.

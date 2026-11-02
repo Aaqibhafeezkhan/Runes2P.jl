@@ -400,11 +400,10 @@ end
 function rhs!(out, term::FrictionEnergyTransferTerm, u, layout, row, t)
     id = unknown_id(layout, term.kinetic)
     model = CollisionModel(plasma_values(term.source, u, layout, t), term.settings)
-    f = kinetic_array(u, layout, id)
     for ir in 1:radial_cell_count(layout)
         weights = _friction_weights(term, model, ir)
-        out[first(unknown_range(layout, row, ir))] += term.coefficient *
-                                                      sum(weights .* view(f, :, :, ir))
+        power = sum(weights .* kinetic_view(u, layout, id, ir))
+        out[first(unknown_range(layout, row, ir))] += term.coefficient * power
     end
     return out
 end
@@ -413,7 +412,6 @@ function add_jacobian!(J, term::FrictionEnergyTransferTerm, u, layout, row, t)
     id = unknown_id(layout, term.kinetic)
     plasma = plasma_values(term.source, u, layout, t)
     model = CollisionModel(plasma, term.settings)
-    f = kinetic_array(u, layout, id)
     for ir in 1:radial_cell_count(layout)
         r = first(unknown_range(layout, row, ir))
         weights = _friction_weights(term, model, ir)
@@ -429,8 +427,8 @@ function add_jacobian!(J, term::FrictionEnergyTransferTerm, u, layout, row, t)
         dual = CollisionModel(
             dual_plasma(plasma, term.source.density !== nothing, with_ions), term.settings)
         for ir in 1:radial_cell_count(layout)
-            power = term.coefficient * sum(_friction_weights(term, dual, ir) .*
-                        view(f, :, :, ir))
+            weights = _friction_weights(term, dual, ir)
+            power = term.coefficient * sum(weights .* kinetic_view(u, layout, id, ir))
             partials = ForwardDiff.partials(power)
             columns = plasma_columns(term.source, layout, ir; with_ions)
             for (k, column) in enumerate(columns)
