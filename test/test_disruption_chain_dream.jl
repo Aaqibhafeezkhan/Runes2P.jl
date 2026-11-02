@@ -8,12 +8,15 @@
 # state of the ionization phase. Each phase is compared with DREAM's run over its steps, as in
 # test_disruption_dream.jl, where each phase starts from DREAM's state; the differences of the
 # initialization carry into the phases. The runaway density and current are compared over the
-# radii: at the second radius DREAM's state at the start of the ionization phase holds
-# n_re = 7/1024 m⁻³ where the end of its initialization has 6.66e-3, three to four significant
-# bits (see test_disruption_dream.jl), and the chain carries Runes2P's value, 2.6e-2 apart at that
-# radius, where n_re is 1e-14 of the first radius. With Runes2P's defaults (compat = runes2p) the
-# chain runs as well, from its own initialization, and the budgets are asserted. Needs the ADF11
-# cache.
+# radii, and per radius at the first radius. At the second radius, where n_re is 2e-15 of the
+# first, DREAM's state at the start of the ionization phase holds n_re = 7/1024 m⁻³ where the end
+# of its initialization has 6.66e-3, three to four significant bits (see test_disruption_dream.jl),
+# and the chain carries Runes2P's value, 2.6e-2 apart. There the growth of n_re over the quench, the
+# positive branch of the external avalanche, is compared instead; its change over the ionization
+# phase, 4e-7 of its value, and j_re, which DREAM's state there holds at 0.95 to 1.04 times
+# e c n_re, are below what the rounded start resolves. With Runes2P's defaults (compat = runes2p)
+# the chain runs as well, from its own initialization, and the budgets are asserted. Needs the
+# ADF11 cache.
 using HDF5
 include(joinpath(@__DIR__, "example_disruption.jl"))
 
@@ -36,11 +39,15 @@ const CHAIN_TOLERANCES = Dict("f_hot" => 5e-4,      # 4.4e-5
                               "W_i" => 5e-10,       # 4.8e-11
                               "I_p" => 2e-10,       # 1.3e-11, from the initialization
                               "n_tot" => 1e-14)     # 3.8e-16, round-off of the quasi-neutral sum
+# n_re and j_re at the first radius, per radius as in test_disruption_dream.jl (3.6e-11 measured),
+# and the growth of n_re over the quench at the second radius (1.9e-3)
+const FIRST_RADIUS = 5e-10
+const GROWTH = 2e-2
 #! format: on
 
 # the chain on the grids and the times of DREAM's runs: the initialization, then the two phases,
-# each from the end state of the run before it. Returns (phase => (; case, solution)) in the order
-# of the chain.
+# each from the end state of the run before it. Returns the initialization (`initialize`) and
+# (phase => (; case, solution)) in the order of the chain.
 function run_chain(dream; compat)
     init = initialize(dream["init"]; compat)
     phases = Pair{String, Any}[]
@@ -59,7 +66,32 @@ function run_chain(dream; compat)
         push!(phases, phase => (; case, solution))
         u0 = solution.states[:, end]
     end
-    return phases
+    return (; init, phases)
+end
+
+# the runaway density and current per radius at the radius `ir`, relative to DREAM's largest
+# value there over the phase
+function runaways_at(case, solution, dream, ir)
+    layout = case.layout
+    errors = Dict{String, Float64}()
+    for (name, ours) in ("n_re" => :runaway_density, "j_re" => :runaway_current_density)
+        id = unknown_id(layout, ours)
+        errors[name] = maximum(abs(unknown_values(solution.states[:, m], layout, id)[ir] -
+                                   dream[name][ir, m]) / maximum(abs, dream[name][ir, :])
+        for m in 2:length(solution.times))
+    end
+    return errors
+end
+
+# the growth of the runaway density over the phase at the radius `ir`, against DREAM's, relative
+# to DREAM's largest growth
+function runaway_growth(case, solution, dream, ir)
+    layout = case.layout
+    id = unknown_id(layout, :runaway_density)
+    ours = [unknown_values(state, layout, id)[ir] for state in eachcol(solution.states)]
+    theirs = dream["n_re"][ir, :]
+    return maximum(abs, (ours .- ours[1]) .- (theirs .- theirs[1])) /
+           maximum(abs, theirs .- theirs[1])
 end
 
 @testset "the disruption case end to end against DREAM" begin
@@ -70,19 +102,38 @@ end
         file = reference_file("dream_disruption_chain_small.h5")
         dream = Dict(run => h5open(h5 -> read_dream_state(h5[run]), file, "r")
         for run in ("init", "ionization", "quench"))
-        for (phase, (; case, solution)) in run_chain(dream; compat = :dream)
+        chain = run_chain(dream; compat = :dream)
+        for (phase, (; case, solution)) in chain.phases
             @test all(solution.statistics.accepted)
             errors = phase_differences(case, solution, dream[phase]; per_radius = ())
             for name in sort!(collect(keys(errors)))
                 @info "the disruption chain against DREAM, phase $phase: $name $(errors[name])"
                 @test errors[name] < CHAIN_TOLERANCES[name]
             end
-            check_budgets(case, solution, "chain, $phase, compat = dream", DRIFT[phase])
+            for (name, error) in runaways_at(case, solution, dream[phase], 1)
+                @info "the disruption chain against DREAM, phase $phase: $name at the first radius $error"
+                @test error < FIRST_RADIUS
+            end
+            if phase == "quench"
+                growth = runaway_growth(case, solution, dream[phase], 2)
+                @info "the disruption chain against DREAM, quench: growth of n_re at the second radius $growth"
+                @test growth < GROWTH
+            end
+            for (_, value, bound) in budget_checks(
+                case, solution, "chain, $phase, compat = dream", DRIFT[phase])
+                @test value < bound
+            end
         end
         # Runes2P's defaults: the budgets alone, since the physics departs from DREAM's
-        for (phase, (; case, solution)) in run_chain(dream; compat = :runes2p)
+        chain = run_chain(dream; compat = :runes2p)
+        @test all(chain.init.first.solution.statistics.accepted)
+        @test all(chain.init.second.solution.statistics.accepted)
+        for (phase, (; case, solution)) in chain.phases
             @test all(solution.statistics.accepted)
-            check_budgets(case, solution, "chain, $phase, compat = runes2p", DRIFT[phase])
+            for (_, value, bound) in budget_checks(
+                case, solution, "chain, $phase, compat = runes2p", DRIFT[phase])
+                @test value < bound
+            end
         end
     end
 end

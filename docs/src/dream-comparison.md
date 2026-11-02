@@ -227,7 +227,7 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 
 The coupled reference case is DREAM's disruption of `examples/Disruptions/generate.py`, scenario 1, fully kinetic, in a cylinder, at the size of a test.
 Its case script is `reference/dream/cases/disruption_kinetic.py` ([Reference data](reference-data.md)).
-Each part of the case is compared with DREAM's output at every saved step.
+Each part of the case is compared with DREAM's output at every saved step after its start; the chain end to end compares its two phases, and the initialization has its own test.
 
 | Part | DREAM | Runes2P | Test |
 |---|---|---|---|
@@ -239,8 +239,8 @@ Each part of the case is compared with DREAM's output at every saved step.
 - The initialization agrees with DREAM to 8e-10 in the field, the currents, the poloidal flux and the plasma current.
 - It agrees to 3e-11 in `f_hot` and the hot-electron density; DREAM's Newton tolerance of these runs is 1e-7.
 - The state that the initialization hands to the ionization phase agrees with DREAM's first state of that phase to 8e-10.
-- End to end, the phases agree with DREAM as closely as when they start from DREAM's state: 4e-5 in `f_hot`, 4e-7 in the field.
-- The poloidal flux and the plasma current carry the differences of the initialization, 3e-10 and 1e-11, against 7e-13 and 1e-12 from DREAM's state.
+- End to end, the phases agree with DREAM as closely as when they start from DREAM's state in `f_hot` (4e-5) and the field (4e-7).
+- The poloidal flux, the plasma current and the runaway density carry the differences of the initialization: 3e-10, 1e-11 and 4e-11, against 7e-13, 1e-12 and 6e-12 from DREAM's state.
 - With Runes2P's defaults the chain runs end to end as well, and the budgets of its closures hold within the bounds of the phases started from DREAM's state.
 
 ## What Runes2P has that DREAM does not

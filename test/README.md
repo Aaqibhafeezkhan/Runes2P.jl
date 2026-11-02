@@ -120,6 +120,7 @@ What is still compiled per case:
 - A file loads the packages it uses itself (`using HDF5`, `using Random: Xoshiro`).
   A package that only the tests use goes into `test/Project.toml`.
 - A helper that a second file needs moves into `helpers.jl`, with a comment naming the file it came from, and its name into the export list.
+  A helper of the disruption case goes into `example_disruption.jl` instead, which the files of that case include.
 - A new test file goes into a group of its tier in `groups.toml`, or into the group `component` when it tests one building block in isolation.
   A file that runs longer than about ten minutes alone gets a group of its own.
 - A test that reads a docstring (`@doc name`) adds the file of that docstring to `DOCSTRINGS_READ_BY_TESTS` of `scripts/code_changes.jl`, so that a change of the docstring runs the tests.

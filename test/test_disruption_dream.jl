@@ -59,7 +59,9 @@ const TOLERANCES = Dict("f_hot" => 5e-4,      # 4.4e-5
                 @info "the disruption case against DREAM, phase $phase: $name $(errors[name])"
                 @test errors[name] < TOLERANCES[name]
             end
-            check_budgets(case, solution, "$phase, compat = dream", DRIFT[phase])
+            for (_, value, bound) in budget_checks(case, solution, "$phase, compat = dream", DRIFT[phase])
+                @test value < bound
+            end
         end
         # Runes2P's defaults: the budgets alone, since the physics departs from DREAM's
         for phase in ("ionization", "quench")
@@ -71,7 +73,9 @@ const TOLERANCES = Dict("f_hot" => 5e-4,      # 4.4e-5
                 time_scale = times[2] - times[1], initial_state = u0)
             solution = integrate(system, u0, times; stepper = FixedSteps())
             @test all(solution.statistics.accepted)
-            check_budgets(case, solution, "$phase, compat = runes2p", DRIFT[phase])
+            for (_, value, bound) in budget_checks(case, solution, "$phase, compat = runes2p", DRIFT[phase])
+                @test value < bound
+            end
         end
     end
 end
