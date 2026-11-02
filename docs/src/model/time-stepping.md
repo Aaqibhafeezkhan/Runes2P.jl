@@ -64,8 +64,13 @@ An unknown with an infinite absolute tolerance is left out of both tests.
 
 Two waivers of the residual test exist, each flagged in the [`NewtonResult`](@ref) and the [`SolverStatistics`](@ref):
 
-- the residual floor: on a stiff step the transient and the right-hand side cancel to many digits, and round-off holds the residual above `residual_tolerance`.
-  A step whose update passes is accepted once the residual stops decreasing (`residual_floor`).
+- the residual floor: on a stiff step the terms of a row cancel to many digits, and round-off holds the residual above `residual_tolerance`.
+  A step whose update passes is accepted when every row above `residual_tolerance` is within its round-off bound ``|F_i| \le c\,\varepsilon \sum_j |(\partial F/\partial u)_{ij}\, u_j|``, scaled by the row's weight, with ``c = 1`` ([Choices of this package](../choices.md)).
+  Each term of a row carries a rounding error of about ``\varepsilon`` times its size, so no iterate brings the row lower.
+  The bound comes from the stored Jacobian and is used only when that holds every implicit term exactly.
+  The bound estimates the size of each term by its linearization and leaves the explicit terms out, so it errs low.
+  Where the bound is not available or a row is above it, the step is accepted once the residual stops decreasing, as before; that can take a few iterations more, since the residual at the floor wanders.
+  Both are flagged as `residual_floor`.
 - the linear step: a system linear in the state ([`is_linear`](@ref)) is solved by the first iteration and accepted at the second, on the update test alone (`linear_step`, `linear_acceptance`).
 
 Both waivers need an exact Newton matrix and a linear solve accurate to `floor_linear_tolerance`.

@@ -26,7 +26,10 @@ time array:
 - `smallest_step_length`: the shortest Newton step length used (1 when neither the lower
   limits nor the line search shortened a step);
 - `accepted_at_residual_floor`: the step converged with its residual above
-  `residual_tolerance`, at the round-off floor of a stiff step (see [`NewtonSolver`](@ref));
+  `residual_tolerance`, at the round-off floor of a stiff step: within the round-off
+  bound of its rows, or where the residual had stopped decreasing (see
+  [`NewtonSolver`](@ref)); such a step costs no iteration beyond the floor when the bound
+  applies, and a few when only the stall does;
 - `accepted_as_linear`: the step was accepted as a linear system, on the update test
   alone at the second Newton iteration (see [`NewtonSolver`](@ref));
 - `polished_for_negatives`: the step converged after one more Newton iteration for negative
@@ -1729,7 +1732,9 @@ function _run_steps!(run::RunState{T}, options::RunOptions) where {T}
                !stats.accepted_as_linear[last_record]
                 log_event!(log, "residual floor", Logging.Info,
                     "the step to t = $t_next s was accepted with the residual " *
-                    "$(stats.residual_norm[last_record]) above the tolerance, where it had stopped decreasing")
+                    "$(stats.residual_norm[last_record]) above the tolerance, at its round-off " *
+                    "floor (within the round-off bound of its rows, or where it had stopped " *
+                    "decreasing)")
             end
             negative = _negative_cells(u, layout)
             if negative > 0
