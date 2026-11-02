@@ -51,6 +51,43 @@ end
         @test_throws ArgumentError IonDiffusionTerm(TRANSPORT_COMPOSITION; diffusion = 1.0, edge = :open)
     end
 
+    @testset "a species absent at some radii, under GMRES with an inexact preconditioner" begin
+        # Argon at the outer radii only. Its lower limit is relative to the argon density at
+        # the radius, which is 0 at the inner radii at the start, so a negative update of an
+        # argon state there refuses the step. The charged argon diffuses into those radii from
+        # zero, and every step must be accepted under GMRES with an incomplete factorization as
+        # the preconditioner, whose solve is accurate only to its tolerance, as under an exact
+        # LU. The neutral argon, which the charged diffusion leaves alone (its rows are
+        # uncoupled), stays at exactly 0.
+        nr = 12
+        radial = RadialGrid(uniform_r_faces(nr, 1.0))
+        layout = UnknownLayout(radial, [ion_densities_unknown(TRANSPORT_COMPOSITION)])
+        u0 = zeros(length(layout))
+        inner = [ir for ir in 1:nr if radial.r_centers[ir] <= 0.5]
+        for ir in 1:nr
+            states = radial_view(u0, layout, 1, ir)
+            states[1:2] .= 1e19
+            if !(ir in inner)
+                states[3:21] .= [(1 + c) * 1e17 for c in 1:19]
+            end
+        end
+        term = IonDiffusionTerm(TRANSPORT_COMPOSITION; diffusion = 1.0)
+        system = EquationSystem(layout, [Equation(:ion_densities, TimeDerivative(), term)])
+        times = collect(range(0.0, 5e-3; length = 6))
+        exact = integrate(system, u0, times)
+        for gmres in (GMRES(preconditioner = RadiusBlockILU(drop_tolerance = 1e-2)),
+            GMRES(preconditioner = RadiusBlockILU(drop_tolerance = 1e-1),
+            relative_tolerance = 1e-6))
+            solution = integrate(system, u0, times; solver = NewtonSolver(linear_solver = gmres))
+            @test all(solution.statistics.accepted)
+            final = solution.states[:, end]
+            @test all(radial_view(final, layout, 1, ir)[3] == 0 for ir in inner)
+            # the charged argon reaches the inner radii, as with the exact LU
+            @test all(radial_view(final, layout, 1, ir)[4] > 0 for ir in inner)
+            @test final ≈ exact.states[:, end] rtol = 1e-5
+        end
+    end
+
     @testset "absorbing edge: the slowest decay of the cylinder" begin
         D, a, nr = 2.0, 0.5, 40
         term = IonDiffusionTerm(TRANSPORT_COMPOSITION; diffusion = D, edge = :absorbing)

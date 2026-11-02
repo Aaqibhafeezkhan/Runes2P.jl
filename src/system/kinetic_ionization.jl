@@ -248,6 +248,16 @@ fraction `f_>` of its density and the rate coefficient `A_>` [m³/s] of each cha
 and the relativistic Maxwellian `M = exp(−(γ − 1)/Θ)` at the cell centres. The sums run over
 the cells of the grid, the quadrature of the term itself. The temperature is that of the
 region's unknown in the state `u`, in its number type.
+
+A threshold `p₀` in the first momentum cell, below its upper face, is not resolved by the
+grid: the part of the Maxwellian below it then comes from the envelope within one cell, not
+from the shape of the Maxwellian, and tends to 0 as the threshold nears the lower face,
+while the fluid coefficient divides by it. There `1 − f_>` is taken as the weight of that
+cell, `M_1 w_1 / Σ M w` (a choice of this package; see the docs page *Choices of this
+package*): at the threshold factors the split takes, 5 thermal momenta or more, a threshold
+in the first cell leaves nearly the whole Maxwellian in that cell, below the threshold. A
+warning (once per session) names the radius and the temperature; a finer first momentum
+cell, or a threshold of more thermal momenta, resolves it.
 """
 function threshold_split(term::KineticIonizationTerm, ir, u, layout, t)
     temperature = _region_unknowns(term.envelopes)
@@ -263,12 +273,32 @@ function threshold_split(term::KineticIonizationTerm, ir, u, layout, t)
     envelope = _moment_envelope(term.envelopes, term.grid, ir, u, layout, t)
     above = sum(_envelope_value(envelope, i) * maxwellian[i]
     for i in eachindex(maxwellian)) / total
+    # a threshold in the first cell is not resolved: 1 − f_> is the weight of that cell (the
+    # docstring); the threshold is that of the region, ThermalMomentum of the temperature
+    threshold = term.envelopes.region.limit.factor *
+                sqrt(2 * T / Constants.ELECTRON_REST_ENERGY)
+    if threshold < m.p_faces[2]
+        first_cell_weight = maxwellian[1] / total
+        _warn_unresolved_threshold(ir, T, first_cell_weight)
+        above = 1 - first_cell_weight
+    end
     rates = term.rates[ir]
     cell_envelope(i) = _envelope_value(envelope, i)
     cells = eachindex(maxwellian)
     coefficients = [_rate_moment(cell_envelope, rates, maxwellian, k, cells) / total
                     for k in axes(rates, 2)]
     return (term = term, fraction = above, coefficients = coefficients)
+end
+
+# the warning of a threshold in the first momentum cell, once per session; the values are
+# those of the state without the dual parts of the Jacobian
+function _warn_unresolved_threshold(ir, T, first_cell_weight)
+    @warn "the threshold of the kinetic ionization at radius $ir lies in the first momentum "*
+          "cell at the cold temperature $(_value(T)) eV: the grid does not resolve "*
+          "the Maxwellian below it, and the part below the threshold, 1 − f_>, is taken as "*
+          "the weight of that cell, $(_value(first_cell_weight)). A finer first momentum "*
+          "cell, or a threshold of more thermal momenta, resolves it" maxlog=1 _id=:unresolved_split_threshold
+    return nothing
 end
 
 """
@@ -279,9 +309,12 @@ ionization: `(I − A_>)/(1 − f_>)`, the ADAS coefficient `I` of the whole
 Maxwellian less its part above the threshold, `A_>`, per electron below it, with the
 fraction `f_>` of the Maxwellian above the threshold ([`threshold_split`](@ref)). With the
 closure `n_cold = n_M (1 − f_>)` and the kinetic rate `n_M A_>` of a Maxwellian `f` of
-density `n_M`, the two add up to `n_M I` for every threshold.
+density `n_M`, the two add up to `n_M I` for every threshold the grid resolves.
 
-The coefficient has no floor. `A_>` comes from the cross sections of the kinetic ionization
+The coefficient has no floor on its value. Its denominator is bounded by the grid:
+[`threshold_split`](@ref) takes `1 − f_>` as the weight of the first momentum cell where the
+threshold lies in that cell, and the sum then holds only to within that part.
+`A_>` comes from the cross sections of the kinetic ionization
 and `I` from ADAS. The Maxwellian rate coefficient of DREAM's fits exceeds the ADAS
 coefficient by up to a factor of about 1.6 for a state of argon, that of CHIANTI's cross
 sections by up to 2.6 for a state of neon or argon (Ne²⁺ at 3 to 20 eV).

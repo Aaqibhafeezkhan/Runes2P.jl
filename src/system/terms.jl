@@ -322,7 +322,8 @@ end
 
 # a copy of the radial unknown `u` for a local layout
 function _local_unknown(u::RadialUnknown)
-    return RadialUnknown(u.name; components = u.components, scale = u.scale, groups = u.groups)
+    groups = u.grouped ? u.groups : nothing
+    return RadialUnknown(u.name; components = u.components, scale = u.scale, groups)
 end
 
 function _add_local_jacobian!(J, term, u, layout, row, t, ids, ::Val{K}) where {K}

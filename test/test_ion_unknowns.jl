@@ -211,6 +211,53 @@ end
         @test final[ions[3:21]] == u[ions[3:21]]
     end
 
+    @testset "the tolerance per species of a single species" begin
+        # argon alone, far below the scale of the unknown: its charge states are measured
+        # against the argon density, by Newton and by the step controller, not against the
+        # scale 1e19
+        radial = RadialGrid(uniform_r_faces(1, 0.5))
+        argon = IonComposition(["Ar" => 18])
+        layout = UnknownLayout(radial,
+            [ion_densities_unknown(argon),
+                RadialUnknown(:x; components = 2), RadialUnknown(:y; components = 2, groups = [1:2])])
+        equations = [
+            Equation(:ion_densities, TimeDerivative(), ExchangeTerm(:ion_densities, 1e3)),
+            Equation(:x, TimeDerivative(), ExchangeTerm(:x, 1.0)),
+            Equation(:y, TimeDerivative(), ExchangeTerm(:y, 1.0))]
+        system = EquationSystem(layout, equations)
+        @test component_groups(layout.unknowns[1]) == [1:19]
+        @test tolerance(system, :ion_densities) ==
+              Tolerance(1e-20 * 1e19, 1e-10; group = 1e-10)
+        # declared groups take the group part, the one group of an ordinary unknown does not
+        @test tolerance(system, :y).group == 1e-10
+        @test tolerance(system, :x) == Tolerance(1e-10, 1e-10)
+        state = Runes2P.stepper_state(
+            StepController(), system, [0.0, 1.0], 0.0, Dict{String, Any}())
+        relative = StepController().relative_tolerance
+        @test state.absolute[1] == 0 && state.group[1] == relative
+        @test state.absolute[2] == relative * 1.0 && state.group[2] == 0
+        @test state.absolute[3] == 0 && state.group[3] == relative
+        # the record keeps the declared groups, so that a layout read back takes them
+        record = Runes2P.describe(layout, Runes2P.DescriptionContext())["unknowns"]
+        @test record["ion_densities"]["group_starts"] == [1]
+        @test record["y"]["group_starts"] == [1]
+        @test !haskey(record["x"], "group_starts")
+        # a local copy of an unknown keeps whether it declares groups
+        @test Runes2P._local_unknown(layout.unknowns[1]).grouped
+        @test !Runes2P._local_unknown(layout.unknowns[2]).grouped
+        # a trace of argon, 1e12 against the scale 1e19, converges to its own accuracy
+        ws = NewtonWorkspace(system)
+        ions = unknown_range(layout, 1, 1)
+        @test ws.group_tolerance[ions] == fill(1e-10, 19)
+        @test ws.group_ranges[ions[5]] == ions
+        u_old = zeros(length(layout))
+        u_old[ions[2]] = 1e12
+        u = copy(u_old)
+        result = newton_solve!(u, u_old, ws, 1e-3, 1e-3)
+        @test result.status === :converged
+        @test sum(u[ions]) ≈ 1e12 rtol = 1e-12
+    end
+
     @testset "groups in the output file" begin
         layout = _ion_layout(; nr = 1)
         system = EquationSystem(layout,

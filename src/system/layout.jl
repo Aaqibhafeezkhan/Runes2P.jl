@@ -70,7 +70,9 @@ end
 Unknown with `components` values at each radius (e.g. `:electric_field`, or
 `:ion_densities` with one component per charge state). `groups` splits the components into
 consecutive ranges, such as the charge states of each ion species
-([`component_groups`](@ref)).
+([`component_groups`](@ref)). An unknown that declares groups, even a single one, takes by
+default the tolerances relative to the sum over each group ([`tolerance`](@ref),
+[`StepController`](@ref)).
 """
 struct RadialUnknown
     name::Symbol
@@ -78,15 +80,17 @@ struct RadialUnknown
     scale::Float64
     lower_limit::Union{Nothing, LowerLimit}
     groups::Vector{UnitRange{Int}}
+    grouped::Bool   # whether `groups` was given, rather than the one group of all components
 end
 function RadialUnknown(name::Symbol; components::Integer = 1, scale::Real = 1.0,
         nonnegative::Union{Bool, LowerLimit} = false, groups = nothing)
     components >= 1 || throw(ArgumentError("a radial unknown needs at least one component"))
-    groups = groups === nothing ? [1:Int(components)] : UnitRange{Int}[g for g in groups]
+    grouped = groups !== nothing
+    groups = grouped ? UnitRange{Int}[g for g in groups] : [1:Int(components)]
     _splits(groups, components) ||
         throw(ArgumentError("the groups of $name must split its components 1:$components into consecutive ranges"))
     return RadialUnknown(
-        name, Int(components), Float64(scale), _lower_limit(nonnegative), groups)
+        name, Int(components), Float64(scale), _lower_limit(nonnegative), groups, grouped)
 end
 
 # whether the ranges split 1:n into consecutive nonempty ranges
@@ -109,6 +113,10 @@ with `reference = :group` and a [`Tolerance`](@ref) with a `group` part are rela
 sum over the group of an entry.
 """
 component_groups(u::RadialUnknown) = u.groups
+
+# whether an unknown declares groups of components (the ion densities, also of one species),
+# which take the tolerances relative to the sum over each group
+_grouped(u) = u isa RadialUnknown && u.grouped
 
 """
     KineticUnknown(name, grid; scale=1, nonnegative=false)
