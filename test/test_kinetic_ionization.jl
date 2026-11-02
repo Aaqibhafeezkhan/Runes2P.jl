@@ -190,6 +190,26 @@ end
             _, dream, _ = _ionization_case(; factor = 5.0, form = :dream)
             @test IonRateTerm(KINETIC_IONIZATION_COMPOSITION; kinetic_ionization = dream) isa
                   IonRateTerm
+            # a cold plasma whose threshold of 5 thermal momenta lies in the first momentum
+            # cell (1.1e-3 wide on this grid; 5 thermal momenta at 0.01 eV are 1.0e-3): the
+            # part below the threshold is held at the weight of that cell, with a warning, and
+            # the fluid coefficient stays finite
+            layout, kinetic, u = _ionization_case(; factor = 5.0)
+            unknown_values(u, layout, 3) .= 0.01
+            split = @test_logs (:warn, r"lies in the first momentum cell") match_mode = :any Runes2P.threshold_split(
+                kinetic, 1, u, layout, 0.0)
+            m = momentum_grid(kinetic.grid, 1)
+            theta = 0.01 / Constants.ELECTRON_REST_ENERGY
+            W = vec(sum(kinetic.weights[1]; dims = 2))
+            maxwellian = [exp(-p^2 / (sqrt(1 + p^2) + 1) / theta) * W[i]
+                          for (i, p) in enumerate(m.p_centers)]
+            @test 1 - split.fraction ≈ maxwellian[1] / sum(maxwellian) rtol = 1e-12
+            @test all(isfinite,
+                Runes2P.fluid_ionization_coefficient.(1e-14, split.fraction, split.coefficients))
+            # at 10 eV the threshold is resolved and the fraction is the Maxwellian's own
+            unknown_values(u, layout, 3) .= 10.0
+            resolved = @test_logs Runes2P.threshold_split(kinetic, 1, u, layout, 0.0)
+            @test 0 < resolved.fraction < 1e-6
             for factor in (5.0, 7.0)
                 layout, kinetic, u = _ionization_case(; factor)
                 n = length(u)

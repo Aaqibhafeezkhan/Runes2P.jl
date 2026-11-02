@@ -720,11 +720,11 @@ end
 
 [`Tolerance`](@ref) of the unknown `name` for Newton convergence (`kind = :newton`) or
 time-step error control (`kind = :time_step`); by default `relative = 1e-10` and
-`absolute = 1e-10` times the unknown's reference scale. A radial unknown with more than one
-group of components ([`component_groups`](@ref), the ion densities) takes `group = 1e-10`
-and `absolute = 1e-20` times its scale for the Newton iteration: each species is converged
-relative to its own density, and the absolute part only covers a species absent at a
-radius.
+`absolute = 1e-10` times the unknown's reference scale. A radial unknown that declares
+groups of its components ([`component_groups`](@ref), the ion densities, also of a single
+species) takes `group = 1e-10` and `absolute = 1e-20` times its scale for the Newton
+iteration: each species is converged relative to its own density, and the absolute part
+only covers a species absent at a radius.
 """
 function tolerance(system::EquationSystem, name::Symbol; kind::Symbol = :newton)
     settings = if kind === :newton
@@ -736,7 +736,7 @@ function tolerance(system::EquationSystem, name::Symbol; kind::Symbol = :newton)
     end
     haskey(settings, name) && return settings[name]
     u = unknown(system.layout, name)
-    kind === :newton && u isa RadialUnknown && length(component_groups(u)) > 1 &&
+    kind === :newton && _grouped(u) &&
         return Tolerance(1e-20 * u.scale, 1e-10; group = 1e-10)
     return Tolerance(1e-10 * u.scale, 1e-10)
 end

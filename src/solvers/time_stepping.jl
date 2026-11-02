@@ -577,9 +577,10 @@ The error of an unknown is the root mean square over its entries of the local er
 error (`time_step_tolerances` of [`EquationSystem`](@ref)); an unknown without one gets
 `relative_tolerance` and the absolute tolerance `relative_tolerance` times its scale, a
 floor that keeps entries near zero (the tail of a distribution, a density before its source
-acts) from holding the step. A radial unknown with more than one group of components
-([`component_groups`](@ref), the charge states of the ion species) gets no absolute part and
-the `group` part `relative_tolerance` in its place: each entry is measured against
+acts) from holding the step. A radial unknown that declares groups of its components
+([`component_groups`](@ref), the charge states of the ion species, also of a single
+species) gets no absolute part and the `group` part `relative_tolerance` in its place:
+each entry is measured against
 `relative_tolerance` times the sum over its group, the density of its species, so a trace
 impurity is controlled on its own scale. An unknown with all tolerances zero is left out.
 The error of the step is the largest over the unknowns; the step is accepted when it is
@@ -781,7 +782,7 @@ function stepper_state(stepper::StepController, system::EquationSystem{T},
         tolerance = get(system.time_step_tolerances, u.name, nothing)
         # the charge states of the ion species: each relative to the density of its species,
         # so that a trace impurity is not measured against the scale of the main one
-        grouped = u isa RadialUnknown && length(component_groups(u)) > 1
+        grouped = _grouped(u)
         absolute_tolerance = if tolerance !== nothing
             tolerance.absolute
         elseif grouped

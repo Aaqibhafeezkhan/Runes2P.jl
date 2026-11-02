@@ -248,6 +248,13 @@ fraction `f_>` of its density and the rate coefficient `A_>` [m³/s] of each cha
 and the relativistic Maxwellian `M = exp(−(γ − 1)/Θ)` at the cell centres. The sums run over
 the cells of the grid, the quadrature of the term itself. The temperature is that of the
 region's unknown in the state `u`, in its number type.
+
+A grid resolves the part of the Maxwellian below the threshold only down to the weight of
+its first momentum cell, `M_1 w_1 / Σ M w`: below that the threshold lies in the first cell,
+and `1 − f_>` tends to 0, which the fluid coefficient divides by. There `f_>` is taken as
+`1 −` that weight, the smallest part below the threshold the grid can hold, so the coefficient
+stays finite, and a warning (once per session) names the radius and the temperature. A
+finer first momentum cell, or a threshold of more thermal momenta, resolves it.
 """
 function threshold_split(term::KineticIonizationTerm, ir, u, layout, t)
     temperature = _region_unknowns(term.envelopes)
@@ -263,12 +270,30 @@ function threshold_split(term::KineticIonizationTerm, ir, u, layout, t)
     envelope = _moment_envelope(term.envelopes, term.grid, ir, u, layout, t)
     above = sum(_envelope_value(envelope, i) * maxwellian[i]
     for i in eachindex(maxwellian)) / total
+    # the threshold in the first cell: the part below it is not resolved, and 1 − f_> is held
+    # at the weight of that cell (the docstring)
+    first_cell = maxwellian[1] / total
+    if 1 - above < first_cell
+        _warn_unresolved_threshold(ir, T, first_cell)
+        above = 1 - first_cell
+    end
     rates = term.rates[ir]
     cell_envelope(i) = _envelope_value(envelope, i)
     cells = eachindex(maxwellian)
     coefficients = [_rate_moment(cell_envelope, rates, maxwellian, k, cells) / total
                     for k in axes(rates, 2)]
     return (term = term, fraction = above, coefficients = coefficients)
+end
+
+# the warning of a threshold in the first momentum cell, once per session; the values are
+# those of the state without the dual parts of the Jacobian
+function _warn_unresolved_threshold(ir, T, first_cell)
+    @warn "the threshold of the kinetic ionization at radius $ir lies in the first momentum "*
+          "cell at the cold temperature $(_value(T)) eV: the grid does not resolve "*
+          "the Maxwellian below it, and the part below the threshold, 1 − f_>, is taken as "*
+          "the weight of that cell, $(_value(first_cell)). A finer first momentum "*
+          "cell, or a threshold of more thermal momenta, resolves it" maxlog=1 _id=:unresolved_split_threshold
+    return nothing
 end
 
 """
@@ -281,7 +306,9 @@ fraction `f_>` of the Maxwellian above the threshold ([`threshold_split`](@ref))
 closure `n_cold = n_M (1 − f_>)` and the kinetic rate `n_M A_>` of a Maxwellian `f` of
 density `n_M`, the two add up to `n_M I` for every threshold.
 
-The coefficient has no floor. `A_>` comes from the cross sections of the kinetic ionization
+The coefficient has no floor on its value. Its denominator is bounded by the grid:
+[`threshold_split`](@ref) keeps `1 − f_>` at least the weight of the first momentum cell.
+`A_>` comes from the cross sections of the kinetic ionization
 and `I` from ADAS. The Maxwellian rate coefficient of DREAM's fits exceeds the ADAS
 coefficient by up to a factor of about 1.6 for a state of argon, that of CHIANTI's cross
 sections by up to 2.6 for a state of neon or argon (Ne²⁺ at 3 to 20 eV).
