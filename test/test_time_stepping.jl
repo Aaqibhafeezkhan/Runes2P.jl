@@ -496,8 +496,8 @@ end
 @testset "a stiff step converges at the residual floor" begin
     # With rate·dt = 1e10 the transient and the right-hand side cancel to ten digits, so
     # round-off keeps the scaled residual near 1e-6, above the default tolerance. Newton
-    # reaches the exact solution in one step; without the stall criterion it would iterate
-    # to the limit and the step would fail.
+    # reaches the exact solution in one step; without the waiver of the residual floor (the
+    # round-off bound or the stall) it would iterate to the limit and the step would fail.
     rad = RadialGrid(uniform_r_faces(1, 0.5))
     layout = UnknownLayout(rad, [RadialUnknown(:x; components = 2, scale = 1.0)])
     rate = 1e10
@@ -547,7 +547,8 @@ end
     F = similar(u)
     @test Runes2P._checked_residual!(F, u, u_old, system, 1.0, 1.0) === :ok
     @test Runes2P._residual_at_round_off(ws, F, u, 1.0)
-    # an iterate off the solution by 1e-6 has a residual of 1e6 against a bound near 2e-4:
+    # an iterate off the solution by ±1e-6 has a residual of about 2e6 against a bound near
+    # 2e-4:
     # it is not at the floor, and the iteration must go on
     off = u .+ [1e-6, -1e-6]
     @test Runes2P._checked_residual!(F, off, u_old, system, 1.0, 1.0) === :ok

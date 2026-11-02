@@ -65,7 +65,7 @@ An unknown with an infinite absolute tolerance is left out of both tests.
 Two waivers of the residual test exist, each flagged in the [`NewtonResult`](@ref) and the [`SolverStatistics`](@ref):
 
 - the residual floor: on a stiff step the terms of a row cancel to many digits, and round-off holds the residual above `residual_tolerance`.
-  A step whose update passes is accepted when every row above `residual_tolerance` is within its round-off bound ``|F_i| \le c\,\varepsilon \sum_j |(\partial F/\partial u)_{ij}\, u_j|``, scaled by the row's weight, with ``c = 1``.
+  A step whose update passes is accepted when every row above `residual_tolerance` is within its round-off bound ``|F_i| \le c\,\varepsilon \sum_j |(\partial F/\partial u)_{ij}\, u_j|``, scaled by the row's weight, with ``c = 1`` ([Choices of this package](../choices.md)).
   Each term of a row carries a rounding error of about ``\varepsilon`` times its size, so no iterate brings the row lower.
   The bound comes from the stored Jacobian and is used only when that holds every implicit term exactly.
   Otherwise, and as a fallback, the step is accepted once the residual stops decreasing, which can take a few iterations more, since the residual at the floor wanders.

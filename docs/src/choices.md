@@ -143,6 +143,7 @@ DREAM has no finite behaviour to reproduce there, so no option gives DREAM's.
 
 The round-off bound counts each term of a residual row at its own size, one rounding error per term.
 A row whose terms cancel to many digits cannot fall below it, whatever the iterate.
+With `c = 1` the bound lies about 2.5 times above the largest residual measured at the floor, in the quench of the disruption case at DREAM's resolution.
 DREAM converges on the update alone and only warns about the residual ([Comparison with DREAM](dream-comparison.md)), so it has no residual test to waive.
 
 A positivity-preserving limiter keeps the converged discrete solution non-negative, and the extra iteration converges it further where an accepted iterate still has negative entries ([Positivity](model/positivity.md#Convergence-of-the-limiter)).

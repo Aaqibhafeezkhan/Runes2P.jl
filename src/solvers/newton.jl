@@ -37,30 +37,30 @@ Settings of the Newton iteration of a backward-Euler step.
   many digits, round-off holds its residual above `residual_tolerance` whatever the
   iterate: in a bulk cell of a kinetic unknown the fluxes of the Fokker-Planck stencil
   through the cell exceed their net term, which the particle source balances, by many
-  orders of magnitude, and more so for a long step. Two waivers then accept an iterate
-  whose update test passes, in this order:
-    - The round-off bound. Every row whose scaled residual exceeds `residual_tolerance`
-      is within its round-off bound, `|F_i| ≤ c eps Σ_j |(∂F/∂u)_ij u_j|` (both sides
-      scaled by the row's weight), with `∂F/∂u = M/dt - J` from the stored Jacobian `J`
-      of the iteration. Each term of the row carries a rounding error of about `eps`
-      times its own size, so no iterate brings the row lower; `c = 1` is a choice of this
-      package (the docs page *Choices of this package*), about 2.5 times the largest
-      residual measured at the floor. The step is accepted at the first iteration that
-      reaches the floor. The bound needs every implicit term in the stored Jacobian,
-      exactly: it is not used with a matrix-free term or an approximate stored block
-      ([`jacobian_kind`](@ref)).
-    - The stall. The residual stops decreasing (it grew, or fell by less than 10%, in the
-      last iteration). It serves where the bound is not available; the residual at the
-      floor wanders, so the stall can take a few iterations more than the bound.
+  orders of magnitude, and more so for a long step. The waiver of the residual floor then
+  accepts an iterate whose update test passes when one of two tests holds, in this order:
+  - The round-off bound. Every row whose scaled residual exceeds `residual_tolerance` is
+    within its round-off bound, `|F_i| ≤ c eps Σ_j |(∂F/∂u)_ij u_j|` (both sides scaled
+    by the row's weight), with `∂F/∂u = M/dt - J` from the stored Jacobian `J` of the
+    iteration. Each term of the row carries a rounding error of about `eps` times its own
+    size, so no iterate brings the row lower; `c = 1` is a choice of this package (see
+    the docs page *Choices of this package*), about 2.5 times the largest residual
+    measured at the floor. The step is accepted at the first iteration that reaches the
+    floor. The bound needs every implicit term in the stored Jacobian, exactly: it is not
+    used with a matrix-free term or an approximate stored block ([`jacobian_kind`](@ref)).
+  - The stall. The residual stops decreasing (it grew, or fell by less than 10%, in the
+    last iteration). It serves where the bound is not available; the residual at the
+    floor wanders, so the stall can take a few iterations more than the bound.
+
   Such a step is flagged (`residual_floor` in [`NewtonResult`](@ref),
   `accepted_at_residual_floor` in [`SolverStatistics`](@ref)): the residual is above
-  `residual_tolerance` and only the update test bounds the error. The same waivers would
+  `residual_tolerance` and only the update test bounds the error. The same waiver would
   also accept a linearly converging iteration whose small update understates its error
   (an inexact Jacobian or linear solve). An inexact linear solve with relative residual
-  `η` contracts the error by about `η` per iteration, so both waivers apply only when the
-  last linear solve was accurate to `floor_linear_tolerance` (always true for direct
-  solvers; for [`GMRES`](@ref) its `relative_tolerance`), and never when the Newton
-  matrix is itself approximate (a term with [`jacobian_kind`](@ref)`(term) ===
+  `η` contracts the error by about `η` per iteration, so both of its tests apply only
+  when the last linear solve was accurate to `floor_linear_tolerance` (always true for
+  direct solvers; for [`GMRES`](@ref) its `relative_tolerance`), and never when the
+  Newton matrix is itself approximate (a term with [`jacobian_kind`](@ref)`(term) ===
   :approximate` solved on the stored matrix): such a quasi-Newton iteration converges
   linearly by design, its residual falls by a constant factor per iteration that the
   stall would mistake for the floor, and only the residual criterion holds it. A row
@@ -456,8 +456,9 @@ function _round_off_sizes!(ws::NewtonWorkspace, u, dt)
     return sizes
 end
 
-# whether every row is below the residual tolerance or within ROUND_OFF_FACTOR of its
-# round-off bound; rows with an infinite absolute tolerance are left out, as in the norm
+# whether every row is below the residual tolerance or within its round-off bound
+# (ROUND_OFF_FACTOR eps Σ_j |(∂F/∂u)_ij u_j|, scaled by the row's weight); rows with an
+# infinite absolute tolerance are left out, as in the norm
 function _residual_at_round_off(ws::NewtonWorkspace, F, u, dt)
     sizes = _round_off_sizes!(ws, u, dt)
     tolerance = ws.solver.residual_tolerance

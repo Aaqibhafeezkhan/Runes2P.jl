@@ -168,7 +168,8 @@ end
         linear = system(:exponential_fitting, :exact)
         @test linear.linear && !exact.linear
         # a stiff step (round-off floor of the residual above the tolerance), where the
-        # residual test would need a third iteration to establish the stall
+        # residual test needs at least as many iterations to reach the floor (within the
+        # round-off bound of the rows, or at the stall) as the linear acceptance
         times = [0.0, 1e-3, 2e-3, 3e-3]
         few = integrate(linear, u0, times)
         many = integrate(linear, u0, times; solver = NewtonSolver(linear_acceptance = false))
