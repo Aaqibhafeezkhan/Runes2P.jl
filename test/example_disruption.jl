@@ -1,6 +1,8 @@
 # The system of Runes2P for DREAM's disruption case (reference/dream/cases/disruption_kinetic.py:
 # DREAM's examples/Disruptions/generate.py, scenario 1, with examples/Disruptions/ASDEXU.py):
-# the builder of test_disruption_dream.jl and test_disruption_initialization_dream.jl.
+# the builder of test_disruption_dream.jl, test_disruption_initialization_dream.jl and
+# test_disruption_chain_dream.jl, with the comparison of a phase with DREAM (`phase_differences`)
+# and the budgets of the assembled system with their bounds (`budgets`, `check_budgets`).
 # `build` gives the system of one of the two phases of the case (the ionization of the
 # injected D and Ar, or the thermal and current quench), started from DREAM's state at its
 # start (`initial_state`) or from Runes2P's own initialization (`initialize`, then
@@ -607,15 +609,15 @@ Returns a `Dict` of DREAM's names.
 function phase_differences(case, solution, start; per_radius = ("n_re", "j_re"))
     layout = case.layout
     steps = 2:length(solution.times)
-    values(m, ours) = unknown_values(solution.states[:, m], layout, unknown_id(layout, ours))
+    ours_at(m, ours) = unknown_values(solution.states[:, m], layout, unknown_id(layout, ours))
     errors = Dict{String, Float64}()
     for (name, ours) in COMPARED
         errors[name] = if name in per_radius
-            maximum(abs(values(m, ours)[ir] - start[name][ir, m]) /
+            maximum(abs(ours_at(m, ours)[ir] - start[name][ir, m]) /
                     maximum(abs, start[name][ir, :])
             for ir in 1:case.nr, m in steps)
         else
-            maximum(maximum(abs, values(m, ours) .- start[name][:, m]) /
+            maximum(maximum(abs, ours_at(m, ours) .- start[name][:, m]) /
                     maximum(abs, start[name][:, m])
             for m in steps)
         end
@@ -644,12 +646,16 @@ function phase_differences(case, solution, start; per_radius = ("n_re", "j_re"))
 end
 
 # the closures of the assembled system (`budgets`), independent of DREAM: round-off bounds, at
-# least 50 times the values measured at -O0 (compat = dream / runes2p, ionization and quench)
-const BUDGETS = (species = 1e-13,     # 3.2e-16 / 4.7e-16, 3.2e-16 / 3.2e-16
-    exchange = 1e-13,    # 2.7e-15 / 1.3e-15, 5.1e-16 / 1.3e-15
-    diffusion = 1e-13,   # 7.0e-17 / 7.3e-17, 0 / 7.3e-17
-    closure = 1e-12,     # 7.9e-15 / 1.1e-14, 4.4e-15 / 4.2e-15, the row of W_cold against its channels
-    field = 1e-8)        # 1.8e-10 / 1.2e-11, 2.7e-12 / 1.3e-11 of a change that is 3e-6 and 3e-5 of the energy
+# least 50 times the values measured at -O0 in the phases started from DREAM's state
+# (test_disruption_dream.jl; compat = dream / runes2p, ionization and quench). The chain of
+# test_disruption_chain_dream.jl stays below them as well (closure 1.1e-14, field 5.5e-11 at most,
+# at the default optimisation level).
+#! format: off
+const BUDGETS = (species=1e-13,     # 3.2e-16 / 4.7e-16, 3.2e-16 / 3.2e-16
+                 exchange=1e-13,    # 2.7e-15 / 1.3e-15, 5.1e-16 / 1.3e-15
+                 diffusion=1e-13,   # 7.0e-17 / 7.3e-17, 0 / 7.3e-17
+                 closure=1e-12,     # 7.9e-15 / 1.1e-14, 4.4e-15 / 4.2e-15, the row of W_cold against its channels
+                 field=1e-8)        # 1.8e-10 / 1.2e-11, 2.7e-12 / 1.3e-11 of a change that is 3e-6 and 3e-5 of the energy
 #! format: on
 # the drift of ∫f − n_cold − n_hot, relative to n_cold, per phase: the deposition of the ionization
 # phase moves it at the Newton level of the particle-source row (2.7e-8 measured); in the quench it

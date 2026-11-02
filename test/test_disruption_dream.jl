@@ -37,6 +37,7 @@ const TOLERANCES = Dict("f_hot" => 5e-4,      # 4.4e-5
                         "I_p" => 2e-11,       # 1.3e-12
                         "psi_p" => 7e-12,     # 6.8e-13
                         "n_tot" => 1e-14)     # 5.0e-16, round-off of the quasi-neutral sum
+#! format: on
 
 @testset "the disruption case against DREAM" begin
     if !isdir(adas_cache_directory())

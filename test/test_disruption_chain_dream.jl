@@ -39,10 +39,11 @@ const CHAIN_TOLERANCES = Dict("f_hot" => 5e-4,      # 4.4e-5
 #! format: on
 
 # the chain on the grids and the times of DREAM's runs: the initialization, then the two phases,
-# each from the end state of the run before it. Returns the case and the solution of each phase.
+# each from the end state of the run before it. Returns (phase => (; case, solution)) in the order
+# of the chain.
 function run_chain(dream; compat)
     init = initialize(dream["init"]; compat)
-    phases = Dict{String, Any}()
+    phases = Pair{String, Any}[]
     u0 = nothing
     for phase in ("ionization", "quench")
         start = dream[phase]
@@ -55,7 +56,7 @@ function run_chain(dream; compat)
         system = EquationSystem(case.layout, case.equations;
             time_scale = times[2] - times[1], initial_state = u0)
         solution = integrate(system, u0, times; stepper = FixedSteps())
-        phases[phase] = (; case, solution)
+        push!(phases, phase => (; case, solution))
         u0 = solution.states[:, end]
     end
     return phases
