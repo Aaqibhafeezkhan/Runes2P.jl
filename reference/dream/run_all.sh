@@ -3,19 +3,20 @@
 # the GSL program in ../gsl/.
 #
 # Usage: bash run_all.sh [<data directory>] [set ...]
-#   sets: dream-v26.5, dream-boltzmann-eqterm-93d27e17, gsl-2.8 (default: all three)
+#   sets: dream-v26.5, dream-v26.5-disruption, dream-boltzmann-eqterm-93d27e17, gsl-2.8 (default: all)
 #   The data directory defaults to the folder of this script. A first argument that is not
 #   the name of a set is taken as the data directory.
 #   ONLY="<script> ..." in the environment runs only those case scripts of the DREAM sets.
 #
 # The data directory holds pixi.toml, pixi.lock and scripts/ of this folder, and what
-# build_all.sh builds there: petsc/ and one directory per DREAM set with DREAM/ and build/.
+# build_all.sh builds there: petsc/ and one directory per DREAM build with DREAM/ and build/
+# (dream-v26.5-disruption runs on the build of dream-v26.5).
 # The case scripts are copied into <set>/cases/, because they find dreami, the DREAM checkout
 # and PETSc relative to their own folder. The outputs go to out/<set>/, the working files to
 # work/<set>/ and the logs to logs/.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SET_NAMES=(dream-v26.5 dream-boltzmann-eqterm-93d27e17 gsl-2.8)
+SET_NAMES=(dream-v26.5 dream-v26.5-disruption dream-boltzmann-eqterm-93d27e17 gsl-2.8)
 DATA_DIR="$HERE"
 if [[ $# -gt 0 && " ${SET_NAMES[*]} " != *" $1 "* ]]; then
     DATA_DIR="$(cd "$1" && pwd)"
@@ -46,6 +47,12 @@ V265_CASES=(
     "rp_avalanche dream_rp_avalanche.h5"
     "self_consistent_field dream_self_consistent_field.h5"
 )
+# the disruption chain of test/test_disruption_dream.jl from its initialization, runs 0 to 4,
+# fully kinetic and superthermal
+DISRUPTION_CASES=(
+    "disruption_kinetic dream_disruption_chain_small.h5"
+    "disruption_kinetic dream_disruption_superthermal_small.h5 --mode superthermal"
+)
 BOLTZMANN_CASES=(
     "knockon_operator dream_knockon_operator.h5"
     "avalanche_kinetic dream_avalanche_kinetic.h5 source=boltzmann pmax=200 tmax=0.08 nt=192 windows=4 pcut=0.13 store=test"
@@ -57,10 +64,10 @@ BOLTZMANN_CASES=(
 # the test-size disruption of test/test_disruption_dream.jl, with the MKL linear solver
 DISRUPTION_ARGS="--nr 2 --np1 10 --np2 20 --nxi 4 --nt-ioniz 10 --t-ioniz 4e-7 --nt-quench 10 --t-quench 1.4e-6 --linear-solver mkl"
 
-run_dream_set() {  # run_dream_set <set> <commit> <branch label> <case lines...>
-    local set=$1 commit=$2 branch=$3
-    shift 3
-    local set_dir="$DATA_DIR/$set" out="$DATA_DIR/out/$set" work="$DATA_DIR/work/$set"
+run_dream_set() {  # run_dream_set <set> <build> <commit> <branch label> <case lines...>
+    local set=$1 build=$2 commit=$3 branch=$4
+    shift 4
+    local set_dir="$DATA_DIR/$build" out="$DATA_DIR/out/$set" work="$DATA_DIR/work/$set"
     mkdir -p "$set_dir/cases" "$out" "$work" "$DATA_DIR/logs"
     cp "$HERE"/cases/*.py "$set_dir/cases/"
     [[ "$(git -C "$set_dir/DREAM" rev-parse HEAD)" == "$commit" ]] || { echo "DREAM of $set is not at $commit" >&2; exit 1; }
@@ -69,8 +76,8 @@ run_dream_set() {  # run_dream_set <set> <commit> <branch label> <case lines...>
         [[ -z ${ONLY:-} || " $ONLY " == *" $script "* ]] || continue
         local extra=()
         if [[ $script == disruption_kinetic ]]; then
-            read -r -a extra <<< "$DISRUPTION_ARGS"
-            extra+=(--outdir "$work/disruption_small" --test-data "$out/$file")
+            read -r -a extra <<< "$DISRUPTION_ARGS ${args:-}"
+            extra+=(--outdir "$work/${file%.h5}" --test-data "$out/$file")
         else
             extra=("$out/$file")
             [[ -z ${args:-} ]] || { local a; read -r -a a <<< "$args"; extra+=("${a[@]}"); }
@@ -80,18 +87,20 @@ run_dream_set() {  # run_dream_set <set> <commit> <branch label> <case lines...>
             env DREAMPATH="$set_dir/DREAM" PYTHONPATH="$set_dir/DREAM/py" \
                 DREAM_COMMIT="$commit" DREAM_BRANCH="$branch" \
             python "$set_dir/cases/$script.py" "${extra[@]}") \
-            > "$DATA_DIR/logs/run-$set-$script.log" 2>&1 \
-            || { echo "$set $script FAILED (logs/run-$set-$script.log)"; continue; }
-        echo "$set $script: $(( $(date +%s) - start )) s"
+            > "$DATA_DIR/logs/run-$set-${file%.*}.log" 2>&1 \
+            || { echo "$set $file FAILED (logs/run-$set-${file%.*}.log)"; continue; }
+        echo "$set $file: $(( $(date +%s) - start )) s"
     done
 }
 
 for set in "${SETS[@]}"; do
     case $set in
         dream-v26.5)
-            run_dream_set "$set" ecdd5e146537c77602c9d7cc76b36100200e4b9a v26.5 "${V265_CASES[@]}" ;;
+            run_dream_set "$set" "$set" ecdd5e146537c77602c9d7cc76b36100200e4b9a v26.5 "${V265_CASES[@]}" ;;
+        dream-v26.5-disruption)
+            run_dream_set "$set" dream-v26.5 ecdd5e146537c77602c9d7cc76b36100200e4b9a v26.5 "${DISRUPTION_CASES[@]}" ;;
         dream-boltzmann-eqterm-93d27e17)
-            run_dream_set "$set" 93d27e1763827e19dafb1fe790e99c2688ad6d62 boltzmann-eqterm "${BOLTZMANN_CASES[@]}" ;;
+            run_dream_set "$set" "$set" 93d27e1763827e19dafb1fe790e99c2688ad6d62 boltzmann-eqterm "${BOLTZMANN_CASES[@]}" ;;
         gsl-2.8)
             mkdir -p "$DATA_DIR/out/$set" "$DATA_DIR/work/$set"
             pixi run --frozen --manifest-path "$DATA_DIR/pixi.toml" bash -c 'set -euo pipefail
