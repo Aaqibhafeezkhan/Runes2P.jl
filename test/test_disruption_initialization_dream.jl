@@ -4,9 +4,9 @@
 # --nxi 4, dream_disruption_chain_small.h5). Runes2P builds the start of the ionization phase
 # itself (`initialize` of example_disruption.jl): the conductivity of the initial plasma and the
 # field of the prescribed current (run 0), 1 s in 3 steps from the Maxwellian with that field
-# held (run 1), and again with the field rescaled to the plasma current (run 2). Each saved step of
-# runs 1 and 2 is compared with DREAM's, and the state handed to the ionization phase with
-# DREAM's first state of that phase. The runaway density and current are compared over the radii:
+# held (run 1), and again with the field rescaled to the plasma current (run 2). The start of run 1
+# and each saved step after the start of runs 1 and 2 are compared with DREAM's, and the state
+# handed to the ionization phase with DREAM's first state of that phase. The runaway density and current are compared over the radii:
 # at the second radius n_re is 0.008 m⁻³, 1e-14 of the first radius and far below DREAM's
 # absolute tolerance, and differs by up to 8e-4 there. Needs the ADF11 cache.
 using HDF5
@@ -111,7 +111,7 @@ end
         ours = initial_state_after_initialization(case, init.second.case,
             init.second.solution.states[:, end])
         theirs = initial_state(case, start)
-        for (id, unknown) in enumerate(case.layout.unknowns)
+        for unknown in case.layout.unknowns
             entries = _entries(case.layout, unknown.name)
             reference = maximum(abs, theirs[entries])
             difference = maximum(abs, ours[entries] .- theirs[entries])

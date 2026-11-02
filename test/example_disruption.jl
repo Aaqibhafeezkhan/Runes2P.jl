@@ -23,7 +23,8 @@ const CENTRAL_TEMPERATURE = 5.8e3   # eV, ASDEXU.py:31
 const TEMPERATURE_WIDTH = 0.4653    # ASDEXU.py:96, getInitialTemperature
 const INITIALIZATION_TIME = 1.0     # s, generate.py:270
 const INITIALIZATION_STEPS = 3      # generate.py:271
-# the injected densities of scenario 1, fracDinj and fracAr times DENSITY (generate.py:502)
+# the injected densities of scenario 1 as fractions of DENSITY, fracDinj and fracAr
+# (generate.py:502)
 const INJECTED_DEUTERIUM = 1.0
 const INJECTED_ARGON = 1.0
 const INJECTED_TEMPERATURE = 1.0    # eV, generate.py:439-440
@@ -53,7 +54,7 @@ end
 current_profile(r) = @. (1 - (r / MINOR_RADIUS)^4)^1.5
 
 # the nuclear charge of each charge state of a composition, the weights of the total density
-nuclear_charges(c) = Float64[Z for Z in c.nuclear_charges for _ in 0:Z]
+charge_state_nuclear_charges(c) = Float64[Z for Z in c.nuclear_charges for _ in 0:Z]
 
 # the fully ionized D background at the uniform density (generate.py:159), per radius
 function background_ions(nr)
@@ -105,27 +106,9 @@ function build_initialization(start, electric_field; scheme::Symbol = :tcdf,
     prescribed = PlasmaState(; cold_electron_temperature = fill(10.0, nr),
         ions = background_ions(nr), electric_field = zeros(nr),
         magnetic_field = fill(start["B"], nr))
-    settings = collision_settings(compat)
-    # the hot region of the phases (`build`)
-    factor = if compat === :dream
-        THRESHOLD
-    else
-        Runes2P.MINIMUM_SPLIT_THRESHOLD_FACTORS[:chianti]
-    end
-    region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor))
-    plasma = PlasmaFromUnknowns(prescribed; ions = :ion_densities, temperature_floor = 0.01)
-    operator = AdvectionDiffusion(grid; scheme, p_upper_boundary = :f_zero)
-    fp = FokkerPlanckTerm(
-        :f, operator; plasma, settings, synchrotron = compat === :runes2p,
-        electric_field = :electric_field,
-        lagged = compat === :dream ? () : :ions)
+    (; region, fp, conductivity) = kinetic_terms(grid, prescribed; scheme, compat)
     minus(name) = LinearTerm(name; coefficient = -1)
     current(; kwargs...) = CurrentMomentTerm(:f, grid; pitch_rule = :cell_center, kwargs...)
-    conductivity = ConductivityTerm(:electric_field,
-        ConductivityModel(
-            PlasmaFromUnknowns(prescribed; ions = :ion_densities,
-                temperature_floor = 0.01);
-            kinetic = :dream_fit))
     # the initial values of the moments and the closures come from their rows
     derived(name, terms...) = Equation(name, Algebraic(), terms...;
         initial_value = :from_equation)
@@ -163,7 +146,7 @@ function build_initialization(start, electric_field; scheme::Symbol = :tcdf,
             derived(:hot_electron_density, DensityMomentTerm(:f, grid; region),
                 minus(:hot_electron_density)),
             derived(:total_electron_density,
-                WeightedSumTerm(:ion_densities, nuclear_charges(BACKGROUND)),
+                WeightedSumTerm(:ion_densities, charge_state_nuclear_charges(BACKGROUND)),
                 minus(:total_electron_density)),
             derived(:free_electron_density,
                 WeightedSumTerm(:ion_densities, free_electron_weights(BACKGROUND)),
@@ -337,6 +320,34 @@ function collision_settings(compat)
     CollisionSettings(; mode = :full, screening = :partial, coulomb_logarithm = :energy_dependent)
 end
 
+# the kinetic part shared by the phases (`build`) and the initialization
+# (`build_initialization`) on `grid`, with the ions of `prescribed` as unknowns: the collision
+# settings, the hot region, the Fokker-Planck term of f with the field of the unknown and DREAM's
+# corrected conductivity of the ohmic current
+function kinetic_terms(grid, prescribed; scheme, compat)
+    settings = collision_settings(compat)
+    # the hot region: DREAM's 5 thermal momenta for compat = dream; for runes2p, which splits the
+    # ionization with CHIANTI's cross sections, the minimum of that split, 7
+    factor = if compat === :dream
+        THRESHOLD
+    else
+        Runes2P.MINIMUM_SPLIT_THRESHOLD_FACTORS[:chianti]
+    end
+    region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor))
+    plasma = PlasmaFromUnknowns(prescribed; ions = :ion_densities, temperature_floor = 0.01)
+    operator = AdvectionDiffusion(grid; scheme, p_upper_boundary = :f_zero)
+    fp = FokkerPlanckTerm(
+        :f, operator; plasma, settings, synchrotron = compat === :runes2p,
+        electric_field = :electric_field,
+        lagged = compat === :dream ? () : :ions)
+    conductivity = ConductivityTerm(:electric_field,
+        ConductivityModel(
+            PlasmaFromUnknowns(prescribed; ions = :ion_densities,
+                temperature_floor = 0.01);
+            kinetic = :dream_fit))
+    return (; settings, region, fp, conductivity)
+end
+
 function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream, diffusivity::Real = DIFFUSIVITY)
     radial = RadialGrid(start["r_f"])
     grid = cylindrical_grid(MomentumGrid(start["p1_f"], start["p2_f"]), radial)
@@ -348,25 +359,9 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream, diffusivi
     prescribed = PlasmaState(; cold_electron_temperature = fill(10.0, nr),
         ions = background, electric_field = zeros(nr),
         magnetic_field = fill(start["B"], nr))
-    settings = collision_settings(compat)
-    # the hot region: DREAM's 5 thermal momenta for compat = dream; for runes2p, which splits the
-    # ionization with CHIANTI's cross sections, the minimum of that split, 7
-    factor = compat === :dream ? THRESHOLD :
-             Runes2P.MINIMUM_SPLIT_THRESHOLD_FACTORS[:chianti]
-    region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor))
-    plasma = PlasmaFromUnknowns(prescribed; ions = :ion_densities, temperature_floor = 0.01)
-    operator = AdvectionDiffusion(grid; scheme, p_upper_boundary = :f_zero)
-    fp = FokkerPlanckTerm(
-        :f, operator; plasma, settings, synchrotron = compat === :runes2p,
-        electric_field = :electric_field,
-        lagged = compat === :dream ? () : :ions)
+    (; settings, region, fp, conductivity) = kinetic_terms(grid, prescribed; scheme, compat)
     minus(name) = LinearTerm(name; coefficient = -1)
     current(; kwargs...) = CurrentMomentTerm(:f, grid; pitch_rule = :cell_center, kwargs...)
-    conductivity = ConductivityTerm(:electric_field,
-        ConductivityModel(
-            PlasmaFromUnknowns(prescribed; ions = :ion_densities,
-                temperature_floor = 0.01);
-            kinetic = :dream_fit))
     # the cross sections of the kinetic ionization: DREAM's form and fits for compat = dream,
     # CHIANTI's continued by the Bethe theory for runes2p
     kinetic = KineticIonizationTerm(COMPOSITION, :f, grid; region,
@@ -410,7 +405,7 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream, diffusivi
             Equation(:hot_electron_density, Algebraic(),
                 DensityMomentTerm(:f, grid; region), minus(:hot_electron_density)),
             Equation(:total_electron_density, Algebraic(),
-                WeightedSumTerm(:ion_densities, nuclear_charges(COMPOSITION)),
+                WeightedSumTerm(:ion_densities, charge_state_nuclear_charges(COMPOSITION)),
                 minus(:total_electron_density)),
             Equation(:free_electron_density, Algebraic(),
                 WeightedSumTerm(:ion_densities, free_electron_weights(COMPOSITION)),

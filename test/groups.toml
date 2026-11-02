@@ -155,7 +155,7 @@ files = ["test_flux_limiters_dream.jl", "test_avalanche_dream.jl", "test_example
 [[group]]
 name = "full-8"
 tier = "full"
-# 7.0 minutes
+# 7.0 minutes, and 3.1 of test_disruption_initialization_dream.jl measured alone
 files = ["test_kinetic_ionization_dream.jl", "test_avalanche_rp_dream.jl", "test_independent_references.jl", "test_disruption_dream.jl", "test_disruption_initialization_dream.jl", "test_ion_rates_dream.jl", "test_ion_energy_dream.jl", "test_example_runaway.jl", "test_step_control_cascade.jl", "test_cooling_dream.jl", "test_knockon_cutoff_physics.jl", "test_kinetic_operator_dream.jl", "test_cold_energy_dream.jl", "test_knockon_operator.jl", "test_collisions_dream.jl", "test_physics.jl", "test_knockon_reference.jl"]
 
 [[group]]
