@@ -156,6 +156,8 @@ I_{\mathrm{fluid}} = \frac{I - A_>}{1 - f_>} .
 With the closure ``n_{\mathrm{cold}} = n_M (1 - f_>)`` and the kinetic rate ``n_M A_>`` of a Maxwellian ``f`` of density ``n_M``, the two add up to the ADAS rate ``n_M I`` for every threshold.
 
 The coefficient has no floor, since a floor would break that sum.
+Its denominator has one, set by the grid: where the threshold lies in the first momentum cell, ``1 - f_>`` tends to 0, and [`Runes2P.threshold_split`](@ref) holds it at the weight of that cell, with a warning.
+There the sum holds only to within that part; a finer first momentum cell, or a threshold of more thermal momenta, restores it.
 It is negative where the cross sections give more ionization above the threshold than ADAS gives for the whole Maxwellian.
 It can turn negative when the threshold lies below the ionization energy of a populated state: then all of its ionization lies above the threshold.
 The split takes a threshold ``p_0 = k\, p_{\mathrm{th}}``, with the thermal momentum ``p_{\mathrm{th}} = \sqrt{2T/m_e c^2}`` (``T`` in energy units) of the temperature unknown ([`ThermalMomentum`](@ref)), so that the fluid coefficient follows the temperature.

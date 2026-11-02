@@ -268,8 +268,9 @@ function describe(layout::UnknownLayout, context::DescriptionContext)
         if u isa RadialUnknown
             entry["components"] = u.components
         end
-        # the first component of each group, recorded only for more than one group
-        if u isa RadialUnknown && length(u.groups) > 1
+        # the first component of each group, recorded only for an unknown that declares groups
+        # (the ion densities, also of a single species), so that a read layout keeps them
+        if _grouped(u)
             entry["group_starts"] = first.(u.groups)
         end
         if u isa KineticUnknown

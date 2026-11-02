@@ -580,9 +580,9 @@ floor that keeps entries near zero (the tail of a distribution, a density before
 acts) from holding the step. A radial unknown that declares groups of its components
 ([`component_groups`](@ref), the charge states of the ion species, also of a single
 species) gets no absolute part and the `group` part `relative_tolerance` in its place:
-each entry is measured against
-`relative_tolerance` times the sum over its group, the density of its species, so a trace
-impurity is controlled on its own scale. An unknown with all tolerances zero is left out.
+each entry is measured against `relative_tolerance` times the sum over its group, the
+density of its species, so a trace impurity is controlled on its own scale. An unknown with
+all tolerances zero is left out.
 The error of the step is the largest over the unknowns; the step is accepted when it is
 at most 1.
 

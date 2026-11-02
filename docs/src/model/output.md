@@ -115,7 +115,7 @@ Some entries are recorded only when they are set, and the reader takes a default
 | `lower_limit_tolerance` of an unknown | the unknown has a [`LowerLimit`](@ref) | no lower limit |
 | `lower_limit_value` | the value is not zero | `0.0` |
 | `lower_limit_reference` | the limit has a reference | no reference |
-| `group_starts` of a radial unknown | it has more than one component group | one group |
+| `group_starts` of a radial unknown | it declares component groups, also a single one | one group of all components, not declared |
 
 Two entries of the settings record follow the same rule: `ions` of the `plasma_unknowns` of a [`PlasmaFromUnknowns`](@ref), absent for prescribed ions, and `group` of a [`Tolerance`](@ref), absent for group 0.
 

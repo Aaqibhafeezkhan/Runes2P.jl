@@ -51,6 +51,8 @@ Until the first release, every change is listed under "Unreleased", with the sub
 - The residual test of `NewtonSolver` weights the differential rows of a kinetic unknown by the larger of the row scale and the entry at the start of the step ([#163](https://github.com/osrep/Runes2P.jl/pull/163)).
   The collision fluxes of the bulk cancel in these rows, and the round-off of that cancellation held a step of the disruption case at the residual floor, with one or two extra iterations.
   The accepted states move by at most 2e-8 of the scale of the unknown in that case.
+- A `RadialUnknown` given `groups`, even a single group, declares them: it takes the tolerances per group, and the layout of the settings record and of the output files writes its `group_starts` ([#181](https://github.com/osrep/Runes2P.jl/pull/181)).
+  Until now `group_starts` was written only for more than one group.
 
 ### Removed
 
@@ -67,6 +69,5 @@ Until the first release, every change is listed under "Unreleased", with the sub
 - `ProgressLog` writes a message with `maxlog = n` at most `n` times and leaves `maxlog` out of the printed keywords, as Julia's loggers do ([#165](https://github.com/osrep/Runes2P.jl/pull/165)).
 - An ion composition of a single species takes the tolerances relative to its own density, in Newton and in the step controller, as a composition of several species does ([#181](https://github.com/osrep/Runes2P.jl/pull/181)).
   Until now a single species was measured against the scale of the unknown, so a trace impurity alone converged loosely.
-  A `RadialUnknown` given `groups`, even one group, now counts as grouped.
 - The split of the ionization at the threshold of a `KineticIonizationTerm` stays finite where the threshold lies in the first momentum cell ([#181](https://github.com/osrep/Runes2P.jl/pull/181)).
   The part of the Maxwellian below the threshold is held at the weight of that cell, with a warning, instead of tending to 0 in the denominator of the fluid coefficient.

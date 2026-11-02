@@ -237,6 +237,11 @@ end
         @test state.absolute[1] == 0 && state.group[1] == relative
         @test state.absolute[2] == relative * 1.0 && state.group[2] == 0
         @test state.absolute[3] == 0 && state.group[3] == relative
+        # the record keeps the declared groups, so that a layout read back takes them
+        record = Runes2P.describe(layout, Runes2P.DescriptionContext())["unknowns"]
+        @test record["ion_densities"]["group_starts"] == [1]
+        @test record["y"]["group_starts"] == [1]
+        @test !haskey(record["x"], "group_starts")
         # a local copy of an unknown keeps whether it declares groups
         @test Runes2P._local_unknown(layout.unknowns[1]).grouped
         @test !Runes2P._local_unknown(layout.unknowns[2]).grouped

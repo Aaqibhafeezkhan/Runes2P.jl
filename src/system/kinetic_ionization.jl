@@ -252,8 +252,9 @@ region's unknown in the state `u`, in its number type.
 A grid resolves the part of the Maxwellian below the threshold only down to the weight of
 its first momentum cell, `M_1 w_1 / Σ M w`: below that the threshold lies in the first cell,
 and `1 − f_>` tends to 0, which the fluid coefficient divides by. There `f_>` is taken as
-`1 −` that weight, the smallest part below the threshold the grid can hold, so the coefficient
-stays finite, and a warning (once per session) names the radius and the temperature. A
+`1 −` that weight, the smallest part below the threshold the grid can hold (a choice of this
+package; see the docs page *Choices of this package*), so the coefficient stays finite, and
+a warning (once per session) names the radius and the temperature. A
 finer first momentum cell, or a threshold of more thermal momenta, resolves it.
 """
 function threshold_split(term::KineticIonizationTerm, ir, u, layout, t)
@@ -304,10 +305,11 @@ ionization: `(I − A_>)/(1 − f_>)`, the ADAS coefficient `I` of the whole
 Maxwellian less its part above the threshold, `A_>`, per electron below it, with the
 fraction `f_>` of the Maxwellian above the threshold ([`threshold_split`](@ref)). With the
 closure `n_cold = n_M (1 − f_>)` and the kinetic rate `n_M A_>` of a Maxwellian `f` of
-density `n_M`, the two add up to `n_M I` for every threshold.
+density `n_M`, the two add up to `n_M I` for every threshold the grid resolves.
 
 The coefficient has no floor on its value. Its denominator is bounded by the grid:
-[`threshold_split`](@ref) keeps `1 − f_>` at least the weight of the first momentum cell.
+[`threshold_split`](@ref) keeps `1 − f_>` at least the weight of the first momentum cell,
+where the sum then holds only to within that part.
 `A_>` comes from the cross sections of the kinetic ionization
 and `I` from ADAS. The Maxwellian rate coefficient of DREAM's fits exceeds the ADAS
 coefficient by up to a factor of about 1.6 for a state of argon, that of CHIANTI's cross

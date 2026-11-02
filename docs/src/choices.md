@@ -55,6 +55,7 @@ Its weight in the friction rises in a cubic smooth step from ``(1 - w) p_0`` to 
 | weight of the relativistic rise of each shell and transition of [`chianti_cross_section`](@ref) | ``1 - 1/u``, ``u = \beta^2/\beta_I^2`` |
 | spectrum of the secondaries of [`SecondaryHeatingTerm`](@ref), [`ionization_energy_flows`](@ref) and the friction of [`CollisionSettings`](@ref) | `spectrum = :beb`, `secondary_spectrum = :beb` ([`beb_mean_secondary_energy`](@ref)) |
 | smallest threshold factor of the split of the ionization with a fluid term | [`MINIMUM_SPLIT_THRESHOLD_FACTORS`](@ref): 7 for `:chianti`, 5 for `:dream` and `:bethe` |
+| part of the Maxwellian below a threshold that lies in the first momentum cell, in the split of [`Runes2P.threshold_split`](@ref) | the weight of that cell, ``M_1 w_1 / \sum M w`` |
 
 The cross sections are the fits of the CHIANTI database, cited on [Home](index.md#Citing-and-acknowledgements), whose ionization data are those of K. P. Dere, Astronomy and Astrophysics 466, 771 (2007), [doi:10.1051/0004-6361:20066728](https://doi.org/10.1051/0004-6361:20066728).
 These fits are nonrelativistic.
@@ -66,6 +67,9 @@ The binary-encounter-Bethe spectrum of Y.-K. Kim and M. E. Rudd, Physical Review
 `spectrum = :opal` takes the spectrum of C. B. Opal, W. K. Peterson and E. C. Beaty, The Journal of Chemical Physics 55, 4100 (1971), [doi:10.1063/1.1676707](https://doi.org/10.1063/1.1676707).
 It takes the width of the neutral element in [`SECONDARY_SPECTRUM_WIDTHS`](@ref) for every charge state.
 The fluid coefficient of the split ([`fluid_ionization_coefficient`](@ref)) has no floor, so with a Maxwellian `f` the kinetic and fluid rates add up to the ADAS rate.
+Where the threshold lies in the first momentum cell, [`Runes2P.threshold_split`](@ref) holds the part below it, ``1 - f_>``, at the weight of that cell.
+The grid holds no smaller part below a threshold, and the fluid coefficient stays finite.
+There the two rates add up to the ADAS rate only to within that part, and a warning names the radius and the temperature.
 At a threshold factor below that of its form, [`IonRateTerm`](@ref) and [`RadiatedPowerTerm`](@ref) refuse the split.
 The factor 5 is the hot-region threshold of DREAM's disruption example, and the default hot region of [`ThermalMomentum`](@ref) takes 7 for every form.
 
