@@ -24,7 +24,7 @@ Settings of the Newton iteration of a backward-Euler step.
   tail, below the scale, keeps the row scale. In a bulk cell the residual test is then
   looser by `|u_old|/scale` in absolute terms, as the update test is relative to `|u|`
   there. A bulk that grows by orders of magnitude within one step can still meet the
-  round-off floor of a stiff step, the exception at the end of this item. An infinite
+  round-off floor of a stiff step, the exception of the next item. An infinite
   absolute tolerance excludes an unknown from both tests; the merit function of the line
   search keeps all rows. The unknown of a [`Constraint`](@ref) is a rate: the system fixes
   the change `dt u` that it causes over the step, and round-off of the constrained
@@ -32,21 +32,44 @@ Settings of the Newton iteration of a backward-Euler step.
   absolute + relative |u| + relative scale/dt`, with the scale of its equation, which
   bounds the error of the change over the step as the tolerances bound the other unknowns
   (such as the particle source at steps below 1e-6 s, where the round-off of the density
-  divided by `dt` exceeds a tolerance on the source itself). A stiff step is an exception:
-  when the transient and the right-hand side cancel to many digits, round-off holds the
-  residual above `residual_tolerance` whatever the iterate, so a converged update is
-  accepted once the residual stops decreasing (it grew, or fell by less than 10%, in the
-  last iteration). Such a step is flagged (`residual_floor` in [`NewtonResult`](@ref)),
-  since the same waiver would also accept a linearly converging iteration whose small
-  update understates its error (an inexact Jacobian or linear solve). An inexact linear
-  solve with relative residual `η` contracts the error by about `η` per iteration, so the
-  waiver applies only when the last linear solve was accurate to `floor_linear_tolerance`
-  (always true for direct solvers; for [`GMRES`](@ref) its `relative_tolerance`), and
-  never when the Newton matrix is itself approximate (a term with
+  divided by `dt` exceeds a tolerance on the source itself).
+- A stiff step is an exception to the residual test. When the terms of a row cancel to
+  many digits, round-off holds its residual above `residual_tolerance` whatever the
+  iterate: in a bulk cell of a kinetic unknown the fluxes of the Fokker-Planck stencil
+  through the cell exceed their net term, which the particle source balances, by many
+  orders of magnitude, and more so for a long step. The waiver of the residual floor then
+  accepts an iterate whose update test passes when one of two tests holds:
+  - The round-off bound. Every row whose scaled residual exceeds `residual_tolerance` is
+    within its round-off bound, `|F_i| ≤ c eps Σ_j |(∂F/∂u)_ij u_j|`, with
+    `∂F/∂u = M/dt - J` from the stored Jacobian `J` of the iteration. The terms of the row
+    carry rounding errors of about `eps` times their sizes, so no iterate brings the row
+    lower; `|(∂F/∂u)_ij u_j|` estimates the size of a term by its linearization, exact for
+    a term linear in `u_j` and off by a factor of order one or more for a strongly
+    nonlinear one, at the level of `eps` either way. The explicit terms, which are not in
+    `J`, and the start state of the transient are left out, so the bound errs low and the
+    stall below then serves. The factor `c = 1` is a choice of this package (see the docs
+    page *Choices of this package*). The step is accepted at the first iteration that
+    reaches the floor. The bound needs every implicit term in the stored Jacobian,
+    exactly: it is not used with a matrix-free term or an approximate stored block
+    ([`jacobian_kind`](@ref)).
+  - The stall. The residual stops decreasing (it grew, or fell by less than 10%, in the
+    last iteration). It serves where the bound is not available or does not hold; the
+    residual at the floor wanders, so the stall can take a few iterations more than the
+    bound.
+
+  Such a step is flagged (`residual_floor` in [`NewtonResult`](@ref),
+  `accepted_at_residual_floor` in [`SolverStatistics`](@ref)): the residual is above
+  `residual_tolerance` and only the update test bounds the error. The same waiver would
+  also accept a linearly converging iteration whose small update understates its error
+  (an inexact Jacobian or linear solve). An inexact linear solve with relative residual
+  `η` contracts the error by about `η` per iteration, so both of its tests apply only
+  when the last linear solve was accurate to `floor_linear_tolerance` (always true for
+  direct solvers; for [`GMRES`](@ref) its `relative_tolerance`), and never when the
+  Newton matrix is itself approximate (a term with
   [`jacobian_kind`](@ref)`(term) === :approximate` solved on the stored matrix): such a
   quasi-Newton iteration converges linearly by design, its residual falls by a constant
-  factor per iteration that the stall test would mistake for the floor, and only the
-  residual criterion holds it.
+  factor per iteration that the stall would mistake for the floor, and only the residual
+  criterion holds it.
 - A system that is linear in the state (every implicit term [`is_linear`](@ref)) with an
   exact Newton matrix and a linear solve accurate to `floor_linear_tolerance` is accepted as
   soon as the update test passes, without the residual test (`linear_acceptance`, flagged as
@@ -115,6 +138,11 @@ Base.@kwdef struct NewtonSolver{L <: LinearSolver}
     polish_negatives::Union{Bool, Symbol} = :auto
 end
 
+# the factor c of the round-off bound c eps Σ_j |(∂F/∂u)_ij u_j| of a residual row
+# (the docstring of NewtonSolver), a choice of this package (the docs page Choices of
+# this package gives its reason)
+const ROUND_OFF_FACTOR = 1.0
+
 """
     POLISHED_SCHEMES
 
@@ -162,8 +190,9 @@ scaled norm `max |δ|/scale` of the last update, the estimated `convergence_orde
 when fewer than three updates are above round-off), the smallest step length used, the
 Krylov iterations and preconditioner factorizations summed over the iterations (0 for
 direct solvers), `residual_floor`,
-true when the step converged with the residual above `residual_tolerance` because the
-residual had stopped decreasing (or, for a linear step, was not checked against it), and
+true when the step converged with the residual above `residual_tolerance`: every row
+above it was within its round-off bound, or the residual had stopped decreasing (or, for a
+linear step, it was not checked against it; see [`NewtonSolver`](@ref)), and
 `linear_step`, true when the step was accepted as a linear system, on the update test
 alone (at the second iteration, see [`NewtonSolver`](@ref)), and `polished`, true when the
 iteration took one more iteration for negative entries of a kinetic unknown
@@ -219,6 +248,7 @@ struct NewtonWorkspace{T, S <: EquationSystem, L, C}
     absolute::Vector{T}
     relative::Vector{T}
     rate_tolerance::Vector{T}   # unknowns of constraints: tolerance of the update times the step
+    round_off::Vector{T}        # per row: Σ_j |(∂F/∂u)_ij u_j|, the size of the terms that cancel in F_i
     jacobian::SparseMatrixCSC{T, Int}
     matrix::SparseMatrixCSC{T, Int}
     diagonal_positions::Vector{Int}
@@ -381,7 +411,7 @@ function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver = Newto
         system, solver, exact_jacobian, system.linear && exact_jacobian, zeros(T, n),
         zeros(T, n), zeros(T, n), zeros(T, n),
         zeros(T, n), zeros(T, n), row_weights, scales, absolute, relative, rate_tolerance,
-        jacobian,
+        zeros(T, n), jacobian,
         matrix, diagonal_positions, limited, limit_value, limit_tolerance, limit_reference,
         group_tolerance, group_ranges, kinetic_rows, polish, fill(false, length(polish)),
         cache, Float64[], Float64[], Float64[], Ref(NaN), Ref(NaN), Ref(0))
@@ -407,6 +437,46 @@ function _residual_norm(ws::NewtonWorkspace, F)
         norm = max(norm, abs(F[i]) * ws.row_weights[i])
     end
     return norm
+end
+
+# Σ_j |(∂F/∂u)_ij u_j| per row i, with ∂F/∂u = M/dt - J from the stored Jacobian J: the
+# size of the terms of row i by their linearization, each of which carries a rounding
+# error of about eps times its size. The explicit terms and the start state of the
+# transient are left out, and M/dt and J_ii count as one coefficient, so the sum errs low,
+# which only makes the bound stricter. J is that of the iteration, assembled at the iterate
+# before its update; for an update that passed its test the difference is below the
+# accuracy of the bound.
+function _round_off_sizes!(ws::NewtonWorkspace, u, dt)
+    J, sizes = ws.jacobian, ws.round_off
+    mass = ws.system.mass
+    fill!(sizes, zero(eltype(sizes)))
+    @inbounds for j in axes(J, 2), k in nzrange(J, j)
+
+        sizes[J.rowval[k]] += abs(J.nzval[k] * u[j])
+    end
+    # the entry of the mass matrix: (M/dt - J)_ij in place of J_ij
+    @inbounds for i in eachindex(mass)
+        k = ws.diagonal_positions[i]
+        j = ws.system.mass_columns[i]
+        sizes[i] += abs((mass[i] / dt - J.nzval[k]) * u[j]) - abs(J.nzval[k] * u[j])
+    end
+    return sizes
+end
+
+# whether every row is below the residual tolerance or within its round-off bound
+# (ROUND_OFF_FACTOR eps Σ_j |(∂F/∂u)_ij u_j|, scaled by the row's weight); rows with an
+# infinite absolute tolerance are left out, as in the norm
+function _residual_at_round_off(ws::NewtonWorkspace, F, u, dt)
+    sizes = _round_off_sizes!(ws, u, dt)
+    tolerance = ws.solver.residual_tolerance
+    @inbounds for i in eachindex(F)
+        isinf(ws.absolute[i]) && continue
+        scaled = abs(F[i]) * ws.row_weights[i]
+        scaled <= tolerance && continue
+        bound = ROUND_OFF_FACTOR * eps(eltype(F)) * sizes[i] * ws.row_weights[i]
+        scaled <= bound || return false
+    end
+    return true
 end
 
 _merit(ws::NewtonWorkspace, F) = 0.5 * sum(i -> (F[i] * ws.row_weights[i])^2, eachindex(F))
@@ -722,16 +792,26 @@ function newton_solve!(
         # cancels two terms of size dt‖L‖ times the unknown, so the scaled residual cannot
         # fall below about eps dt‖L‖/s, with s the scale of the row's weight, which exceeds
         # `residual_tolerance` at large dt.
-        # Once the update is within tolerance and the residual has stopped decreasing, the
-        # iteration has converged as far as the arithmetic allows.
+        # Once the update is within tolerance and every row is within its round-off bound,
+        # or the residual has stopped decreasing, the iteration has converged as far as the
+        # arithmetic allows.
         # An inexact linear solve converges linearly, with a small update that understates
-        # the error unless the solve was accurate, so the waiver needs that; so does an
-        # approximate Newton matrix (a quasi-Newton iteration).
+        # the error unless the solve was accurate, so both waivers need that; so does an
+        # approximate Newton matrix (a quasi-Newton iteration). The bound is computed from
+        # the stored Jacobian, which must then hold every implicit term exactly; where it
+        # cannot, or where a row is above it, the stall serves as before.
+        accurate_solve = linear_tolerance(ws.cache) <= solver.floor_linear_tolerance
         residual_stalled = length(ws.residual_norms) > 1 &&
                            last(ws.residual_norms) >= 0.9 * ws.residual_norms[end - 1] &&
-                           linear_tolerance(ws.cache) <= solver.floor_linear_tolerance &&
-                           ws.exact_jacobian
-        if update_converged && (residual_small || residual_stalled)
+                           accurate_solve && ws.exact_jacobian
+        bound_available = accurate_solve && ws.exact_jacobian &&
+                          system.stored_jacobian_exact && isempty(system.matrix_free_terms)
+        residual_at_round_off = if update_converged && !residual_small && bound_available
+            _residual_at_round_off(ws, ws.residual, u, dt)
+        else
+            false
+        end
+        if update_converged && (residual_small || residual_at_round_off || residual_stalled)
             # one more iteration when a polished kinetic unknown has negative entries (the
             # docstring of NewtonSolver, `polish_negatives`)
             if polished

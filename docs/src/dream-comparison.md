@@ -196,7 +196,7 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 | linearly implicit solver | `Solver.LINEAR_IMPLICIT` | ➖ not implemented |
 | Newton solver | `Solver.NONLINEAR`, `setMaxIterations` | ✅ implemented: [`NewtonSolver`](@ref) |
 | tolerances per unknown | `ToleranceSettings` | ✅ implemented: [`Tolerance`](@ref) |
-| residual check | `setCheckResidual` | ✅ implemented as a convergence criterion, except for the linear steps that `linear_acceptance` of [`NewtonSolver`](@ref) accepts on the update |
+| residual check | `setCheckResidual` | ✅ implemented as a convergence criterion, except for the linear steps that `linear_acceptance` of [`NewtonSolver`](@ref) accepts on the update and the steps at the round-off floor of the residual |
 | damped Newton step | `MaximalPhysicalStepLength` | ✅ implemented: [`LowerLimit`](@ref), `max_reduction` |
 | direct linear solvers | `LINEAR_SOLVER_LU`, `MUMPS`, `MKL`, `SUPERLU` | 🚧 partial: UMFPACK, [`SparseLU`](@ref) |
 | GMRES | `LINEAR_SOLVER_GMRES` | ✅ implemented: [`GMRES`](@ref) |
@@ -289,6 +289,7 @@ The reasons of the defaults that are choices of this package are on [Choices of 
 ### Behaviour without an option for DREAM's
 
 - Newton's method converges on both the update and the scaled residual, except for the linear steps that `linear_acceptance` accepts on the update ([`NewtonSolver`](@ref)).
+  A stiff step at the round-off floor of its residual is accepted on the update too, within the round-off bound of its rows or where the residual stopped decreasing.
   DREAM converges on the update; with `setCheckResidual` on, its default, it warns when the residual is not converged (`src/Solver/SolverNonLinear.cpp:305-310`, `py/DREAM/Settings/Solver.py:28`).
 - A failed Newton step is reported as a status of [`NewtonResult`](@ref), and the time stepper retries it with a shorter step.
 - Each charge state has a lower limit relative to the density of its species ([`ion_densities_unknown`](@ref)).
