@@ -97,13 +97,12 @@ using SparseArrays
                 plus, minus = copy(state), copy(state)
                 plus[column] += h
                 minus[column] -= h
-                difference = (Runes2P.rhs!(zeros(length(u)), term, plus, layout, row, 0.0) .-
-                              Runes2P.rhs!(
-                    zeros(length(u)), term, minus, layout, row, 0.0)) ./
-                             (2h)
+                upper = Runes2P.rhs!(zeros(length(u)), term, plus, layout, row, 0.0)
+                lower = Runes2P.rhs!(zeros(length(u)), term, minus, layout, row, 0.0)
+                difference = (upper .- lower) ./ (2h)
+                floor = 1e-12 * maximum(abs, difference)
                 for r in rows
-                    @test J[r, column]≈difference[r] rtol=1e-6 atol=1e-12*
-                    maximum(abs, difference)
+                    @test J[r, column]≈difference[r] rtol=1e-6 atol=floor
                 end
             end
         end
@@ -114,6 +113,14 @@ using SparseArrays
         @test_throws ArgumentError Runes2P.validate(
             FrictionEnergyTransferTerm(:heating, grid, prescribed), layout, row)
         @test_throws ArgumentError Runes2P.validate(term, layout, f_id)
+        @test Runes2P.is_linear(term)
+        # another grid of the same size
+        other = cylindrical_grid(
+            MomentumGrid(collect(range(0, 1.0; length = 21)),
+                collect(range(-1, 1; length = 5))),
+            radial)
+        @test_throws ArgumentError Runes2P.validate(
+            FrictionEnergyTransferTerm(:f, other, prescribed), layout, row)
         @test FRICTION_TRANSFER_SETTINGS.mode === :superthermal
         @test FRICTION_TRANSFER_SETTINGS.screening === :complete
         @test FRICTION_TRANSFER_SETTINGS.bremsstrahlung === :neglect

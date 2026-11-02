@@ -91,7 +91,7 @@ _is_plain(x) = false
             FokkerPlanckTerm, PrescribedPlasma, PlasmaFromUnknowns, ProductTerm, WeightedSumTerm,
             IonRateTerm, KineticIonizationTerm, IonDiffusionTerm, SecondaryHeatingTerm,
             EnergyMomentTerm, HeatTransportTerm, IonEnergyExchangeTerm,
-            RunawayFluidEnergyTransferTerm, KineticEnergyLossTerm,
+            RunawayFluidEnergyTransferTerm, KineticEnergyLossTerm, FrictionEnergyTransferTerm,
             InterfaceEnergyFluxTerm, KnockOnTerm, LinearTerm, DensityMomentTerm,
             CurrentMomentTerm, MaxwellianSourceTerm, MomentumInterfaceTerm, RadialEdgeLossTerm, LossRateTerm,
             PrescribedValueTerm, ParticleSourceTerm, MomentumBoundaryFluxTerm, PoloidalFluxDiffusionTerm,
