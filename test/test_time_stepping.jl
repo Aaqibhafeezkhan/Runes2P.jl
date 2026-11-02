@@ -523,6 +523,37 @@ end
     @test u[1] + u[2] ≈ sum(u_old) rtol = 1e-12
 end
 
+@testset "a stiff step is accepted within the round-off bound of its rows" begin
+    # With rate·dt = 1e12 the two terms of each row cancel to twelve digits. The second
+    # iterate is the solution to round-off, but its residual fell by chance (from 4.4e-5 to
+    # 1.1e-5 in scaled units), so the stall test alone would wait for a third iteration. The
+    # round-off bound eps Σ_j |(∂F/∂u)_ij u_j| of each row accepts the second.
+    rad = RadialGrid(uniform_r_faces(1, 0.5))
+    layout = UnknownLayout(rad, [RadialUnknown(:x; components = 2, scale = 1.0)])
+    rate = 1e12
+    system = EquationSystem(layout, [Equation(:x, TimeDerivative(), ExchangeTerm(:x, rate))])
+    u_old = [1.0, 0.0]
+    u = copy(u_old)
+    ws = NewtonWorkspace(system)
+    result = newton_solve!(u, u_old, ws, 1.0, 1.0)
+    @test result.status === :converged
+    @test result.residual_floor
+    @test result.iterations == 2
+    @test result.residual_norm > NewtonSolver().residual_tolerance
+    difference = (u_old[1] - u_old[2]) / (1 + 2 * rate)
+    # the difference, 5e-13, is resolved to the round-off of the entries near 0.5
+    @test u[1] - u[2] ≈ difference atol = 1e-15
+    @test u[1] + u[2] ≈ sum(u_old) rtol = 1e-12
+    F = similar(u)
+    @test Runes2P._checked_residual!(F, u, u_old, system, 1.0, 1.0) === :ok
+    @test Runes2P._residual_at_round_off(ws, F, u, 1.0)
+    # an iterate off the solution by 1e-6 has a residual of 1e6 against a bound near 2e-4:
+    # it is not at the floor, and the iteration must go on
+    off = u .+ [1e-6, -1e-6]
+    @test Runes2P._checked_residual!(F, off, u_old, system, 1.0, 1.0) === :ok
+    @test !Runes2P._residual_at_round_off(ws, F, off, 1.0)
+end
+
 # A repeated save time would be saved twice, which the reader of a segmented run refuses;
 # the run refuses it, also when two save times snap to one time point.
 @testset "repeated save times are refused" begin

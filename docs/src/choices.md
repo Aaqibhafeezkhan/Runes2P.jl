@@ -133,12 +133,17 @@ The Krylov basis holds `restart_length` vectors.
 | Choice | Value |
 |---|---|
 | next step of [`StepDoubling`](@ref) after a step that an unknown at zero fails while every other unknown has no error | half the step |
+| round-off bound of a residual row of [`NewtonSolver`](@ref) on a stiff step | `c eps Σ_j \|(∂F/∂u)_ij u_j\|` with `c = 1` |
 | Newton iteration after an iterate that passes both tests with negative entries in a kinetic unknown | one more for the schemes of [`POLISHED_SCHEMES`](@ref), turned off after [`POLISH_MISSES`](@ref) steps in a row that it does not clean, `polish_negatives = :auto` of [`NewtonSolver`](@ref) |
 
 DREAM rejects a step in which an unknown with no absolute tolerance is zero after the full step and not after the two half steps.
 It takes the next step from the largest error of the other unknowns, as [`StepDoubling`](@ref) does.
 When that error is zero, DREAM's next step is unbounded; halving the step tried keeps the retry finite.
 DREAM has no finite behaviour to reproduce there, so no option gives DREAM's.
+
+The round-off bound counts each term of a residual row at its own size, one rounding error per term.
+A row whose terms cancel to many digits cannot fall below it, whatever the iterate.
+DREAM converges on the update alone and only warns about the residual ([Comparison with DREAM](dream-comparison.md)), so it has no residual test to waive.
 
 A positivity-preserving limiter keeps the converged discrete solution non-negative, and the extra iteration converges it further where an accepted iterate still has negative entries ([Positivity](model/positivity.md#Convergence-of-the-limiter)).
 The schemes of [`POLISHED_SCHEMES`](@ref) are those whose converged solution stayed non-negative in the tests; the extra iteration is wasted on the others.
