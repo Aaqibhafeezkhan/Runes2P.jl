@@ -607,11 +607,11 @@ closed by its channels, and the energy of the poloidal field.
 `W = Σ V'Δr (ψ − ψ_wall) j_tot` changes in a step by `4π dt Σ V'Δr E (j_new + j_old)/2`
 when the map from `ψ` to `j` is symmetric (backward Euler, `∂ψ/∂t = 2πE`), so the magnetic
 energy `−W/4π` falls by the work of the field on all currents (a perfectly conducting wall:
-no flux through it). A balance of the total energy does not close
-in the fully kinetic model: `f` covers the bulk as well, and the energy that `f` takes from the
-field or gives to the bulk through collisions is not in the row of `W_cold` (DREAM's energy
-equation). In the superthermal mode the friction of `f` on the cold electrons is a channel of that
-row.
+no flux through it). A balance of the total energy does not close in the fully kinetic mode: `f`
+covers the bulk as well, and the energy that `f` takes from the field or gives to the bulk through
+collisions is not in the row of `W_cold` (DREAM's energy equation). In the superthermal mode the
+friction of `f` on the cold electrons is a channel of that row; whether the total balance closes
+there is not checked.
 
 Returns a named tuple of the worst relative values over the steps: `species` (the change of the
 density of a species, relative to the largest density), `exchange` (`Q_i + Q_e`, relative to the

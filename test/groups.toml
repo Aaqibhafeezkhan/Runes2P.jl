@@ -169,13 +169,13 @@ files = ["test_ion_integration.jl"]
 name = "full-10"
 tier = "full"
 # 6.1 minutes: the disruption chain end to end at both compat values, a group of its own, since
-# full-8, which holds the other files of the case, is at 10.1 minutes
+# full-8, which holds the other files of the fully kinetic case, is at 10.1 minutes
 files = ["test_disruption_chain_dream.jl"]
 
 [[group]]
 name = "full-11"
 tier = "full"
 # 4.7 minutes: the disruption case in the superthermal mode end to end at both compat values and
-# its phases from DREAM's state, a group of its own: with full-10 it would make 10.8 minutes, the
-# longest group but one
+# its phases from DREAM's state, a group of its own: with full-10 it would make 10.8 minutes, above
+# the 4 to 9 minutes of most groups (test/README.md)
 files = ["test_disruption_superthermal_dream.jl"]
