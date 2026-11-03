@@ -225,7 +225,7 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 
 ## The disruption case
 
-The coupled reference case is DREAM's disruption of `examples/Disruptions/generate.py`, scenario 1, fully kinetic, in a cylinder, at the size of a test.
+The coupled reference case is DREAM's disruption of `examples/Disruptions/generate.py`, scenario 1, in a cylinder, at the size of a test, fully kinetic and in the superthermal mode.
 Its case script is `reference/dream/cases/disruption_kinetic.py` ([Reference data](reference-data.md)).
 Each part of the case is compared with DREAM's output at every saved step after its start; the chain end to end compares its two phases, and the initialization has its own test.
 

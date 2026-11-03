@@ -155,8 +155,8 @@ files = ["test_flux_limiters_dream.jl", "test_avalanche_dream.jl", "test_example
 [[group]]
 name = "full-8"
 tier = "full"
-# 10.1 minutes: 7.0 measured, and 3.1 of test_disruption_initialization_dream.jl alone; the lightest
-# group of its tier, next to test_disruption_dream.jl, which shares its compilation
+# 10.1 minutes: 7.0 measured, and 3.1 of test_disruption_initialization_dream.jl alone, which joined
+# the lightest group of its tier then, next to test_disruption_dream.jl, which shares its compilation
 files = ["test_kinetic_ionization_dream.jl", "test_avalanche_rp_dream.jl", "test_independent_references.jl", "test_disruption_dream.jl", "test_disruption_initialization_dream.jl", "test_ion_rates_dream.jl", "test_ion_energy_dream.jl", "test_example_runaway.jl", "test_step_control_cascade.jl", "test_cooling_dream.jl", "test_knockon_cutoff_physics.jl", "test_kinetic_operator_dream.jl", "test_cold_energy_dream.jl", "test_knockon_operator.jl", "test_collisions_dream.jl", "test_physics.jl", "test_knockon_reference.jl"]
 
 [[group]]
@@ -169,13 +169,13 @@ files = ["test_ion_integration.jl"]
 name = "full-10"
 tier = "full"
 # 6.1 minutes: the disruption chain end to end at both compat values, a group of its own, since
-# full-8, the lightest full group, holds 10.1 minutes
+# full-8, which holds the other files of the fully kinetic case, is at 10.1 minutes
 files = ["test_disruption_chain_dream.jl"]
 
 [[group]]
 name = "full-11"
 tier = "full"
 # 4.7 minutes: the disruption case in the superthermal mode end to end at both compat values and
-# its phases from DREAM's state, a group of its own, as with full-10 it would pass the 11 minutes
-# of the longest group
+# its phases from DREAM's state, a group of its own: with full-10 it would make 10.8 minutes, above
+# the 4 to 9 minutes of most groups (test/README.md)
 files = ["test_disruption_superthermal_dream.jl"]
