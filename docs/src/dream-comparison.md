@@ -242,7 +242,7 @@ Each part of the case is compared with DREAM's output at every saved step after 
 - The state that the initialization hands to the ionization phase agrees with DREAM's first state of that phase to 8e-10.
 - End to end, the phases agree with DREAM as closely as when they start from DREAM's state in `f_hot` (4e-5) and the field (4e-7).
 - The poloidal flux, the plasma current and the runaway density carry the differences of the initialization: 3e-10, 1e-11 and 4e-11.
-- From DREAM's state they differ by 7e-13, 1e-12 and 6e-12, the runaway density over the radii.
+- From DREAM's state they differ by 7e-13, 1e-12 and 6e-12 (`test_disruption_dream.jl`; the runaway density at the first radius).
 - With Runes2P's defaults the chain runs end to end as well, and the budgets of its closures hold within the bounds of the phases started from DREAM's state.
 - In the superthermal mode the initialization agrees with DREAM to 2e-9 and the phases to 4e-6, the largest in the ion densities and the cold electrons.
 

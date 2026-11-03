@@ -7,11 +7,11 @@
 # held (run 1), and again with the field rescaled to the plasma current (run 2). The start of run 1
 # and each saved step after the start of runs 1 and 2 are compared with DREAM's, and the state
 # handed to the ionization phase with DREAM's first state of that phase. The runaway density and
-# current are compared over the radii: at the second radius n_re is 0.002 to 0.026 m⁻³, 2e-15 of
-# the first radius, fed by the far tail of f (down to 4e-116 m⁻³ per cell), and differs by up to
-# 8e-4 there. The D background stays fully ionized but for a recombination of up to 3e-8 of it, so the
-# particle source is near zero in these runs and its Maxwellian shape is barely exercised. Needs
-# the ADF11 cache.
+# current are compared over the radii: at the second radius n_re is 0.002 to 0.026 m⁻³, 2e-15
+# to 8e-15 of the first radius, fed by the far tail of f (down to 4e-116 m⁻³ per cell), and
+# differs by up to 8e-4 there. The D background stays fully ionized but for a recombination of up
+# to 3e-8 of it, so the particle source is near zero in these runs and its Maxwellian shape is
+# barely exercised. Needs the ADF11 cache.
 using HDF5
 include(joinpath(@__DIR__, "example_disruption.jl"))
 
