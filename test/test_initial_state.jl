@@ -3,8 +3,8 @@
 # quadrature, and whose values at the cell centres follow DREAM's shape, on a grid shared by
 # the radii and on grids per radius; runaways from their density in DREAM's four shapes, whose
 # density on the grid is the profile; and ions in coronal equilibrium at the free-electron
-# density they give, the fixed point of DREAM's init_equil. These helpers build a state without a system;
-# test_initial_values.jl tests the initial values that the rows of a system give.
+# density they give, the fixed point of DREAM's init_equil. These helpers build a state without
+# a system; test_initial_values.jl tests the initial values that the rows of a system give.
 using QuadGK: quadgk
 
 @testset "initial state" begin

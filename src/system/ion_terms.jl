@@ -425,6 +425,15 @@ function coronal_equilibrium(term::IonRateTerm, s::Integer, free_electron_densit
 end
 
 """
+    MAXIMUM_EQUILIBRIUM_ITERATIONS
+
+The largest number of iterations of the free-electron density in
+[`fill_coronal_equilibrium!`](@ref): 50, DREAM's `MAX_ITER` (`src/Settings/IonEquilibrium.cpp:82`,
+DREAM v26.5).
+"""
+const MAXIMUM_EQUILIBRIUM_ITERATIONS = 50
+
+"""
     fill_coronal_equilibrium!(u, layout, composition, temperature; species=composition.names,
                               ions=:ion_densities, extrapolation=:dream,
                               directory=adas_cache_directory())
@@ -440,8 +449,8 @@ density is iterated to a fixed point at each radius as DREAM's `init_equil` does
 (`EvaluateIonEquilibrium`, `src/Settings/IonEquilibrium.cpp:63-155`, DREAM v26.5): it starts at
 the free electrons of the other species plus the total density of each species in equilibrium,
 the charge states of [`coronal_equilibrium`](@ref) follow at that density, and the free-electron
-density is summed from them, until it changes by at most `eps()` of itself or after 50
-iterations. The rates are those of [`IonRateTerm`](@ref) with `extrapolation` and `directory`.
+density is summed from them, until it changes by at most `eps()` of itself or after
+[`MAXIMUM_EQUILIBRIUM_ITERATIONS`](@ref) iterations. The rates are those of [`IonRateTerm`](@ref) with `extrapolation` and `directory`.
 
 Throws an `ArgumentError` for a species that is not in `composition`, for a radial unknown
 `ions` whose components are not those of `composition`, or for a temperature that is not
@@ -464,7 +473,8 @@ function fill_coronal_equilibrium!(u::AbstractVector, layout::UnknownLayout,
     temperatures = radial_values(temperature, layout.radial_grid.r_centers)
     for (ir, T) in enumerate(temperatures)
         if !(isfinite(T) && T > 0)
-            throw(ArgumentError("the temperature must be finite and positive, it is $T at radius $ir"))
+            throw(ArgumentError("the temperature must be finite and positive, " *
+                                "it is $T at radius $ir"))
         end
     end
     term = IonRateTerm(composition; ions, extrapolation, directory)
@@ -494,15 +504,6 @@ function fill_coronal_equilibrium!(u::AbstractVector, layout::UnknownLayout,
     end
     return u
 end
-
-"""
-    MAXIMUM_EQUILIBRIUM_ITERATIONS
-
-The largest number of iterations of the free-electron density in
-[`fill_coronal_equilibrium!`](@ref): 50, DREAM's `MAX_ITER` (`src/Settings/IonEquilibrium.cpp:82`,
-DREAM v26.5).
-"""
-const MAXIMUM_EQUILIBRIUM_ITERATIONS = 50
 
 """
     IonDiffusionTerm(composition; diffusion=nothing, diffusion_at=nothing, ions=:ion_densities,

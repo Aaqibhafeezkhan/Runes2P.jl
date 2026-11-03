@@ -603,13 +603,25 @@ function fill_maxwellian!(
 end
 
 """
+    RUNAWAY_SHAPES
+
+The shapes of [`fill_runaway_distribution!`](@ref): `:forward`, `:xi_positive`, `:xi_negative`
+and `:isotropic`, DREAM's `INIT_FORWARD`, `INIT_XI_POSITIVE`, `INIT_XI_NEGATIVE` and
+`INIT_ISOTROPIC` of `f_re` (`src/Settings/Equations/f_re.cpp`, DREAM v26.5).
+"""
+const RUNAWAY_SHAPES = (:forward, :xi_positive, :xi_negative, :isotropic)
+
+"""
     fill_runaway_distribution!(u, layout, unknown, density; shape=:forward, electric_field=nothing)
 
 Fill the kinetic unknown `unknown` of the state `u` with the electrons of the density `density`
 [m⁻³], a profile in any form of [`radial_values`](@ref) on the cell centres, all in the first
 momentum cell of its grid, so that their moment [`density`](@ref) on the grid equals the profile.
 These are DREAM's starts of `f_re` from `n_re` (`src/Settings/Equations/f_re.cpp:147-208`,
-DREAM v26.5), with the value `n V'/(𝒱' Δp Δξ)` in a cell:
+DREAM v26.5). A shape of one pitch cell puts the value ``n V' / (\\mathcal{V}'_{1j} \\Delta p_1
+\\Delta\\xi_j)`` in the cell ``(1, j)``, with the spatial Jacobian ``V'`` of the radius and the
+phase-space Jacobian ``\\mathcal{V}'`` of the cell; the isotropic shape puts
+``n V' / (2 \\mathcal{V}'_{1j} \\Delta p_1)`` in every pitch cell ``j``:
 
 - `shape = :xi_positive`: the last pitch cell, `ξ` next to +1 (`INIT_XI_POSITIVE`);
 - `:xi_negative`: the first pitch cell, `ξ` next to −1 (`INIT_XI_NEGATIVE`);
@@ -666,15 +678,6 @@ function fill_runaway_distribution!(
     end
     return u
 end
-
-"""
-    RUNAWAY_SHAPES
-
-The shapes of [`fill_runaway_distribution!`](@ref): `:forward`, `:xi_positive`, `:xi_negative`
-and `:isotropic`, DREAM's `INIT_FORWARD`, `INIT_XI_POSITIVE`, `INIT_XI_NEGATIVE` and
-`INIT_ISOTROPIC` of `f_re` (`src/Settings/Equations/f_re.cpp`, DREAM v26.5).
-"""
-const RUNAWAY_SHAPES = (:forward, :xi_positive, :xi_negative, :isotropic)
 
 """
     mass_matrix(system)
