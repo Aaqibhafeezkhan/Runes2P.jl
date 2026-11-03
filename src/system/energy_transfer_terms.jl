@@ -316,7 +316,8 @@ function of time that returns one, or a [`PlasmaSource`](@ref) such as
 [`PlasmaFromUnknowns`](@ref). This is DREAM's `CollisionalEnergyTransferKineticTerm`
 (`src/Equations/Fluid/CollisionalEnergyTransferKineticTerm.cpp`, DREAM v26.5), the heating of
 the cold electrons by `f_hot` in a run without the full collision frequencies
-(`src/Settings/Equations/T_cold.cpp:318-340`). The default `settings`,
+(`src/Settings/Equations/T_cold.cpp:318-340`) and by `f_re` in every run (lines 341-354), for
+which [`free_electron_energy_transfer_term`](@ref) is Runes2P's default. The default `settings`,
 [`FRICTION_TRANSFER_SETTINGS`](@ref), are those DREAM fixes for it: the superthermal
 frequencies with complete screening, so that the electrons collide with the cold electrons
 alone, the energy-dependent Coulomb logarithm and no bremsstrahlung.

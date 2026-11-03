@@ -160,6 +160,13 @@ using QuadGK: quadgk
             u, layout, :f_re, [1e16]; shape = :isotropic)
         # the state is left as it was
         @test all(==(-1.0), u)
+        # the isotropic shape on a pitch grid over part of [−1, 1] keeps the density
+        half = cylindrical_grid(
+            MomentumGrid(uniform_p_faces(30, 0.0, 20.0), collect(range(0, 1; length = 4))), rad)
+        half_layout = UnknownLayout(rad, [KineticUnknown(:f_re, half; scale = 1e16)])
+        v = zeros(length(half_layout))
+        fill_runaway_distribution!(v, half_layout, :f_re, densities; shape = :isotropic)
+        @test density(half, kinetic_array(v, half_layout, 1)) ≈ densities rtol = 1e-14
     end
 
     @testset "ions in coronal equilibrium" begin
@@ -237,6 +244,29 @@ using QuadGK: quadgk
             @test_throws DimensionMismatch fill_coronal_equilibrium!(
                 w, layout, term, [100.0, 10.0])
             @test w == u
+            negative = copy(u)
+            radial_view(negative, layout, unknown_id(layout, :ion_densities), 2)[neon] .= -1.0
+            refused = copy(negative)
+            @test_throws "finite and not negative" fill_coronal_equilibrium!(
+                refused, layout, term, temperatures; species = "Ne")
+            @test refused == negative
+            # neon at zero next to the free electrons of D: neon stays at zero
+            no_neon = copy(u)
+            radial_view(no_neon, layout, unknown_id(layout, :ion_densities), 2)[neon] .= 0
+            fill_coronal_equilibrium!(no_neon, layout, term, temperatures; species = "Ne")
+            @test all(iszero, radial_view(no_neon, layout, unknown_id(layout, :ion_densities), 2)[neon])
+            # a Symbol names a species too
+            @test fill_coronal_equilibrium!(
+                copy(v), layout, term, temperatures; species = :Ne) ==
+                  fill_coronal_equilibrium!(
+                copy(v), layout, term, temperatures; species = "Ne")
+            # a radius without ions is left as it is
+            empty = copy(u)
+            radial_view(empty, layout, unknown_id(layout, :ion_densities), 3) .= 0
+            fill_coronal_equilibrium!(empty, layout, term, temperatures)
+            @test all(iszero, radial_view(empty, layout, unknown_id(layout, :ion_densities), 3))
+            @test radial_view(empty, layout, unknown_id(layout, :ion_densities), 1) ==
+                  radial_view(v, layout, unknown_id(layout, :ion_densities), 1)
             @test_throws "finite and positive" fill_coronal_equilibrium!(
                 w, layout, composition, [100.0, 0.0, 10.0])
             @test MAXIMUM_EQUILIBRIUM_ITERATIONS == 50

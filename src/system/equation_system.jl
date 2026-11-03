@@ -621,10 +621,11 @@ These are DREAM's starts of `f_re` from `n_re` (`src/Settings/Equations/f_re.cpp
 DREAM v26.5). A shape of one pitch cell puts the value ``n V' / (\\mathcal{V}'_{1j} \\Delta p_1
 \\Delta\\xi_j)`` in the cell ``(1, j)``, with the spatial Jacobian ``V'`` of the radius and the
 phase-space Jacobian ``\\mathcal{V}'`` of the cell; the isotropic shape puts
-``n V' / (2 \\mathcal{V}'_{1j} \\Delta p_1)`` in every pitch cell ``j``:
+``n V' / (\\Delta\\xi_\\mathrm{grid} \\mathcal{V}'_{1j} \\Delta p_1)`` in every pitch cell ``j``, with the
+pitch range ``\\Delta\\xi_\\mathrm{grid}`` of the grid, 2 on DREAM's grids from −1 to 1:
 
-- `shape = :xi_positive`: the last pitch cell, `ξ` next to +1 (`INIT_XI_POSITIVE`);
-- `:xi_negative`: the first pitch cell, `ξ` next to −1 (`INIT_XI_NEGATIVE`);
+- `shape = :xi_positive`: the last pitch cell, at the largest `ξ` of the grid (`INIT_XI_POSITIVE`);
+- `:xi_negative`: the first pitch cell, at the smallest `ξ` (`INIT_XI_NEGATIVE`);
 - `:forward`: the last pitch cell where the field `electric_field` (a profile as `density`) is
   not negative, the first where it is (`INIT_FORWARD`, DREAM's default);
 - `:isotropic`: every pitch cell, with `f 𝒱'` uniform in `ξ` (`INIT_ISOTROPIC`).
@@ -633,8 +634,9 @@ DREAM's analytic avalanche distribution (`INIT_AVALANCHE`) is not one of the sha
 cells of `unknown` are set to zero. Returns `u`.
 
 Throws an `ArgumentError` for an unknown that is not kinetic, another `shape`, `:forward`
-without a field, a density that is negative or not finite, or a field that is not finite, and a `DimensionMismatch` for a
-profile with another number of values than radii; these leave `u` as it was.
+without a field, a density that is negative or not finite, or a field that is not finite, and a
+`DimensionMismatch` for a profile with another number of values than radii; these leave `u` as
+it was.
 """
 function fill_runaway_distribution!(
         u::AbstractVector, layout::UnknownLayout, unknown::Symbol,
@@ -673,10 +675,14 @@ function fill_runaway_distribution!(
             nxi:nxi
         end
         spatial = grid.radial_grid.spatial_jacobian[ir]
+        # the pitch range of the grid, 2 on a grid from −1 to 1
+        span = last(m.xi_faces) - first(m.xi_faces)
         for j in pitches
-            # n V' / (2 𝒱' Δp) spread over ξ, or n V' / (𝒱' Δp Δξ) in one cell (f_re.cpp:174, 205)
+            # n V' / (Δξ_grid 𝒱' Δp) spread over ξ, Δξ_grid = 2 on a full pitch grid, or
+            # n V' / (𝒱' Δp Δξ) in one cell
+            # (f_re.cpp:174, 205)
             f[1, j] = if shape === :isotropic
-                densities[ir] * spatial / (2 * V[1, j] * m.p_widths[1])
+                densities[ir] * spatial / (span * V[1, j] * m.p_widths[1])
             else
                 densities[ir] * spatial / (V[1, j] * m.p_widths[1] * m.xi_widths[j])
             end
