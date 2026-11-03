@@ -25,6 +25,7 @@ include(joinpath(@__DIR__, "example_disruption.jl"))
 # times the larger of the two measured at the default optimisation level (in the comment)
 #! format: off
 const SUPERTHERMAL_INITIALIZATION = Dict("E_field" => 2e-8,    # 1.3e-9, run 2 (the rescale)
+                                         "j_tot" => 2e-8,      # 1.5e-9
                                          "I_p" => 2e-8,        # 1.3e-9, run 1
                                          "j_ohm" => 2e-8,      # 1.5e-9
                                          "j_hot" => 2e-8,      # 1.5e-9
@@ -40,6 +41,7 @@ const SUPERTHERMAL_INITIALIZATION = Dict("E_field" => 2e-8,    # 1.3e-9, run 2 (
                                          "n_tot" => 1e-14)     # 0
 # the same over the steps of both phases
 const SUPERTHERMAL_PHASES = Dict("n_i" => 5e-5,       # 3.5e-6
+                                 "j_tot" => 1e-8,      # 9.8e-10, from the initialization
                                  "n_cold" => 3e-5,    # 2.9e-6
                                  "W_cold" => 3e-5,    # 2.8e-6
                                  "j_ohm" => 1e-5,     # 9.8e-7
@@ -63,6 +65,7 @@ const SUPERTHERMAL_PER_RADIUS = 5e-3
 # and j_re per radius
 #! format: off
 const SUPERTHERMAL_FROM_DREAM = Dict("n_i" => 5e-5,       # 3.2e-6
+                                     "j_tot" => 2e-11,     # 2.0e-12
                                      "n_cold" => 3e-5,    # 2.9e-6
                                      "W_cold" => 3e-5,    # 2.8e-6
                                      "j_ohm" => 6e-6,     # 5.4e-7
