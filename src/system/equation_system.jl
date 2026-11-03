@@ -603,6 +603,80 @@ function fill_maxwellian!(
 end
 
 """
+    fill_runaway_distribution!(u, layout, unknown, density; shape=:forward, electric_field=nothing)
+
+Fill the kinetic unknown `unknown` of the state `u` with the electrons of the density `density`
+[m⁻³], a profile in any form of [`radial_values`](@ref) on the cell centres, all in the first
+momentum cell of its grid, so that their moment [`density`](@ref) on the grid equals the profile.
+These are DREAM's starts of `f_re` from `n_re` (`src/Settings/Equations/f_re.cpp:147-208`,
+DREAM v26.5), with the value `n V'/(𝒱' Δp Δξ)` in a cell:
+
+- `shape = :xi_positive`: the last pitch cell, `ξ` next to +1 (`INIT_XI_POSITIVE`);
+- `:xi_negative`: the first pitch cell, `ξ` next to −1 (`INIT_XI_NEGATIVE`);
+- `:forward`: the last pitch cell where the field `electric_field` (a profile as `density`) is
+  not negative, the first where it is (`INIT_FORWARD`, DREAM's default);
+- `:isotropic`: every pitch cell, uniform in `ξ` (`INIT_ISOTROPIC`).
+
+DREAM's analytic avalanche distribution (`INIT_AVALANCHE`) is not one of the shapes. The other
+cells of `unknown` are set to zero. Returns `u`.
+
+Throws an `ArgumentError` for an unknown that is not kinetic, another `shape`, `:forward`
+without a field, or a density that is negative or not finite, and a `DimensionMismatch` for a
+profile with another number of values than radii; these leave `u` as it was.
+"""
+function fill_runaway_distribution!(
+        u::AbstractVector, layout::UnknownLayout, unknown::Symbol,
+        density; shape::Symbol = :forward, electric_field = nothing)
+    shape in RUNAWAY_SHAPES ||
+        throw(ArgumentError("shape must be one of $(join(RUNAWAY_SHAPES, ", ")), not $shape"))
+    shape === :forward && electric_field === nothing &&
+        throw(ArgumentError("shape = :forward needs the electric field"))
+    id = unknown_id(layout, unknown)
+    layout.kinds[id] === :kinetic ||
+        throw(ArgumentError("$unknown is not a kinetic unknown"))
+    grid = kinetic_grid(layout, id)
+    centers = grid.radial_grid.r_centers
+    densities = radial_values(density, centers)
+    fields = electric_field === nothing ? nothing : radial_values(electric_field, centers)
+    for ir in 1:radial_cell_count(grid)
+        if !(isfinite(densities[ir]) && densities[ir] >= 0)
+            throw(ArgumentError("the density of the runaways must be finite and not negative, " *
+                                "it is $(densities[ir]) at radius $ir"))
+        end
+    end
+    for ir in 1:radial_cell_count(grid)
+        f = kinetic_view(u, layout, id, ir)
+        f .= 0
+        m = momentum_grid(grid, ir)
+        V = phase_space_jacobian(grid, ir)
+        nxi = pitch_cell_count(m)
+        pitches = if shape === :isotropic
+            1:nxi
+        elseif shape === :xi_negative || (shape === :forward && fields[ir] < 0)
+            1:1
+        else
+            nxi:nxi
+        end
+        # the share of the density in each of the cells, of the pitch width over 2 when isotropic
+        for j in pitches
+            share = shape === :isotropic ? m.xi_widths[j] / 2 : 1.0
+            f[1, j] = share * densities[ir] * grid.radial_grid.spatial_jacobian[ir] /
+                      (V[1, j] * m.p_widths[1] * m.xi_widths[j])
+        end
+    end
+    return u
+end
+
+"""
+    RUNAWAY_SHAPES
+
+The shapes of [`fill_runaway_distribution!`](@ref): `:forward`, `:xi_positive`, `:xi_negative`
+and `:isotropic`, DREAM's `INIT_FORWARD`, `INIT_XI_POSITIVE`, `INIT_XI_NEGATIVE` and
+`INIT_ISOTROPIC` of `f_re` (`src/Settings/Equations/f_re.cpp`, DREAM v26.5).
+"""
+const RUNAWAY_SHAPES = (:forward, :xi_positive, :xi_negative, :isotropic)
+
+"""
     mass_matrix(system)
 
 Mass matrix `M`, constant: 1 in the rows with a time derivative, in the column of the

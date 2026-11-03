@@ -1,7 +1,9 @@
 # The initial state of a run: a Maxwellian from profiles of the density and the temperature,
 # whose density on the grid is the profile, whose energy is the mean kinetic energy by
 # quadrature, and whose values at the cell centres follow DREAM's shape, on a grid shared by
-# the radii and on grids per radius. These helpers build a state without a system;
+# the radii and on grids per radius; runaways from their density in DREAM's four shapes, whose
+# density on the grid is the profile; and ions in coronal equilibrium at the free-electron
+# density they give, the fixed point of DREAM's init_equil. These helpers build a state without a system;
 # test_initial_values.jl tests the initial values that the rows of a system give.
 using QuadGK: quadgk
 
@@ -104,5 +106,101 @@ using QuadGK: quadgk
         # a temperature far below the first momentum cell leaves no density on the grid
         @test_throws DomainError fill_maxwellian!(u, layout, :f, 1e19, 1e-6)
         @test_throws DimensionMismatch fill_maxwellian!(u, layout, :f, [1e19], 100.0)
+    end
+
+    @testset "runaways from their density" begin
+        rad = RadialGrid(uniform_r_faces(2, 0.5))
+        grid = cylindrical_grid(
+            MomentumGrid(uniform_p_faces(30, 0.0, 20.0), uniform_xi_faces(6)), rad)
+        layout = UnknownLayout(rad,
+            [RadialUnknown(:runaway_density; scale = 1e16),
+                KineticUnknown(:f_re, grid; scale = 1e16)])
+        densities = [1e16, 3e15]
+        id = unknown_id(layout, :f_re)
+        for shape in RUNAWAY_SHAPES
+            u = fill(-1.0, length(layout))
+            @test fill_runaway_distribution!(u, layout, :f_re, densities; shape,
+                electric_field = [1.5, -0.5]) === u
+            # the other unknowns keep their values, and the moment of f is the density
+            @test all(==(-1.0), unknown_values(u, layout, 1))
+            @test density(grid, kinetic_array(u, layout, id)) ≈ densities rtol = 1e-14
+            for ir in 1:2
+                f = kinetic_view(u, layout, id, ir)
+                # every electron in the first momentum cell
+                @test all(iszero, f[2:end, :])
+                filled = findall(!iszero, f[1, :])
+                expected = if shape === :isotropic
+                    1:6
+                elseif shape === :xi_negative || (shape === :forward && ir == 2)
+                    [1]
+                else
+                    [6]
+                end
+                @test filled == collect(expected)
+                if shape === :isotropic
+                    # uniform in ξ: the same density per pitch width in every pitch cell
+                    V = phase_space_jacobian(grid, ir)
+                    per_width = [f[1, j] * V[1, j] for j in 1:6]
+                    @test all(x -> x ≈ per_width[1], per_width)
+                end
+            end
+        end
+        u = zeros(length(layout))
+        @test_throws "needs the electric field" fill_runaway_distribution!(
+            u, layout, :f_re, 1e16)
+        @test_throws "shape must be" fill_runaway_distribution!(
+            u, layout, :f_re, 1e16; shape = :avalanche)
+        @test_throws "not a kinetic unknown" fill_runaway_distribution!(
+            u, layout, :runaway_density, 1e16; shape = :isotropic)
+        @test_throws "finite and not negative" fill_runaway_distribution!(
+            u, layout, :f_re, [1e16, -1.0]; shape = :isotropic)
+        @test all(iszero, u)
+    end
+
+    @testset "ions in coronal equilibrium" begin
+        if !isdir(adas_cache_directory())
+            @info "no ADF11 cache at $(adas_cache_directory()): the coronal start is skipped"
+            @test_skip isdir(adas_cache_directory())
+        else
+            composition = IonComposition(["D" => 1, "Ne" => 10])
+            rad = RadialGrid(uniform_r_faces(3, 0.42))
+            layout = UnknownLayout(rad,
+                [
+                    ion_densities_unknown(composition), RadialUnknown(:temperature; scale = 100.0)])
+            neon = species_components(composition, "Ne")
+            deuterium = species_components(composition, "D")
+            u = zeros(length(layout))
+            totals = [1e19, 2e19, 5e18]
+            for ir in 1:3
+                states = radial_view(u, layout, unknown_id(layout, :ion_densities), ir)
+                states[deuterium] .= [0.0, 5e19]   # fully ionized, kept
+                states[first(neon)] = totals[ir]   # neutral, put in equilibrium
+            end
+            temperatures = [800.0, 40.0, 3.0]
+            @test fill_coronal_equilibrium!(u, layout, composition, temperatures;
+                species = ["Ne"]) === u
+            term = IonRateTerm(composition)
+            weights = free_electron_weights(composition)
+            for ir in 1:3
+                states = radial_view(u, layout, unknown_id(layout, :ion_densities), ir)
+                @test states[deuterium] == [0.0, 5e19]
+                @test sum(states[neon]) ≈ totals[ir] rtol = 1e-14
+                # the fixed point: the charge states of coronal_equilibrium at the free-electron
+                # density of the state itself
+                free = sum(weights .* states)
+                @test states[neon] ≈ coronal_equilibrium(term, 2, free, temperatures[ir];
+                    species_density = totals[ir]) rtol = 1e-12
+            end
+            # hot neon is ionized well beyond the cold
+            charge(ir) = sum((0:10) .*
+                             radial_view(u, layout, unknown_id(layout, :ion_densities), ir)[neon]) /
+                         totals[ir]
+            @test charge(1) > charge(2) > charge(3)
+            @test_throws "not in the composition" fill_coronal_equilibrium!(
+                copy(u), layout, composition, 100.0; species = ["Ar"])
+            @test_throws "finite and positive" fill_coronal_equilibrium!(
+                copy(u), layout, composition, [100.0, 0.0, 10.0])
+            @test MAXIMUM_EQUILIBRIUM_ITERATIONS == 50
+        end
     end
 end

@@ -425,6 +425,86 @@ function coronal_equilibrium(term::IonRateTerm, s::Integer, free_electron_densit
 end
 
 """
+    fill_coronal_equilibrium!(u, layout, composition, temperature; species=composition.names,
+                              ions=:ion_densities, extrapolation=:dream,
+                              directory=adas_cache_directory())
+
+Put the species `species` of `composition` ([`IonComposition`](@ref)) in coronal equilibrium in
+the state `u`, in the radial unknown of the ion densities `ions`, at the temperature
+`temperature` [eV], a profile in any form of [`radial_values`](@ref) on the cell centres. The
+total density of each of these species is that of `u` and is kept; the other species keep their
+charge states. Returns `u`.
+
+The equilibrium depends on the free-electron density, which it changes, so the free-electron
+density is iterated to a fixed point at each radius as DREAM's `init_equil` does
+(`EvaluateIonEquilibrium`, `src/Settings/IonEquilibrium.cpp:63-155`, DREAM v26.5): it starts at
+the free electrons of the other species plus the total density of each species in equilibrium,
+the charge states of [`coronal_equilibrium`](@ref) follow at that density, and the free-electron
+density is summed from them, until it changes by at most `eps()` of itself or after 50
+iterations. The rates are those of [`IonRateTerm`](@ref) with `extrapolation` and `directory`.
+
+Throws an `ArgumentError` for a species that is not in `composition`, for a radial unknown
+`ions` whose components are not those of `composition`, or for a temperature that is not
+positive or not finite, and a `DimensionMismatch` for a profile with another number of values
+than radii; these leave `u` as it was.
+"""
+function fill_coronal_equilibrium!(u::AbstractVector, layout::UnknownLayout,
+        composition::IonComposition, temperature;
+        species = composition.names, ions::Symbol = :ion_densities,
+        extrapolation::Symbol = :dream, directory::AbstractString = adas_cache_directory())
+    id = unknown_id(layout, ions)
+    _check_ion_unknown(layout, id, composition)
+    indices = Int[]
+    for name in species
+        if !(name in composition.names)
+            throw(ArgumentError("the species $name is not in the composition"))
+        end
+        push!(indices, species_index(composition, name))
+    end
+    temperatures = radial_values(temperature, layout.radial_grid.r_centers)
+    for (ir, T) in enumerate(temperatures)
+        if !(isfinite(T) && T > 0)
+            throw(ArgumentError("the temperature must be finite and positive, it is $T at radius $ir"))
+        end
+    end
+    term = IonRateTerm(composition; ions, extrapolation, directory)
+    weights = free_electron_weights(composition)
+    for ir in 1:radial_cell_count(layout)
+        states = radial_view(u, layout, id, ir)
+        totals = [sum(states[species_components(composition, s)]) for s in indices]
+        # the free electrons of the other species, DREAM's nfree0
+        others = sum(weights .* states)
+        for s in indices
+            components = species_components(composition, s)
+            others -= sum(weights[components] .* states[components])
+        end
+        free = others + sum(totals)
+        for _ in 1:MAXIMUM_EQUILIBRIUM_ITERATIONS
+            next = others
+            for (k, s) in enumerate(indices)
+                components = species_components(composition, s)
+                states[components] .= coronal_equilibrium(term, s, free, temperatures[ir];
+                    species_density = totals[k])
+                next += sum(weights[components] .* states[components])
+            end
+            change = abs(next - free)
+            free = next
+            change <= free * eps() && break
+        end
+    end
+    return u
+end
+
+"""
+    MAXIMUM_EQUILIBRIUM_ITERATIONS
+
+The largest number of iterations of the free-electron density in
+[`fill_coronal_equilibrium!`](@ref): 50, DREAM's `MAX_ITER` (`src/Settings/IonEquilibrium.cpp:82`,
+DREAM v26.5).
+"""
+const MAXIMUM_EQUILIBRIUM_ITERATIONS = 50
+
+"""
     IonDiffusionTerm(composition; diffusion=nothing, diffusion_at=nothing, ions=:ion_densities,
                      states=:charged, edge=:zero_flux)
 
