@@ -19,7 +19,7 @@ These rules hold for every contribution, by people and by coding agents alike.
   A merge into `dev` or `main` runs the lint, the code style check, the format check and the component tests again, on `dev` with the deployment of the docs in place of the docs build.
   The full suite runs on `dev` once a week.
 - Six checks are required for a merge into `dev` or `main`: Markdown lint, Code style check, Format check, Component tests, Documentation build and Full suite.
-  A step into an integration branch requires the same checks but the Full suite.
+  A step into an integration branch requires these checks except the Full suite.
 - A pull request into `dev` must be up to date with `dev`.
 - A pull request into `dev` needs the approval of its latest push by the maintainer; a later push dismisses it.
   Coding agents never approve a pull request, and merge one only into an integration branch (below).
