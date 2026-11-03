@@ -8,6 +8,8 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Added
 
+- `FrictionEnergyTransferTerm` and `FRICTION_TRANSFER_SETTINGS`: the power that a distribution gives to the cold electrons by friction, as DREAM's `CollisionalEnergyTransferKineticTerm` ([#185](https://github.com/osrep/Runes2P.jl/pull/185)).
+  It is the heating in the row of the temperature of a superthermal run, and takes any scheme of the operator.
 - `NewtonSolver(polish_negatives = :auto)`: one more Newton iteration when an iterate that passes both tests has negative entries in a kinetic unknown ([#163](https://github.com/osrep/Runes2P.jl/pull/163)).
   It removes the negative entries that an unconverged positivity-preserving limiter leaves near zero in the tail.
   `:auto` polishes the unknowns whose schemes are in `POLISHED_SCHEMES` and stops, with a warning in the log, after `POLISH_MISSES` steps in a row that it does not clean; `true` polishes every kinetic unknown, `false` none.

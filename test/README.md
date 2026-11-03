@@ -10,7 +10,7 @@ The test suite: its layout, its tiers and groups, how to run it, and the rules f
 | `groups.toml` | the groups of test files, each with its tier |
 | `helpers.jl` | the module `TestHelpers`: definitions that several test files use |
 | `example_cases.jl` | setups built from DREAM's examples, shared by the tests |
-| `example_disruption.jl` | the system of DREAM's disruption case started from DREAM's state, and the budgets of its closures, used by `test_disruption_dream.jl` |
+| `example_disruption.jl` | the system of DREAM's disruption case in its fully kinetic and superthermal modes: the phases, started from DREAM's state or from Runes2P's own initialization (DREAM's runs 0 to 2), the comparison of a run with DREAM, and the budgets of its closures with their bounds; used by `test_disruption_dream.jl`, `test_disruption_initialization_dream.jl`, `test_disruption_chain_dream.jl` and `test_disruption_superthermal_dream.jl` |
 | `test_*.jl` | the test files |
 | `*_helpers.jl` | a file that one test file includes, not a test file of its own |
 | `Artifacts.toml` | the reference data of the comparison tests, one lazy artifact per set: DREAM's output written by the cases of `reference/dream/cases/`, and GSL's values of `reference/gsl/` |
@@ -120,6 +120,7 @@ What is still compiled per case:
 - A file loads the packages it uses itself (`using HDF5`, `using Random: Xoshiro`).
   A package that only the tests use goes into `test/Project.toml`.
 - A helper that a second file needs moves into `helpers.jl`, with a comment naming the file it came from, and its name into the export list.
+  A helper of the disruption case goes into `example_disruption.jl` instead, which the files of that case include.
 - A new test file goes into a group of its tier in `groups.toml`, or into the group `component` when it tests one building block in isolation.
   A file that runs longer than about ten minutes alone gets a group of its own.
 - A test that reads a docstring (`@doc name`) adds the file of that docstring to `DOCSTRINGS_READ_BY_TESTS` of `scripts/code_changes.jl`, so that a change of the docstring runs the tests.

@@ -977,6 +977,19 @@ function describe(term::KineticEnergyLossTerm, context::DescriptionContext)
     return _describe_region!(record, term.envelopes, context)
 end
 
+function settings_fields(::Type{<:FrictionEnergyTransferTerm})
+    (described = (:kinetic, :grid, :source, :settings, :coefficient), derived = ())
+end
+
+function describe(term::FrictionEnergyTransferTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["kinetic"] = String(term.kinetic)
+    record["grid"] = grid_name!(context, term.grid)
+    record["coefficient"] = term.coefficient
+    record["collision_settings"] = describe(term.settings)
+    return _describe_plasma_source!(record, term.source, context)
+end
+
 function describe(term::InterfaceEnergyFluxTerm, context::DescriptionContext)
     record = _term_record(term)
     record["coefficient"] = term.coefficient

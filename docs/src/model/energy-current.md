@@ -28,13 +28,17 @@ The channels of this row:
 | secondaries of the kinetic ionization | [`SecondaryHeatingTerm`](@ref) |
 | friction of fluid runaways | [`RunawayFluidEnergyTransferTerm`](@ref) |
 | collisions of the runaway grid with the cold electrons | [`free_electron_energy_transfer_term`](@ref) |
+| friction of the hot-tail distribution on the cold electrons, without the full collision frequencies | [`FrictionEnergyTransferTerm`](@ref) |
 
 [`IonEnergyExchangeTerm`](@ref) with `side = :ions` is the same exchange in the row of the ion energies, so the two sides are antisymmetric.
 [`RunawayFluidEnergyTransferTerm`](@ref) is DREAM's heating by runaways without a runaway grid, the power ``e c\, E_c\, n_\mathrm{re}``: runaways at the speed of light against the friction of the critical field ``E_c``, with the Coulomb logarithm at ``p = 20\, m_e c``.
 With a runaway grid, [`free_electron_energy_transfer_term`](@ref) takes its place: the energy moment of the electron-electron collisions of that grid.
 
 The channels other than [`SecondaryHeatingTerm`](@ref) are those of DREAM's equation of ``T_\mathrm{cold}`` (`src/Settings/Equations/T_cold.cpp`, DREAM v26.5), and [`RadiatedPowerTerm`](@ref) takes DREAM's radiation with `radiation = :dream` and `bremsstrahlung_corrections = :dream`.
+DREAM adds the collisional transfer from a runaway grid in every mode.
 With a hot-tail grid, DREAM adds the collisional transfer from the hot-tail distribution, except in its fully kinetic mode (`collfreq_mode` FULL), where it leaves the transfer out.
+[`FrictionEnergyTransferTerm`](@ref) is that transfer from the hot-tail distribution: the moment ``\frac{1}{V'} \sum_{ij} m_e c\, v_i p_i\, \nu_s(p_i) f_{ij} \mathcal{V}'_{ij} \Delta p_i \Delta\xi_j`` at the cell centres, with the superthermal frequencies on the cold electrons alone.
+As a moment of `f` it takes any scheme of the operator, and it counts the energy of an electron until it leaves the grid, also through ``p = 0``.
 `test/test_cold_energy_dream.jl` compares the row with ohmic heating, radiation and heat diffusion with DREAM in its fluid mode.
 
 ## The total energy in the fully kinetic mode
@@ -124,7 +128,7 @@ With the sinks charged to ``W_\mathrm{tot}``, the cold electrons receive exactly
 [`MomentumBoundaryFluxTerm`](@ref) and [`InterfaceEnergyFluxTerm`](@ref) weight the flux at the top of the grid with the kinetic energy of the last momentum cell.
 That is the energy that the discrete energy moment of the grid loses with the electrons.
 The electrons that cross to the runaway grid take their energy with them and do not heat the cold ones.
-`test/test_energy_transfer.jl` and `test/test_energy_moment.jl` test these terms and the energy moment.
+`test/test_energy_transfer.jl` and `test/test_energy_moment.jl` test these terms and the energy moment, and `test/test_friction_energy_transfer.jl` tests [`FrictionEnergyTransferTerm`](@ref).
 
 ## The energy of the kinetic ionization
 
