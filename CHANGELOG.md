@@ -8,6 +8,9 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Added
 
+- `fill_coronal_equilibrium!` starts the ions of a run in coronal equilibrium at the free-electron density they give, DREAM's `init_equil`, with the rates of an `IonRateTerm` or of a composition ([#191](https://github.com/osrep/Runes2P.jl/pull/191)).
+  Its iterations stop at `MAXIMUM_EQUILIBRIUM_ITERATIONS`.
+  `fill_runaway_distribution!` fills a distribution from a density in DREAM's four shapes of `f_re` (`RUNAWAY_SHAPES`).
 - `FrictionEnergyTransferTerm` and `FRICTION_TRANSFER_SETTINGS`: the power that a distribution gives to the cold electrons by friction, as DREAM's `CollisionalEnergyTransferKineticTerm` ([#185](https://github.com/osrep/Runes2P.jl/pull/185)).
   It is the heating in the row of the temperature of a superthermal run, and takes any scheme of the operator.
 - `NewtonSolver(polish_negatives = :auto)`: one more Newton iteration when an iterate that passes both tests has negative entries in a kinetic unknown ([#163](https://github.com/osrep/Runes2P.jl/pull/163)).

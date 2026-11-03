@@ -12,7 +12,7 @@ The file and line citations of DREAM's source refer to commit `93d27e1` unless t
 
 | ✅ implemented | 🚧 partial | ➖ not implemented | features |
 |---|---|---|---|
-| 74 | 18 | 47 | 139 |
+| 75 | 17 | 47 | 139 |
 
 The tables follow the groups of DREAM's settings (`py/DREAM/Settings`).
 The column "DREAM" names the setting, class or unknown, the column "Runes2P" its state and the name that implements it.
@@ -117,7 +117,7 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 | prescribed charge states | `IONS_PRESCRIBED`, `_NEUTRAL`, `_FULLY_IONIZED` | ✅ implemented: the ions of a [`PlasmaState`](@ref) |
 | dynamic charge states | `IONS_DYNAMIC` | ✅ implemented: [`IonRateTerm`](@ref), [`ion_densities_unknown`](@ref) |
 | dynamic, neutral or fully ionized at the start | `IONS_DYNAMIC_NEUTRAL`, `_FULLY_IONIZED` | ✅ implemented: [`deposit_neutrals!`](@ref), [`set_ion_densities!`](@ref) |
-| start in coronal equilibrium | `init_equil` | 🚧 partial: the charge states of [`coronal_equilibrium`](@ref); no run that starts from them is packaged or tested |
+| start in coronal equilibrium | `init_equil` | ✅ implemented: [`fill_coronal_equilibrium!`](@ref), DREAM's fixed point of the free-electron density over the species started in equilibrium, with the charge states of [`coronal_equilibrium`](@ref) |
 | charge states held in coronal equilibrium | `IONS_EQUILIBRIUM` | ➖ not implemented |
 | ADAS rate coefficients | `Atomics`, ADF11 | ✅ implemented: [`read_adas`](@ref), [`adas_coefficient`](@ref) |
 | ADAS interpolation | `ADAS_INTERP_BICUBIC`, `ADAS_INTERP_BILINEAR` | 🚧 partial: the bicubic interpolation, DREAM's default |
@@ -187,7 +187,7 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 | analytic or prescribed distribution | `DISTRIBUTION_MODE_ANALYTICAL`, `PRESCRIBED` | ➖ not implemented |
 | non-relativistic hot-tail equation | `F_HOT_DIST_MODE_NONREL` | ➖ not implemented |
 | initial distribution | `setInitialProfiles`, `setInitialValue` | 🚧 partial: any state array of the caller on the grid of the run, or DREAM's Maxwellian from profiles of ``n`` and ``T`` ([`fill_maxwellian!`](@ref)); no interpolation from another grid |
-| initial runaway distributions | `INIT_FORWARD`, `XI_NEGATIVE`, `XI_POSITIVE`, `ISOTROPIC`, `AVALANCHE`, `PRESCRIBED` | 🚧 partial: any state array of the caller, no packaged shapes |
+| initial runaway distributions | `INIT_FORWARD`, `XI_NEGATIVE`, `XI_POSITIVE`, `ISOTROPIC`, `AVALANCHE`, `PRESCRIBED` | 🚧 partial: the four shapes in the first momentum cell ([`fill_runaway_distribution!`](@ref)) and any state array of the caller; not the analytic avalanche shape |
 
 ### Solver and time stepping
 

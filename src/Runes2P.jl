@@ -98,7 +98,7 @@ export IonComposition, component_count, species_components, species_index, compo
 export WeightedSumTerm, free_electron_weights, ion_densities_unknown, set_ion_densities!,
        ion_densities
 export deposit_neutrals!, population_equations, IonRateTerm, ion_rate_matrix,
-       coronal_equilibrium
+       coronal_equilibrium, fill_coronal_equilibrium!, MAXIMUM_EQUILIBRIUM_ITERATIONS
 export RosenbluthPutvinskiSourceTerm, rosenbluth_putvinski_rate, ExternalAvalancheTerm
 export KineticIonizationTerm, fluid_ionization_coefficient, kinetic_ionization_rates,
        MINIMUM_SPLIT_THRESHOLD_FACTORS
@@ -170,7 +170,8 @@ export ParticleSourceTerm, source_shape, MomentumBoundaryFluxTerm
 export normalized_conductivity, effective_charge, braams_karney_conductivity,
        test_particle_conductivity_fraction
 export kinetic_conductivity, ConductivityModel, ConductivityTerm, conductivity_at
-export residual!, fill_initial_values!, fill_maxwellian!, mass_matrix
+export residual!, fill_initial_values!, fill_maxwellian!, fill_runaway_distribution!,
+       RUNAWAY_SHAPES, mass_matrix
 export jacobian_sparsity, jacobian_prototype, jacobian_operator, jacobian_colors,
        residual_scales, ode_function
 export FluidSchurLU
