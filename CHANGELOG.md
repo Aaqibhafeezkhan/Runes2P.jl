@@ -8,6 +8,9 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Added
 
+- `p_zero_boundary` of `AdvectionDiffusion`, `fokker_planck_operator` and `electron_electron_operator` sets the flux through `p = 0` on a grid from `p = 0`.
+  The default `:outflow` keeps the flux of the friction there, as DREAM's hot-tail grid; `:zero_flux` takes none, as DREAM's runaway grid.
+  The settings record of an operator holds it, and `OUTPUT_FORMAT_VERSION` is 0.0.4 for the new key.
 - `fill_coronal_equilibrium!` starts the ions of a run in coronal equilibrium at the free-electron density they give, DREAM's `init_equil`, with the rates of an `IonRateTerm` or of a composition ([#191](https://github.com/osrep/Runes2P.jl/pull/191)).
   Its iterations stop at `MAXIMUM_EQUILIBRIUM_ITERATIONS`.
 - `fill_runaway_distribution!` fills a distribution from a density in DREAM's four shapes of `f_re`, `RUNAWAY_SHAPES` ([#191](https://github.com/osrep/Runes2P.jl/pull/191)).

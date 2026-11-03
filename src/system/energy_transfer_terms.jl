@@ -151,10 +151,12 @@ function _loss_operators(term::KineticEnergyLossTerm, grid, plasma)
     upper = term.part === :sinks ? :interface : op.p_upper_boundary
     free = electron_electron_operator(
         grid, plasma, term.source.settings; scheme = op.p_scheme,
-        p_lower_boundary = op.p_lower_boundary, p_upper_boundary = upper)
+        p_lower_boundary = op.p_lower_boundary, p_upper_boundary = upper,
+        p_zero_boundary = op.p_zero_boundary)
     term.part === :free_electrons && return (free, nothing)
     collisions = AdvectionDiffusion(grid; p_scheme = op.p_scheme, xi_scheme = op.xi_scheme,
-        p_lower_boundary = op.p_lower_boundary, p_upper_boundary = upper)
+        p_lower_boundary = op.p_lower_boundary, p_upper_boundary = upper,
+        p_zero_boundary = op.p_zero_boundary)
     C = eltype(plasma.cold_electron_temperature)
     if C !== Float64
         collisions = similar_coefficients(collisions, C)

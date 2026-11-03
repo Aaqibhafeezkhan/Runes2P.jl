@@ -14,7 +14,7 @@ using LinearAlgebra: BLAS
 Version of the output file format, written as the string `"major.minor.patch"` in the
 root attribute `format_version`. It counts up with every change of the file's content.
 """
-const OUTPUT_FORMAT_VERSION = v"0.0.3"
+const OUTPUT_FORMAT_VERSION = v"0.0.4"
 
 "The format version as written to files, `\"major.minor.patch\"`."
 output_format_version() = string(OUTPUT_FORMAT_VERSION)
@@ -414,7 +414,7 @@ const COEFFICIENT_FIELDS = (
     :diffusion_xi_p, :advection_r, :diffusion_r_r, :advection_p_times_p2_at_zero)
 const OPERATOR_OPTION_FIELDS = (
     :p_scheme, :xi_scheme, :r_scheme, :p_lower_boundary, :p_upper_boundary,
-    :r_boundary)
+    :p_zero_boundary, :r_boundary)
 
 function settings_fields(::Type{<:AdvectionDiffusion})
     (
