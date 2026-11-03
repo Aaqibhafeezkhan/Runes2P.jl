@@ -36,7 +36,7 @@ Each set is published as a tarball with its files at the top level:
 | `dream_cooling_positivity.h5` | `dream-v26.5` | `cooling_positivity.py` | `test_cooling_dream.jl` |
 | `dream_disruption_small.h5` | `dream-v26.5` | `disruption_kinetic.py` | `test_disruption_dream.jl` |
 | `dream_disruption_chain_small.h5` | `dream-v26.5-disruption` | `disruption_kinetic.py` | `test_disruption_initialization_dream.jl` (runs 0 to 2, the initialization), `test_disruption_chain_dream.jl` (runs 0 to 4, end to end) |
-| `dream_disruption_superthermal_small.h5` | `dream-v26.5-disruption` | `disruption_kinetic.py --mode superthermal` | no test; the disruption case from its initialization, superthermal |
+| `dream_disruption_superthermal_small.h5` | `dream-v26.5-disruption` | `disruption_kinetic.py --mode superthermal` | `test_disruption_superthermal_dream.jl` (runs 0 to 4, end to end) |
 | `dream_dreicer_kinetic.h5` | `dream-v26.5` | `dreicer_kinetic.py` | `test_runaway_physics.jl` |
 | `dream_example_runaway.h5` | `dream-v26.5` | `example_runaway.py` | `test_example_runaway.jl` |
 | `dream_flux_limiters.h5` | `dream-v26.5` | `flux_limiters.py` | `test_flux_limiters_dream.jl` |

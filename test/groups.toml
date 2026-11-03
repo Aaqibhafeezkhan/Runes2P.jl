@@ -171,3 +171,10 @@ tier = "full"
 # 6.1 minutes: the disruption chain end to end at both compat values, a group of its own, since
 # full-8, the lightest full group, holds 10.1 minutes
 files = ["test_disruption_chain_dream.jl"]
+
+[[group]]
+name = "full-11"
+tier = "full"
+# 4.6 minutes: the disruption case in the superthermal mode end to end at both compat values, a
+# group of its own, since full-10 holds the chain of the fully kinetic mode
+files = ["test_disruption_superthermal_dream.jl"]
