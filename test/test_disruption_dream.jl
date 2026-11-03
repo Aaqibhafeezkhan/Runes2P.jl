@@ -23,6 +23,7 @@ include(joinpath(@__DIR__, "example_disruption.jl"))
 # so that a change of the method shows while a change of the rounding does not
 #! format: off
 const TOLERANCES = Dict("f_hot" => 5e-4,      # 4.4e-5
+                        "j_tot" => 2e-11,     # 1.9e-12
                         "n_hot" => 2e-6,      # 1.9e-7
                         "E_field" => 5e-6,    # 4.1e-7
                         "j_hot" => 5e-7,      # 4.6e-8

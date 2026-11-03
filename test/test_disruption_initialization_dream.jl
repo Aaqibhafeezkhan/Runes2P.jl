@@ -7,9 +7,9 @@
 # held (run 1), and again with the field rescaled to the plasma current (run 2). The start of run 1
 # and each saved step after the start of runs 1 and 2 are compared with DREAM's, and the state
 # handed to the ionization phase with DREAM's first state of that phase. The runaway density and
-# current are compared over the radii: at the second radius n_re is 0.008 m⁻³, 2e-15 of the first
-# radius, fed by the far tail of f (down to 4e-116 m⁻³ per cell), and differs by up to 8e-4 there.
-# The D background stays fully ionized but for a recombination of up to 3e-8 of it, so the
+# current are compared over the radii: at the second radius n_re is 0.002 to 0.026 m⁻³, 2e-15 of
+# the first radius, fed by the far tail of f (down to 4e-116 m⁻³ per cell), and differs by up to
+# 8e-4 there. The D background stays fully ionized but for a recombination of up to 3e-8 of it, so the
 # particle source is near zero in these runs and its Maxwellian shape is barely exercised. Needs
 # the ADF11 cache.
 using HDF5
@@ -32,7 +32,8 @@ const TOLERANCES = Dict("E_field" => 1e-8,    # 7.7e-10, run 2 (the rescale by I
                         "n_i" => 1e-13,       # round-off of the D background
                         "n_cold" => 2e-14,    # 2.0e-15
                         "W_cold" => 1e-14,    # 2.7e-16
-                        "T_cold" => 1e-14)    # round-off of the prescribed profile
+                        "T_cold" => 1e-14,    # round-off of the prescribed profile
+                        "n_tot" => 1e-14)     # 0, the D background
 #! format: on
 # the state handed to the ionization phase against DREAM's first state of that phase, per unknown
 # relative to its largest value: the differences of the end of run 2 (7.7e-10 measured)
@@ -40,43 +41,6 @@ const HANDOVER = 1e-8
 # run 0 (the conductivity and the field of the prescribed current) and the state at the start of
 # run 1: round-off (1.2e-15 measured)
 const ROUND_OFF = 1e-13
-
-const NAMES = ("E_field" => :electric_field, "j_ohm" => :ohmic_current_density,
-    "j_hot" => :hot_electron_current_density, "j_re" => :runaway_current_density,
-    "j_tot" => :total_current_density, "n_hot" => :hot_electron_density,
-    "n_cold" => :cold_electron_density, "n_re" => :runaway_density,
-    "psi_p" => :poloidal_flux, "W_cold" => :cold_thermal_energy,
-    "T_cold" => :cold_electron_temperature)
-
-# the largest difference of each quantity over the radii and the saved steps `steps`, relative
-# to the largest value of DREAM over the radii at each step; for f_hot and n_i, over the cells
-# and the charge states at each radius and step
-function differences(run, dream, steps)
-    layout, solution = run.case.layout, run.solution
-    errors = Dict{String, Float64}()
-    for (name, ours) in NAMES
-        id = unknown_id(layout, ours)
-        errors[name] = maximum(maximum(abs,
-                                   unknown_values(solution.states[:, m], layout, id) .-
-                                   dream[name][:, m]) / maximum(abs, dream[name][:, m])
-        for m in steps)
-    end
-    current = only(unknown_range(layout, unknown_id(layout, :plasma_current)))
-    errors["I_p"] = maximum(abs(solution.states[current, m] / dream["I_p"][m] - 1)
-    for m in steps)
-    f_id, ions_id = unknown_id(layout, :f), unknown_id(layout, :ion_densities)
-    errors["f_hot"] = maximum(maximum(abs,
-                                  kinetic_view(solution.states[:, m], layout, f_id, ir) .-
-                                  dream["f_hot"][:, :, ir, m]) /
-                              maximum(abs, dream["f_hot"][:, :, ir, m])
-    for ir in 1:run.case.nr, m in steps)
-    errors["n_i"] = maximum(maximum(abs,
-                                radial_view(solution.states[:, m], layout, ions_id, ir) .-
-                                dream["n_i"][ir, :, m]) /
-                            maximum(abs, dream["n_i"][ir, :, m])
-    for ir in 1:run.case.nr, m in steps)
-    return errors
-end
 
 @testset "the initialization of the disruption case against DREAM" begin
     if !isdir(adas_cache_directory())
@@ -99,13 +63,15 @@ end
             # from the current. The hot current and the runaways start at zero in DREAM, and run 2
             # starts from the field of run 1, rescaled by its plasma current
             if name == "init"
-                errors = differences(run, dream[name], 1:1)
+                errors = phase_differences(
+                    run.case, run.solution, dream[name]; per_radius = (),
+                    steps = 1:1)
                 for quantity in setdiff(sort!(collect(keys(errors))), (
                     "j_hot", "n_re", "j_re"))
                     @test errors[quantity] < ROUND_OFF
                 end
             end
-            errors = differences(run, dream[name], 2:length(run.solution.times))
+            errors = phase_differences(run.case, run.solution, dream[name]; per_radius = ())
             for quantity in sort!(collect(keys(errors)))
                 @info "the initialization against DREAM, run $name: $quantity $(errors[quantity])"
                 @test errors[quantity] < TOLERANCES[quantity]

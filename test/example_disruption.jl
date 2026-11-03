@@ -404,8 +404,10 @@ function kinetic_terms(
     return (; settings, region, fp, conductivity)
 end
 
-# the system of a phase of the case on the grids of `start`: `mode = :kinetic` for DREAM's
-# fully kinetic mode, `:superthermal` for its superthermal mode (the header of this file)
+# the system of a phase of the case on the grids of `start` (`read_dream_state`): `mode = :kinetic`
+# for DREAM's fully kinetic mode, `:superthermal` for its superthermal mode (the header of this
+# file), `compat` and `diffusivity` of the heat transport as in the header. Returns the layout, the
+# equations, the grids, the radius count and the mode; `budgets` and `phase_differences` take it.
 function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
         diffusivity::Real = DIFFUSIVITY, mode::Symbol = :kinetic)
     mode in (:kinetic, :superthermal) ||
@@ -508,7 +510,8 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
             # DREAM's fluid ionization takes the whole ADAS rate next to the kinetic one, so the tail of
             # the Maxwellian above the threshold ionizes twice (ions.cpp:280); Runes2P's split, of the
             # fully kinetic mode at compat = runes2p, takes the cold electrons below the threshold
-            # alone (IonRateTerm with kinetic_ionization)
+            # alone (IonRateTerm with kinetic_ionization). In the superthermal mode the cold electrons
+            # are not in f, and nothing ionizes twice
             Equation(:ion_densities, TimeDerivative(), IonRateTerm(COMPOSITION; split...), kinetic),
             population_equations(COMPOSITION; hot_density = :hot_electron_density,
                 runaway_density = :runaway_density)...,
@@ -692,15 +695,16 @@ end
 const COMPARED = ("T_cold" => :cold_electron_temperature, "E_field" => :electric_field,
     "n_cold" => :cold_electron_density, "n_hot" => :hot_electron_density,
     "n_tot" => :total_electron_density, "j_ohm" => :ohmic_current_density,
-    "j_hot" => :hot_electron_current_density, "psi_p" => :poloidal_flux,
-    "W_cold" => :cold_thermal_energy, "n_re" => :runaway_density,
+    "j_hot" => :hot_electron_current_density, "j_tot" => :total_current_density,
+    "psi_p" => :poloidal_flux, "W_cold" => :cold_thermal_energy, "n_re" => :runaway_density,
     "j_re" => :runaway_current_density)
 
 """
-    phase_differences(case, solution, dream; per_radius=("n_re", "j_re"))
+    phase_differences(case, solution, dream; per_radius=("n_re", "j_re"), steps=2:end)
 
-The largest relative difference of each quantity of a phase of `case` against DREAM's run of
-the phase `dream` (`read_dream_state`) over the steps of `solution` after the first: of the radial
+The largest relative difference of each quantity of a run of `case` (a phase, or a run of the
+initialization) against DREAM's run `dream` (`read_dream_state`) over the saved steps `steps` of
+`solution`, by default those after the first: of the radial
 quantities the largest difference over the radii relative to DREAM's largest value over the
 radii at each step, of `f_hot`, `n_i` and `W_i` the same over the cells, charge states or
 species of each radius (`W_i` where the system has the ion energies, which the initialization
@@ -709,9 +713,9 @@ of `per_radius` are compared at each radius relative to DREAM's largest value at
 over the phase: the runaway density differs by 15 orders of magnitude between the radii. With
 `per_radius = ()` they are compared over the radii as the others. Returns a `Dict` of DREAM's names.
 """
-function phase_differences(case, solution, dream; per_radius = ("n_re", "j_re"))
+function phase_differences(case, solution, dream; per_radius = ("n_re", "j_re"),
+        steps = 2:length(solution.times))
     layout = case.layout
-    steps = 2:length(solution.times)
     ours_at(m, ours) = unknown_values(solution.states[:, m], layout, unknown_id(layout, ours))
     errors = Dict{String, Float64}()
     for (name, ours) in COMPARED
@@ -752,11 +756,11 @@ function phase_differences(case, solution, dream; per_radius = ("n_re", "j_re"))
 end
 
 # the closures of the assembled system (`budgets`), independent of DREAM: round-off bounds, at
-# least 50 times the values measured at -O0 in the phases started from DREAM's state
-# (test_disruption_dream.jl; compat = dream / runes2p, ionization and quench). The chain of
-# test_disruption_chain_dream.jl stays below them as well, at least 28 times (the exchange,
-# 3.6e-15, at the default optimisation level), and so does the superthermal chain of
-# test_disruption_superthermal_dream.jl, at least 43 times (the closure, 2.3e-14).
+# least 37 times the values measured at -O0 in the phases started from DREAM's state (in the
+# comment; test_disruption_dream.jl, compat = dream / runes2p, ionization and quench). At the
+# default optimisation level the chain of test_disruption_chain_dream.jl stays below them at least
+# 27 times (the exchange, 3.6e-15), and the superthermal runs of test_disruption_superthermal_dream.jl
+# at least 43 times (the closure, 2.3e-14).
 #! format: off
 const BUDGETS = (species=1e-13,     # 3.2e-16 / 4.7e-16, 3.2e-16 / 3.2e-16
                  exchange=1e-13,    # 2.7e-15 / 1.3e-15, 5.1e-16 / 1.3e-15

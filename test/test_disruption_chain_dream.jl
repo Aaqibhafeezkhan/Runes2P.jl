@@ -25,6 +25,7 @@ include(joinpath(@__DIR__, "example_disruption.jl"))
 # comment)
 #! format: off
 const CHAIN_TOLERANCES = Dict("f_hot" => 5e-4,      # 4.4e-5
+                              "j_tot" => 6e-9,      # 5.9e-10, from the initialization
                               "E_field" => 5e-6,    # 4.1e-7
                               "n_hot" => 2e-6,      # 1.9e-7
                               "j_hot" => 5e-7,      # 4.9e-8
