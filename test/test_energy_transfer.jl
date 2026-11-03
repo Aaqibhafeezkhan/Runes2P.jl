@@ -1,7 +1,8 @@
 # The energy that the runaway grid and the electrons leaving the hot-tail grid exchange with
 # the total energy of the electrons: the collisional transfer of a
 # runaway population against the friction power of superthermal electrons, its Jacobian
-# with the plasma columns and with the plasma lagged, and the energy carried through p_max and
+# with the plasma columns and with the plasma lagged, the Jacobian of the energy loss of f
+# (KineticEnergyLossTerm) with a lagged source, and the energy carried through p_max and
 # through the interface, with its column of the field when the interface reads the field.
 using SparseArrays: findnz, sparse
 
