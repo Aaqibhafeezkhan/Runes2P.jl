@@ -188,7 +188,8 @@ On a grid from `p = 0` the friction carries electrons out through `p = 0` by def
 hot-tail grid. `p_zero_boundary = :zero_flux` takes no flux there, as on DREAM's runaway
 grid, whose `f_re` keeps the Dirichlet lower condition of its advection in `p`
 (`src/Settings/Equations/f_re.cpp:87`, `fvm/Equation/AdvectionTerm.cpp:36`); the conditions
-are those of [`AdvectionDiffusion`](@ref).
+are those of [`AdvectionDiffusion`](@ref). `p_zero_boundary` applies to a grid from `p = 0`
+only, `p_lower_boundary` to a grid with `p_min > 0` only.
 
 `field_in_coefficients = false` leaves the field of the plasma out of the coefficients, for
 a field that is an unknown of the system: the operator holds the collisions and the

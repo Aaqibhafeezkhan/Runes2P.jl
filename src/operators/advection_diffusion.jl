@@ -47,14 +47,18 @@ Boundary conditions:
   (`src/Settings/Equations/distribution.cpp:234-237`): `f_hot` has one
   (`src/Settings/Equations/f_hot.cpp:96`), `f_re` none (`src/Settings/Equations/f_re.cpp:87`).
   The ghost cells of the four-point schemes below `p = 0` then hold zero, as DREAM's
-  Dirichlet condition leaves out the cells beyond the grid. `:zero_flux` needs `p_min = 0`.
+  Dirichlet condition leaves out the cells beyond the grid. `p_zero_boundary` applies to a
+  grid from `p = 0` only, and `:zero_flux` needs `p_min = 0`; a grid with `p_min > 0`
+  takes `p_lower_boundary`.
 - First radial face: no flux.
 - `p = p_min > 0` (`p_lower_boundary`): `:zero_flux`, or `:prescribed` with the flux `Γᵖ`
   through the face given in `op.p_flux_at_lower_boundary[j, ir]` (positive into the
   domain, independent of `f`), or `:interface`: the face is shared with the grid of
   another kinetic unknown below (a runaway grid above a hot-tail grid), the operator adds
   no flux through it, and a [`MomentumInterfaceTerm`](@ref) in the equation system carries
-  the flux between the two grids.
+  the flux between the two grids. `p_lower_boundary` applies to a grid with `p_min > 0`
+  only: on a grid from `p = 0`, `:prescribed` and `:interface` are refused, and the
+  boundary there is `p_zero_boundary`.
 - `ξ = ±1`: no flux.
 - `p = p_max` (`p_upper_boundary`): `:outflow`, advective outflow only (`Aᵖ > 0`); or
   `:f_zero`, outflow into a ghost cell with `f = 0` one cell spacing beyond the last
@@ -111,11 +115,11 @@ centres; the cross terms `Dᵖᵠ`, `Dᵠᵖ` are always central:
   and `:upwind_second_order` (linear in f) and flux limiters `:tcdf`, `:muscl`, `:smart`,
   `:ospre`, plus `:van_albada` (Runes2P), which are nonlinear in f. The face value uses two
   upstream cells and one downstream cell (`src/operators/flux_limiters.jl`), with ghost
-  cells as DREAM sets them for the hot-tail distribution: mirrored at p = 0 (zero at a
-  lower boundary p_min > 0 and with `p_zero_boundary = :zero_flux`), zero beyond p_max,
-  mirrored at ξ = ±1. The fluxes through
-  the boundary faces keep the rules listed above (the scheme's face value at p = 0,
-  upwind at p_max as DREAM's `BC_F_0`).
+  cells as DREAM sets them: mirrored at p = 0 with `p_zero_boundary = :outflow` (DREAM's
+  hot-tail distribution), zero with `p_zero_boundary = :zero_flux` (DREAM's runaway
+  distribution) and at a lower boundary p_min > 0, zero beyond p_max, mirrored at ξ = ±1.
+  The fluxes through the boundary faces keep the rules listed above (the scheme's face
+  value at p = 0, upwind at p_max as DREAM's `BC_F_0`).
   With fewer than three cells in a direction the face value is central, as in DREAM.
 
 The scheme can differ per direction (`p_scheme`, `xi_scheme`, `r_scheme`). `scheme` sets
@@ -216,11 +220,9 @@ function AdvectionDiffusion(
     if p_upper_boundary === :extrapolated_flux_consistent && np < 3
         throw(ArgumentError("extrapolated_flux_consistent p_max boundary needs at least 3 momentum cells"))
     end
-    if p_lower_boundary === :prescribed && momentum_grid(grid, 1).p_faces[1] == 0
-        throw(ArgumentError("a prescribed p flux needs p_min > 0"))
-    end
-    if p_lower_boundary === :interface && momentum_grid(grid, 1).p_faces[1] == 0
-        throw(ArgumentError("an interface at the lower p boundary needs p_min > 0"))
+    if p_lower_boundary !== :zero_flux && momentum_grid(grid, 1).p_faces[1] == 0
+        throw(ArgumentError("p_lower_boundary = :$p_lower_boundary needs p_min > 0; " *
+                            "the boundary of a grid from p = 0 is p_zero_boundary"))
     end
     if p_zero_boundary === :zero_flux && momentum_grid(grid, 1).p_faces[1] != 0
         throw(ArgumentError("p_zero_boundary = :zero_flux needs p_min = 0; " *
@@ -802,9 +804,11 @@ counted in the same normalization as [`density`](@ref), so a runaway rate measur
 a surface above the critical momentum is directly comparable with
 [`connor_hastie_rate`](@ref). Face 1 is the flux through `p = p_min` (the `p = 0` limit or
 the prescribed boundary flux) and face `momentum_cell_count + 1` the flux out of the grid.
-A face with an `:interface` boundary (face 1 under `p_lower_boundary = :interface`, the
-last face under `p_upper_boundary = :interface`) reads zero: this operator carries no flux
-there, and [`interface_flux`](@ref) gives the flux between the grids.
+On a grid from `p = 0`, face 1 under `p_zero_boundary = :zero_flux` reads zero: this
+operator takes no flux through `p = 0` there. A face with an `:interface` boundary (face 1
+under `p_lower_boundary = :interface`, the last face under `p_upper_boundary = :interface`)
+reads zero: this operator carries no flux there, and [`interface_flux`](@ref) gives the flux
+between the grids.
 `electric_field` (one value per radius) is the field of an operator that takes it as an
 argument ([`apply!`](@ref)).
 """

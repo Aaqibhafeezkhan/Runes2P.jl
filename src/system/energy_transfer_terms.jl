@@ -327,10 +327,10 @@ alone, the energy-dependent Coulomb logarithm and no bremsstrahlung.
 The moment reads the distribution at the cell centres, so it holds whatever scheme the
 operator of `f` takes, and it counts the energy of an electron until it leaves the grid,
 also through `p = 0` where the friction of the superthermal frequencies carries it out
-(compare [`KineticEnergyLossTerm`](@ref), the energy change of the electron-electron
-operator itself). The term is linear in `f`. With a plasma of unknowns its Jacobian holds the
-columns of the temperature, the density and, when the plasma reads them, the ion charge
-states, as DREAM's.
+under `p_zero_boundary = :outflow` (compare [`KineticEnergyLossTerm`](@ref), the energy
+change of the electron-electron operator itself). The term is linear in `f`. With a plasma
+of unknowns its Jacobian holds the columns of the temperature, the density and, when the
+plasma reads them, the ion charge states, as DREAM's.
 """
 struct FrictionEnergyTransferTerm{S} <: EquationTerm
     kinetic::Symbol

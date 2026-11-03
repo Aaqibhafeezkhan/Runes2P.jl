@@ -725,18 +725,18 @@ end
 mode. In `:ultra_relativistic` mode, where `ν_s ∝ 1/p` and the analytic limit is 0, it
 therefore returns the `:superthermal` value. The friction of that mode is the constant
 drift `Aᵖ = -4π r₀² c lnΛ n`, which brings electrons to `p = 0` in a finite time. With
-DREAM's value they leave the grid there where the flux through `p = 0` is applied: the
-sink is `1/Δp₁²` times the inflow through the first interior face at equal `f`, so the
-first cell absorbs. With the analytic limit the first cell would collect them without
-bound.
+DREAM's value, on a grid that applies the flux through `p = 0`, they leave the grid at
+`p = 0`: the sink is `1/Δp₁²` times the inflow through the first interior face at equal
+`f`, so the first cell absorbs. With the analytic limit the first cell would collect them
+without bound.
 
 DREAM's hot-tail grid applies the flux and lets electrons leave at `p = 0`; its runaway
 grid does not (`src/Settings/Equations/f_hot.cpp:96`, `src/Settings/Equations/f_re.cpp:87`,
 `src/Settings/Equations/distribution.cpp:234-237`), so in the ultra-relativistic mode,
 which DREAM runs on a runaway grid from `p = 0` (`examples/init_f_re`), the first cell
-collects the electrons the friction brings there. Runes2P applies it by default
-(`p_zero_boundary = :outflow` of [`AdvectionDiffusion`](@ref)), and `p_zero_boundary =
-:zero_flux` leaves it out, as DREAM's runaway grid.
+collects the electrons the friction brings there. Runes2P applies the flux through
+`p = 0` by default (`p_zero_boundary = :outflow` of [`AdvectionDiffusion`](@ref)), and
+`p_zero_boundary = :zero_flux` leaves it out, as DREAM's runaway grid.
 """
 function p3_slowing_down_frequency_at_zero(model::CollisionModel, ir)
     z = zero(model.scaled_bessel_k0[ir])

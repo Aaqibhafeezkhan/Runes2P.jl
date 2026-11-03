@@ -155,4 +155,12 @@ using Random
         @test_throws ArgumentError AdvectionDiffusion(g; p_zero_boundary = :mirrored)
         @test AdvectionDiffusion(g).p_zero_boundary === :outflow
     end
+
+    @testset "p_lower_boundary needs p_min > 0" begin
+        for boundary in (:prescribed, :interface)
+            @test_throws "p_zero_boundary" AdvectionDiffusion(g; p_lower_boundary = boundary)
+        end
+        @test AdvectionDiffusion(g; p_lower_boundary = :zero_flux).p_lower_boundary ===
+              :zero_flux
+    end
 end
