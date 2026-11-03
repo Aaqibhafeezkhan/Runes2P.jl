@@ -56,8 +56,9 @@ DISRUPTION_CASES=(
     "disruption_kinetic dream_disruption_chain_small.h5"
     "disruption_kinetic dream_disruption_superthermal_small.h5 --mode superthermal"
 )
-# the starts of a run (the coronal start, the runaway shapes) and the heating of the cold electrons by
-# a runaway grid and by the hot tail of the superthermal disruption, with DREAM's channels of T_cold
+# the starts of a run (the coronal start, the runaway shapes; test/test_initial_state_dream.jl) and the
+# heating of the cold electrons by a runaway grid and by the hot tail of the superthermal disruption,
+# with DREAM's channels of T_cold (test/test_collisional_heating_dream.jl)
 INITIAL_STATE_CASES=(
     "initial_state dream_coronal_start.h5 case=coronal"
     "initial_state dream_runaway_shapes.h5 case=shapes"

@@ -25,8 +25,9 @@ near the 100 eV of the example: it rises to 101.4 eV). DREAM's equation of T_col
 holds the collisional heating by f_re (src/Settings/Equations/T_cold.cpp:341-354), saved as
 other/fluid/Tcold_fre_coll with the states it is evaluated from.
 
-The tests of Runes2P read these files for the coronal start (fill_coronal_equilibrium!), the
-runaway shapes (fill_runaway_distribution!) and the heating by the runaway grid.
+test/test_initial_state_dream.jl of Runes2P compares the coronal start (fill_coronal_equilibrium!)
+and the runaway shapes (fill_runaway_distribution!), test/test_collisional_heating_dream.jl the
+heating by the runaway grid (FrictionEnergyTransferTerm).
 
 Usage (from reference/dream, with the environment that run_all.sh sets for <set>):
     pixi run python <build>/cases/initial_state.py <output file.h5> case=<coronal|shapes|heating>

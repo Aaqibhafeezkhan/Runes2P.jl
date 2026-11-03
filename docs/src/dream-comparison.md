@@ -102,7 +102,7 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 | prescribed cold temperature | `ColdElectronTemperature.TYPE_PRESCRIBED` | ✅ implemented: [`PrescribedPlasma`](@ref) |
 | self-consistent cold temperature | `TYPE_SELFCONSISTENT` | ✅ implemented: [`thermal_energy_equation`](@ref), [`PlasmaFromUnknowns`](@ref) |
 | ohmic heating | `Tcold_ohmic` | ✅ implemented: [`ohmic_heating_term`](@ref) |
-| collisional heating by ``f_\mathrm{hot}`` and ``f_\mathrm{re}`` | `Tcold_fhot_coll`, `Tcold_fre_coll` | ✅ implemented: [`FrictionEnergyTransferTerm`](@ref), DREAM's moment, which takes any scheme of the operator, for the hot-tail distribution; for the runaway grid [`free_electron_energy_transfer_term`](@ref), the energy change of the electron-electron operator ([`KineticEnergyLossTerm`](@ref)), with a linear scheme, where DREAM takes the same moment for both grids |
+| collisional heating by ``f_\mathrm{hot}`` and ``f_\mathrm{re}`` | `Tcold_fhot_coll`, `Tcold_fre_coll` | ✅ implemented: [`FrictionEnergyTransferTerm`](@ref), DREAM's moment, for the hot tail; for the runaway grid Runes2P's default is [`free_electron_energy_transfer_term`](@ref), the energy change of the electron-electron operator ([`KineticEnergyLossTerm`](@ref)), and DREAM's moment is the option (Departures from DREAM); the moment is compared with DREAM's saved heating of both grids (`test_collisional_heating_dream.jl`) |
 | collisional heating by fluid runaways | `CollisionalEnergyTransferREFluidTerm` | ✅ implemented: [`RunawayFluidEnergyTransferTerm`](@ref) |
 | line radiation, ionization energy, Gould's bremsstrahlung | `RECOMBINATION_RADIATION_NEGLECTED` | ✅ implemented: `radiation = :dream` of [`RadiatedPowerTerm`](@ref), with `bremsstrahlung_corrections = :dream` |
 | recombination radiation | `RECOMBINATION_RADIATION_INCLUDED` | ✅ implemented: `radiation = :recombination` of [`RadiatedPowerTerm`](@ref), with the energy of the recombined state at every radius |
@@ -117,7 +117,7 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 | prescribed charge states | `IONS_PRESCRIBED`, `_NEUTRAL`, `_FULLY_IONIZED` | ✅ implemented: the ions of a [`PlasmaState`](@ref) |
 | dynamic charge states | `IONS_DYNAMIC` | ✅ implemented: [`IonRateTerm`](@ref), [`ion_densities_unknown`](@ref) |
 | dynamic, neutral or fully ionized at the start | `IONS_DYNAMIC_NEUTRAL`, `_FULLY_IONIZED` | ✅ implemented: [`deposit_neutrals!`](@ref), [`set_ion_densities!`](@ref) |
-| start in coronal equilibrium | `init_equil` | ✅ implemented: [`fill_coronal_equilibrium!`](@ref), DREAM's fixed point of the free-electron density over the species started in equilibrium, with the charge states of [`coronal_equilibrium`](@ref) |
+| start in coronal equilibrium | `init_equil` | ✅ implemented: [`fill_coronal_equilibrium!`](@ref), DREAM's fixed point of the free-electron density over the species started in equilibrium, with the charge states of [`coronal_equilibrium`](@ref); compared with DREAM's `examples/ionequil` (`test_initial_state_dream.jl`) |
 | charge states held in coronal equilibrium | `IONS_EQUILIBRIUM` | ➖ not implemented |
 | ADAS rate coefficients | `Atomics`, ADF11 | ✅ implemented: [`read_adas`](@ref), [`adas_coefficient`](@ref) |
 | ADAS interpolation | `ADAS_INTERP_BICUBIC`, `ADAS_INTERP_BILINEAR` | 🚧 partial: the bicubic interpolation, DREAM's default |
@@ -187,7 +187,7 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 | analytic or prescribed distribution | `DISTRIBUTION_MODE_ANALYTICAL`, `PRESCRIBED` | ➖ not implemented |
 | non-relativistic hot-tail equation | `F_HOT_DIST_MODE_NONREL` | ➖ not implemented |
 | initial distribution | `setInitialProfiles`, `setInitialValue` | 🚧 partial: any state array of the caller on the grid of the run, or DREAM's Maxwellian from profiles of ``n`` and ``T`` ([`fill_maxwellian!`](@ref)); no interpolation from another grid |
-| initial runaway distributions | `INIT_FORWARD`, `XI_NEGATIVE`, `XI_POSITIVE`, `ISOTROPIC`, `AVALANCHE`, `PRESCRIBED` | 🚧 partial: the four shapes in the first momentum cell ([`fill_runaway_distribution!`](@ref)) and any state array of the caller; not the analytic avalanche shape |
+| initial runaway distributions | `INIT_FORWARD`, `XI_NEGATIVE`, `XI_POSITIVE`, `ISOTROPIC`, `AVALANCHE`, `PRESCRIBED` | 🚧 partial: the four shapes in the first momentum cell ([`fill_runaway_distribution!`](@ref)), compared with DREAM's (`test_initial_state_dream.jl`), and any state array of the caller; not the analytic avalanche shape |
 
 ### Solver and time stepping
 
@@ -298,6 +298,7 @@ The reasons of the defaults that are choices of this package are on [Choices of 
 | current of a distribution | ``f`` linear across a pitch cell | ``f`` constant over a pitch cell, `pitch_rule = :cell_center` |
 | flux between the two grids | by the overlap cells of the pitch grids | interpolated in pitch, `pitch_mapping = :dream` |
 | Rechester–Rosenbluth coefficient ``D = \pi q R_0 v_\parallel (\delta B/B)^2`` | safety factor and major radius as inputs | ``q = 1`` and ``R_0 = 1`` m in a cylinder, `safety_factor = 1`, `major_radius = 1` |
+| heating of the cold electrons by a runaway grid | the energy change of the electron-electron operator of the grid, [`free_electron_energy_transfer_term`](@ref), with a linear scheme of the operator | the moment `mₑc v p ν_s f` at the cell centres, which also counts the energy that the friction carries out of the grid through its lower boundary, [`FrictionEnergyTransferTerm`](@ref) |
 | radiated power of the ions | line and recombination radiation, the binding energy of ionization and recombination | line radiation, the ionization loss and Gould's bremsstrahlung, `radiation = :dream` of [`RadiatedPowerTerm`](@ref) (with `bremsstrahlung_corrections = :dream` for DREAM's corrections) |
 | relativistic corrections of Gould's bremsstrahlung, the coefficients of ``T/m_ec^2`` | electron-ion ``11/24`` of the erratum ([`GOULD_ION_CORRECTION`](@ref)), electron-electron ``5(44 - 3\pi^2)/(24\sqrt{2})``, the ratio of eqs. (22) and (18) ([`GOULD_ELECTRON_CORRECTION`](@ref)), of R. J. Gould, Astrophys. J. 238, 1026 (1980), [doi:10.1086/158068](https://doi.org/10.1086/158068), erratum Astrophys. J. 243, 677 (1981), [doi:10.1086/158634](https://doi.org/10.1086/158634) | ``19/24`` and ``5(44 - 3\pi^2)/(8\sqrt{2})``, `bremsstrahlung_corrections = :dream` |
 | cross sections of the kinetic ionization | CHIANTI's for H, D, T, Ne and Ar, DREAM's for the other elements | DREAM's fits, `form = :dream` |
