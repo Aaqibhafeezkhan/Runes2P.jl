@@ -1,6 +1,6 @@
 # The starts of a run against DREAM's (reference/dream/cases/initial_state.py, set
 # dream-v26.5-initial-state): the coronal start of DREAM's examples/ionequil, neon in equilibrium
-# next to singly ionized deuterium at 800 eV and at a temperature falling from 800 to 2 eV
+# next to singly ionized deuterium at 800 eV and at a temperature falling from 758 to 2 eV
 # (dream_coronal_start.h5), against fill_coronal_equilibrium!; and the four shapes of f_re of
 # DREAM's examples/init_f_re on its runaway grid, at fields of both signs
 # (dream_runaway_shapes.h5), against fill_runaway_distribution!. Both at t = 0. The coronal start
@@ -10,7 +10,7 @@ using HDF5
 # the largest difference relative to the largest value of DREAM's quantity, about ten times the
 # value measured (in the comment)
 const CORONAL = 1e-13   # 1.2e-14 of the neon density, over the profile
-const SHAPES = 1e-14    # 3.1e-16 of the largest f_re, round-off
+const SHAPES = 2e-15    # 1.6e-16 of the largest f_re, round-off
 
 @testset "the starts of a run against DREAM" begin
     @testset "runaway shapes" begin

@@ -46,6 +46,13 @@ const DREAM_REFERENCE_SETS = Dict(
 # that it stores: the last commit that changed the example in the DREAM of the set
 const REFERENCE_FILES = Dict(
     "dream_cold_energy.h5" => (set = "dream-v26.5", example_commit = nothing),
+    "dream_collisions.h5" => (set = "dream-v26.5", example_commit = nothing),
+    "dream_cooling_positivity.h5" => (set = "dream-v26.5", example_commit = nothing),
+    "dream_disruption_small.h5" => (set = "dream-v26.5", example_commit = nothing),
+    "dream_disruption_chain_small.h5" =>
+        (set = "dream-v26.5-disruption", example_commit = nothing),
+    "dream_disruption_superthermal_small.h5" =>
+        (set = "dream-v26.5-disruption", example_commit = nothing),
     "dream_coronal_start.h5" =>
         (set = "dream-v26.5-initial-state", example_commit = nothing),
     "dream_runaway_shapes.h5" =>
@@ -54,13 +61,6 @@ const REFERENCE_FILES = Dict(
         (set = "dream-v26.5-initial-state", example_commit = nothing),
     "dream_disruption_superthermal_channels_small.h5" =>
         (set = "dream-v26.5-initial-state", example_commit = nothing),
-    "dream_collisions.h5" => (set = "dream-v26.5", example_commit = nothing),
-    "dream_cooling_positivity.h5" => (set = "dream-v26.5", example_commit = nothing),
-    "dream_disruption_small.h5" => (set = "dream-v26.5", example_commit = nothing),
-    "dream_disruption_chain_small.h5" =>
-        (set = "dream-v26.5-disruption", example_commit = nothing),
-    "dream_disruption_superthermal_small.h5" =>
-        (set = "dream-v26.5-disruption", example_commit = nothing),
     "dream_dreicer_kinetic.h5" => (set = "dream-v26.5", example_commit = nothing),
     "dream_example_runaway.h5" =>
         (set = "dream-v26.5", example_commit = "6b5708b85ea7f7bf506f2c381ebb285d1dac527f"),

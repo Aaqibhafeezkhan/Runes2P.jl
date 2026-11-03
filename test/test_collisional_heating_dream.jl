@@ -7,9 +7,10 @@
 #   of the step, so the term takes T_cold, n_cold and the ions of the step before;
 # - by the hot tail of the superthermal disruption phases of test_disruption_superthermal_dream.jl
 #   (dream_disruption_superthermal_channels_small.h5, Tcold_fhot_coll), whose Newton steps take
-#   the plasma of the same step.
+#   the plasma of the same step: DREAM's saved value applies the frequency of the last Newton
+#   iterate to the converged f, so the two agree to the Newton tolerance, not to round-off.
 # DREAM saves the channels of its row 0 = dW/dt + Σ terms, so the heating is the negative of the
-# saved value. Its saved value of a step is that of the state at the end of the step.
+# saved value; the value saved after step m belongs to the state m (OtherQuantityHandler.cpp).
 using HDF5
 
 # the largest difference relative to the largest value of DREAM's heating over the radii at each
@@ -28,7 +29,7 @@ function friction_heating(grid, f, plasma)
         kinetic_view(u, layout, 2, ir) .= f[:, :, ir]
     end
     term = FrictionEnergyTransferTerm(:f, grid, plasma)
-    out = Runes2P.rhs!(zeros(length(u)), term, u, layout, 1, 0.0)
+    out = rhs!(zeros(length(u)), term, u, layout, 1, 0.0)
     return collect(unknown_values(out, layout, 1))
 end
 
@@ -68,6 +69,8 @@ end
     end
 
     @testset "by the superthermal hot tail" begin
+        # the ions of the disruption case (COMPOSITION of example_disruption.jl); the magnetic field
+        # is not read by the term
         composition = IonComposition(["D" => 1, "D_inj" => 1, "Ar" => 18])
         for phase in ("ionization", "quench")
             h5open(reference_file("dream_disruption_superthermal_channels_small.h5"), "r") do h5

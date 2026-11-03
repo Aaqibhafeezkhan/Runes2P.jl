@@ -1,6 +1,6 @@
 # Reference data
 
-The tests compare Runes2P with the output of DREAM and of GSL stored in four reference sets, so they do not run DREAM themselves.
+The tests compare Runes2P with the output of DREAM and of GSL stored in five reference sets, so they do not run DREAM themselves.
 The DREAM cases are DREAM's public examples, run with their own settings and a few stated overrides, and synthetic cases written for one comparison each.
 The generator scripts, the build of DREAM and the regeneration are in `reference/` of the repository.
 
@@ -76,7 +76,7 @@ For the output of a DREAM example it also names the last DREAM commit that chang
 Every DREAM file records `dream_commit`, `dream_branch` and `petsc_version` as attributes.
 `test/test_kinetic_operator_dream.jl` checks the commit and the branch of every DREAM file against its set.
 With the DREAM checkout of a set's build at `reference/dream/<build>/DREAM` it also checks that the checkout is at that commit, and that each example is unchanged since its recorded commit.
-The build is named after its set; `dream-v26.5-disruption` uses that of `dream-v26.5`.
+The build is named after its set; `dream-v26.5-disruption` and `dream-v26.5-initial-state` use that of `dream-v26.5`.
 Without the checkout these checks are skipped.
 
 Test nodes without network need the sets installed beforehand, on a node that has network:
