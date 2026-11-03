@@ -247,9 +247,9 @@ Runes2P's initialization of the case on the grids of `start`, as DREAM's runs 0 
 (generate.py:141-303): the field of the prescribed current from the conductivity of the
 initial plasma (`initial_field`), run 1 with that field from the Maxwellian, then run 2,
 again from the Maxwellian, with the field of run 1 rescaled by `I_p / I_p(end)` of run 1
-(generate.py:295-303), so that its current ends at the plasma current. Returns
-`(; field, first, second)`, with `field` of `initial_field` and the case and the solution of
-each run.
+(generate.py:295-303), so that its current ends at the plasma current. `mode` is that of
+`build_initialization`. Returns `(; field, first, second)`, with `field` of `initial_field`
+and the case and the solution of each run.
 """
 function initialize(start; kwargs...)
     field = initial_field(RadialGrid(start["r_f"]))
@@ -358,12 +358,15 @@ function read_dream_state(h5)
 end
 
 function collision_settings(compat; mode = :full)
-    compat === :dream ?
-    CollisionSettings(; mode, screening = :partial,
-        coulomb_logarithm = :energy_dependent, screening_window = :dream,
-        ion_size_table = :dream, bremsstrahlung = :stopping_power, bremsstrahlung_diffusion = :dream,
-        bremsstrahlung_constant = :dream) :
-    CollisionSettings(; mode, screening = :partial, coulomb_logarithm = :energy_dependent)
+    if compat === :dream
+        return CollisionSettings(; mode, screening = :partial,
+            coulomb_logarithm = :energy_dependent, screening_window = :dream,
+            ion_size_table = :dream, bremsstrahlung = :stopping_power,
+            bremsstrahlung_diffusion = :dream, bremsstrahlung_constant = :dream)
+    else
+        return CollisionSettings(; mode, screening = :partial,
+            coulomb_logarithm = :energy_dependent)
+    end
 end
 
 # the kinetic part shared by the phases (`build`) and the initialization
@@ -417,7 +420,8 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
         ions = background, electric_field = zeros(nr),
         magnetic_field = fill(start["B"], nr))
     # the superthermal mode: the superthermal collision frequencies (generate.py:342-344) and
-    # Ohm's law for the cold electrons, without DREAM's correction (generate.py:229)
+    # Ohm's law for the cold electrons, as DREAM's j_ohm without the full collision frequencies
+    # (src/Settings/Equations/j_ohm.cpp:66, 119-126)
     (; settings, region, fp, conductivity) = kinetic_terms(
         grid, prescribed; scheme, compat,
         collisions = superthermal ? :superthermal : :full, corrected = !superthermal)
@@ -442,7 +446,7 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
         (kinetic_ionization = kinetic,)
     end
     external = ExternalAvalancheTerm(prescribed; p_cutoff = p_max, settings, fluid_ions...)
-    # the superthermal mode: the heating of the cold electrons by the friction of f (T_cold.cpp:318-340)
+    # the superthermal mode: the heating of the cold electrons by the friction of f (src/Settings/Equations/T_cold.cpp:318-340)
     friction = if superthermal
         (FrictionEnergyTransferTerm(:f, grid,
             PlasmaFromUnknowns(prescribed; ions = :ion_densities, temperature_floor = 0.01)),)
@@ -466,7 +470,7 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
                 :hot_electron_current_density; scale = 1e5),
             RadialUnknown(:runaway_current_density; scale = 1e5),
             KineticUnknown(:f, grid; scale = 1e19)])
-    # DREAM builds the particle source only with the full collision frequencies (f_hot.cpp:163-197)
+    # DREAM builds the particle source only with the full collision frequencies (src/Settings/Equations/f_hot.cpp:163-197)
     if superthermal
         unknowns = [u for u in unknowns if u.name !== :particle_source]
     end
@@ -474,7 +478,7 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
     knock_on = RosenbluthPutvinskiSourceTerm(:f, grid; p_cutoff = P_CUT)
     # the rows of the mode: the particle source and the corrected ohmic current of the fully
     # kinetic mode, or f without a source and Ohm's law of the cold electrons in the superthermal
-    # mode (j_ohm.cpp:115-129)
+    # mode (src/Settings/Equations/j_ohm.cpp:66, 119-126)
     source_equations, f_equation, ohmic_equation = if superthermal
         (Equation[], Equation(:f, TimeDerivative(), fp, knock_on),
             Equation(:ohmic_current_density, Algebraic(), conductivity,
@@ -498,8 +502,9 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
         induction_equations(radial; wall_radius = WALL_RADIUS, loop_voltage_at_wall = 0.0),
         [
             # DREAM's fluid ionization takes the whole ADAS rate next to the kinetic one, so the tail of
-            # the Maxwellian above the threshold ionizes twice (ions.cpp:280); Runes2P's split takes the
-            # cold electrons below the threshold alone (IonRateTerm with kinetic_ionization)
+            # the Maxwellian above the threshold ionizes twice (ions.cpp:280); Runes2P's split, of the
+            # fully kinetic mode at compat = runes2p, takes the cold electrons below the threshold
+            # alone (IonRateTerm with kinetic_ionization)
             Equation(:ion_densities, TimeDerivative(), IonRateTerm(COMPOSITION; split...), kinetic),
             population_equations(COMPOSITION; hot_density = :hot_electron_density,
                 runaway_density = :runaway_density)...,
@@ -590,10 +595,11 @@ end
     budgets(case, solution)
 
 The closures of the system of `case` over `solution`, independent of DREAM (checked by
-`test_disruption_dream.jl`): each ion species conserved (no ion transport), the exchange of
-energy between the electrons and the ions antisymmetric, the heat diffusion without a net
-flux (no flux at the edge), the particle source keeping `∫f − (n_cold + n_hot)` fixed, the
-row of `W_cold` closed by its channels, and the energy of the poloidal field.
+`budget_checks` in the tests of the case): each ion species conserved (no ion transport), the
+exchange of energy between the electrons and the ions antisymmetric, the heat diffusion without
+a net flux (no flux at the edge), the particle source keeping `∫f − (n_cold + n_hot)` fixed
+(in the fully kinetic mode; the superthermal mode has no particle source), the row of `W_cold`
+closed by its channels, and the energy of the poloidal field.
 `W = Σ V'Δr (ψ − ψ_wall) j_tot` changes in a step by `4π dt Σ V'Δr E (j_new + j_old)/2`
 when the map from `ψ` to `j` is symmetric (backward Euler, `∂ψ/∂t = 2πE`), so the magnetic
 energy `−W/4π` falls by the work of the field on all currents (a perfectly conducting wall:
@@ -607,7 +613,8 @@ largest electron side), `diffusion` (the net flux of the heat diffusion, relativ
 sum), `closure` (the row of `W_cold` against its channels, relative to `dW/dt`), `drift` (of
 `∫f − n_cold − n_hot`, relative to `n_cold`) and `field` (the change of the field energy against
 the work of the field, relative to the change); and `channels` with `labels`, the energy of each
-channel of the row of `W_cold` over the solution (volume mean, J/m³).
+channel of the row of `W_cold` over the solution (volume mean, J/m³), with the friction of f as a
+sixth channel in the superthermal mode.
 """
 function budgets(case, solution)
     layout = case.layout
@@ -690,7 +697,8 @@ The largest relative difference of each quantity of a phase of `case` against DR
 the phase `dream` (`read_dream_state`) over the steps of `solution` after the first: of the radial
 quantities the largest difference over the radii relative to DREAM's largest value over the
 radii at each step, of `f_hot`, `n_i` and `W_i` the same over the cells, charge states or
-species of each radius, and of `I_p` the difference relative to DREAM's value. The quantities
+species of each radius (`W_i` where the system has the ion energies, which the initialization
+has not), and of `I_p` the difference relative to DREAM's value. The quantities
 of `per_radius` are compared at each radius relative to DREAM's largest value at that radius
 over the phase: the runaway density differs by 15 orders of magnitude between the radii. With
 `per_radius = ()` they are compared over the radii as the others. Returns a `Dict` of DREAM's names.
@@ -722,7 +730,7 @@ function phase_differences(case, solution, dream; per_radius = ("n_re", "j_re"))
                                 dream["n_i"][ir, :, m]) /
                             maximum(abs, dream["n_i"][ir, :, m])
     for ir in 1:case.nr, m in steps)
-    # the ion energies, where the system has them: the initialization holds them fixed
+    # the ion energies, where the system has them: the initialization has none
     if any(u -> u.name === :ion_thermal_energy, layout.unknowns)
         energy_id = unknown_id(layout, :ion_thermal_energy)
         errors["W_i"] = maximum(maximum(abs,
@@ -741,7 +749,8 @@ end
 # least 50 times the values measured at -O0 in the phases started from DREAM's state
 # (test_disruption_dream.jl; compat = dream / runes2p, ionization and quench). The chain of
 # test_disruption_chain_dream.jl stays below them as well, at least 28 times (the exchange,
-# 3.6e-15, at the default optimisation level).
+# 3.6e-15, at the default optimisation level), and so does the superthermal chain of
+# test_disruption_superthermal_dream.jl, at least 43 times (the closure, 2.3e-14).
 #! format: off
 const BUDGETS = (species=1e-13,     # 3.2e-16 / 4.7e-16, 3.2e-16 / 3.2e-16
                  exchange=1e-13,    # 2.7e-15 / 1.3e-15, 5.1e-16 / 1.3e-15
@@ -758,8 +767,8 @@ const DRIFT = Dict("ionization" => 1e-6, "quench" => 1e-13)
 # the budgets of the assembled system against their bounds, the drift against the bound of the
 # phase, and the change of the magnetic energy against 0, as (name, value, bound) for a test
 # `value < bound`: the magnetic energy falls over the phase, as the field works on the currents.
-# The superthermal mode has no particle source to keep ∫f − n_cold − n_hot fixed: its callers pass
-# `nothing` for the drift, which is then not checked.
+# The drift is not checked with `nothing` as its bound: the superthermal mode has no particle
+# source that would keep ∫f − n_cold − n_hot fixed.
 # The tests are the callers', so that a script can include this file without Test.
 function budget_checks(case, solution, label, drift_bound)
     b = budgets(case, solution)

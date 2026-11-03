@@ -12,8 +12,8 @@
 # state of that phase. The runaway density and current are compared over the radii: at the second
 # radius, where n_re is 4e-7 of the first, they differ by 4e-4 from the initialization on. With
 # Runes2P's defaults (compat = runes2p) the chain runs as well and the budgets are asserted; the
-# drift of ∫f − n_cold − n_hot does not apply, as f holds the cold electrons' complement. Needs the
-# ADF11 cache.
+# drift of ∫f − n_cold − n_hot is not checked, since the superthermal mode has no particle source
+# that would keep it fixed. Needs the ADF11 cache.
 using HDF5
 include(joinpath(@__DIR__, "example_disruption.jl"))
 
