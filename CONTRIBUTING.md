@@ -18,7 +18,8 @@ These rules hold for every contribution, by people and by coding agents alike.
   No code means markdown files, files under `docs/src/`, and Julia files outside `test/` whose code stays the same without docstrings and comments; `scripts/code_changes.jl` decides, and its header lists the exceptions.
   A merge into `dev` or `main` runs the lint, the code style check, the format check and the component tests again, on `dev` with the deployment of the docs in place of the docs build.
   The full suite runs on `dev` once a week.
-- Five checks are required for a merge into `dev` or `main`: Markdown lint, Format check, Component tests, Documentation build and Full suite.
+- Six checks are required for a merge into `dev` or `main`: Markdown lint, Code style check, Format check, Component tests, Documentation build and Full suite.
+  A step into an integration branch requires the five of them that `CI.yml` runs.
 - A pull request into `dev` must be up to date with `dev`.
 - A pull request into `dev` needs the approval of its latest push by the maintainer; a later push dismisses it.
   Coding agents never approve a pull request, and merge one only into an integration branch (below).
@@ -34,7 +35,8 @@ These rules hold for every contribution, by people and by coding agents alike.
   The usual split is a series of pull requests into `dev` that each pass the full suite on their own, or the steps of an integration branch.
   For example: the data layout, then the operator, then the solver wiring with its tests.
 - A larger change may collect its steps on an integration branch `feat/<topic>` off `dev`; the steps are branches of the other types (`fix/…`, `perf/…`, `test/…`, `docs/…`, `chore/…`) with pull requests into it.
-  A step runs the checks of `CI.yml`, its author runs `test/test_regression_values.jl` at `-O2` and the test files of the code it changes, and it merges with a merge commit once these pass.
+  A step runs the checks of `CI.yml`, and it merges with a merge commit once these pass.
+  When it changes code by `scripts/code_changes.jl`, its author also runs `test/test_regression_values.jl` at `-O2` and the test files of the code it changes before the merge.
   The full suite runs on the integration branch by hand every few steps, and on its pull request into `dev`, which the maintainer reviews and merges.
 - A pull request with a change that users see adds an entry under "Unreleased" in [`CHANGELOG.md`](CHANGELOG.md), with a link to the pull request.
   Such changes are those of the public API (a rename, a removed export, a changed keyword or order of arguments), new features, and changed numerical results.
