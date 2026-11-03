@@ -145,7 +145,7 @@ using QuadGK: quadgk
                 end
             end
         end
-        u = zeros(length(layout))
+        u = fill(-1.0, length(layout))
         @test_throws "needs the electric field" fill_runaway_distribution!(
             u, layout, :f_re, 1e16)
         @test_throws "shape must be" fill_runaway_distribution!(
@@ -154,7 +154,12 @@ using QuadGK: quadgk
             u, layout, :runaway_density, 1e16; shape = :isotropic)
         @test_throws "finite and not negative" fill_runaway_distribution!(
             u, layout, :f_re, [1e16, -1.0]; shape = :isotropic)
-        @test all(iszero, u)
+        @test_throws "field must be finite" fill_runaway_distribution!(
+            u, layout, :f_re, 1e16; electric_field = [1.0, NaN])
+        @test_throws DimensionMismatch fill_runaway_distribution!(
+            u, layout, :f_re, [1e16]; shape = :isotropic)
+        # the state is left as it was
+        @test all(==(-1.0), u)
     end
 
     @testset "ions in coronal equilibrium" begin
@@ -191,15 +196,49 @@ using QuadGK: quadgk
                 @test states[neon] ≈ coronal_equilibrium(term, 2, free, temperatures[ir];
                     species_density = totals[ir]) rtol = 1e-12
             end
+            # the equilibrium by another path: the states lie in the null space of the rates
+            for ir in 1:3
+                states = radial_view(u, layout, unknown_id(layout, :ion_densities), ir)
+                A = ion_rate_matrix(term, 2, sum(weights .* states), temperatures[ir])
+                n = states[neon]
+                @test maximum(abs, A * n) <= 1e-12 * maximum(abs.(A) * n)
+            end
             # hot neon is ionized well beyond the cold
             charge(ir) = sum((0:10) .*
                              radial_view(u, layout, unknown_id(layout, :ion_densities), ir)[neon]) /
                          totals[ir]
             @test charge(1) > charge(2) > charge(3)
+            # the method of a term gives the same, and a single name is taken as one species
+            v = zeros(length(layout))
+            for ir in 1:3
+                states = radial_view(v, layout, unknown_id(layout, :ion_densities), ir)
+                states[deuterium] .= [0.0, 5e19]
+                states[first(neon)] = totals[ir]
+            end
+            @test fill_coronal_equilibrium!(
+                v, layout, term, temperatures; species = "Ne") == u
+            # both species in equilibrium together, coupled through the free-electron density
+            fill_coronal_equilibrium!(v, layout, term, temperatures)
+            for ir in 1:3
+                states = radial_view(v, layout, unknown_id(layout, :ion_densities), ir)
+                free = sum(weights .* states)
+                @test sum(states[deuterium]) ≈ 5e19 rtol = 1e-14
+                @test states[deuterium] ≈
+                      coronal_equilibrium(term, 1, free, temperatures[ir];
+                    species_density = 5e19) rtol = 1e-12
+                @test states[neon] ≈ coronal_equilibrium(term, 2, free, temperatures[ir];
+                    species_density = totals[ir]) rtol = 1e-12
+            end
+            w = copy(u)
             @test_throws "not in the composition" fill_coronal_equilibrium!(
-                copy(u), layout, composition, 100.0; species = ["Ar"])
+                w, layout, composition, 100.0; species = ["Ar"])
+            @test_throws "named twice" fill_coronal_equilibrium!(
+                w, layout, term, 100.0; species = ["Ne", "Ne"])
+            @test_throws DimensionMismatch fill_coronal_equilibrium!(
+                w, layout, term, [100.0, 10.0])
+            @test w == u
             @test_throws "finite and positive" fill_coronal_equilibrium!(
-                copy(u), layout, composition, [100.0, 0.0, 10.0])
+                w, layout, composition, [100.0, 0.0, 10.0])
             @test MAXIMUM_EQUILIBRIUM_ITERATIONS == 50
         end
     end

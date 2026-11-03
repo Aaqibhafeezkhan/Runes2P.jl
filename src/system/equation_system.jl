@@ -627,13 +627,13 @@ phase-space Jacobian ``\\mathcal{V}'`` of the cell; the isotropic shape puts
 - `:xi_negative`: the first pitch cell, `ξ` next to −1 (`INIT_XI_NEGATIVE`);
 - `:forward`: the last pitch cell where the field `electric_field` (a profile as `density`) is
   not negative, the first where it is (`INIT_FORWARD`, DREAM's default);
-- `:isotropic`: every pitch cell, uniform in `ξ` (`INIT_ISOTROPIC`).
+- `:isotropic`: every pitch cell, with `f 𝒱'` uniform in `ξ` (`INIT_ISOTROPIC`).
 
 DREAM's analytic avalanche distribution (`INIT_AVALANCHE`) is not one of the shapes. The other
 cells of `unknown` are set to zero. Returns `u`.
 
 Throws an `ArgumentError` for an unknown that is not kinetic, another `shape`, `:forward`
-without a field, or a density that is negative or not finite, and a `DimensionMismatch` for a
+without a field, a density that is negative or not finite, or a field that is not finite, and a `DimensionMismatch` for a
 profile with another number of values than radii; these leave `u` as it was.
 """
 function fill_runaway_distribution!(
@@ -655,6 +655,9 @@ function fill_runaway_distribution!(
             throw(ArgumentError("the density of the runaways must be finite and not negative, " *
                                 "it is $(densities[ir]) at radius $ir"))
         end
+        if fields !== nothing && !isfinite(fields[ir])
+            throw(ArgumentError("the electric field must be finite, it is $(fields[ir]) at radius $ir"))
+        end
     end
     for ir in 1:radial_cell_count(grid)
         f = kinetic_view(u, layout, id, ir)
@@ -669,11 +672,14 @@ function fill_runaway_distribution!(
         else
             nxi:nxi
         end
-        # the share of the density in each of the cells, of the pitch width over 2 when isotropic
+        spatial = grid.radial_grid.spatial_jacobian[ir]
         for j in pitches
-            share = shape === :isotropic ? m.xi_widths[j] / 2 : 1.0
-            f[1, j] = share * densities[ir] * grid.radial_grid.spatial_jacobian[ir] /
-                      (V[1, j] * m.p_widths[1] * m.xi_widths[j])
+            # n V' / (2 𝒱' Δp) spread over ξ, or n V' / (𝒱' Δp Δξ) in one cell (f_re.cpp:174, 205)
+            f[1, j] = if shape === :isotropic
+                densities[ir] * spatial / (2 * V[1, j] * m.p_widths[1])
+            else
+                densities[ir] * spatial / (V[1, j] * m.p_widths[1] * m.xi_widths[j])
+            end
         end
     end
     return u

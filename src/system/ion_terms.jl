@@ -434,15 +434,20 @@ DREAM v26.5).
 const MAXIMUM_EQUILIBRIUM_ITERATIONS = 50
 
 """
+    fill_coronal_equilibrium!(u, layout, term::IonRateTerm, temperature; species=all)
     fill_coronal_equilibrium!(u, layout, composition, temperature; species=composition.names,
                               ions=:ion_densities, extrapolation=:dream,
                               directory=adas_cache_directory())
 
-Put the species `species` of `composition` ([`IonComposition`](@ref)) in coronal equilibrium in
-the state `u`, in the radial unknown of the ion densities `ions`, at the temperature
-`temperature` [eV], a profile in any form of [`radial_values`](@ref) on the cell centres. The
-total density of each of these species is that of `u` and is kept; the other species keep their
-charge states. Returns `u`.
+Put the species `species` (a name or a collection of names) of the composition of `term`, an
+[`IonRateTerm`](@ref), in coronal equilibrium in the state `u`, in the radial unknown of the ion
+densities of `term`, at the temperature `temperature` [eV], a profile in any form of
+[`radial_values`](@ref) on the cell centres. The total density of each of these species is that
+of `u` and is kept; the other species keep their charge states. The rates are those of `term`
+with its extrapolation; its `kinetic_ionization` is not used, as DREAM's `init_equil` takes the
+fluid rates alone. The second method builds the term from `composition` ([`IonComposition`](@ref)),
+`ions`, `extrapolation` and `directory`, which reads the ADF11 tables of every species. Returns
+`u`.
 
 The equilibrium depends on the free-electron density, which it changes, so the free-electron
 density is iterated to a fixed point at each radius as DREAM's `init_equil` does
@@ -450,25 +455,29 @@ density is iterated to a fixed point at each radius as DREAM's `init_equil` does
 the free electrons of the other species plus the total density of each species in equilibrium,
 the charge states of [`coronal_equilibrium`](@ref) follow at that density, and the free-electron
 density is summed from them, until it changes by at most `eps()` of itself or after
-[`MAXIMUM_EQUILIBRIUM_ITERATIONS`](@ref) iterations. The rates are those of [`IonRateTerm`](@ref) with `extrapolation` and `directory`.
+[`MAXIMUM_EQUILIBRIUM_ITERATIONS`](@ref) iterations. A radius where that density is zero has
+no rates: DREAM evaluates them there as well.
 
-Throws an `ArgumentError` for a species that is not in `composition`, for a radial unknown
-`ions` whose components are not those of `composition`, or for a temperature that is not
-positive or not finite, and a `DimensionMismatch` for a profile with another number of values
-than radii; these leave `u` as it was.
+Throws an `ArgumentError` for a species that is not in the composition or is named twice, for a
+radial unknown of the ion densities whose components are not those of the composition, or for a
+temperature that is not positive or not finite, and a `DimensionMismatch` for a profile with
+another number of values than radii; these leave `u` as it was.
 """
 function fill_coronal_equilibrium!(u::AbstractVector, layout::UnknownLayout,
-        composition::IonComposition, temperature;
-        species = composition.names, ions::Symbol = :ion_densities,
-        extrapolation::Symbol = :dream, directory::AbstractString = adas_cache_directory())
-    id = unknown_id(layout, ions)
+        term::IonRateTerm, temperature; species = term.composition.names)
+    composition = term.composition
+    id = unknown_id(layout, term.ions)
     _check_ion_unknown(layout, id, composition)
+    names = species isa AbstractString ? [species] : collect(species)
     indices = Int[]
-    for name in species
+    for name in names
         if !(name in composition.names)
             throw(ArgumentError("the species $name is not in the composition"))
         end
         push!(indices, species_index(composition, name))
+    end
+    if !allunique(indices)
+        throw(ArgumentError("a species is named twice: $(join(names, ", "))"))
     end
     temperatures = radial_values(temperature, layout.radial_grid.r_centers)
     for (ir, T) in enumerate(temperatures)
@@ -477,16 +486,16 @@ function fill_coronal_equilibrium!(u::AbstractVector, layout::UnknownLayout,
                                 "it is $T at radius $ir"))
         end
     end
-    term = IonRateTerm(composition; ions, extrapolation, directory)
     weights = free_electron_weights(composition)
+    others_indices = setdiff(1:length(composition), indices)
     for ir in 1:radial_cell_count(layout)
         states = radial_view(u, layout, id, ir)
         totals = [sum(states[species_components(composition, s)]) for s in indices]
         # the free electrons of the other species, DREAM's nfree0
-        others = sum(weights .* states)
-        for s in indices
+        others = 0.0
+        for s in others_indices
             components = species_components(composition, s)
-            others -= sum(weights[components] .* states[components])
+            others += sum(weights[components] .* states[components])
         end
         free = others + sum(totals)
         for _ in 1:MAXIMUM_EQUILIBRIUM_ITERATIONS
@@ -503,6 +512,13 @@ function fill_coronal_equilibrium!(u::AbstractVector, layout::UnknownLayout,
         end
     end
     return u
+end
+function fill_coronal_equilibrium!(u::AbstractVector, layout::UnknownLayout,
+        composition::IonComposition, temperature;
+        species = composition.names, ions::Symbol = :ion_densities,
+        extrapolation::Symbol = :dream, directory::AbstractString = adas_cache_directory())
+    term = IonRateTerm(composition; ions, extrapolation, directory)
+    return fill_coronal_equilibrium!(u, layout, term, temperature; species)
 end
 
 """
