@@ -59,6 +59,7 @@ The ion densities are a radial unknown with one group of components per species 
 with the SCD coefficients ``I_j`` and the ACD coefficients ``R_j`` at the cold density and temperature.
 The sum over the charge states of a species is zero, so each species is conserved.
 [`ion_rate_matrix`](@ref) gives the matrix of these rates and [`coronal_equilibrium`](@ref) its steady state.
+[`fill_coronal_equilibrium!`](@ref) starts the ions of a run in that steady state, with the free-electron density iterated to the fixed point that the charge states give.
 [`population_equations`](@ref) closes the cold-electron density as the free electrons of the ions less the electrons of the distributions.
 [`deposit_neutrals!`](@ref) adds neutral atoms at the start of a run, and the rate equations ionize them from the first step on.
 
