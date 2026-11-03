@@ -152,6 +152,9 @@ def arguments(argv=None):
     parser.add_argument("--test-data-runs", default=",".join(RUNS),
                         help="the runs that --test-data writes, separated by commas (default: all; "
                              "dream_disruption_small.h5 holds ionization,quench)")
+    parser.add_argument("--test-data-channels", action="store_true",
+                        help="write with --test-data also the channels of the equation of T_cold that DREAM saves "
+                             "(other/fluid/Tcold_*), such as the heating by f_hot (Tcold_fhot_coll)")
     return parser.parse_args(argv)
 
 
@@ -465,6 +468,10 @@ def test_data(args):
                         group[f"eqsys/{q}"] = res[f"eqsys/{q}"][:]
                 if "other/fluid/conductivity" in res:
                     group["other/fluid/conductivity"] = res["other/fluid/conductivity"][:]
+                if args.test_data_channels and "other/fluid" in res:
+                    for q in res["other/fluid"]:
+                        if q.startswith("Tcold_"):
+                            group[f"other/fluid/{q}"] = res[f"other/fluid/{q}"][:]
                 for q in ("t", "r", "r_f"):
                     group[f"grid/{q}"] = res[f"grid/{q}"][:]
                 for q in ("p1_f", "p2_f"):

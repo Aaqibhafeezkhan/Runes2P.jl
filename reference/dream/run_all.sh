@@ -3,20 +3,21 @@
 # the GSL program in ../gsl/.
 #
 # Usage: bash run_all.sh [<data directory>] [set ...]
-#   sets: dream-v26.5, dream-v26.5-disruption, dream-boltzmann-eqterm-93d27e17, gsl-2.8 (default: all)
+#   sets: dream-v26.5, dream-v26.5-disruption, dream-v26.5-initial-state, dream-boltzmann-eqterm-93d27e17,
+#   gsl-2.8 (default: all)
 #   The data directory defaults to the folder of this script. A first argument that is not
 #   the name of a set is taken as the data directory.
 #   ONLY="<script> ..." in the environment runs only those case scripts of the DREAM sets.
 #
 # The data directory holds pixi.toml, pixi.lock and scripts/ of this folder, and what
 # build_all.sh builds there: petsc/ and one directory per DREAM build with DREAM/ and build/
-# (dream-v26.5-disruption runs on the build of dream-v26.5).
+# (dream-v26.5-disruption and dream-v26.5-initial-state run on the build of dream-v26.5).
 # The case scripts are copied into <build>/cases/, because they find dreami, the DREAM checkout
 # and PETSc relative to their own folder. The outputs go to out/<set>/, the working files to
 # work/<set>/ and the logs to logs/.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SET_NAMES=(dream-v26.5 dream-v26.5-disruption dream-boltzmann-eqterm-93d27e17 gsl-2.8)
+SET_NAMES=(dream-v26.5 dream-v26.5-disruption dream-v26.5-initial-state dream-boltzmann-eqterm-93d27e17 gsl-2.8)
 DATA_DIR="$HERE"
 if [[ $# -gt 0 && " ${SET_NAMES[*]} " != *" $1 "* ]]; then
     DATA_DIR="$(cd "$1" && pwd)"
@@ -54,6 +55,14 @@ V265_CASES=(
 DISRUPTION_CASES=(
     "disruption_kinetic dream_disruption_chain_small.h5"
     "disruption_kinetic dream_disruption_superthermal_small.h5 --mode superthermal"
+)
+# the starts of a run (the coronal start, the runaway shapes) and the heating of the cold electrons by
+# a runaway grid and by the hot tail of the superthermal disruption, with DREAM's channels of T_cold
+INITIAL_STATE_CASES=(
+    "initial_state dream_coronal_start.h5 case=coronal"
+    "initial_state dream_runaway_shapes.h5 case=shapes"
+    "initial_state dream_runaway_heating.h5 case=heating"
+    "disruption_kinetic dream_disruption_superthermal_channels_small.h5 --mode superthermal --test-data-runs ionization,quench --test-data-channels"
 )
 BOLTZMANN_CASES=(
     "knockon_operator dream_knockon_operator.h5"
@@ -103,6 +112,8 @@ for set in "${SETS[@]}"; do
             run_dream_set "$set" "$set" ecdd5e146537c77602c9d7cc76b36100200e4b9a v26.5 "${V265_CASES[@]}" ;;
         dream-v26.5-disruption)
             run_dream_set "$set" dream-v26.5 ecdd5e146537c77602c9d7cc76b36100200e4b9a v26.5 "${DISRUPTION_CASES[@]}" ;;
+        dream-v26.5-initial-state)
+            run_dream_set "$set" dream-v26.5 ecdd5e146537c77602c9d7cc76b36100200e4b9a v26.5 "${INITIAL_STATE_CASES[@]}" ;;
         dream-boltzmann-eqterm-93d27e17)
             run_dream_set "$set" "$set" 93d27e1763827e19dafb1fe790e99c2688ad6d62 boltzmann-eqterm "${BOLTZMANN_CASES[@]}" ;;
         gsl-2.8)
