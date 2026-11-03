@@ -88,7 +88,8 @@ By default it is the scale of the unknown whose time derivative the row holds, o
 The thermal energy of the cold electrons takes its initial value this way.
 [`fill_maxwellian!`](@ref) fills a distribution with a Maxwellian from profiles of the density and the temperature, the start of a fully kinetic run in DREAM.
 [`fill_runaway_distribution!`](@ref) fills a distribution from a density in one of DREAM's shapes of `f_re` ([`RUNAWAY_SHAPES`](@ref)).
-[`fill_coronal_equilibrium!`](@ref) puts species of the ion densities in coronal equilibrium at the free-electron density they give, DREAM's `init_equil`; the electron densities follow from the rows of the system.
+[`fill_coronal_equilibrium!`](@ref) puts species of the ion densities in coronal equilibrium at the free-electron density they give, DREAM's `init_equil`.
+It leaves the electron densities to the caller, who sets them from the rows of the system or by hand.
 
 ## Terms
 

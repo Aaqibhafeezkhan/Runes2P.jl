@@ -246,8 +246,15 @@ using QuadGK: quadgk
             @test w == u
             negative = copy(u)
             radial_view(negative, layout, unknown_id(layout, :ion_densities), 2)[neon] .= -1.0
+            refused = copy(negative)
             @test_throws "finite and not negative" fill_coronal_equilibrium!(
-                copy(negative), layout, term, temperatures; species = "Ne")
+                refused, layout, term, temperatures; species = "Ne")
+            @test refused == negative
+            # neon at zero next to the free electrons of D: neon stays at zero
+            no_neon = copy(u)
+            radial_view(no_neon, layout, unknown_id(layout, :ion_densities), 2)[neon] .= 0
+            fill_coronal_equilibrium!(no_neon, layout, term, temperatures; species = "Ne")
+            @test all(iszero, radial_view(no_neon, layout, unknown_id(layout, :ion_densities), 2)[neon])
             # a Symbol names a species too
             @test fill_coronal_equilibrium!(
                 copy(v), layout, term, temperatures; species = :Ne) ==

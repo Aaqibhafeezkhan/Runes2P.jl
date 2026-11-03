@@ -678,7 +678,8 @@ function fill_runaway_distribution!(
         # the pitch range of the grid, 2 on a grid from −1 to 1
         span = last(m.xi_faces) - first(m.xi_faces)
         for j in pitches
-            # n V' / (2 𝒱' Δp) spread over ξ on a full pitch grid, or n V' / (𝒱' Δp Δξ) in one cell
+            # n V' / (Δξ_grid 𝒱' Δp) spread over ξ, Δξ_grid = 2 on a full pitch grid, or
+            # n V' / (𝒱' Δp Δξ) in one cell
             # (f_re.cpp:174, 205)
             f[1, j] = if shape === :isotropic
                 densities[ir] * spatial / (span * V[1, j] * m.p_widths[1])
