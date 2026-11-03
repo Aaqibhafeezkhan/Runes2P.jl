@@ -319,9 +319,9 @@ end
                     @test Vector(J[ion_rows, column])≈difference rtol=1e-5 atol=1e-6*maximum(abs, difference)
                 end
                 # the cells of f that hold the threshold, where the envelope lies strictly
-                # between 0 and 1. The row is linear in f, so the step is a tenth of the scale
-                # of f, which keeps the round-off of the fluid rates small: 1.5e-10 of the
-                # column (1e-5 at a step of 1e-3 of the value of the cell)
+                # between 0 and 1. The rows are linear in f, so the step is a tenth of the
+                # scale of f, which keeps the round-off of the fluid rates small: 1.5e-10 of
+                # the column (8.5e-6 at a step of 1e-3 of the value of the cell)
                 T = unknown_values(u, layout, 3)[ir]
                 envelope = Runes2P._envelope_at_temperature(kinetic, ir, T)
                 i = only(findall(e -> 0 < e < 1, envelope))

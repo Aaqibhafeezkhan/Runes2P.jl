@@ -1,8 +1,8 @@
 # The heating and the radiative losses of the cold electrons, on synthetic
 # ADF11 tables of helium: the radiated power against a sum of the tabulated coefficients
 # in both modes, the recombination gain of each charge state at every radius,
-# Gould's bremsstrahlung against the NRL formulary, the Jacobian, and the ohmic heating
-# against σ E² with Spitzer's conductivity.
+# Gould's bremsstrahlung against the NRL formulary, the Jacobian in both modes, and the
+# ohmic heating against σ E² with Spitzer's conductivity.
 
 @testset "radiated power and ohmic heating" begin
     directory = mktempdir()

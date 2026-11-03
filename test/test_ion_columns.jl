@@ -115,11 +115,11 @@ end
                 end
                 # the columns of the temperature and the density at both radii, with a
                 # relative step of 1e-6: the difference is at most 3e-9 of the column
-                for name in (:cold_electron_temperature, :cold_electron_density),
+                for quantity in (:cold_electron_temperature, :cold_electron_density),
                     ir in 1:2
 
-                    name in Runes2P.dependencies(term) || continue
-                    j = first(unknown_range(layout, row(name), ir))
+                    quantity in Runes2P.dependencies(term) || continue
+                    j = first(unknown_range(layout, row(quantity), ir))
                     column = _central_column(rhs, u, j, 1e-6 * u[j])
                     @test maximum(abs, column) > 0
                     @test maximum(abs, Matrix(J)[:, j] - column) <=
