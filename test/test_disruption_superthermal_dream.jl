@@ -10,7 +10,8 @@
 # the cold temperature restarted at 1 eV. Each run of the initialization and each phase is compared
 # with DREAM's over its steps, and the state handed to the ionization phase with DREAM's first
 # state of that phase. The runaway density and current are compared over the radii: at the second
-# radius, where n_re is 4e-7 of the first, they differ by 4e-4 from the initialization on. With
+# radius, where n_re is 4e-7 of the first, they differ by 0.22 at the end of run 1 (0.23 m⁻³
+# there, from the far tail of f) and by 4e-4 from run 2 on. With
 # Runes2P's defaults (compat = runes2p) the chain runs as well and the budgets are asserted; the
 # drift of ∫f − n_cold − n_hot is not checked, since the superthermal mode has no particle source
 # that would keep it fixed. Needs the ADF11 cache.
