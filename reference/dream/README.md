@@ -52,7 +52,7 @@ The logs go to `logs/`.
 ## Regenerate
 
 ```bash
-bash run_all.sh                       # all four sets
+bash run_all.sh                       # all five sets
 bash run_all.sh gsl-2.8               # named sets only
 ONLY="kinetic_operator" bash run_all.sh dream-v26.5
 ```
