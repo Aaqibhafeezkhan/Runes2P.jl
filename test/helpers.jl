@@ -26,12 +26,16 @@ export write_adf11, SquareRootDecayTerm, ArctangentTerm, ConstantSourceTerm, Exc
 # the factor that turns the stored `hottail/S_ava` into the source: DREAM v26.5 stores the
 # source with the sign of the operator, the branch boltzmann-eqterm flips it to the sign of
 # the source (src/OtherQuantityHandler.cpp), and `build`, the folder of reference/dream/ with the
-# DREAM checkout that made it (dream-v26.5-disruption shares that of dream-v26.5).
+# DREAM checkout that made it (dream-v26.5-disruption and dream-v26.5-initial-state share that of
+# dream-v26.5).
 const DREAM_REFERENCE_SETS = Dict(
     "dream-v26.5" =>
         (branch = "v26.5", commit = "ecdd5e146537c77602c9d7cc76b36100200e4b9a",
             S_ava_sign = -1, build = "dream-v26.5"),
     "dream-v26.5-disruption" =>
+        (branch = "v26.5", commit = "ecdd5e146537c77602c9d7cc76b36100200e4b9a",
+            S_ava_sign = -1, build = "dream-v26.5"),
+    "dream-v26.5-initial-state" =>
         (branch = "v26.5", commit = "ecdd5e146537c77602c9d7cc76b36100200e4b9a",
             S_ava_sign = -1, build = "dream-v26.5"),
     "dream-boltzmann-eqterm-93d27e17" => (branch = "boltzmann-eqterm",
@@ -49,6 +53,14 @@ const REFERENCE_FILES = Dict(
         (set = "dream-v26.5-disruption", example_commit = nothing),
     "dream_disruption_superthermal_small.h5" =>
         (set = "dream-v26.5-disruption", example_commit = nothing),
+    "dream_coronal_start.h5" =>
+        (set = "dream-v26.5-initial-state", example_commit = nothing),
+    "dream_runaway_shapes.h5" =>
+        (set = "dream-v26.5-initial-state", example_commit = nothing),
+    "dream_runaway_heating.h5" =>
+        (set = "dream-v26.5-initial-state", example_commit = nothing),
+    "dream_disruption_superthermal_channels_small.h5" =>
+        (set = "dream-v26.5-initial-state", example_commit = nothing),
     "dream_dreicer_kinetic.h5" => (set = "dream-v26.5", example_commit = nothing),
     "dream_example_runaway.h5" =>
         (set = "dream-v26.5", example_commit = "6b5708b85ea7f7bf506f2c381ebb285d1dac527f"),

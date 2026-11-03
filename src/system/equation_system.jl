@@ -603,6 +603,95 @@ function fill_maxwellian!(
 end
 
 """
+    RUNAWAY_SHAPES
+
+The shapes of [`fill_runaway_distribution!`](@ref): `:forward`, `:xi_positive`, `:xi_negative`
+and `:isotropic`, DREAM's `INIT_FORWARD`, `INIT_XI_POSITIVE`, `INIT_XI_NEGATIVE` and
+`INIT_ISOTROPIC` of `f_re` (`src/Settings/Equations/f_re.cpp`, DREAM v26.5).
+"""
+const RUNAWAY_SHAPES = (:forward, :xi_positive, :xi_negative, :isotropic)
+
+"""
+    fill_runaway_distribution!(u, layout, unknown, density; shape=:forward, electric_field=nothing)
+
+Fill the kinetic unknown `unknown` of the state `u` with the electrons of the density `density`
+[m⁻³], a profile in any form of [`radial_values`](@ref) on the cell centres, all in the first
+momentum cell of its grid, so that their moment [`density`](@ref) on the grid equals the profile.
+These are DREAM's starts of `f_re` from `n_re` (`src/Settings/Equations/f_re.cpp:147-208`,
+DREAM v26.5). A shape of one pitch cell puts the value ``n V' / (\\mathcal{V}'_{1j} \\Delta p_1
+\\Delta\\xi_j)`` in the cell ``(1, j)``, with the spatial Jacobian ``V'`` of the radius and the
+phase-space Jacobian ``\\mathcal{V}'`` of the cell; the isotropic shape puts
+``n V' / (\\Delta\\xi_\\mathrm{grid} \\mathcal{V}'_{1j} \\Delta p_1)`` in every pitch cell ``j``, with the
+pitch range ``\\Delta\\xi_\\mathrm{grid}`` of the grid, 2 on DREAM's grids from −1 to 1:
+
+- `shape = :xi_positive`: the last pitch cell, at the largest `ξ` of the grid (`INIT_XI_POSITIVE`);
+- `:xi_negative`: the first pitch cell, at the smallest `ξ` (`INIT_XI_NEGATIVE`);
+- `:forward`: the last pitch cell where the field `electric_field` (a profile as `density`) is
+  not negative, the first where it is (`INIT_FORWARD`, DREAM's default);
+- `:isotropic`: every pitch cell, with `f 𝒱'` uniform in `ξ` (`INIT_ISOTROPIC`).
+
+DREAM's analytic avalanche distribution (`INIT_AVALANCHE`) is not one of the shapes. The other
+cells of `unknown` are set to zero. Returns `u`.
+
+Throws an `ArgumentError` for an unknown that is not kinetic, another `shape`, `:forward`
+without a field, a density that is negative or not finite, or a field that is not finite, and a
+`DimensionMismatch` for a profile with another number of values than radii; these leave `u` as
+it was.
+"""
+function fill_runaway_distribution!(
+        u::AbstractVector, layout::UnknownLayout, unknown::Symbol,
+        density; shape::Symbol = :forward, electric_field = nothing)
+    shape in RUNAWAY_SHAPES ||
+        throw(ArgumentError("shape must be one of $(join(RUNAWAY_SHAPES, ", ")), not $shape"))
+    shape === :forward && electric_field === nothing &&
+        throw(ArgumentError("shape = :forward needs the electric field"))
+    id = unknown_id(layout, unknown)
+    layout.kinds[id] === :kinetic ||
+        throw(ArgumentError("$unknown is not a kinetic unknown"))
+    grid = kinetic_grid(layout, id)
+    centers = grid.radial_grid.r_centers
+    densities = radial_values(density, centers)
+    fields = electric_field === nothing ? nothing : radial_values(electric_field, centers)
+    for ir in 1:radial_cell_count(grid)
+        if !(isfinite(densities[ir]) && densities[ir] >= 0)
+            throw(ArgumentError("the density of the runaways must be finite and not negative, " *
+                                "it is $(densities[ir]) at radius $ir"))
+        end
+        if fields !== nothing && !isfinite(fields[ir])
+            throw(ArgumentError("the electric field must be finite, it is $(fields[ir]) at radius $ir"))
+        end
+    end
+    for ir in 1:radial_cell_count(grid)
+        f = kinetic_view(u, layout, id, ir)
+        f .= 0
+        m = momentum_grid(grid, ir)
+        V = phase_space_jacobian(grid, ir)
+        nxi = pitch_cell_count(m)
+        pitches = if shape === :isotropic
+            1:nxi
+        elseif shape === :xi_negative || (shape === :forward && fields[ir] < 0)
+            1:1
+        else
+            nxi:nxi
+        end
+        spatial = grid.radial_grid.spatial_jacobian[ir]
+        # the pitch range of the grid, 2 on a grid from −1 to 1
+        span = last(m.xi_faces) - first(m.xi_faces)
+        for j in pitches
+            # n V' / (Δξ_grid 𝒱' Δp) spread over ξ, Δξ_grid = 2 on a full pitch grid, or
+            # n V' / (𝒱' Δp Δξ) in one cell
+            # (f_re.cpp:174, 205)
+            f[1, j] = if shape === :isotropic
+                densities[ir] * spatial / (span * V[1, j] * m.p_widths[1])
+            else
+                densities[ir] * spatial / (V[1, j] * m.p_widths[1] * m.xi_widths[j])
+            end
+        end
+    end
+    return u
+end
+
+"""
     mass_matrix(system)
 
 Mass matrix `M`, constant: 1 in the rows with a time derivative, in the column of the

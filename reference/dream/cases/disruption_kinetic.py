@@ -152,6 +152,9 @@ def arguments(argv=None):
     parser.add_argument("--test-data-runs", default=",".join(RUNS),
                         help="the runs that --test-data writes, separated by commas (default: all; "
                              "dream_disruption_small.h5 holds ionization,quench)")
+    parser.add_argument("--test-data-channels", action="store_true",
+                        help="write with --test-data also the channels of the equation of T_cold that DREAM saves "
+                             "(other/fluid/Tcold_*), such as the heating by f_hot (Tcold_fhot_coll)")
     return parser.parse_args(argv)
 
 
@@ -440,14 +443,19 @@ TEST_UNKNOWNS = ("f_hot", "T_cold", "n_cold", "n_hot", "n_re", "n_tot", "E_field
 
 def stored_arguments(args):
     """The arguments as stored in the output, with the bare name of each path argument, so that
-    the data holds no paths of the machine that made it."""
-    return {k: (v.name if isinstance(v, Path) else str(v)) for k, v in vars(args).items()}
+    the data holds no paths of the machine that made it. --test-data-channels is stored only when
+    it is given, so that the files made without it keep the arguments they were published with."""
+    stored = {k: (v.name if isinstance(v, Path) else str(v)) for k, v in vars(args).items()}
+    if not args.test_data_channels:
+        del stored["test_data_channels"]
+    return stored
 
 
 def test_data(args):
     """DREAM's outputs of the runs of the chain that the output directory holds, of those named by
     --test-data-runs, as the Runes2P tests read them: per run the unknowns of TEST_UNKNOWNS that it has at every saved time, the
-    conductivity of the fluid quantities where DREAM saved it, the times and the grids, with the
+    conductivity of the fluid quantities where DREAM saved it, with --test-data-channels the channels
+    of the equation of T_cold (other/fluid/Tcold_*), the times and the grids, with the
     provenance. The runs before the phases (conductivity, init, init_rescaled) are those of the
     initialization of the case."""
     args.test_data.parent.mkdir(parents=True, exist_ok=True)
@@ -465,6 +473,10 @@ def test_data(args):
                         group[f"eqsys/{q}"] = res[f"eqsys/{q}"][:]
                 if "other/fluid/conductivity" in res:
                     group["other/fluid/conductivity"] = res["other/fluid/conductivity"][:]
+                if args.test_data_channels and "other/fluid" in res:
+                    for q in res["other/fluid"]:
+                        if q.startswith("Tcold_"):
+                            group[f"other/fluid/{q}"] = res[f"other/fluid/{q}"][:]
                 for q in ("t", "r", "r_f"):
                     group[f"grid/{q}"] = res[f"grid/{q}"][:]
                 for q in ("p1_f", "p2_f"):
