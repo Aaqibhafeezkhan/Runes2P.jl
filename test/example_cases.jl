@@ -77,10 +77,10 @@ end
 The heating of the cold electrons by the electrons of a runaway grid, for the row of their
 temperature, with `source` the [`FokkerPlanckTerm`](@ref) of the runaway distribution on
 `grid` and `plasma` the plasma of the heating. `compat = :dream` gives DREAM's moment
-`FrictionEnergyTransferTerm` (`src/Settings/Equations/T_cold.cpp:341-354`, DREAM v26.5), and
-`compat = :runes2p` Runes2P's default, the energy change of the electron-electron operator of
-`source` (`free_electron_energy_transfer_term`), which needs the collision mode `:full` or
-`:superthermal` in `source`.
+`FrictionEnergyTransferTerm` (`src/Settings/Equations/T_cold.cpp:341-354`, DREAM v26.5),
+and `compat = :runes2p` Runes2P's default, the energy change of the electron-electron
+operator of `source` (`free_electron_energy_transfer_term`), which needs the collision mode
+`:full` or `:superthermal` in `source`.
 """
 function runaway_heating_term(compat::Symbol, source::FokkerPlanckTerm, grid, plasma)
     if compat === :dream
@@ -102,23 +102,29 @@ temperature, the forward start of `f_re` and the run of 5 µs are choices of thi
 Deuterium fully ionized at 5e19 m⁻³ and 100 eV at the start, the prescribed field of
 1.5 V/m, B = 5 T, a = 0.22 m; the runaway grid alone (no hot-tail grid) from p = 0 to 50
 with 100 uniform momentum cells and 40 pitch cells uniform in θ in two regions, 32 cells up
-to θ = 0.5; the ultra-relativistic collision frequencies with partial screening and the
-thermal Coulomb logarithm, no bremsstrahlung and no synchrotron loss; upwind interpolation
-and DREAM's `BC_PHI_CONST` at `p_max`; `f_re` started from `n_re = 1e16 m⁻³` in the forward
-shape ([`fill_runaway_distribution!`](@ref)). The row of the temperature holds the ohmic
-heating with DREAM's conductivity, the radiated power of DREAM's mode (the bremsstrahlung of
-Gould with DREAM's corrections for the fully ionized deuterium) and the heating by `f_re` of
-[`runaway_heating_term`](@ref); the cold density is the free-electron density minus the
-density of `f_re`, as DREAM's `n_cold`.
+to θ = 0.5; the ultra-relativistic collision frequencies (at `compat = :dream`) with partial
+screening and the thermal Coulomb logarithm, no bremsstrahlung and no synchrotron loss;
+upwind interpolation and DREAM's `BC_PHI_CONST` at `p_max`; `f_re` started from
+`n_re = 1e16 m⁻³` in the forward shape ([`fill_runaway_distribution!`](@ref)). The row of
+the temperature holds the ohmic heating with DREAM's conductivity, the radiated power of
+DREAM's mode (the bremsstrahlung of Gould with DREAM's corrections for the fully ionized
+deuterium) and the heating by `f_re` of [`runaway_heating_term`](@ref); the cold density is
+the free-electron density minus the density of `f_re`, as DREAM's `n_cold`.
 
-`compat` switches the heating by `f_re`: DREAM's moment for `:dream`, Runes2P's energy change
-of the electron-electron operator for `:runes2p`. That operator has no ultra-relativistic
-form, so `:runes2p` takes the superthermal frequencies, of which the ultra-relativistic ones
-are the limit `p ≫ 1` and which DREAM's moment takes too. Every other setting is DREAM's in
-both. `lagged` goes to the [`FokkerPlanckTerm`](@ref) of `f_re`: `:all` takes the collision
-frequencies at the plasma of the start of the step, as DREAM's semi-implicit steps
-(`LINEAR_IMPLICIT`) do; `:ions`, the default at `:runes2p`, is Runes2P's default treatment
-of the plasma in the term, with only the ion densities taken at the start of the step.
+`compat = :dream` takes DREAM's settings of the case. `compat = :runes2p` differs from them
+in three settings. The heating by `f_re` is Runes2P's energy change of the
+electron-electron operator in place of DREAM's moment. That operator has no
+ultra-relativistic form, so the operator of `f_re` takes the superthermal frequencies, of
+which the ultra-relativistic ones are the limit `p ≫ 1`. Near `p = 0` they differ: in the
+first momentum cell (`p = 0.25`), where nearly all of `f_re` sits, the superthermal `ν_s` is
+17 times the ultra-relativistic one and `ν_D` 4.1 times, so `f_re` itself departs from
+DREAM's (by 0.46 of its largest value after the first step,
+`test_runaway_heating_dream.jl`). And `lagged` defaults to `:ions` in place of `:all`. The
+grids, the plasma, the start, the other terms and the steps are the same at both. `lagged`
+goes to the [`FokkerPlanckTerm`](@ref) of `f_re`: `:all` takes the collision frequencies at
+the plasma of the start of the step, as DREAM's semi-implicit steps (`LINEAR_IMPLICIT`) do;
+`:ions`, the default at `:runes2p`, is Runes2P's default treatment of the plasma in the
+term, with only the ion densities taken at the start of the step.
 
 Needs the ADF11 tables of deuterium. Returns a named tuple with the `system`, its `layout`,
 the `initial_state`, the `times` of the case, the kinetic `grid`, the Fokker-Planck term
@@ -131,35 +137,41 @@ function runaway_heating_example(; compat::Symbol = :dream,
     # reference/dream/cases/initial_state.py, after examples/init_f_re/generate.py
     field = 1.5                  # V/m, initial_state.py:67 (generate.py:35)
     deuterium = 5e19             # m⁻³, initial_state.py:68 (generate.py:36)
-    temperature = 100.0          # eV, initial_state.py:69 (generate.py:37), the start (:181)
+    # eV, initial_state.py:69 (generate.py:37), the start (:181)
+    temperature = 100.0
     runaway_density = 1e16       # m⁻³, initial_state.py:70 (generate.py:57)
     magnetic_field, minor_radius = 5.0, 0.22   # initial_state.py:74 (generate.py:71-72)
     # 100 × 40 cells to p = 50 (initial_state.py:71, generate.py:61-63), the pitch grid
-    # biuniform in θ with 0.8 of the 40 cells below θ = 0.5 (initial_state.py:125, generate.py:64)
+    # biuniform in θ with 0.8 of the 40 cells below θ = 0.5 (initial_state.py:125,
+    # generate.py:64)
     nr = 1                       # initial_state.py:177
     radial = RadialGrid(uniform_r_faces(nr, minor_radius))
-    grid = cylindrical_grid(
-        MomentumGrid(uniform_p_faces(100, 0.0, 50.0), biuniform_theta_xi_faces(40, 32, 0.5)),
-        radial)
+    momentum = MomentumGrid(uniform_p_faces(100, 0.0, 50.0),
+        biuniform_theta_xi_faces(40, 32, 0.5))
+    grid = cylindrical_grid(momentum, radial)
     # 20 steps (initial_state.py:72, 183) over 5 µs, a choice of this package
     # (initial_state.py:73, 182)
     times = collect(range(0.0, 5e-6; length = 21))
-    # the collisions: partial screening and the ultra-relativistic mode (initial_state.py:109-110,
-    # generate.py:31-32), DREAM's thermal Coulomb logarithm and no bremsstrahlung, the defaults of
-    # CollisionHandler (py/DREAM/Settings/CollisionHandler.py:30-32); the ion sizes and the
-    # window of the screening are DREAM's and have no effect on fully ionized deuterium
+    # the collisions: partial screening and the ultra-relativistic mode
+    # (initial_state.py:109-110, generate.py:31-32), DREAM's thermal Coulomb logarithm and
+    # no bremsstrahlung, the defaults of CollisionHandler
+    # (py/DREAM/Settings/CollisionHandler.py:30-32); the ion sizes and the window of the
+    # screening are DREAM's and have no effect on fully ionized deuterium. At
+    # compat = :runes2p the superthermal mode, since the energy change of the
+    # electron-electron operator has no ultra-relativistic form
     settings = CollisionSettings(;
         mode = compat === :dream ? :ultra_relativistic : :superthermal,
         screening = :partial, coulomb_logarithm = :thermal, bremsstrahlung = :neglect,
         ion_size_table = :dream, screening_window = :dream)
-    # deuterium prescribed and fully ionized (initial_state.py:118); the temperature, the cold
-    # density and the field are unknowns
+    # deuterium prescribed and fully ionized (initial_state.py:118); the temperature, the
+    # cold density and the field are unknowns
     ions = [IonSpecies("D", 1, 1, fill(deuterium, nr))]
     prescribed = PlasmaState(; cold_electron_temperature = fill(temperature, nr), ions,
         electric_field = zeros(nr), magnetic_field = fill(magnetic_field, nr))
     plasma = PlasmaFromUnknowns(prescribed)
-    # upwind interpolation (initial_state.py:126, generate.py:68), DREAM's default BC_PHI_CONST
-    # at p_max and no synchrotron loss, DREAM's default; the field of the unknown
+    # upwind interpolation (initial_state.py:126, generate.py:68), DREAM's default
+    # BC_PHI_CONST at p_max and no synchrotron loss, DREAM's default; the field of the
+    # unknown
     operator = fokker_planck_operator(grid, prescribed, settings; synchrotron = false,
         scheme = :upwind, p_upper_boundary = :constant_flux, field_in_coefficients = false)
     fokker_planck = FokkerPlanckTerm(:runaway_distribution, operator; plasma, settings,
@@ -177,6 +189,8 @@ function runaway_heating_example(; compat::Symbol = :dream,
     # the ohmic heating, the radiated power and the heating by f_re of DREAM's row
     # (src/Settings/Equations/T_cold.cpp:175-176, 187-190, 341-354), with DREAM's radiation:
     # fully ionized deuterium radiates only bremsstrahlung
+    radiation = RadiatedPowerTerm(prescribed; radiation = :dream,
+        bremsstrahlung_corrections = :dream)
     equations = [
         Equation(:electric_field, Algebraic(),
             PrescribedValueTerm(fill(field, nr)), minus(:electric_field)),
@@ -190,21 +204,20 @@ function runaway_heating_example(; compat::Symbol = :dream,
             minus(:cold_electron_density)),
         thermal_energy_equation(),
         Equation(:cold_electron_temperature, TimeDerivative(:cold_thermal_energy),
-            ohmic_heating_term(),
-            RadiatedPowerTerm(prescribed; radiation = :dream, bremsstrahlung_corrections = :dream),
-            heating),
+            ohmic_heating_term(), radiation, heating),
         Equation(:runaway_distribution, TimeDerivative(), fokker_planck)]
     u0 = zeros(length(layout))
     unknown_values(u0, layout, unknown_id(layout, :electric_field)) .= field
-    unknown_values(u0, layout, unknown_id(layout, :cold_electron_temperature)) .= temperature
-    unknown_values(u0, layout, unknown_id(layout, :cold_electron_density)) .= deuterium -
-                                                                              runaway_density
+    temperature_id = unknown_id(layout, :cold_electron_temperature)
+    unknown_values(u0, layout, temperature_id) .= temperature
+    cold_density = deuterium - runaway_density
+    unknown_values(u0, layout, unknown_id(layout, :cold_electron_density)) .= cold_density
     # INIT_FORWARD, a choice of this package (initial_state.py:178-179), from n_re
     # (initial_state.py:120)
     fill_runaway_distribution!(u0, layout, :runaway_distribution, runaway_density;
         shape = :forward, electric_field = field)
-    unknown_values(u0, layout, unknown_id(layout, :ohmic_current_density)) .= field .*
-                                                                              ConductivityModel(prescribed)(0.0)
+    ohmic_current = field .* ConductivityModel(prescribed)(0.0)
+    unknown_values(u0, layout, unknown_id(layout, :ohmic_current_density)) .= ohmic_current
     system = EquationSystem(layout, equations; time_scale = 1e-6, initial_state = u0)
     return (; system, layout, initial_state = u0, times, grid, fokker_planck, heating,
         prescribed)

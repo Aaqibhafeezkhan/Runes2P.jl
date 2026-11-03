@@ -316,6 +316,11 @@ The reasons of the defaults that are choices of this package are on [Choices of 
   A stiff step at the round-off floor of its residual is accepted on the update too, within the round-off bound of its rows or where the residual stopped decreasing.
   DREAM converges on the update; with `setCheckResidual` on, its default, it warns when the residual is not converged (`src/Solver/SolverNonLinear.cpp:305-310`, `py/DREAM/Settings/Solver.py:28`).
 - A failed Newton step is reported as a status of [`NewtonResult`](@ref), and the time stepper retries it with a shorter step.
+- On a runaway grid that starts at ``p = 0`` the friction carries electrons out through ``p = 0`` by ``\lim_{p \to 0} p^3 ν_s`` ([`p3_slowing_down_frequency_at_zero`](@ref)), as on the hot-tail grid.
+  DREAM's ``f_\mathrm{re}`` takes no flux there: it has no internal boundary condition (`src/Settings/Equations/f_re.cpp:87`), so its advection in ``p`` keeps the Dirichlet lower boundary (`fvm/Equation/AdvectionTerm.cpp:36`).
+  DREAM's ``f_\mathrm{hot}`` has one (`src/Settings/Equations/f_hot.cpp:96`), which mirrors the lower boundary (`src/Settings/Equations/distribution.cpp:234-237`), so DREAM's hot-tail grid does carry the flux.
+  In the case `heating` of `reference/dream/cases/initial_state.py` the density of ``f_\mathrm{re}`` falls by 1.52e-4 per step, 3.0e-3 of it over the 5 µs run, while DREAM's stays constant to round-off (`test_runaway_heating_dream.jl`).
+  No option of Runes2P removes this flux yet.
 - Each charge state has a lower limit relative to the density of its species ([`ion_densities_unknown`](@ref)).
   DREAM's `MaximalPhysicalStepLength` damps ``T_\mathrm{cold}``, ``n_\mathrm{tot}``, ``n_\mathrm{cold}``, where they are unknowns ``W_\mathrm{cold}``, ``W_i`` and the species densities ``N_i``, and ``\sum Z_0^2 n`` per radius; the charge states have no limit of their own (`src/Solver/SolverNonLinear.cpp:441-508`).
 - A lower limit shortens only steps towards the limit, never growth ([`LowerLimit`](@ref)).

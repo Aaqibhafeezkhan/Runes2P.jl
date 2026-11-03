@@ -176,4 +176,8 @@ tier = "full"
 # 6.7 minutes: the disruption case in the superthermal mode end to end and its phases from
 # DREAM's state, the initialization of the fully kinetic case, and the heating of the cold
 # electrons by a runaway grid
-files = ["test_disruption_superthermal_dream.jl", "test_disruption_initialization_dream.jl", "test_runaway_heating_dream.jl"]
+files = [
+    "test_disruption_superthermal_dream.jl",
+    "test_disruption_initialization_dream.jl",
+    "test_runaway_heating_dream.jl",
+]

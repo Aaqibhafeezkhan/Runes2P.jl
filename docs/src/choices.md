@@ -186,3 +186,16 @@ The default of the script stays the scenario's count.
 In DREAM runs with `--linear-solver mkl`, with 200 steps the first step fails: its Newton iteration meets a non-finite value (`brent.c:69: computed function value is infinite or NaN`), also in the retry of the step.
 With 500 steps phase 1 converges, and phase 2 runs its 1500 steps.
 The step of 4e-8 s is also that of the case at the size of a test in `test/test_disruption_dream.jl`.
+
+The case `heating` of the reference case `reference/dream/cases/initial_state.py` runs the runaway grid of DREAM's `examples/init_f_re/generate.py`.
+The test case `runaway_heating_example` (`test/example_cases.jl`) builds it.
+The table holds the choices of that case.
+
+| Choice | Value |
+|---|---|
+| length of the run | 5e-6 s in the 20 steps of the example, in place of its 1e-3 s |
+| start of ``f_\mathrm{re}`` | `INIT_FORWARD` from ``n_\mathrm{re} = 10^{16}`` m⁻³, in place of the analytic avalanche shape of the example |
+| cold temperature | self-consistent from 100 eV, `TYPE_SELFCONSISTENT`, in place of the prescribed temperature of the example |
+
+The run of 5e-6 s keeps ``T_\mathrm{cold}`` near the 100 eV of the example: the ohmic heating raises it to 101.4 eV.
+With the self-consistent temperature DREAM's equation of ``T_\mathrm{cold}`` holds the collisional heating by ``f_\mathrm{re}`` (`src/Settings/Equations/T_cold.cpp:341-354`), which the case saves with the states it is evaluated from.
