@@ -404,6 +404,8 @@ function kinetic_terms(
     return (; settings, region, fp, conductivity)
 end
 
+# the system of a phase of the case on the grids of `start`: `mode = :kinetic` for DREAM's
+# fully kinetic mode, `:superthermal` for its superthermal mode (the header of this file)
 function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
         diffusivity::Real = DIFFUSIVITY, mode::Symbol = :kinetic)
     mode in (:kinetic, :superthermal) ||
@@ -606,8 +608,10 @@ closed by its channels, and the energy of the poloidal field.
 when the map from `ψ` to `j` is symmetric (backward Euler, `∂ψ/∂t = 2πE`), so the magnetic
 energy `−W/4π` falls by the work of the field on all currents (a perfectly conducting wall:
 no flux through it). A balance of the total energy does not close
-in this model: `f` covers the bulk as well, and the energy that `f` takes from the field or gives
-to the bulk through collisions is not in the row of `W_cold` (DREAM's energy equation).
+in the fully kinetic model: `f` covers the bulk as well, and the energy that `f` takes from the
+field or gives to the bulk through collisions is not in the row of `W_cold` (DREAM's energy
+equation). In the superthermal mode the friction of `f` on the cold electrons is a channel of that
+row.
 
 Returns a named tuple of the worst relative values over the steps: `species` (the change of the
 density of a species, relative to the largest density), `exchange` (`Q_i + Q_e`, relative to the
