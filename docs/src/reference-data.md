@@ -10,6 +10,7 @@ The generator scripts, the build of DREAM and the regeneration are in `reference
 |---|---|---|
 | `dream-v26.5` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a` | 16 |
 | `dream-v26.5-disruption` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a`: the disruption chain from its initialization | 2 |
+| `dream-v26.5-initial-state` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a`: the starts of a run and the collisional heating of the cold electrons | 4 |
 | `dream-boltzmann-eqterm-93d27e17` | DREAM branch `boltzmann-eqterm`, commit `93d27e1763827e19dafb1fe790e99c2688ad6d62` | 6 |
 | `gsl-2.8` | GSL 2.8 of conda-forge | 1 |
 
@@ -24,6 +25,7 @@ Each set is published as a tarball with its files at the top level:
 
 - <https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5/dream-v26.5.tar.gz>
 - <https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5-disruption/dream-v26.5-disruption.tar.gz>
+- <https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5-initial-state/dream-v26.5-initial-state.tar.gz>
 - <https://deep.reak.bme.hu/~data/runes2p/reference/dream-boltzmann-eqterm-93d27e17/dream-boltzmann-eqterm-93d27e17.tar.gz>
 - <https://deep.reak.bme.hu/~data/runes2p/reference/gsl-2.8/gsl-2.8.tar.gz>
 
@@ -31,27 +33,31 @@ Each set is published as a tarball with its files at the top level:
 
 | File | Set | Case script | Test |
 |---|---|---|---|
-| `dream_collisions.h5` | `dream-v26.5` | `collision_frequencies.py` | `test_collisions_dream.jl` |
+| `dream_avalanche_kinetic.h5` | `dream-boltzmann-eqterm-93d27e17` | `avalanche_kinetic.py` | `test_avalanche_dream.jl` |
 | `dream_cold_energy.h5` | `dream-v26.5` | `cold_energy_fluid.py` | `test_cold_energy_dream.jl` |
+| `dream_collisions.h5` | `dream-v26.5` | `collision_frequencies.py` | `test_collisions_dream.jl` |
 | `dream_cooling_positivity.h5` | `dream-v26.5` | `cooling_positivity.py` | `test_cooling_dream.jl` |
-| `dream_disruption_small.h5` | `dream-v26.5` | `disruption_kinetic.py` | `test_disruption_dream.jl` |
+| `dream_coronal_start.h5` | `dream-v26.5-initial-state` | `initial_state.py case=coronal` | `test_initial_state_dream.jl` |
 | `dream_disruption_chain_small.h5` | `dream-v26.5-disruption` | `disruption_kinetic.py` | `test_disruption_initialization_dream.jl` (runs 0 to 2, the initialization), `test_disruption_chain_dream.jl` (runs 0 to 4, end to end) |
+| `dream_disruption_small.h5` | `dream-v26.5` | `disruption_kinetic.py` | `test_disruption_dream.jl` |
+| `dream_disruption_superthermal_channels_small.h5` | `dream-v26.5-initial-state` | `disruption_kinetic.py --mode superthermal --test-data-channels` | `test_collisional_heating_dream.jl` |
 | `dream_disruption_superthermal_small.h5` | `dream-v26.5-disruption` | `disruption_kinetic.py --mode superthermal` | `test_disruption_superthermal_dream.jl` (runs 0 to 4, end to end, and the phases from DREAM's state) |
 | `dream_dreicer_kinetic.h5` | `dream-v26.5` | `dreicer_kinetic.py` | `test_runaway_physics.jl` |
+| `dream_example_avalanche.h5` | `dream-boltzmann-eqterm-93d27e17` | `example_avalanche.py` | `test_example_avalanche.jl` |
 | `dream_example_runaway.h5` | `dream-v26.5` | `example_runaway.py` | `test_example_runaway.jl` |
 | `dream_flux_limiters.h5` | `dream-v26.5` | `flux_limiters.py` | `test_flux_limiters_dream.jl` |
 | `dream_ion_energy.h5` | `dream-v26.5` | `ion_energy_fluid.py` | `test_ion_energy_dream.jl` |
 | `dream_ion_rates.h5` | `dream-v26.5` | `ion_rates_fluid.py` | `test_ion_rates_dream.jl` |
 | `dream_kinetic_ionization.h5` | `dream-v26.5` | `kinetic_ionization.py` | `test_kinetic_ionization_dream.jl` |
 | `dream_kinetic_operator.h5` | `dream-v26.5` | `kinetic_operator.py` | `test_kinetic_operator_dream.jl` |
+| `dream_knockon_operator.h5` | `dream-boltzmann-eqterm-93d27e17` | `knockon_operator.py` | `test_knockon_operator.jl` |
 | `dream_pmax_boundary.h5` | `dream-v26.5` | `pmax_boundary.py` | `test_pmax_boundary_dream.jl` |
 | `dream_radial_transport.h5` | `dream-v26.5` | `radial_transport.py` | `test_radial_transport_dream.jl` |
 | `dream_rp_avalanche.h5` | `dream-v26.5` | `rp_avalanche.py` | `test_avalanche_rp_dream.jl` |
+| `dream_runaway_heating.h5` | `dream-v26.5-initial-state` | `initial_state.py case=heating` | `test_collisional_heating_dream.jl` |
 | `dream_runaway_rates.h5` | `dream-v26.5` | `runaway_rates.py` | `test_runaway_rates.jl`, `test_runaway_physics.jl` |
+| `dream_runaway_shapes.h5` | `dream-v26.5-initial-state` | `initial_state.py case=shapes` | `test_initial_state_dream.jl` |
 | `dream_self_consistent_field.h5` | `dream-v26.5` | `self_consistent_field.py` | `test_self_consistent_dream.jl` |
-| `dream_avalanche_kinetic.h5` | `dream-boltzmann-eqterm-93d27e17` | `avalanche_kinetic.py` | `test_avalanche_dream.jl` |
-| `dream_example_avalanche.h5` | `dream-boltzmann-eqterm-93d27e17` | `example_avalanche.py` | `test_example_avalanche.jl` |
-| `dream_knockon_operator.h5` | `dream-boltzmann-eqterm-93d27e17` | `knockon_operator.py` | `test_knockon_operator.jl` |
 | `dream_time_stepping.h5` | `dream-boltzmann-eqterm-93d27e17` | `time_stepping.py` | `test_time_stepping_dream.jl` |
 | `dream_time_stepping_adaptive.h5` | `dream-boltzmann-eqterm-93d27e17` | `time_stepping_adaptive.py` | `test_time_stepping_dream.jl` |
 | `dream_two_grids.h5` | `dream-boltzmann-eqterm-93d27e17` | `two_grids.py` | `test_two_grids_dream.jl` |

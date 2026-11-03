@@ -14,6 +14,14 @@ lazy = true
     url = "https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5-disruption/dream-v26.5-disruption.tar.gz"
     sha256 = "5ac8f465a69419fab98de8efc465946b2b365bfc95d9d96e7f97a4be0cd98afc"
 
+["dream-v26.5-initial-state"]
+git-tree-sha1 = "19906e45f5dd20470e81023eaf65405e55a2dc95"
+lazy = true
+
+    [["dream-v26.5-initial-state".download]]
+    url = "https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5-initial-state/dream-v26.5-initial-state.tar.gz"
+    sha256 = "1549df9fa476b0fb749a5db75c23ff683a54530615763715e6ed650837084145"
+
 ["dream-boltzmann-eqterm-93d27e17"]
 git-tree-sha1 = "77d8da5460738ec8a58e7c82ea9903be2842fab4"
 lazy = true

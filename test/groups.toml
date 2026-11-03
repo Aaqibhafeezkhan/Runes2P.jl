@@ -155,8 +155,8 @@ files = ["test_flux_limiters_dream.jl", "test_avalanche_dream.jl", "test_example
 [[group]]
 name = "full-8"
 tier = "full"
-# 7.0 minutes
-files = ["test_kinetic_ionization_dream.jl", "test_avalanche_rp_dream.jl", "test_independent_references.jl", "test_disruption_dream.jl", "test_ion_rates_dream.jl", "test_ion_energy_dream.jl", "test_example_runaway.jl", "test_step_control_cascade.jl", "test_cooling_dream.jl", "test_knockon_cutoff_physics.jl", "test_kinetic_operator_dream.jl", "test_cold_energy_dream.jl", "test_knockon_operator.jl", "test_collisions_dream.jl", "test_physics.jl", "test_knockon_reference.jl"]
+# 7.0 minutes, and 0.5 of test_initial_state_dream.jl and test_collisional_heating_dream.jl
+files = ["test_kinetic_ionization_dream.jl", "test_avalanche_rp_dream.jl", "test_independent_references.jl", "test_disruption_dream.jl", "test_initial_state_dream.jl", "test_collisional_heating_dream.jl", "test_ion_rates_dream.jl", "test_ion_energy_dream.jl", "test_example_runaway.jl", "test_step_control_cascade.jl", "test_cooling_dream.jl", "test_knockon_cutoff_physics.jl", "test_kinetic_operator_dream.jl", "test_cold_energy_dream.jl", "test_knockon_operator.jl", "test_collisions_dream.jl", "test_physics.jl", "test_knockon_reference.jl"]
 
 [[group]]
 name = "full-9"
