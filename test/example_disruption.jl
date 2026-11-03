@@ -446,7 +446,8 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
         (kinetic_ionization = kinetic,)
     end
     external = ExternalAvalancheTerm(prescribed; p_cutoff = p_max, settings, fluid_ions...)
-    # the superthermal mode: the heating of the cold electrons by the friction of f (src/Settings/Equations/T_cold.cpp:318-340)
+    # the superthermal mode: the heating of the cold electrons by the friction of f
+    # (src/Settings/Equations/T_cold.cpp:318-340)
     friction = if superthermal
         (FrictionEnergyTransferTerm(:f, grid,
             PlasmaFromUnknowns(prescribed; ions = :ion_densities, temperature_floor = 0.01)),)
@@ -470,7 +471,8 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
                 :hot_electron_current_density; scale = 1e5),
             RadialUnknown(:runaway_current_density; scale = 1e5),
             KineticUnknown(:f, grid; scale = 1e19)])
-    # DREAM builds the particle source only with the full collision frequencies (src/Settings/Equations/f_hot.cpp:163-197)
+    # DREAM builds the particle source only with the full collision frequencies
+    # (src/Settings/Equations/f_hot.cpp:163-197)
     if superthermal
         unknowns = [u for u in unknowns if u.name !== :particle_source]
     end

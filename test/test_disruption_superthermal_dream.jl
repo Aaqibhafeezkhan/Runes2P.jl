@@ -9,10 +9,12 @@
 # source, the heating of the cold electrons by the friction of f (FrictionEnergyTransferTerm), and
 # the cold temperature restarted at 1 eV. Each run of the initialization and each phase is compared
 # with DREAM's over its steps, and the state handed to the ionization phase with DREAM's first
-# state of that phase. The runaway density and current are compared over the radii: at the second
-# radius, where n_re is 4e-7 of the first, they differ by 0.22 at the end of run 1 (0.23 m⁻³
-# there, from the far tail of f) and by 4e-4 from run 2 on. With
-# Runes2P's defaults (compat = runes2p) the chain runs as well and the budgets are asserted; the
+# state of that phase. Each phase also runs from DREAM's state at its start, as in
+# test_disruption_dream.jl, which separates the physics of the phases from the hand-over. In the
+# chain the runaway density and current are compared over the radii, and per radius with a bound
+# of their own: at the second radius, where n_re is 4e-7 of the first, they differ by 0.22 at the
+# end of run 1 (0.23 m⁻³ there, from the far tail of f) and by 4e-4 from run 2 on, which the
+# phases keep. From DREAM's state they are compared per radius. With Runes2P's defaults (compat = runes2p) the chain runs as well and the budgets are asserted; the
 # drift of ∫f − n_cold − n_hot is not checked, since the superthermal mode has no particle source
 # that would keep it fixed. Needs the ADF11 cache.
 using HDF5
@@ -51,6 +53,29 @@ const SUPERTHERMAL_PHASES = Dict("n_i" => 5e-5,       # 3.5e-6
                                  "j_re" => 2e-9,      # 1.7e-10
                                  "I_p" => 1e-11,      # 8.9e-13
                                  "n_tot" => 1e-14)    # 3.8e-16, round-off of the quasi-neutral sum
+#! format: on
+# n_re and j_re per radius in the phases of the chain: 3.8e-4 at the second radius, from the
+# initialization
+const SUPERTHERMAL_PER_RADIUS = 5e-3
+# the phases started from DREAM's state: the largest relative difference over the steps of both,
+# about ten times the larger measured at the default optimisation level (in the comment); n_re
+# and j_re per radius
+#! format: off
+const SUPERTHERMAL_FROM_DREAM = Dict("n_i" => 5e-5,       # 3.2e-6
+                                     "n_cold" => 3e-5,    # 2.9e-6
+                                     "W_cold" => 3e-5,    # 2.8e-6
+                                     "j_ohm" => 6e-6,     # 5.4e-7
+                                     "f_hot" => 5e-6,     # 3.8e-7
+                                     "T_cold" => 2e-6,    # 2.0e-7
+                                     "E_field" => 2e-6,   # 1.8e-7
+                                     "n_hot" => 1e-6,     # 9.0e-8
+                                     "j_hot" => 6e-7,     # 5.8e-8
+                                     "W_i" => 2e-7,       # 1.3e-8
+                                     "n_re" => 2e-10,     # 1.8e-11, per radius
+                                     "j_re" => 2e-10,     # 1.8e-11, per radius
+                                     "I_p" => 2e-11,      # 1.2e-12
+                                     "psi_p" => 7e-12,    # 6.9e-13
+                                     "n_tot" => 1e-14)    # 3.8e-16
 #! format: on
 # the state handed to the ionization phase against DREAM's first state of that phase, per unknown
 # relative to its largest value: 1.3e-8 measured (the cold density, the free electrons less those of
@@ -116,8 +141,33 @@ end
                 @info "the superthermal case against DREAM, phase $phase: $name $(errors[name])"
                 @test errors[name] < SUPERTHERMAL_PHASES[name]
             end
+            per_radius = phase_differences(case, solution, dream[phase])
+            for name in ("n_re", "j_re")
+                @info "the superthermal case against DREAM, phase $phase: $name per radius $(per_radius[name])"
+                @test per_radius[name] < SUPERTHERMAL_PER_RADIUS
+            end
             for (_, value, bound) in budget_checks(case, solution,
                 "superthermal, $phase, compat = dream", nothing)
+                @test value < bound
+            end
+        end
+        # the phases from DREAM's state at their start
+        for phase in ("ionization", "quench")
+            start = dream[phase]
+            case = build(start; mode = :superthermal)
+            u0 = initial_state(case, start)
+            times = collect(start["t"])
+            system = EquationSystem(case.layout, case.equations;
+                time_scale = times[2] - times[1], initial_state = u0)
+            solution = integrate(system, u0, times; stepper = FixedSteps())
+            @test all(solution.statistics.accepted)
+            errors = phase_differences(case, solution, start)
+            for name in sort!(collect(keys(errors)))
+                @info "the superthermal phases from DREAM's state, $phase: $name $(errors[name])"
+                @test errors[name] < SUPERTHERMAL_FROM_DREAM[name]
+            end
+            for (_, value, bound) in budget_checks(case, solution,
+                "superthermal from DREAM's state, $phase", nothing)
                 @test value < bound
             end
         end
