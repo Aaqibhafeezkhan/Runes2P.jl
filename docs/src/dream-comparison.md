@@ -12,7 +12,7 @@ The file and line citations of DREAM's source refer to commit `93d27e1` unless t
 
 | ✅ implemented | 🚧 partial | ➖ not implemented | features |
 |---|---|---|---|
-| 73 | 19 | 47 | 139 |
+| 74 | 18 | 47 | 139 |
 
 The tables follow the groups of DREAM's settings (`py/DREAM/Settings`).
 The column "DREAM" names the setting, class or unknown, the column "Runes2P" its state and the name that implements it.
@@ -34,7 +34,7 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 | Mode | DREAM | Runes2P |
 |---|---|---|
 | fully kinetic | hot-tail grid with `COLLFREQ_MODE_FULL`, the bulk inside `f_hot` | ✅ implemented: `mode = :full` of [`CollisionSettings`](@ref), [`total_energy_equation`](@ref) |
-| superthermal | hot-tail grid with `COLLFREQ_MODE_SUPERTHERMAL`, a fluid cold population | 🚧 partial: the terms, `mode = :superthermal` of [`CollisionSettings`](@ref), [`MomentumRegion`](@ref), [`ConductivityTerm`](@ref); no self-consistent superthermal case is packaged or tested |
+| superthermal | hot-tail grid with `COLLFREQ_MODE_SUPERTHERMAL`, a fluid cold population | ✅ implemented: `mode = :superthermal` of [`CollisionSettings`](@ref), [`ConductivityTerm`](@ref) for Ohm's law of the cold electrons, [`FrictionEnergyTransferTerm`](@ref) for their heating by ``f_\mathrm{hot}``; the disruption case in this mode is compared with DREAM end to end (below) |
 | isotropic | one pitch cell, the pitch-averaged equation | ➖ not implemented: a grid of one pitch cell is refused by [`fokker_planck_operator`](@ref) |
 | fluid | no kinetic grid | 🚧 partial: the field, the cold electrons and the ions; without a kinetic grid no Dreicer or avalanche term feeds ``n_\mathrm{re}`` |
 
@@ -235,6 +235,7 @@ Each part of the case is compared with DREAM's output at every saved step after 
 | ionization phase | run 3: the ionization of the injected D and Ar | started from DREAM's state at the start of the phase | `test_disruption_dream.jl` |
 | thermal and current quench | run 4 | started from DREAM's state at the start of the phase | `test_disruption_dream.jl` |
 | the chain end to end | runs 0 to 4 | the initialization, then each phase from Runes2P's own end state of the run before it | `test_disruption_chain_dream.jl` |
+| the chain end to end in the superthermal mode | runs 0 to 4 of `generate.py --superthermal` | the same with `mode = :superthermal` of the builder of the case | `test_disruption_superthermal_dream.jl` |
 
 - The initialization agrees with DREAM to 8e-10 in the field, the currents, the poloidal flux and the plasma current.
 - It agrees to 3e-11 in `f_hot` and the hot-electron density; DREAM's Newton tolerance of these runs is 1e-7.
@@ -242,6 +243,7 @@ Each part of the case is compared with DREAM's output at every saved step after 
 - End to end, the phases agree with DREAM as closely as when they start from DREAM's state in `f_hot` (4e-5) and the field (4e-7).
 - The poloidal flux, the plasma current and the runaway density carry the differences of the initialization: 3e-10, 1e-11 and 4e-11, against 7e-13, 1e-12 and 6e-12 from DREAM's state.
 - With Runes2P's defaults the chain runs end to end as well, and the budgets of its closures hold within the bounds of the phases started from DREAM's state.
+- In the superthermal mode the initialization agrees with DREAM to 2e-9 and the phases to 4e-6, the largest in the ion densities and the cold electrons.
 
 ## What Runes2P has that DREAM does not
 
