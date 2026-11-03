@@ -96,18 +96,20 @@ end
     runaway_heating_example(; compat=:dream, lagged=compat === :dream ? :all : :ions)
 
 The case `heating` of reference/dream/cases/initial_state.py: the runaway grid of DREAM's
-examples/init_f_re/generate.py on one radius with the cold temperature self-consistent, in
-the 20 steps of the case over 5 µs. Deuterium fully ionized at 5e19 m⁻³ and 100 eV at the
-start, the prescribed field of 1.5 V/m, B = 5 T, a = 0.22 m; the runaway grid alone (no
-hot-tail grid) from p = 0 to 50 with 100 uniform momentum cells and 40 pitch cells uniform in
-θ in two regions, 32 cells up to θ = 0.5; the ultra-relativistic collision frequencies with
-partial screening and the thermal Coulomb logarithm, no bremsstrahlung and no synchrotron
-loss; upwind interpolation and DREAM's `BC_PHI_CONST` at `p_max`; `f_re` started from
-`n_re = 1e16 m⁻³` in the forward shape ([`fill_runaway_distribution!`](@ref)). The row of
-the temperature holds the ohmic heating with DREAM's conductivity, the radiated power of
-DREAM's mode (the bremsstrahlung of Gould with DREAM's corrections for the fully ionized
-deuterium) and the heating by `f_re` of [`runaway_heating_term`](@ref); the cold density is
-the free-electron density minus the density of `f_re`, as DREAM's `n_cold`.
+examples/init_f_re/generate.py (Mathias Hoppe, 2024-11-22) on one radius with the cold
+temperature self-consistent, in the 20 steps of the case over 5 µs. The self-consistent
+temperature, the forward start of `f_re` and the run of 5 µs are choices of this package.
+Deuterium fully ionized at 5e19 m⁻³ and 100 eV at the start, the prescribed field of
+1.5 V/m, B = 5 T, a = 0.22 m; the runaway grid alone (no hot-tail grid) from p = 0 to 50
+with 100 uniform momentum cells and 40 pitch cells uniform in θ in two regions, 32 cells up
+to θ = 0.5; the ultra-relativistic collision frequencies with partial screening and the
+thermal Coulomb logarithm, no bremsstrahlung and no synchrotron loss; upwind interpolation
+and DREAM's `BC_PHI_CONST` at `p_max`; `f_re` started from `n_re = 1e16 m⁻³` in the forward
+shape ([`fill_runaway_distribution!`](@ref)). The row of the temperature holds the ohmic
+heating with DREAM's conductivity, the radiated power of DREAM's mode (the bremsstrahlung of
+Gould with DREAM's corrections for the fully ionized deuterium) and the heating by `f_re` of
+[`runaway_heating_term`](@ref); the cold density is the free-electron density minus the
+density of `f_re`, as DREAM's `n_cold`.
 
 `compat` switches the heating by `f_re`: DREAM's moment for `:dream`, Runes2P's energy change
 of the electron-electron operator for `:runes2p`. That operator has no ultra-relativistic
@@ -115,7 +117,8 @@ form, so `:runes2p` takes the superthermal frequencies, of which the ultra-relat
 are the limit `p ≫ 1` and which DREAM's moment takes too. Every other setting is DREAM's in
 both. `lagged` goes to the [`FokkerPlanckTerm`](@ref) of `f_re`: `:all` takes the collision
 frequencies at the plasma of the start of the step, as DREAM's semi-implicit steps
-(`LINEAR_IMPLICIT`) do.
+(`LINEAR_IMPLICIT`) do; `:ions`, the default at `:runes2p`, is Runes2P's default treatment
+of the plasma in the term, with only the ion densities taken at the start of the step.
 
 Needs the ADF11 tables of deuterium. Returns a named tuple with the `system`, its `layout`,
 the `initial_state`, the `times` of the case, the kinetic `grid`, the Fokker-Planck term
@@ -138,7 +141,8 @@ function runaway_heating_example(; compat::Symbol = :dream,
     grid = cylindrical_grid(
         MomentumGrid(uniform_p_faces(100, 0.0, 50.0), biuniform_theta_xi_faces(40, 32, 0.5)),
         radial)
-    # 20 steps over 5 µs (initial_state.py:72-73, 182-183)
+    # 20 steps (initial_state.py:72, 183) over 5 µs, a choice of this package
+    # (initial_state.py:73, 182)
     times = collect(range(0.0, 5e-6; length = 21))
     # the collisions: partial screening and the ultra-relativistic mode (initial_state.py:109-110,
     # generate.py:31-32), DREAM's thermal Coulomb logarithm and no bremsstrahlung, the defaults of
@@ -169,9 +173,10 @@ function runaway_heating_example(; compat::Symbol = :dream,
             RadialUnknown(:cold_electron_density; scale = 1e19),
             RadialUnknown(:cold_thermal_energy; scale = 1e3),
             KineticUnknown(:runaway_distribution, grid; scale = 1e16)])
-    # the self-consistent temperature (initial_state.py:180): the ohmic heating, the radiated
-    # power and the heating by f_re of DREAM's row (src/Settings/Equations/T_cold.cpp:172-182,
-    # 341-354), with DREAM's radiation: fully ionized deuterium radiates only bremsstrahlung
+    # the self-consistent temperature, a choice of this package (initial_state.py:178, 180):
+    # the ohmic heating, the radiated power and the heating by f_re of DREAM's row
+    # (src/Settings/Equations/T_cold.cpp:175-176, 187-190, 341-354), with DREAM's radiation:
+    # fully ionized deuterium radiates only bremsstrahlung
     equations = [
         Equation(:electric_field, Algebraic(),
             PrescribedValueTerm(fill(field, nr)), minus(:electric_field)),
@@ -194,7 +199,8 @@ function runaway_heating_example(; compat::Symbol = :dream,
     unknown_values(u0, layout, unknown_id(layout, :cold_electron_temperature)) .= temperature
     unknown_values(u0, layout, unknown_id(layout, :cold_electron_density)) .= deuterium -
                                                                               runaway_density
-    # INIT_FORWARD (initial_state.py:179) from n_re (initial_state.py:120)
+    # INIT_FORWARD, a choice of this package (initial_state.py:178-179), from n_re
+    # (initial_state.py:120)
     fill_runaway_distribution!(u0, layout, :runaway_distribution, runaway_density;
         shape = :forward, electric_field = field)
     unknown_values(u0, layout, unknown_id(layout, :ohmic_current_density)) .= field .*

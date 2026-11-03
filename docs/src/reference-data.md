@@ -54,7 +54,7 @@ Each set is published as a tarball with its files at the top level:
 | `dream_pmax_boundary.h5` | `dream-v26.5` | `pmax_boundary.py` | `test_pmax_boundary_dream.jl` |
 | `dream_radial_transport.h5` | `dream-v26.5` | `radial_transport.py` | `test_radial_transport_dream.jl` |
 | `dream_rp_avalanche.h5` | `dream-v26.5` | `rp_avalanche.py` | `test_avalanche_rp_dream.jl` |
-| `dream_runaway_heating.h5` | `dream-v26.5-initial-state` | `initial_state.py case=heating` | `test_collisional_heating_dream.jl` |
+| `dream_runaway_heating.h5` | `dream-v26.5-initial-state` | `initial_state.py case=heating` | `test_collisional_heating_dream.jl`, `test_runaway_heating_dream.jl` |
 | `dream_runaway_rates.h5` | `dream-v26.5` | `runaway_rates.py` | `test_runaway_rates.jl`, `test_runaway_physics.jl` |
 | `dream_runaway_shapes.h5` | `dream-v26.5-initial-state` | `initial_state.py case=shapes` | `test_initial_state_dream.jl` |
 | `dream_self_consistent_field.h5` | `dream-v26.5` | `self_consistent_field.py` | `test_self_consistent_dream.jl` |

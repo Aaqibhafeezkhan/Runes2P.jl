@@ -23,8 +23,9 @@
 #   but multiplies it by the interpolation coefficients of the face p = 0, which its Dirichlet
 #   condition sets to zero (fvm/Equation/AdvectionTerm.cpp:36,
 #   fvm/Equation/AdvectionInterpolationCoefficient.cpp:438-442): its density of f_re stays 1e16
-#   to round-off, while Runes2P's falls by 1.5e-4 per step. The test checks the cause on the
-#   first step of f_re alone and the loss of the run against Runes2P's flux through p = 0.
+#   to round-off, while Runes2P's falls by 1.52e-4 per step on average. The test checks the
+#   cause on the first step of f_re alone and the loss of the run against Runes2P's flux
+#   through p = 0.
 using HDF5
 
 # the largest differences relative to DREAM's value, about ten times the value measured (in the
@@ -43,9 +44,10 @@ const HEATING_RUN_LOSS = 1e-12          # 1.2e-13 of the loss, the density lost 
         data = h5open(reference_file("dream_runaway_heating.h5"), "r") do h5
             group = h5["heating"]
             Dict(name => read(group[name])
-            for name in ("grid/t", "grid/runaway/p1_f", "grid/runaway/p2_f", "eqsys/T_cold",
-                "eqsys/W_cold", "eqsys/n_cold", "eqsys/f_re", "other/fluid/Tcold_ohmic",
-                "other/fluid/Tcold_radiation", "other/fluid/Tcold_fre_coll"))
+            for name in (
+                "grid/t", "grid/runaway/p1_f", "grid/runaway/p2_f", "eqsys/T_cold",
+                "eqsys/W_cold", "eqsys/n_cold", "eqsys/f_re", "other/fluid/Tcold_radiation",
+                "other/fluid/Tcold_fre_coll"))
         end
         times = data["grid/t"]
         f_dream = data["eqsys/f_re"]   # (p, ξ, radius, time)
@@ -88,7 +90,8 @@ const HEATING_RUN_LOSS = 1e-12          # 1.2e-13 of the loss, the density lost 
             # row of DREAM is zero)
             plasma_at(temperature) = PlasmaState(;
                 cold_electron_temperature = [temperature],
-                ions = case.prescribed.ions, electric_field = [0.0], magnetic_field = [5.0])
+                ions = case.prescribed.ions, electric_field = [0.0],
+                magnetic_field = case.prescribed.magnetic_field)
             field = value(case.initial_state, layout, :electric_field)
             losses = data["other/fluid/Tcold_radiation"][1, :] .+
                      data["other/fluid/Tcold_fre_coll"][1, :]
@@ -114,7 +117,7 @@ const HEATING_RUN_LOSS = 1e-12          # 1.2e-13 of the loss, the density lost 
                 plasma = PlasmaState(; cold_electron_temperature = [T_dream[1]],
                     cold_electron_density = [data["eqsys/n_cold"][1, 1]],
                     ions = case.prescribed.ions, electric_field = [field],
-                    magnetic_field = [5.0])
+                    magnetic_field = case.prescribed.magnetic_field)
                 operator = fokker_planck_operator(
                     grid, plasma, case.fokker_planck.settings;
                     synchrotron = false, scheme = :upwind, p_upper_boundary = :constant_flux)
@@ -149,7 +152,8 @@ const HEATING_RUN_LOSS = 1e-12          # 1.2e-13 of the loss, the density lost 
                 plasma = PlasmaState(;
                     cold_electron_temperature = [T[k]],
                     cold_electron_density = [value(u, layout, :cold_electron_density)],
-                    ions = case.prescribed.ions, electric_field = [field], magnetic_field = [5.0])
+                    ions = case.prescribed.ions, electric_field = [field],
+                    magnetic_field = case.prescribed.magnetic_field)
                 operator = fokker_planck_operator(
                     grid, plasma, case.fokker_planck.settings;
                     synchrotron = false, scheme = :upwind, p_upper_boundary = :constant_flux)
@@ -177,7 +181,7 @@ const HEATING_RUN_LOSS = 1e-12          # 1.2e-13 of the loss, the density lost 
             moment = FrictionEnergyTransferTerm(
                 :runaway_distribution, grid, PlasmaFromUnknowns(case.prescribed))
             heating(term, k) = only(unknown_values(
-                Runes2P.rhs!(zeros(size(solution.states, 1)), term, solution.states[:, k],
+                rhs!(zeros(size(solution.states, 1)), term, solution.states[:, k],
                     layout, row, times[k]),
                 layout, row))
             energy_change = [heating(case.heating, k) for k in eachindex(times)]
