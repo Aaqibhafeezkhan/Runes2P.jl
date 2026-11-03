@@ -305,14 +305,37 @@ end
             rhs!(zeros(length(u)), u, system, 0.0)
             jacobian!(J, system, u, 0.0)
             rhs_all(x) = (out = zeros(length(x)); rhs!(out, x, system, 0.0); out)
-            ion_rows = unknown_range(layout, 1, 1)
-            for column in (first(unknown_range(layout, 3, 1)), first(unknown_range(layout, 2, 1)))
-                h = 1e-6 * u[column]
-                up, down = copy(u), copy(u)
-                up[column] += h
-                down[column] -= h
-                difference = (rhs_all(up) - rhs_all(down))[ion_rows] / 2h
-                @test Vector(J[ion_rows, column])≈difference rtol=1e-5 atol=1e-6*maximum(abs, difference)
+            scales = unknown_scales(layout)
+            # the columns of the temperature and the density at both radii: the difference is
+            # at most 3e-9 of the column at a relative step of 1e-6
+            for ir in 1:2
+                ion_rows = unknown_range(layout, 1, ir)
+                for column in (first(unknown_range(layout, 3, ir)), first(unknown_range(layout, 2, ir)))
+                    h = 1e-6 * u[column]
+                    up, down = copy(u), copy(u)
+                    up[column] += h
+                    down[column] -= h
+                    difference = (rhs_all(up) - rhs_all(down))[ion_rows] / 2h
+                    @test Vector(J[ion_rows, column])≈difference rtol=1e-5 atol=1e-6*maximum(abs, difference)
+                end
+                # the cells of f that hold the threshold, where the envelope lies strictly
+                # between 0 and 1. The row is linear in f, so the step is a tenth of the scale
+                # of f, which keeps the round-off of the fluid rates small: 1.5e-10 of the
+                # column (1e-5 at a step of 1e-3 of the value of the cell)
+                T = unknown_values(u, layout, 3)[ir]
+                envelope = Runes2P._envelope_at_temperature(kinetic, ir, T)
+                i = only(findall(e -> 0 < e < 1, envelope))
+                for j in 1:3
+                    column = Runes2P._kinetic_index(layout, 4, ir, i, j)
+                    h = 0.1 * scales[column]
+                    up, down = copy(u), copy(u)
+                    up[column] += h
+                    down[column] -= h
+                    difference = (rhs_all(up) - rhs_all(down))[ion_rows] / 2h
+                    @test maximum(abs, difference) > 0
+                    @test maximum(abs, Vector(J[ion_rows, column]) - difference) <=
+                          1e-8 * maximum(abs, difference)
+                end
             end
             # the binding energy at the fluid coefficient of the split
             prescribed = PlasmaState(; cold_electron_temperature = [20.0, 10.0],
@@ -335,15 +358,18 @@ end
                 x -> Runes2P.rhs!(
                     zeros(eltype(x), n), term, x, layout, 3, 0.0), u)
             @test Matrix(J)≈reference rtol=1e-10 atol=1e-12*maximum(abs, reference)
-            # and the temperature column against a central difference
-            column = first(unknown_range(layout, 3, 1))
-            h = 1e-6 * u[column]
-            up, down = copy(u), copy(u)
-            up[column] += h
-            down[column] -= h
-            difference = (Runes2P.rhs!(zeros(n), term, up, layout, 3, 0.0) -
-                          Runes2P.rhs!(zeros(n), term, down, layout, 3, 0.0)) / 2h
-            @test Vector(J[:, column])≈difference rtol=1e-5 atol=1e-8*maximum(abs, difference)
+            # and the temperature column of each radius against a central difference, which
+            # it meets to 3e-9
+            for ir in 1:2
+                column = first(unknown_range(layout, 3, ir))
+                h = 1e-6 * u[column]
+                up, down = copy(u), copy(u)
+                up[column] += h
+                down[column] -= h
+                difference = (Runes2P.rhs!(zeros(n), term, up, layout, 3, 0.0) -
+                              Runes2P.rhs!(zeros(n), term, down, layout, 3, 0.0)) / 2h
+                @test Vector(J[:, column])≈difference rtol=1e-5 atol=1e-8*maximum(abs, difference)
+            end
         end
         @testset "secondaries and the energy of the kinetic ionization" begin
             @test mean_secondary_energy(24.2, 10.0, 15.8, 1e3) == 0

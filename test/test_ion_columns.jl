@@ -113,6 +113,18 @@ end
                     @test maximum(abs, Matrix(J)[:, j] - column) <=
                           1e-5 * maximum(abs, column) + 1e-13 * size_of_rhs / 1e13
                 end
+                # the columns of the temperature and the density at both radii, with a
+                # relative step of 1e-6: the difference is at most 3e-9 of the column
+                for name in (:cold_electron_temperature, :cold_electron_density),
+                    ir in 1:2
+
+                    name in Runes2P.dependencies(term) || continue
+                    j = first(unknown_range(layout, row(name), ir))
+                    column = _central_column(rhs, u, j, 1e-6 * u[j])
+                    @test maximum(abs, column) > 0
+                    @test maximum(abs, Matrix(J)[:, j] - column) <=
+                          1e-6 * maximum(abs, column)
+                end
                 # the derivative of a charge state that is empty: the column holds the
                 # derivative at zero density
                 empty = unknown_range(layout, 1, 1)[3 + 10]
