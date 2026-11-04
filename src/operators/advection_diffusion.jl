@@ -366,10 +366,11 @@ Base.@propagate_inbounds function _p_derivative(f, grid::MomentumGrid, i, j, ir)
            (grid.p_centers[i_upper] - grid.p_centers[i_lower])
 end
 
-# Four-point face value on p face `k` with the ghost cells DREAM uses for the hot-tail
-# distribution (mirrored at p = 0, zero at a lower boundary p_min > 0, under
-# p_zero_boundary = :zero_flux as on DREAM's runaway grid, and beyond p_max);
-# with `state` given, the limiter weights come from `state` (frozen limiter)
+# Four-point face value on p face `k` with the ghost cells as DREAM sets them: mirrored at
+# p = 0 with p_zero_boundary = :outflow (DREAM's hot-tail distribution), zero with
+# p_zero_boundary = :zero_flux (DREAM's runaway distribution) and at a lower boundary
+# p_min > 0, zero beyond p_max; with `state` given, the limiter weights come from `state`
+# (frozen limiter)
 Base.@propagate_inbounds function _p_four_point_face(
         op::AdvectionDiffusion, f, state, A, k, j, ir)
     m = op.momentum_grids[ir]

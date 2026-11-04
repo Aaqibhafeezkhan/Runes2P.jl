@@ -45,6 +45,9 @@ const HEATING_RUN_DISTRIBUTION = 1e-5
 const HEATING_RUN_FIRST_STEP = 1e-14
 # 4.0e-16 of the density of f_re at the start, round-off
 const HEATING_RUN_DENSITY = 1e-14
+# with the default flux through p = 0 the first step departs from DREAM's by 1.06e-4 of the
+# largest value and loses 1.55e-4 of the density: at least half of each
+const HEATING_RUN_DEFAULT_FIRST_STEP = 5e-5
 
 @testset "the heating by a runaway grid in a run against DREAM" begin
     if !isdir(adas_cache_directory())
@@ -156,8 +159,8 @@ const HEATING_RUN_DENSITY = 1e-14
             @test abs(first_step[1][2]) < HEATING_RUN_DENSITY
             # Runes2P's default: f_re departs from DREAM's by 1.06e-4 of its largest value
             # after the first step, and its density falls by 1.55e-4
-            @test first_step[2][1] > 5e-5
-            @test first_step[2][2] < -5e-5
+            @test first_step[2][1] > HEATING_RUN_DEFAULT_FIRST_STEP
+            @test first_step[2][2] < -HEATING_RUN_DEFAULT_FIRST_STEP
 
             # the density of f_re is conserved: no flux through p = 0, and f_re is negligible at
             # p_max
