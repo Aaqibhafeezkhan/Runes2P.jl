@@ -60,7 +60,8 @@ end
     add_slowing_down!(op, collisions)
 
 Collisional friction `Aᵖ = -p ν_s(p)` on the p faces, and the particle flux through
-`p = 0` from `lim p³ν_s`.
+`p = 0` from `lim p³ν_s`, which the operator applies under `p_zero_boundary = :outflow`
+([`AdvectionDiffusion`](@ref)).
 """
 function add_slowing_down!(op::AdvectionDiffusion, collisions::CollisionModel)
     g = op.grid
@@ -156,7 +157,8 @@ end
     fokker_planck_operator(grid, plasma, settings; synchrotron=true,
                            scheme=:exponential_fitting, p_scheme=scheme, xi_scheme=scheme,
                            p_lower_boundary=:zero_flux, p_upper_boundary=:f_zero,
-                           r_boundary=:zero_flux, field_in_coefficients=true)
+                           p_zero_boundary=:outflow, r_boundary=:zero_flux,
+                           field_in_coefficients=true)
 
 Kinetic operator for the hot electrons: electric field, slowing down, pitch-angle
 scattering, energy diffusion (`:full` mode) and synchrotron losses. The default boundary
@@ -181,6 +183,14 @@ the operator of the runaway grid `p_lower_boundary = :interface` (a grid with
 `p_min > 0`, [`runaway_grid`](@ref)). The flux between the two is the
 [`MomentumInterfaceTerm`](@ref) of the equation system.
 
+On a grid from `p = 0` the friction carries electrons out through `p = 0` by default
+(`p_zero_boundary = :outflow`, [`p3_slowing_down_frequency_at_zero`](@ref)), as on DREAM's
+hot-tail grid. `p_zero_boundary = :zero_flux` takes no flux there, as on DREAM's runaway
+grid, whose `f_re` keeps the Dirichlet lower condition of its advection in `p`
+(`src/Settings/Equations/f_re.cpp:87`, `fvm/Equation/AdvectionTerm.cpp:36`); the conditions
+are those of [`AdvectionDiffusion`](@ref). `p_zero_boundary` applies to a grid from `p = 0`
+only, `p_lower_boundary` to a grid with `p_min > 0` only.
+
 `field_in_coefficients = false` leaves the field of the plasma out of the coefficients, for
 a field that is an unknown of the system: the operator holds the collisions and the
 coefficients of a unit field, and the term passes the field
@@ -191,15 +201,16 @@ function fokker_planck_operator(grid::KineticGrid, plasma::PlasmaState,
         synchrotron::Bool = true, scheme::Symbol = :exponential_fitting,
         p_scheme::Symbol = scheme, xi_scheme::Symbol = scheme,
         p_lower_boundary::Symbol = :zero_flux,
-        p_upper_boundary::Symbol = :f_zero, r_boundary::Symbol = :zero_flux,
-        field_in_coefficients::Bool = true)
+        p_upper_boundary::Symbol = :f_zero, p_zero_boundary::Symbol = :outflow,
+        r_boundary::Symbol = :zero_flux, field_in_coefficients::Bool = true)
     # DREAM replaces the electric-field advection by a diffusion term in the reduced
     # (pitch-averaged) equation; that form is not implemented. A grid with different cell
     # counts or p faces at different radii is refused by AdvectionDiffusion below.
     has_same_cell_counts(grid) && pitch_cell_count(grid) == 1 &&
         throw(ArgumentError("the reduced equation (one pitch cell) is not implemented"))
     op = AdvectionDiffusion(
-        grid; scheme, p_scheme, xi_scheme, p_lower_boundary, p_upper_boundary, r_boundary)
+        grid; scheme, p_scheme, xi_scheme, p_lower_boundary, p_upper_boundary,
+        p_zero_boundary, r_boundary)
     set_unit_field_coefficients!(op)
     set_fokker_planck_coefficients!(
         op, plasma, settings; synchrotron, field_in_coefficients)

@@ -45,7 +45,7 @@ n(r) = \frac{1}{V'} \sum_{ij} \mathcal{V}'_{ij}\, \Delta p_i\, \Delta\xi_j\, f_{
 ```
 
 The accessors are [`phase_space_jacobian`](@ref), [`phase_space_jacobian_p_faces`](@ref), [`phase_space_jacobian_xi_faces`](@ref) and [`phase_space_jacobian_r_faces`](@ref).
-The limit [`phase_space_jacobian_over_p2_at_zero`](@ref) enters the flux through ``p = 0``, where ``\mathcal{V}'`` vanishes but collisional friction still removes particles (see [`AdvectionDiffusion`](@ref)).
+The limit [`phase_space_jacobian_over_p2_at_zero`](@ref) enters the flux through ``p = 0``, where ``\mathcal{V}'`` vanishes but collisional friction still removes particles under the default `p_zero_boundary = :outflow` (see [`AdvectionDiffusion`](@ref)).
 DREAM's cylindrical `VpVol` and `Vp` are ``4\pi^2`` times ``V'`` and ``\mathcal{V}'``.
 `test/test_two_grids_dream.jl` checks this ratio for the `Vprime` of DREAM's output.
 

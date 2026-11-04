@@ -104,7 +104,8 @@ Deuterium fully ionized at 5e19 m⁻³ and 100 eV at the start, the prescribed f
 with 100 uniform momentum cells and 40 pitch cells uniform in θ in two regions, 32 cells up
 to θ = 0.5; the ultra-relativistic collision frequencies (at `compat = :dream`) with partial
 screening and the thermal Coulomb logarithm, no bremsstrahlung and no synchrotron loss;
-upwind interpolation and DREAM's `BC_PHI_CONST` at `p_max`; `f_re` started from
+upwind interpolation and DREAM's `BC_PHI_CONST` at `p_max`; no flux through `p = 0` (at
+`compat = :dream`), as DREAM's runaway grid; `f_re` started from
 `n_re = 1e16 m⁻³` in the forward shape ([`fill_runaway_distribution!`](@ref)). The row of
 the temperature holds the ohmic heating with DREAM's conductivity, the radiated power of
 DREAM's mode (the bremsstrahlung of Gould with DREAM's corrections for the fully ionized
@@ -112,7 +113,10 @@ deuterium) and the heating by `f_re` of [`runaway_heating_term`](@ref); the cold
 the free-electron density minus the density of `f_re`, as DREAM's `n_cold`.
 
 `compat = :dream` takes DREAM's settings of the case. `compat = :runes2p` differs from them
-in three settings. The heating by `f_re` is Runes2P's energy change of the
+in four settings. The operator of `f_re` keeps Runes2P's default flux through `p = 0`
+(`p_zero_boundary = :outflow` of [`fokker_planck_operator`](@ref)), by which the friction
+carries electrons out of the grid there, where DREAM's runaway grid takes none
+(`p_zero_boundary = :zero_flux`). The heating by `f_re` is Runes2P's energy change of the
 electron-electron operator in place of DREAM's moment. That operator has no
 ultra-relativistic form, so the operator of `f_re` takes the superthermal frequencies, of
 which the ultra-relativistic ones are the limit `p ≫ 1`. Near `p = 0` they differ: in the
@@ -171,9 +175,12 @@ function runaway_heating_example(; compat::Symbol = :dream,
     plasma = PlasmaFromUnknowns(prescribed)
     # upwind interpolation (initial_state.py:126, generate.py:68), DREAM's default
     # BC_PHI_CONST at p_max and no synchrotron loss, DREAM's default; the field of the
-    # unknown
+    # unknown. At compat = :dream no flux through p = 0, as on DREAM's runaway grid
+    # (src/Settings/Equations/f_re.cpp:87, fvm/Equation/AdvectionTerm.cpp:36)
+    p_zero_boundary = compat === :dream ? :zero_flux : :outflow
     operator = fokker_planck_operator(grid, prescribed, settings; synchrotron = false,
-        scheme = :upwind, p_upper_boundary = :constant_flux, field_in_coefficients = false)
+        scheme = :upwind, p_upper_boundary = :constant_flux, p_zero_boundary,
+        field_in_coefficients = false)
     fokker_planck = FokkerPlanckTerm(:runaway_distribution, operator; plasma, settings,
         synchrotron = false, electric_field = :electric_field, lagged)
     heating = runaway_heating_term(compat, fokker_planck, grid, plasma)

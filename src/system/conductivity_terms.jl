@@ -172,7 +172,8 @@ function _with_upper_boundary(op::AdvectionDiffusion{T, C}, boundary::Symbol) wh
         op.diffusion_xi_xi, op.diffusion_xi_p, op.advection_r, op.diffusion_r_r,
         op.unit_field_advection_p, op.unit_field_advection_xi, op.p_flux_at_lower_boundary,
         op.advection_p_times_p2_at_zero, op.p_scheme, op.xi_scheme, op.r_scheme,
-        op.p_lower_boundary, boundary, op.r_boundary, op.momentum_grids, op.radial_overlaps,
+        op.p_lower_boundary, boundary, op.p_zero_boundary, op.r_boundary, op.momentum_grids,
+        op.radial_overlaps,
         op.jacobian_centers, op.jacobian_p_faces, op.jacobian_xi_faces, op.jacobian_r_faces,
         op.jacobian_over_p2_at_zero, op.coefficient_source)
 end

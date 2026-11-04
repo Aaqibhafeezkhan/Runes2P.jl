@@ -4,48 +4,50 @@
 # self-consistent, built by `runaway_heating_example` (example_cases.jl) and run over the 20
 # steps of the case. At compat = dream T_cold, W_cold and f_re are compared with DREAM's. At
 # compat = runes2p the run differs from DREAM's in the collision mode of the operator of
-# f_re, the lag of its plasma and the form of the heating (runaway_heating_example), and the
-# two forms of the heating are compared over the run. Needs the ADF11 cache.
+# f_re, the lag of its plasma, the flux through p = 0 and the form of the heating
+# (runaway_heating_example), and the two forms of the heating are compared over the run.
+# Needs the ADF11 cache.
 #
-# Two differences of method remain at compat = dream, each checked by its mechanism:
-# - DREAM's semi-implicit steps (LINEAR_IMPLICIT) take j_ohm of the start of the step as the
-#   coefficient of the ohmic heating and the field as its unknown
-#   (include/DREAM/Equations/Fluid/OhmicHeatingTerm.hpp:10-14, DREAM v26.5), and that j_ohm
-#   holds the conductivity of the step before: the heating of the step from state m is
-#   σ(T_{m-1}) E², two states behind the end of the step (the saved Tcold_ohmic is
-#   σ(T_m) E²). Runes2P's Newton steps take σ(T_{m+1}) E², which raises T_cold by about
-#   1.4e-6 of its value per step. The Fokker-Planck term of f_re takes the plasma of the
-#   start of the step (lagged = :all), as DREAM's; the other terms have no lag. The test
-#   compares T_cold with DREAM's steps replayed with the ohmic heating at the end of the
-#   step; the rest is the lower f_re (below) and the heating by f_re at the end of the step.
-# - The operator of Runes2P carries electrons out through p = 0 with the friction
-#   lim p³ν_s (src/operators/advection_diffusion.jl:487-495,
-#   src/operators/kinetic_terms.jl:77-78, p3_slowing_down_frequency_at_zero). DREAM computes
-#   the same limit (src/Equations/Kinetic/SlowingDownTerm.cpp:54-56,
-#   fvm/Equation/AdvectionTerm.set.cpp:98-105), but multiplies it by the interpolation
-#   coefficients of the face p = 0, which its Dirichlet condition sets to zero
-#   (fvm/Equation/AdvectionTerm.cpp:36,
-#   fvm/Equation/AdvectionInterpolationCoefficient.cpp:438-442). That condition holds on
-#   DREAM's runaway grid only: f_re has no internal boundary condition
-#   (src/Settings/Equations/f_re.cpp:87), while on the hot-tail grid the lower boundary of p
-#   is mirrored (src/Settings/Equations/distribution.cpp:234-237), so that f_hot does carry
-#   the flux. DREAM's density of f_re stays 1e16 to round-off, while Runes2P's falls by
-#   1.52e-4 per step on average. The test checks the cause on the first step of f_re alone
-#   and the loss of the run against Runes2P's flux through p = 0.
+# The operator of f_re takes no flux through p = 0 at compat = dream
+# (p_zero_boundary = :zero_flux), as DREAM's runaway grid: DREAM computes the friction's
+# limit lim p³ν_s (src/Equations/Kinetic/SlowingDownTerm.cpp:54-56,
+# fvm/Equation/AdvectionTerm.set.cpp:98-118), but multiplies it by the interpolation
+# coefficients of the face p = 0, which its Dirichlet condition sets to zero
+# (fvm/Equation/AdvectionTerm.cpp:36, fvm/Equation/AdvectionInterpolationCoefficient.cpp:438-442).
+# That condition holds on DREAM's runaway grid only: f_re has no internal boundary condition
+# (src/Settings/Equations/f_re.cpp:87), while on the hot-tail grid the lower boundary of p
+# is mirrored (src/Settings/Equations/distribution.cpp:234-237), so that f_hot does carry
+# the flux. Runes2P's default (p_zero_boundary = :outflow, taken at compat = runes2p) carries
+# electrons out through p = 0; the test measures its size on the first step of f_re alone.
+#
+# One difference of method remains at compat = dream, checked by its mechanism:
+# DREAM's semi-implicit steps (LINEAR_IMPLICIT) take j_ohm of the start of the step as the
+# coefficient of the ohmic heating and the field as its unknown
+# (include/DREAM/Equations/Fluid/OhmicHeatingTerm.hpp:10-14, DREAM v26.5), and that j_ohm
+# holds the conductivity of the step before: the heating of the step from state m is
+# σ(T_{m-1}) E², two states behind the end of the step (the saved Tcold_ohmic is
+# σ(T_m) E²). Runes2P's Newton steps take σ(T_{m+1}) E², which raises T_cold by about
+# 1.4e-6 of its value per step. The Fokker-Planck term of f_re takes the plasma of the
+# start of the step (lagged = :all), as DREAM's; the other terms have no lag. The test
+# compares T_cold with DREAM's steps replayed with the ohmic heating at the end of the
+# step; the rest is the heating by f_re at the end of the step.
 using HDF5
 
 # the largest differences relative to DREAM's value, about ten times the measured value
 # (in the comment above each), or round-off
-# 2.6e-5 of T_cold and 2.7e-5 of W_cold at the last step
+# 2.7e-5 of T_cold and 2.7e-5 of W_cold at the last step
 const HEATING_RUN_TEMPERATURE = 3e-4
-# 1.1e-6 of T_cold from the replay of DREAM's steps
-const HEATING_RUN_REPLAY = 1e-5
-# 2.9e-3 of the largest f_re, at the last step
-const HEATING_RUN_DISTRIBUTION = 3e-2
+# 6.9e-9 of T_cold from the replay of DREAM's steps
+const HEATING_RUN_REPLAY = 1e-7
+# 9.8e-7 of the largest f_re, the largest over the steps
+const HEATING_RUN_DISTRIBUTION = 1e-5
 # 2.4e-16 without the flux through p = 0, round-off
 const HEATING_RUN_FIRST_STEP = 1e-14
-# 1.2e-13 of the loss: the density lost against the flux through p = 0
-const HEATING_RUN_LOSS = 1e-12
+# 4.0e-16 of the density of f_re at the start, round-off
+const HEATING_RUN_DENSITY = 1e-14
+# with the default flux through p = 0 the first step departs from DREAM's by 1.06e-4 of the
+# largest value and loses 1.55e-4 of the density: at least half of each
+const HEATING_RUN_DEFAULT_FIRST_STEP = 5e-5
 
 @testset "the heating by a runaway grid in a run against DREAM" begin
     if !isdir(adas_cache_directory())
@@ -124,20 +126,18 @@ const HEATING_RUN_LOSS = 1e-12
                   "step: $replay"
             @test replay < HEATING_RUN_REPLAY
 
-            # the cause of the difference in f_re: the first step of f_re alone, with the
-            # coefficients at the plasma of the start as DREAM's step takes them, matches
-            # DREAM's without the flux through p = 0
-            first_step = map((true, false)) do sink
+            # the first step of f_re alone, with the coefficients at the plasma of the start
+            # as DREAM's step takes them: DREAM's without the flux through p = 0, and the
+            # departure of Runes2P's default, which carries electrons out there
+            first_step = map((:zero_flux, :outflow)) do boundary
                 plasma = PlasmaState(; cold_electron_temperature = [T_dream[1]],
                     cold_electron_density = [data["eqsys/n_cold"][1, 1]],
                     ions = case.prescribed.ions, electric_field = [field],
                     magnetic_field = case.prescribed.magnetic_field)
                 operator = fokker_planck_operator(
                     grid, plasma, case.fokker_planck.settings; synchrotron = false,
-                    scheme = :upwind, p_upper_boundary = :constant_flux)
-                if !sink
-                    operator.advection_p_times_p2_at_zero .= 0
-                end
+                    scheme = :upwind, p_upper_boundary = :constant_flux,
+                    p_zero_boundary = boundary)
                 alone = UnknownLayout(grid.radial_grid,
                     [KineticUnknown(:runaway_distribution, grid; scale = 1e16)])
                 system = EquationSystem(alone,
@@ -146,47 +146,30 @@ const HEATING_RUN_LOSS = 1e-12
                 u0 = zeros(length(alone))
                 kinetic_view(u0, alone, 1, 1) .= f_dream[:, :, 1, 1]
                 u = integrate(system, u0, times[1:2]).states[:, 2]
-                maximum(abs, kinetic_view(u, alone, 1, 1) .- f_dream[:, :, 1, 2]) /
-                maximum(abs, f_dream[:, :, 1, 2])
+                f_start = reshape(Array(kinetic_view(u0, alone, 1, 1)), size(grid))
+                f_end = reshape(Array(kinetic_view(u, alone, 1, 1)), size(grid))
+                n_start = density(grid, f_start)[1]
+                difference = maximum(abs, f_end .- f_dream[:, :, 1, 2]) /
+                             maximum(abs, f_dream[:, :, 1, 2])
+                (difference, (density(grid, f_end)[1] - n_start) / n_start)
             end
-            # a test of the cause, not an option of Runes2P: the coefficient of the flux
-            # through p = 0 set to zero by hand
-            @info "the first step of f_re against DREAM, with and without the flux " *
-                  "through p = 0: $first_step"
-            @test first_step[1] ≈ distributions[2] rtol = 1e-6
-            @test first_step[2] < HEATING_RUN_FIRST_STEP
+            @info "the first step of f_re against DREAM, without and with the flux " *
+                  "through p = 0 (the difference, the change of the density): $first_step"
+            @test first_step[1][1] < HEATING_RUN_FIRST_STEP
+            @test abs(first_step[1][2]) < HEATING_RUN_DENSITY
+            # Runes2P's default: f_re departs from DREAM's by 1.06e-4 of its largest value
+            # after the first step, and its density falls by 1.55e-4
+            @test first_step[2][1] > HEATING_RUN_DEFAULT_FIRST_STEP
+            @test first_step[2][2] < -HEATING_RUN_DEFAULT_FIRST_STEP
 
-            # the electrons that Runes2P's run loses are those that leave through p = 0 (and
-            # p_max), with the coefficients of each step at the plasma of its start, as the
-            # lagged Fokker-Planck term takes them
+            # the density of f_re is conserved: no flux through p = 0, and f_re is negligible at
+            # p_max
             distribution_array(u) = reshape(Array(distribution(u)), size(grid))
             densities = [density(grid, distribution_array(states[:, k]))[1]
                          for k in eachindex(times)]
-            through_boundaries = zeros(length(times))
-            for k in 1:steps
-                u = states[:, k]
-                plasma = PlasmaState(;
-                    cold_electron_temperature = [T[k]],
-                    cold_electron_density = [value(u, layout, :cold_electron_density)],
-                    ions = case.prescribed.ions, electric_field = [field],
-                    magnetic_field = case.prescribed.magnetic_field)
-                operator = fokker_planck_operator(
-                    grid, plasma, case.fokker_planck.settings; synchrotron = false,
-                    scheme = :upwind, p_upper_boundary = :constant_flux)
-                f = distribution_array(states[:, k + 1])
-                net = momentum_flux(operator, f, 1) -
-                      momentum_flux(operator, f, momentum_cell_count(grid) + 1)
-                through_boundaries[k + 1] = through_boundaries[k] +
-                                            (times[k + 1] - times[k]) * net
-            end
-            loss = densities .- densities[1]
-            @info "the density of f_re lost in the run: $(loss[end] / densities[1]) of " *
-                  "the start, the flux through the boundaries: " *
-                  "$(through_boundaries[end] / densities[1])"
-            mismatch = maximum(abs, loss .- through_boundaries) / abs(loss[end])
-            @info "the density lost against the flux through the boundaries: $mismatch"
-            @test loss[end] < -1e-3 * densities[1]
-            @test mismatch < HEATING_RUN_LOSS
+            drift = maximum(abs, densities .- densities[1]) / densities[1]
+            @info "the density of f_re over the run against its start: $drift"
+            @test drift < HEATING_RUN_DENSITY
         end
 
         @testset "compat = runes2p" begin

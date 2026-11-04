@@ -76,4 +76,91 @@ using Random
         for i in 1:momentum_cell_count(g), j in 1:pitch_cell_count(g))
         @test loss ≈ -wall
     end
+
+    @testset "no flux through p = 0 (p_zero_boundary = :zero_flux, $scheme)" for scheme in (:upwind, :quick)
+        gz = cylindrical_grid(
+            MomentumGrid(uniform_p_faces(6, 0.0, 1.5), uniform_xi_faces(3)),
+            RadialGrid(uniform_r_faces(1, 1.0)))
+        mz = momentum_grid(gz)
+        np = momentum_cell_count(gz)
+        function random_operator(boundary)
+            op = AdvectionDiffusion(gz; scheme, p_zero_boundary = boundary)
+            rz = Xoshiro(7)
+            op.advection_p .= randn(rz, size(op.advection_p))
+            op.advection_xi .= randn(rz, size(op.advection_xi))
+            op.diffusion_p_p .= rand(rz, size(op.diffusion_p_p))
+            op.diffusion_xi_xi .= rand(rz, size(op.diffusion_xi_xi))
+            op.advection_p[end, :, :] .= 1.0         # outflow through p_max
+            op.advection_p_times_p2_at_zero .= -0.7  # the friction's limit at p = 0
+            return op
+        end
+        sink, closed = random_operator(:outflow), random_operator(:zero_flux)
+        f = rand(Xoshiro(8), size(gz)...)
+        df_sink, df_closed = zeros(size(gz)), zeros(size(gz))
+        apply!(df_sink, sink, f)
+        apply!(df_closed, closed, f)
+
+        # no particles leave through p = 0: the density changes by the flux through p_max alone
+        @test momentum_flux(closed, f, 1) == 0
+        outflow = momentum_flux(closed, f, np + 1)
+        @test outflow > 0
+        @test density(gz, df_closed)[1] ≈ -outflow rtol = 1e-13
+        # the default keeps the flux (𝒱'/p²)|₀ (p²Aᵖ)|₀ f₁ through p = 0 (f₁ for upwind, the
+        # scheme's own face value for QUICK)
+        @test momentum_flux(sink, f, 1) < 0
+        @test density(gz, df_sink)[1] ≈
+              momentum_flux(sink, f, 1) - momentum_flux(sink, f, np + 1) rtol = 1e-13
+        if scheme === :upwind
+            # the two operators differ in the first momentum cell only
+            @test df_sink[2:end, :, :] == df_closed[2:end, :, :]
+        else
+            # QUICK: the ghost cells below p = 0 hold zero under :zero_flux (DREAM's Dirichlet
+            # condition) and are mirrored by default, which changes the face between cells 1 and 2
+            @test df_sink[4:end, :, :] == df_closed[4:end, :, :]
+            @test df_sink[2, :, :] != df_closed[2, :, :]
+        end
+
+        # the Jacobian follows: the stored matrix against central differences on the column
+        # of f₁, and the column of the default differs by the flux through p = 0 alone
+        M_closed, M_sink = operator_matrix(closed), operator_matrix(sink)
+        @test M_closed * vec(f) ≈ vec(df_closed) rtol = 1e-13
+        h = 1e-6
+        for j in 1:3
+            column = LinearIndices(size(gz))[1, j, 1]
+            up, down = copy(f), copy(f)
+            up[1, j, 1] += h
+            down[1, j, 1] -= h
+            df_up, df_down = zeros(size(gz)), zeros(size(gz))
+            apply!(df_up, closed, up)
+            apply!(df_down, closed, down)
+            central = vec(df_up .- df_down) ./ (2h)
+            @test Vector(M_closed[:, column])≈central rtol=1e-8 atol=1e-8*maximum(abs, central)
+            difference = Vector(M_sink[:, column] .- M_closed[:, column])
+            if scheme === :upwind
+                # the sink of cell (1, j): -(𝒱'/p²)|₀ (p²Aᵖ)|₀ / (𝒱'₁ Δp₁)
+                sink_rate = 0.7 * phase_space_jacobian_over_p2_at_zero(gz, 1)[j] /
+                            (phase_space_jacobian(gz, 1)[1, j] * mz.p_widths[1])
+                @test difference[column] ≈ -sink_rate rtol = 1e-13
+                difference[column] = 0
+                @test all(iszero, difference)
+            end
+        end
+    end
+
+    @testset "p_zero_boundary needs p_min = 0" begin
+        lifted = cylindrical_grid(
+            MomentumGrid(uniform_p_faces(4, 0.5, 1.5), uniform_xi_faces(2)),
+            RadialGrid(uniform_r_faces(1, 1.0)))
+        @test_throws ArgumentError AdvectionDiffusion(lifted; p_zero_boundary = :zero_flux)
+        @test_throws ArgumentError AdvectionDiffusion(g; p_zero_boundary = :mirrored)
+        @test AdvectionDiffusion(g).p_zero_boundary === :outflow
+    end
+
+    @testset "p_lower_boundary needs p_min > 0" begin
+        for boundary in (:prescribed, :interface)
+            @test_throws "p_zero_boundary" AdvectionDiffusion(g; p_lower_boundary = boundary)
+        end
+        @test AdvectionDiffusion(g; p_lower_boundary = :zero_flux).p_lower_boundary ===
+              :zero_flux
+    end
 end

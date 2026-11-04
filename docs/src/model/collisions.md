@@ -32,6 +32,7 @@ Each physical process adds to the coefficients:
 
 The collision frequencies ``ν_s``, ``ν_D`` and ``ν_\parallel`` come from a [`CollisionModel`](@ref) of the plasma and the [`CollisionSettings`](@ref).
 The flux through ``p = 0`` follows from ``\lim_{p \to 0} p^3 ν_s`` ([`p3_slowing_down_frequency_at_zero`](@ref)).
+`p_zero_boundary = :zero_flux` of [`fokker_planck_operator`](@ref) takes no flux there, as DREAM's runaway grid.
 The interpolation of ``f`` to the faces is the scheme of the operator (see [Positivity and flux limiters](positivity.md)).
 
 An electric field that is an unknown of the system does not enter the coefficients.

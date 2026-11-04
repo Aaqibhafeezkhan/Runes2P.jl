@@ -33,18 +33,32 @@ not match. With one pitch grid for all radii the overlap cells are the pitch cel
 nothing changes.
 
 Boundary conditions:
-- `p = 0`: flux `(𝒱'/p²)|₀ · (p²Aᵖ)|₀ · f₁`, with the limit `p²Aᵖ` given in
-  `op.advection_p_times_p2_at_zero[j, ir]` (nonzero for collisional friction, which
-  removes particles through `p = 0` as in DREAM). With `:quick` and
-  `:upwind_second_order` the scheme's own face value at `p = 0` replaces `f₁`, as in
-  DREAM's `AdvectionTerm`; the limiters give `f₁` there (mirrored ghost cells).
+- `p = 0` (`p_zero_boundary`): `:outflow`, the flux `(𝒱'/p²)|₀ · (p²Aᵖ)|₀ · f₁`, with the
+  limit `p²Aᵖ` given in `op.advection_p_times_p2_at_zero[j, ir]` (nonzero for collisional
+  friction, which removes particles through `p = 0` as DREAM's hot-tail grid does). With
+  `:quick` and `:upwind_second_order` the scheme's own face value at `p = 0` replaces
+  `f₁`, as in DREAM's `AdvectionTerm`; the limiters give `f₁` there (mirrored ghost
+  cells). Or `:zero_flux`, no flux through `p = 0`, as on DREAM's runaway grid: DREAM
+  multiplies the limit (`src/Equations/Kinetic/SlowingDownTerm.cpp:54-56`) by the
+  interpolation coefficients of the face `p = 0` (`fvm/Equation/AdvectionTerm.set.cpp:98-118`),
+  which its default lower condition `AD_BC_DIRICHLET` (`fvm/Equation/AdvectionTerm.cpp:36`)
+  sets to zero (`fvm/Equation/AdvectionInterpolationCoefficient.cpp:438-442`). Only a
+  distribution with an internal boundary condition switches to `AD_BC_MIRRORED`
+  (`src/Settings/Equations/distribution.cpp:234-237`): `f_hot` has one
+  (`src/Settings/Equations/f_hot.cpp:96`), `f_re` none (`src/Settings/Equations/f_re.cpp:87`).
+  The ghost cells of the four-point schemes below `p = 0` then hold zero, as DREAM's
+  Dirichlet condition leaves out the cells beyond the grid. `p_zero_boundary` applies to a
+  grid from `p = 0` only, and `:zero_flux` needs `p_min = 0`; a grid with `p_min > 0`
+  takes `p_lower_boundary`.
 - First radial face: no flux.
 - `p = p_min > 0` (`p_lower_boundary`): `:zero_flux`, or `:prescribed` with the flux `Γᵖ`
   through the face given in `op.p_flux_at_lower_boundary[j, ir]` (positive into the
   domain, independent of `f`), or `:interface`: the face is shared with the grid of
   another kinetic unknown below (a runaway grid above a hot-tail grid), the operator adds
   no flux through it, and a [`MomentumInterfaceTerm`](@ref) in the equation system carries
-  the flux between the two grids.
+  the flux between the two grids. `p_lower_boundary` applies to a grid with `p_min > 0`
+  only: on a grid from `p = 0`, `:prescribed` and `:interface` are refused, and the
+  boundary there is `p_zero_boundary`.
 - `ξ = ±1`: no flux.
 - `p = p_max` (`p_upper_boundary`): `:outflow`, advective outflow only (`Aᵖ > 0`); or
   `:f_zero`, outflow into a ghost cell with `f = 0` one cell spacing beyond the last
@@ -101,10 +115,11 @@ centres; the cross terms `Dᵖᵠ`, `Dᵠᵖ` are always central:
   and `:upwind_second_order` (linear in f) and flux limiters `:tcdf`, `:muscl`, `:smart`,
   `:ospre`, plus `:van_albada` (Runes2P), which are nonlinear in f. The face value uses two
   upstream cells and one downstream cell (`src/operators/flux_limiters.jl`), with ghost
-  cells as DREAM sets them for the hot-tail distribution: mirrored at p = 0 (zero at a
-  lower boundary p_min > 0), zero beyond p_max, mirrored at ξ = ±1. The fluxes through
-  the boundary faces keep the rules listed above (the scheme's face value at p = 0,
-  upwind at p_max as DREAM's `BC_F_0`).
+  cells as DREAM sets them: mirrored at p = 0 with `p_zero_boundary = :outflow` (DREAM's
+  hot-tail distribution), zero with `p_zero_boundary = :zero_flux` (DREAM's runaway
+  distribution) and at a lower boundary p_min > 0, zero beyond p_max, mirrored at ξ = ±1.
+  The fluxes through the boundary faces keep the rules listed above (the scheme's face
+  value at p = 0, upwind at p_max as DREAM's `BC_F_0`).
   With fewer than three cells in a direction the face value is central, as in DREAM.
 
 The scheme can differ per direction (`p_scheme`, `xi_scheme`, `r_scheme`). `scheme` sets
@@ -135,6 +150,7 @@ struct AdvectionDiffusion{T <: AbstractFloat, C <: Real}
     r_scheme::Symbol
     p_lower_boundary::Symbol
     p_upper_boundary::Symbol
+    p_zero_boundary::Symbol
     r_boundary::Symbol
     # grid data read in the flux loops (the same cell counts and p faces at all radii)
     momentum_grids::Vector{MomentumGrid{T}}  # per radius
@@ -153,7 +169,7 @@ end
     AdvectionDiffusion(grid; scheme=:upwind, p_scheme=scheme, xi_scheme=scheme,
                        r_scheme=(scheme is four-point ? :central : scheme),
                        p_lower_boundary=:zero_flux, p_upper_boundary=:outflow,
-                       r_boundary=:zero_flux)
+                       p_zero_boundary=:outflow, r_boundary=:zero_flux)
 
 Operator with all coefficients zero; set them in place, e.g. `op.diffusion_p_p .= 1`.
 """
@@ -163,6 +179,7 @@ function AdvectionDiffusion(
         r_scheme::Symbol = is_four_point_scheme(scheme) ? :central : scheme,
         p_lower_boundary::Symbol = :zero_flux,
         p_upper_boundary::Symbol = :outflow,
+        p_zero_boundary::Symbol = :outflow,
         r_boundary::Symbol = :zero_flux) where {T}
     for s in (p_scheme, xi_scheme)
         s in (:upwind, :central, :exponential_fitting) || is_four_point_scheme(s) ||
@@ -176,6 +193,8 @@ function AdvectionDiffusion(
     p_upper_boundary in (:outflow, :f_zero, :constant_flux, :extrapolated_flux,
         :extrapolated_flux_consistent, :interface) ||
         throw(ArgumentError("unknown upper p boundary condition $p_upper_boundary"))
+    p_zero_boundary in (:outflow, :zero_flux) ||
+        throw(ArgumentError("unknown p = 0 boundary condition $p_zero_boundary"))
     (has_same_cell_counts(grid) && has_same_p_faces(grid)) ||
         throw(ArgumentError("AdvectionDiffusion needs the same cell counts and the same p faces at all " *
                             "radii (the pitch faces may differ between radii)"))
@@ -201,11 +220,13 @@ function AdvectionDiffusion(
     if p_upper_boundary === :extrapolated_flux_consistent && np < 3
         throw(ArgumentError("extrapolated_flux_consistent p_max boundary needs at least 3 momentum cells"))
     end
-    if p_lower_boundary === :prescribed && momentum_grid(grid, 1).p_faces[1] == 0
-        throw(ArgumentError("a prescribed p flux needs p_min > 0"))
+    if p_lower_boundary !== :zero_flux && momentum_grid(grid, 1).p_faces[1] == 0
+        throw(ArgumentError("p_lower_boundary = :$p_lower_boundary needs p_min > 0; " *
+                            "the boundary of a grid from p = 0 is p_zero_boundary"))
     end
-    if p_lower_boundary === :interface && momentum_grid(grid, 1).p_faces[1] == 0
-        throw(ArgumentError("an interface at the lower p boundary needs p_min > 0"))
+    if p_zero_boundary === :zero_flux && momentum_grid(grid, 1).p_faces[1] != 0
+        throw(ArgumentError("p_zero_boundary = :zero_flux needs p_min = 0; " *
+                            "the lower boundary of p_min > 0 is p_lower_boundary"))
     end
     if !(r_boundary in (:zero_flux, :absorbing, :absorbing_dream))
         throw(ArgumentError("unknown radial boundary condition $r_boundary"))
@@ -218,8 +239,8 @@ function AdvectionDiffusion(
         on_xi_faces(), on_xi_faces(), on_xi_faces(),
         on_r_faces(), on_r_faces(), on_p_faces(), on_xi_faces(), zeros(T, nxi, nr),
         zeros(T, nxi, nr),
-        p_scheme, xi_scheme, r_scheme, p_lower_boundary, p_upper_boundary, r_boundary,
-        [momentum_grid(grid, ir) for ir in radii],
+        p_scheme, xi_scheme, r_scheme, p_lower_boundary, p_upper_boundary, p_zero_boundary,
+        r_boundary, [momentum_grid(grid, ir) for ir in radii],
         [radial_face_overlap(grid, k) for k in 1:(nr + 1)],
         stack(phase_space_jacobian(grid, ir) for ir in radii),
         stack(phase_space_jacobian_p_faces(grid, ir) for ir in radii),
@@ -253,8 +274,8 @@ function with_scheme(
         op.diffusion_xi_xi, op.diffusion_xi_p, op.advection_r, op.diffusion_r_r,
         op.unit_field_advection_p, op.unit_field_advection_xi,
         op.p_flux_at_lower_boundary, op.advection_p_times_p2_at_zero, p_scheme, xi_scheme,
-        op.r_scheme, op.p_lower_boundary, op.p_upper_boundary, op.r_boundary,
-        op.momentum_grids, op.radial_overlaps,
+        op.r_scheme, op.p_lower_boundary, op.p_upper_boundary, op.p_zero_boundary,
+        op.r_boundary, op.momentum_grids, op.radial_overlaps,
         op.jacobian_centers, op.jacobian_p_faces, op.jacobian_xi_faces, op.jacobian_r_faces,
         op.jacobian_over_p2_at_zero, op.coefficient_source)
 end
@@ -276,7 +297,7 @@ function similar_coefficients(op::AdvectionDiffusion{T}, ::Type{C}) where {T, C 
         zeroed(op.unit_field_advection_p), zeroed(op.unit_field_advection_xi),
         zeroed(op.p_flux_at_lower_boundary), zeroed(op.advection_p_times_p2_at_zero),
         op.p_scheme, op.xi_scheme, op.r_scheme, op.p_lower_boundary, op.p_upper_boundary,
-        op.r_boundary, op.momentum_grids, op.radial_overlaps, op.jacobian_centers,
+        op.p_zero_boundary, op.r_boundary, op.momentum_grids, op.radial_overlaps, op.jacobian_centers,
         op.jacobian_p_faces, op.jacobian_xi_faces, op.jacobian_r_faces,
         op.jacobian_over_p2_at_zero, Ref{Any}(nothing))
 end
@@ -345,9 +366,11 @@ Base.@propagate_inbounds function _p_derivative(f, grid::MomentumGrid, i, j, ir)
            (grid.p_centers[i_upper] - grid.p_centers[i_lower])
 end
 
-# Four-point face value on p face `k` with the ghost cells DREAM uses for the hot-tail
-# distribution (mirrored at p = 0, zero at a lower boundary p_min > 0 and beyond p_max);
-# with `state` given, the limiter weights come from `state` (frozen limiter)
+# Four-point face value on p face `k` with the ghost cells as DREAM sets them: mirrored at
+# p = 0 with p_zero_boundary = :outflow (DREAM's hot-tail distribution), zero with
+# p_zero_boundary = :zero_flux (DREAM's runaway distribution) and at a lower boundary
+# p_min > 0, zero beyond p_max; with `state` given, the limiter weights come from `state`
+# (frozen limiter)
 Base.@propagate_inbounds function _p_four_point_face(
         op::AdvectionDiffusion, f, state, A, k, j, ir)
     m = op.momentum_grids[ir]
@@ -355,7 +378,7 @@ Base.@propagate_inbounds function _p_four_point_face(
     # upstream U1, U2 and downstream D1 by the sign of A (DREAM: A > 0 is positive flow)
     i_u, i_uu, i_d = A > 0 ? (k - 1, k - 2, k) : (k, k + 1, k - 1)
     centers, faces = m.p_centers, m.p_faces
-    mirrored = faces[1] == 0
+    mirrored = faces[1] == 0 && op.p_zero_boundary === :outflow
     function value(g, i)
         if i < 1
             return mirrored ? g[1 - i, j, ir] : zero(eltype(g))
@@ -480,6 +503,8 @@ Base.@propagate_inbounds function _p_flux(
     T = _flux_eltype(op, f, field)
     if k == 1
         if m.p_faces[1] == 0
+            # no flux through p = 0 (DREAM's runaway grid, AD_BC_DIRICHLET)
+            op.p_zero_boundary === :zero_flux && return zero(T)
             # p²Aᵖ times the face value, which is f₁ for the two-point schemes and the
             # limiters (mirrored ghost cell) and the scheme's own value for QUICK and
             # second-order upwind (DREAM AdvectionTerm, F1PSqAtZero with the p = 0 deltas)
@@ -780,9 +805,11 @@ counted in the same normalization as [`density`](@ref), so a runaway rate measur
 a surface above the critical momentum is directly comparable with
 [`connor_hastie_rate`](@ref). Face 1 is the flux through `p = p_min` (the `p = 0` limit or
 the prescribed boundary flux) and face `momentum_cell_count + 1` the flux out of the grid.
-A face with an `:interface` boundary (face 1 under `p_lower_boundary = :interface`, the
-last face under `p_upper_boundary = :interface`) reads zero: this operator carries no flux
-there, and [`interface_flux`](@ref) gives the flux between the grids.
+On a grid from `p = 0`, face 1 under `p_zero_boundary = :zero_flux` reads zero: this
+operator takes no flux through `p = 0` there. A face with an `:interface` boundary (face 1
+under `p_lower_boundary = :interface`, the last face under `p_upper_boundary = :interface`)
+reads zero: this operator carries no flux there, and [`interface_flux`](@ref) gives the flux
+between the grids.
 `electric_field` (one value per radius) is the field of an operator that takes it as an
 argument ([`apply!`](@ref)).
 """
