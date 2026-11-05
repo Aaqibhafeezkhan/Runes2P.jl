@@ -113,7 +113,7 @@ It takes the field-particle term ([`low_rank_jacobian`](@ref)) exactly and refus
 
 [`GMRES`](@ref) solves with the operator ``W (M/h - J) S`` in which ``J`` holds the stored Jacobian and the matrix-free terms.
 With right preconditioning the residual it minimizes is the true residual of the scaled system.
-Its `relative_tolerance` must be at or below the `floor_linear_tolerance` of the [`NewtonSolver`](@ref), or neither waiver can apply.
+Its `relative_tolerance` must be at or below the `floor_linear_tolerance` of the [`NewtonSolver`](@ref), or neither waiver can apply; the Newton workspace warns otherwise.
 `operator = :exact` adds the corrections of approximate Jacobian blocks to every product ([`jacobian_correction_product!`](@ref)), so the iteration is Newton and the approximate block only preconditions.
 `operator = :stored` keeps the stored matrix, a quasi-Newton iteration.
 The default restart length of 50 is a choice of this package ([Choices of this package](../choices.md)).
@@ -238,7 +238,8 @@ The step that follows uses the new setup.
 - [`RechesterRosenbluthUpdate`](@ref) sets the Rechester–Rosenbluth diffusion ([`add_rechester_rosenbluth_diffusion!`](@ref)) from the prescribed ``\delta B/B`` at the start of each step.
   The diffusion is that of A. B. Rechester and M. N. Rosenbluth, Phys. Rev. Lett. 40, 38 (1978), doi:10.1103/PhysRevLett.40.38.
 
-An update that reports a changed setup discards the stored Jacobian and the history of the step controller.
+An update that reports a changed setup discards the stored Jacobian.
+A jump also discards the history of the step controller; a change continuous in time (`changes_continuously`, a `RechesterRosenbluthUpdate` without forced time points) keeps it.
 A time at which an update or a term switches ([`forced_time_points`](@ref)) must be a time point of the run, and [`check_update`](@ref) refuses an update that does not fit the system.
 The state of every update is saved with every saved state and checkpoint, and restored on resume.
 

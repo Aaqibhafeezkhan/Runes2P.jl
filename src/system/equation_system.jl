@@ -487,9 +487,9 @@ moved at once, so a row that reads other entries of its own unknown (a radial tr
 term, Ampère's law for the poloidal flux) has no value here: its `c` would be a sum over the
 entries it reads. Such a row is refused unless the values solved entry by entry satisfy it.
 
-Throws an `ArgumentError` for a row that does not depend on its unknown, is not linear in it
-or reads other entries of it and does not hold after the fill, and for filled rows that read
-each other in a cycle.
+Throws an `ArgumentError` for a row that does not depend on its unknown or is not linear in
+it, for a row that reads other entries of its unknown where its coefficient vanishes or it
+does not hold after the fill, and for filled rows that read each other in a cycle.
 """
 function fill_initial_values!(u::AbstractVector, system::EquationSystem, t::Real; unknowns = nothing)
     layout = system.layout
