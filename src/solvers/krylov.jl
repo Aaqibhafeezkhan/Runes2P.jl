@@ -70,8 +70,9 @@ On hot-tail grids of 270 × 15 cells (fully kinetic) and of 125 × 15 cells
   is 50 (a choice of this package; see the docs page *Choices of this package*).
 - `relative_tolerance` stays at or below the `floor_linear_tolerance` of the
   [`NewtonSolver`](@ref) (1e-8). With 1e-6 the Newton iteration cannot accept a residual at
-  its round-off floor and ends with `:max_iterations`. A tolerance of 1e-8 takes fewer
-  Krylov iterations per Newton iteration than 1e-10, and more Newton iterations per step.
+  its round-off floor and ends with `:max_iterations`; the Newton workspace of a larger
+  tolerance warns. A tolerance of 1e-8 takes fewer Krylov iterations per Newton iteration
+  than 1e-10, and more Newton iterations per step.
 - The memory is that of the block factors and of the Krylov basis, `restart_length` vectors.
 """
 Base.@kwdef struct GMRES{P <: BlockPreconditioner} <: LinearSolver

@@ -173,7 +173,7 @@ end
 #   with the accepted state in `run.u`, or `nothing` when the attempt failed or was
 #   rejected and the stepper retries with another length (it throws when it gives up);
 # - `reset_history!(state)`: forget the accepted states before the current one, after an
-#   update changed the setup; nothing by default.
+#   update changed the setup by a jump; nothing by default.
 
 """
     TimeStepper
@@ -277,6 +277,11 @@ end
 "The error estimate per unknown of the last accepted step, for the log; `nothing` without one."
 stepper_errors(state) = nothing
 reset_history!(state) = nothing
+
+# whether the changes of the setup by an interval update are continuous in time, so that
+# the states before a change still extrapolate across it: a change is a jump unless the
+# update knows better
+changes_continuously(update) = false
 
 "Record of the state of a stepper, stored in the checkpoint."
 function stepper_record(state::FixedStepState)
@@ -572,6 +577,24 @@ the difference and costs one vector operation. The first step of a run has no hi
 it is solved as one step doubling ([`StepDoubling`](@ref), twice the cost of that step
 alone), whose difference `u_full - u_half` is half the local error.
 
+The derivation holds for an unknown whose own row holds its time derivative. The estimate is
+taken on every entry of every unknown, and an unknown of an [`Algebraic`](@ref) or a
+[`Constraint`](@ref) equation, or one whose row holds the time derivative of another
+unknown (`TimeDerivative(of)`), does not satisfy `u_n - u_{n-1} = h_old f(u_n)`. On such an
+unknown the predictor is the linear extrapolation of its own two last values, and half
+the difference `h (h + h_old) u''/4` (`h² u''/2` at constant steps) measures the curvature
+of its path in time: the local error that backward Euler would make on a differential
+unknown with that path. It is not the error of its equation, which the Newton solve meets
+to its tolerance, nor the error that the differential unknowns carry into it. The
+doubling of a first step measures that carried error on an algebraic unknown: the
+difference of the values its equation gives at the end states of the full and the half
+steps. The unknown of a constraint is the mean rate over a step, and its doubling
+difference is the change of that rate between the full step and the second half step,
+of first order in the step (`h S'/4` for a rate `S`, and the estimate twice that). With
+`order = 2` the estimate of such an unknown measures the third derivative of its path. The
+unknown counts in the largest error and can set the step; a [`Tolerance`](@ref) with all
+parts zero in `time_step_tolerances` leaves it out.
+
 The error of an unknown is the root mean square over its entries of the local error over
 `absolute + relative |u|`, with the [`Tolerance`](@ref) the system holds for the time-step
 error (`time_step_tolerances` of [`EquationSystem`](@ref)); an unknown without one gets
@@ -596,10 +619,13 @@ over the order of the local error, `(0.35, 0.2)` for backward Euler, whose local
 of second order in the step (DREAM's stabiliser has them over the order 1). The two
 `gains` are the fields `gain_error` and `gain_memory` of the record. The memory
 `error_old` is floored at 1e-4, as in Hairer's codes, so that a step after one with an
-error near zero is not shrunk by the limit. An interval update that reports a change of the
+error near zero is not shrunk by the limit. An interval update that reports a jump of the
 setup restarts the estimate: the next step takes it from a doubling, as the first step of
-a run. A rejected step is repeated with `h · max(min_shrink, safety · error^(-1/(k+1)))`,
-k the order of the step, and keeps the memory of the filter; more than `max_rejections`
+a run. A change that is continuous in time, such as that of a
+[`RechesterRosenbluthUpdate`](@ref) whose level has no [`forced_time_points`](@ref)
+(any function other than a [`PiecewiseConstant`](@ref)), keeps the history. A rejected step is
+repeated with `h · max(min_shrink, safety · error^(-1/(k+1)))`, k the order of the step,
+and keeps the memory of the filter; more than `max_rejections`
 rejections in a row end the run with [`TimeStepFailure`](@ref) (a settings error, such as
 a `min_shrink` near 1 with a step whose error does not fall). A step whose solve fails is
 retried with `failure_factor` times the length tried, at most `max_failures` times in a row.
@@ -634,7 +660,7 @@ with the reference `a u_n - b u_{n-1}` in the time derivative and the effective 
 record `h`. The estimate is Milne's: the quadratic extrapolation through the last three
 accepted states, `ρ (u - P)` with `ρ = h(h+h1)/((h+h1+h2)(2h+h1) + h(h+h1))`, 2/11 at
 constant steps, for a local error of third order in the step. The first two steps of a run
-and the first two after an update that changes the setup are backward-Euler steps, with
+and the first two after an update that jumps the setup are backward-Euler steps, with
 the gains scaled to their order. BDF2 is zero-stable for `ω < 1 + √2`, so `max_growth`
 must stay below that. It keeps neither the positivity of backward Euler with an M-matrix
 operator nor the second order for explicit and lagged terms, which it warns about. The
@@ -881,8 +907,8 @@ end
 
 stepper_errors(state::StepControllerState) = state.errors
 
-# after an update that changed the setup the extrapolation through the states before it
-# would hold the jump of the setup, a term of first order in the step: the next step takes
+# after an update that changed the setup by a jump the extrapolation through the states
+# before it would hold the jump, a term of first order in the step: the next step takes
 # its estimate from a doubling, as the first step of a run
 function reset_history!(state::StepControllerState)
     state.previous_step = NaN
@@ -1581,16 +1607,27 @@ function _save!(run::RunState, values)
     return nothing
 end
 
-# the updates at the state u_old at the time t; one that changed the setup discards the
-# stored Jacobian
+# the updates at the state u_old at the time t
 function _apply_updates!(run::RunState)
-    changed = false
-    for update in run.updates
-        changed |= apply_update!(update, run.u_old, run.layout, run.t) === true
+    _apply_updates!(
+        run.updates, run.u_old, run.layout, run.t, run.ws, run.stepper_state)
+end
+
+# a change of the setup discards the stored Jacobian; a change that is a jump also clears
+# the history of the stepper, while a continuous one keeps it
+function _apply_updates!(updates, u, layout, t, ws, stepper_state)
+    changed, jumped = false, false
+    for update in updates
+        if apply_update!(update, u, layout, t) === true
+            changed = true
+            jumped |= !changes_continuously(update)
+        end
     end
     if changed
-        invalidate_jacobian!(run.ws)
-        reset_history!(run.stepper_state)
+        invalidate_jacobian!(ws)
+    end
+    if jumped
+        reset_history!(stepper_state)
     end
     return nothing
 end

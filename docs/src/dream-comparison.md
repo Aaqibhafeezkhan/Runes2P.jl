@@ -333,6 +333,8 @@ The reasons of the defaults that are choices of this package are on [Choices of 
 - [`StepDoubling`](@ref) reads the tolerances by unknown, for the acceptance and for the next step; DREAM's step update reads them by position in its list of non-trivial unknowns (`GetErrorScale`, `src/ConvergenceChecker.cpp`).
 - `check_every` of [`StepDoubling`](@ref) takes the steps between two checked steps at the current length, the documented intent of DREAM's `checkevery`.
   DREAM's code takes them from a stale start time, with other lengths and one step more (`src/TimeStepper/TimeStepperAdaptive.cpp`).
+- The `:smooth` envelope of a [`MomentumRegion`](@ref) whose limit lies at or above the last cell centre takes the width of the last cell.
+  DREAM takes the limit minus the last centre (`FindThresholdStep`, `fvm/Equation/MomentQuantity.cpp`): zero width and a NaN at that centre, and a jump of the envelope as the limit crosses it.
 
 ### Extrapolated flux at the highest momentum
 

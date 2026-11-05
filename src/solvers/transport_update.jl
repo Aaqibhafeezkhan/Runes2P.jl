@@ -20,6 +20,12 @@ the faces are the state of the update, stored with the checkpoints and restored 
 `diffusion_r_r`. A [`PiecewiseConstant`](@ref) level needs its switch times among the time
 points of the run. DREAM interpolates the table of its `dBB` linearly in time and takes the
 value at the end of a step.
+
+A level without [`forced_time_points`](@ref), any function other than a
+[`PiecewiseConstant`](@ref), is taken as continuous in time: its change at every step
+discards the stored Jacobian and leaves the history of [`StepController`](@ref) in place,
+whose predictor extrapolates across it. A level that jumps is given as a
+[`PiecewiseConstant`](@ref), whose switches restart the estimate of the controller.
 """
 struct RechesterRosenbluthUpdate{T, F} <: IntervalUpdate
     name::String
@@ -54,6 +60,12 @@ function _set_levels!(update::RechesterRosenbluthUpdate, levels)
         safety_factor = update.safety_factor)
     copyto!(update.delta_b_over_b, levels)
     return update
+end
+
+# a level without switch times changes continuously in time: the step controller keeps its
+# history across the changes, which come at every step
+function changes_continuously(update::RechesterRosenbluthUpdate)
+    isempty(forced_time_points(update.delta_b_over_b_at))
 end
 
 function apply_update!(update::RechesterRosenbluthUpdate, u, layout, t)

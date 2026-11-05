@@ -16,6 +16,9 @@ every accepted step (`updates`), at the state and the time where that step ends.
   saved state and in every checkpoint;
 - `restore_update!(update, state)`: set the setup back to a stored state;
 - `describe(update, context)`: its record in the settings of the run.
+
+Optional: `changes_continuously(update)`, whether its changes are continuous in time, so that
+`StepController` keeps its history across them; `false` by default, a change is a jump.
 """
 abstract type IntervalUpdate end
 

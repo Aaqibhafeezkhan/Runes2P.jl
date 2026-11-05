@@ -165,7 +165,27 @@ P = u_n + \frac{h}{h_{n-1}}\,(u_n - u_{n-1}), \qquad \mathrm{err} = \tfrac12\,(u
 ```
 
 On the rows with a time derivative, where ``M\,(u_n - u_{n-1}) = h_{n-1}\,\mathrm{rhs}(u_n)``, ``P`` is the forward-Euler predictor, and ``u - P \approx h^2 u''`` is twice the local error.
-The first step of a run, and the first after an update that changed the setup, has no history and takes its estimate from one step doubling.
+The first step of a run, and the first after an update that changed the setup by a jump, has no history and takes its estimate from one step doubling.
+An update whose change is continuous in time keeps the history and discards only the stored Jacobian: a [`RechesterRosenbluthUpdate`](@ref) whose level has no [`forced_time_points`](@ref), any function other than a [`PiecewiseConstant`](@ref).
+
+The estimate is taken on every entry of every unknown, also on an unknown whose row holds no time derivative of its own.
+That is an unknown of an [`Algebraic`](@ref) or a [`Constraint`](@ref) equation, or one whose row holds the time derivative of another unknown (`TimeDerivative(of)`).
+For such an unknown ``P`` is the linear extrapolation of its own two last values, and the estimate is
+
+```math
+\mathrm{err} = \tfrac12\,(u - P) \approx \tfrac14\,h\,(h + h_{n-1})\,u''.
+```
+
+It measures the curvature of the path of the unknown in time: the local error that backward Euler would make on a differential unknown with that path, ``h^2 u''/2`` at constant steps.
+It is not the error of the equation of the unknown, which the Newton solve meets to its tolerance.
+Nor is it the error that the differential unknowns carry into it.
+The doubling of a first step measures that carried error on the unknown of an [`Algebraic`](@ref) equation: the difference of the values its equation gives at the end states of the full and the half steps.
+The unknown of a [`Constraint`](@ref) is the mean rate over a step.
+Its doubling difference is the change of that rate between the full step and the second half step, ``h\,S'/4`` for a rate ``S``, of first order in the step.
+The estimate is twice that difference, ``h\,S'/2``.
+With `order = 2` the estimate of such an unknown measures the third derivative of its path.
+Such an unknown counts in the largest error and can set the step.
+A [`Tolerance`](@ref) with all parts zero in `time_step_tolerances` leaves it out.
 
 The error of an unknown is the root mean square of the estimate over ``a + r\,|u|`` per entry:
 
@@ -195,7 +215,7 @@ M\,(u - a\,u_n + b\,u_{n-1}) = c\,h\,\mathrm{rhs}(u, t), \qquad a = \frac{(1+\om
 
 The solve is the backward-Euler residual with ``u_\mathrm{ref} = a\,u_n - b\,u_{n-1}`` and the step ``c\,h``.
 The error estimate is Milne's, from the quadratic extrapolation through the three last accepted states.
-The first two steps of a run, and the first two after an update that changes the setup, are backward-Euler steps.
+The first two steps of a run, and the first two after an update that jumps the setup, are backward-Euler steps.
 BDF2 is zero-stable for ``\omega < 1 + \sqrt2``, which bounds `max_growth`.
 It keeps neither the positivity that backward Euler has with an M-matrix operator nor the second order for explicit and lagged terms.
 The default `order = 1` is backward Euler, which DREAM uses.

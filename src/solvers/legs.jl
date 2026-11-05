@@ -8,11 +8,12 @@
 
 One leg of a run, `duration` seconds long, in one of three keyword forms:
 
-- `steps` time steps of equal length with `saves` saved states, at the time points nearest
-  to the multiples of `duration / saves` (DREAM's `nSaveSteps`);
+- `steps` time steps of equal length with `saves` saved states, at the save steps of
+  DREAM's `nSaveSteps`: a running sum of `steps / saves` rounded to the nearest step, a tie
+  to the later one (`Leg(T; steps = 5, saves = 2)` saves after the steps 3 and 5);
 - steps of length `dt` with a saved state every `save_dt`, where `dt` and `save_dt` divide
-  the duration (to 1e-12 relative) and the saved states are again the time points nearest
-  to the multiples of `save_dt`;
+  the duration (to 1e-12 relative) and the saved states are those of the first form with
+  `duration / save_dt` saves;
 - for a [`StepController`](@ref) alone, no prescribed steps and a saved state every
   `save_dt`, which divides the duration.
 
@@ -97,8 +98,14 @@ function time_points(legs; start::Real = 0.0)
             points = [k == leg.steps ? leg_end : leg_start + k * leg.duration / leg.steps
                       for k in 1:leg.steps]
             append!(times, points)
-            for k in 1:leg.saves
-                push!(save_times, points[round(Int, k * leg.steps / leg.saves)])
+            # the save step as in DREAM's `InitSaveSteps` and `NextTime`
+            # (DREAM/src/TimeStepper/TimeStepperConstant.cpp): a running sum of steps / saves,
+            # rounded half away from zero as `round` of C++, so that a sum just below a half
+            # rounds down there and here alike
+            save_step = 0.0
+            for _ in 1:leg.saves
+                save_step += leg.steps / leg.saves
+                push!(save_times, points[round(Int, save_step, RoundNearestTiesAway)])
             end
         else
             push!(times, leg_end)
