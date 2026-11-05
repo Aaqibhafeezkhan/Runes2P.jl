@@ -420,11 +420,12 @@ using QuadGK: quadgk
         T, n_e, n_Ar = 10.0, 1e20, 1e20
         Z, Z0 = 18, 1
         N = Z - Z0
-        mc2 = Runes2P.Constants.ELECTRON_REST_ENERGY
         # written here, not taken from the package: r₀ of CODATA 2014 (P. J. Mohr, D. B.
         # Newell and B. N. Taylor, Rev. Mod. Phys. 88, 035009 (2016),
-        # doi:10.1103/RevModPhys.88.035009), the value DREAM and the package take; c exact
-        r₀, c = 2.8179403227e-15, 299792458.0
+        # doi:10.1103/RevModPhys.88.035009), the value DREAM and the package take; c exact;
+        # mₑc² [eV] of CODATA 2018 (E. Tiesinga, P. J. Mohr, D. B. Newell and B. N. Taylor,
+        # Rev. Mod. Phys. 93, 025010 (2021), doi:10.1103/RevModPhys.93.025010)
+        r₀, c, mc2 = 2.8179403227e-15, 299792458.0, 510998.95
         prefactor = 4π * r₀^2 * c
         plasma = PlasmaState(
             cold_electron_temperature = [T], cold_electron_density = [n_e],
@@ -447,8 +448,9 @@ using QuadGK: quadgk
         p_Te = sqrt(2T / mc2)
         lnΛ_ee(p) = lnΛ0 + log(1 + (2 * (sqrt(1 + p^2) - 1) / p_Te^2)^(5 / 2)) / 5  # eq. 2.10
         lnΛ_ei(p) = lnΛ0 + log(1 + (2p / p_Te)^5) / 5
+        # ā from the package: ion_size gives 90.108, Table 1 prints 90 for Ar¹⁺
         ā = ion_size(Z, Z0)
-        @test round(ā) == 90  # Table 1, Ar¹⁺
+        @test round(ā) == 90
         g(p) = 2 / 3 * (Z^2 - Z0^2) * log((p * ā)^(3 / 2) + 1) -
                2 / 3 * N^2 * (p * ā)^(3 / 2) / ((p * ā)^(3 / 2) + 1)  # eq. 2.25
         I = mean_excitation_energy(Z, Z0) / mc2

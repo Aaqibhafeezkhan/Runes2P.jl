@@ -92,8 +92,8 @@ It adds the deflection ``g_j`` by the screened nucleus, with the effective ion s
 The sizes are the DFT values of Table 1 of Hesslow et al. where tabulated and their eq. 2.28 otherwise.
 This is `ion_size_table = :hesslow` (the default); `ion_size_table = :dream` takes DREAM's lookup of that table.
 ``h_j`` takes DREAM's form ``\ln(1 + (h\,e^{-β^2})^k)/k`` of eq. 2.31 of Hesslow et al. (2018), with ``h = p\sqrt{γ - 1}/I_j`` and ``I_j`` in units of ``m_e c^2``.
-This form stays positive where the paper's ``\ln(1 + h^k)/k - β^2`` turns negative (``h < 1``, below ``p ≈ 0.02`` for Ar⁺).
-The two agree to 3e-9 for ``h ≥ 16``.
+This form stays positive where the paper's ``\ln(1 + h^k)/k - β^2`` turns negative below ``h ≈ 0.23`` (``p ≈ 0.012`` for Ar⁺).
+The two agree to 3e-9 for ``h ≥ 16``, for Ar⁺ at ``p ≥ 0.1``.
 Read from its curve, the limit without screening in Fig. 3(b) of that paper keeps only the free electrons among the targets of the electron-electron collisions.
 The paper's text (p. 12) counts the bound electrons there.
 `screening = :none`, which counts them, is 4.3 to 5.0 % below the readings of that figure.
@@ -253,11 +253,11 @@ It is cut at zero so that the exchange keeps its sign.
 - An avalanche run against DREAM's Boltzmann knock-on mode: `test/test_avalanche_dream.jl`.
 - The Rosenbluth-Putvinski source and the fluid growth rate against DREAM: `test/test_avalanche_rp_dream.jl`.
 - The growth rate of the Rosenbluth-Putvinski source against that of the knock-on operator in one avalanche run, whose primaries have a mean momentum of ``34\, m_e c``: `test/test_runaway_physics.jl`.
-  The source gives 1.04 times the growth rate of the knock-on operator.
-- The Dreicer rate with the self-consistent [`ParticleSourceTerm`](@ref) against that with a held Maxwellian bulk, `MaxwellianSourceTerm`, at 1 keV, 1e20 m⁻³ and ``E/E_c = 25``: `test/test_populations.jl`.
+  The source gives 1.04 times the growth rate of the knock-on operator at the step of the test (1.03 extrapolated to a zero step).
+- The Dreicer rate with the self-consistent [`ParticleSourceTerm`](@ref) against that with a held Maxwellian bulk, [`MaxwellianSourceTerm`](@ref), at 1 keV, 1e20 m⁻³ and ``E/E_c = 25``: `test/test_populations.jl`.
   The self-consistent rate is 0.962 of the held rate, a drop of 3.8 points.
-  Depleting the held bulk by the runaway fraction (0.78 %) lowers the held rate by 0.78 points.
-  The remaining 3.0 points lie between `MaxwellianSourceTerm` and `ParticleSourceTerm`.
+  Depleting the held bulk by the runaway fraction (0.78 %) lowers the held rate by at most 0.78 points.
+  The remaining 3.0 points or more lie between `MaxwellianSourceTerm` and `ParticleSourceTerm`.
 - The field-particle term, `test/test_field_particle.jl`: momentum conservation, the matrix elements of the test-particle operator against Braginskii's, and the field-particle ratios against the like-species sums.
   The same file checks the Lorentz limit and the Spitzer-Härm conductivity.
   It also checks the conductivity at ``Z = 1`` from 1 to 10 keV against that of B. J. Braams and C. F. F. Karney, Phys. Fluids B 1, 1355 (1989), doi:10.1063/1.858966.

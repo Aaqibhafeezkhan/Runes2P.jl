@@ -157,20 +157,23 @@ const SPITZER_HARM = Dict(1 => 0.5816, 2 => 0.6833, 4 => 0.7849, 16 => 0.9225)
         # prefactor of braams_karney_conductivity, with σ̄ of their Table I (p. 35). Its
         # Z = 1 column at Θ = 0, 0.01, 0.02 (0, 5.1 and 10.2 keV), 7.42898, 7.27359,
         # 7.12772, agrees with data/braams_karney_conductivity.toml to the 4 to 5 digits
-        # kept there; σ̄ is linear in Θ between them. Operator and reference share
-        # thermal_coulomb_logarithm, so the ratio does not depend on lnΛ. The test-particle
-        # operator is relativistic, the field-particle matrix elements are those of the
-        # nonrelativistic Landau operator. Measured σ/σ_BK with 160 p cells: 0.9997 at
-        # 1 keV, 1.0010 at 2 keV, 1.0052 at 5 keV, 1.0112 at 10 keV; 320 cells lower them
-        # by 7e-4 to 8e-4. The departure grows with T to 1.1 % at 10 keV; the
-        # nonrelativistic field-particle elements would explain it. Each ratio is held to
-        # its measured value within 2e-3, the grid change of 8e-4 and a margin.
+        # kept there; the package interpolates linearly between them. Operator and reference
+        # share thermal_coulomb_logarithm, so the ratio does not depend on lnΛ. The
+        # test-particle operator is relativistic, the field-particle matrix elements are
+        # those of the nonrelativistic Landau operator. Measured σ/σ_BK with 160 p cells:
+        # 0.9997 at 1 keV, 1.0010 at 2 keV, 1.0052 at 5 keV, 1.0112 at 10 keV; 320 cells
+        # lower them by 7e-4 to 8e-4. The departure grows with T to 1.1 % at 10 keV; the
+        # nonrelativistic field-particle elements would explain it. Two checks per
+        # temperature: the reference, σ/σ_BK = 1 within 2 %, and the regression pin, each
+        # ratio at its measured value within 2e-3, the grid change of 8e-4 and a margin.
         ne = 1e20
         measured = (0.9997, 1.0010, 1.0052, 1.0112)
         for (T, ratio) in zip((1e3, 2e3, 5e3, 1e4), measured)
             sigma = _field_particle_conductivity(; Z = 1, T, ne) *
                     _lorentz_conductivity(T, ne, 1)
-            @test sigma / braams_karney_conductivity(ne, T, 1.0) ≈ ratio atol = 2e-3
+            ratio_bk = sigma / braams_karney_conductivity(ne, T, 1.0)
+            @test ratio_bk ≈ 1 rtol = 0.02          # the reference
+            @test ratio_bk ≈ ratio atol = 2e-3      # the regression pin
         end
     end
 

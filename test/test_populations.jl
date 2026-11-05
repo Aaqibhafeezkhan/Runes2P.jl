@@ -501,7 +501,7 @@ end
             u0 = zeros(length(layout))
             kinetic_view(u0, layout, id, 1) .= start
             if self_consistent
-                n_hot = density(grid, reshape(maxwellian, size(grid)); region)[1]
+                n_hot = density(grid, reshape(start, size(grid)); region)[1]
                 radial_view(u0, layout, unknown_id(layout, :hot_electron_density), 1) .= n_hot
                 radial_view(u0, layout, unknown_id(layout, :cold_electron_density), 1) .= free_density -
                                                                                           n_hot
@@ -533,7 +533,7 @@ end
         # E/E_c = 25 (E/E_D = 0.059, the low-temperature, high-E/E_D regime of the CODE
         # benchmark of DREAM's runaway rate): the bulk loses electrons to the runaway density
         # during the 600 collision times the tail needs to settle, and the rate falls below
-        # the held one; the depleted bulk explains 0.78 of the 3.8 points (below)
+        # the held one; the depleted bulk explains at most 0.78 of the 3.8 points (below)
         held = rate_of(25.0, 600; self_consistent = false)
         closed = rate_of(25.0, 600; self_consistent = true)
         lost = closed.populations.runaway / free_density
@@ -549,26 +549,29 @@ end
         end
 
         # Whether the depleted bulk explains the drop of the rate: the held case at
-        # E/E_c = 25, rerun with its start and target scaled by the 1 − 0.0078 of the
-        # electrons left on the grid in the self-consistent run. The plasma of the operator
-        # keeps the free density, as in the self-consistent run, so only the content of the
-        # grid changes. With fixed coefficients and a source linear in f and in its target,
-        # that scaling scales the solution, and the rate, by the same factor: the ratio is
-        # known before the run. The test checks that linearity, which a source that ignored
-        # its target would break.
+        # E/E_c = 25, rerun with its start and target scaled by the fraction of the
+        # electrons left on the grid at the end of the self-consistent run, 1 − lost. The
+        # plasma of the operator keeps the free density, as in the self-consistent run, so
+        # only the content of the grid changes. With fixed coefficients and a source linear
+        # in f and in its target, that scaling scales the solution, and the rate, by the
+        # same factor: the ratio is known before the run. The test checks that linearity,
+        # which a source that ignored its target would break.
         @testset "Dreicer rate with a depleted held bulk" begin
-            depleted = rate_of(25.0, 600; self_consistent = false, bulk_fraction = 1 -
-                                                                                   0.0078)
+            remaining = 1 - lost
+            depleted = rate_of(25.0, 600; self_consistent = false, bulk_fraction = remaining)
             @test depleted.spread < 1.05
-            # observed: 0.9922000000000009, 1 − 0.0078 to 1e-15, as the scaling above
-            # implies; the margin of 1e-9 leaves room for the tolerance of the solver
-            @test depleted.rate / held.rate ≈ 1 - 0.0078 rtol = 1e-9
-            # conclusion: the self-consistent rate is 0.962 of the held rate, a drop of 3.8
-            # points. Depleting the held bulk by the runaway fraction (0.78 %) lowers the
-            # held rate by 0.78 points, so the remaining 3.0 points lie between
-            # MaxwellianSourceTerm and ParticleSourceTerm: the particle source holds the
-            # density of the whole grid, the held source only the density below p = 0.12,
-            # and their shapes differ; not traced further.
+            # observed: equal to 1 − lost to 1e-15, as the scaling above implies; the margin
+            # of 1e-9 leaves room for the tolerance of the solver
+            @test depleted.rate / held.rate ≈ remaining rtol = 1e-9
+            # the conclusion: the self-consistent rate is 0.962 of the held rate, a drop of
+            # 3.8 points. The depleted held run lacks the 0.78 % from t = 0, while the
+            # self-consistent bulk loses them over the run, so the 0.78 points it lowers the
+            # held rate by are an upper bound on the share of the depletion. At least 3.0
+            # points lie between MaxwellianSourceTerm and ParticleSourceTerm: the particle
+            # source holds the density of the whole grid, the held source only the density
+            # below p = 0.12, and their shapes differ; not traced further. The test holds
+            # that remainder to at least 2 points.
+            @test closed.rate / held.rate < remaining - 0.02
         end
     end
 end
