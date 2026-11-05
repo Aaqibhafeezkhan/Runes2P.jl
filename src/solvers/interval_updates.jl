@@ -22,6 +22,11 @@ Optional: `changes_continuously(update)`, whether its changes are continuous in 
 """
 abstract type IntervalUpdate end
 
+# whether the changes of the setup by an interval update are continuous in time, so that
+# the states before a change still extrapolate across it: a change is a jump unless the
+# update knows better
+changes_continuously(update) = false
+
 """
     KnockOnCutoffUpdate(operator, plasma_at; name="knockon_cutoff", placement=:energy_midpoint,
                         no_ceiling_factor=10, per_radius=true, thermal_factor=4,

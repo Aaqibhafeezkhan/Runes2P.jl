@@ -278,11 +278,6 @@ end
 stepper_errors(state) = nothing
 reset_history!(state) = nothing
 
-# whether the changes of the setup by an interval update are continuous in time, so that
-# the states before a change still extrapolate across it: a change is a jump unless the
-# update knows better
-changes_continuously(update) = false
-
 "Record of the state of a stepper, stored in the checkpoint."
 function stepper_record(state::FixedStepState)
     SettingsRecord("type" => "FixedSteps", "dt" => state.dt, "halvings" => state.halvings)

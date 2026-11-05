@@ -539,6 +539,13 @@ function fill_initial_values!(u::AbstractVector, system::EquationSystem, t::Real
 
         prepare_step!(term, u, layout, unknown_id(layout, eq.unknown), t)
     end
+    #! format: off
+    function holds(eq)
+        scale = layout.unknowns[unknown_id(layout, eq.unknown)].scale
+        return all(abs(r) <= 1e-10 * abs(c) * max(abs(v), scale)
+                   for (r, c, v) in zip(row_values(eq), coefficients[eq.unknown], u[positions[eq.unknown]]))
+    end
+    #! format: on
     for _ in 1:length(rows)
         for eq in rows
             x = positions[eq.unknown]
@@ -571,19 +578,12 @@ function fill_initial_values!(u::AbstractVector, system::EquationSystem, t::Real
             u[x] .= .-r0 ./ c
             coefficients[eq.unknown] = c
         end
-        #! format: off
-        function holds(eq)
-            scale = layout.unknowns[unknown_id(layout, eq.unknown)].scale
-            return all(abs(r) <= 1e-10 * abs(c) * max(abs(v), scale)
-                       for (r, c, v) in zip(row_values(eq), coefficients[eq.unknown], u[positions[eq.unknown]]))
-        end
-        #! format: on
         all(holds, rows) && return [eq.unknown for eq in rows]
     end
-    # rows that do not hold after every pass: a row that couples the entries of its unknown
-    # is the cause before a cycle
+    # of the rows that do not hold after every pass, one that couples the entries of its
+    # unknown is the cause before a cycle
     for eq in rows
-        if couples_entries(eq)
+        if !holds(eq) && couples_entries(eq)
             throw(coupling_error(eq))
         end
     end

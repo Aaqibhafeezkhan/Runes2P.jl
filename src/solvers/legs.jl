@@ -9,8 +9,10 @@
 One leg of a run, `duration` seconds long, in one of three keyword forms:
 
 - `steps` time steps of equal length with `saves` saved states, at the save steps of
-  DREAM's `nSaveSteps`: a running sum of `steps / saves` rounded to the nearest step, a tie
-  to the later one (`Leg(T; steps = 5, saves = 2)` saves after the steps 3 and 5);
+  DREAM's `nSaveSteps`: a running sum of `steps / saves` in floating point, rounded half
+  away from zero, so that a tie the sum reaches exactly goes to the later step and one it
+  falls just short of to the earlier (`Leg(T; steps = 5, saves = 2)` saves after the steps
+  3 and 5);
 - steps of length `dt` with a saved state every `save_dt`, where `dt` and `save_dt` divide
   the duration (to 1e-12 relative) and the saved states are those of the first form with
   `duration / save_dt` saves;
