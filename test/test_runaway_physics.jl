@@ -214,14 +214,34 @@ end
         times = collect(range(0, 0.08; length = 193))
         third = (length(times) - 1) ÷ 3
 
-        function growth_rate(p_cutoff)
-            knockon = KnockOnOperator(g, g, p_cutoff)
-            layout = UnknownLayout(g.radial_grid, [KineticUnknown(:hot_tail_distribution, g; scale = 1e12)])
-            system = EquationSystem(layout,
-                [Equation(:hot_tail_distribution, TimeDerivative(),
-                    FokkerPlanckTerm(:hot_tail_distribution, op),
-                    KnockOnTerm(:hot_tail_distribution, knockon;
-                        target_density = [density], treatment = :explicit))])
+        # source = :knock_on: the knock-on operator; :rosenbluth_putvinski: the
+        # Rosenbluth-Putvinski source, whose primaries are the runaway density above p_c
+        function growth_rate(p_cutoff; source = :knock_on)
+            distribution = KineticUnknown(:hot_tail_distribution, g; scale = 1e12)
+            if source == :knock_on
+                knockon = KnockOnOperator(g, g, p_cutoff)
+                layout = UnknownLayout(g.radial_grid, [distribution])
+                system = EquationSystem(layout,
+                    [Equation(:hot_tail_distribution, TimeDerivative(),
+                        FokkerPlanckTerm(:hot_tail_distribution, op),
+                        KnockOnTerm(:hot_tail_distribution, knockon;
+                            target_density = [density], treatment = :explicit))])
+            else
+                layout = UnknownLayout(g.radial_grid,
+                    [distribution, RadialUnknown(:runaway_density; scale = 1e12),
+                        RadialUnknown(:total_electron_density; scale = 1e20)])
+                system = EquationSystem(layout,
+                    [
+                        Equation(:hot_tail_distribution, TimeDerivative(),
+                            FokkerPlanckTerm(:hot_tail_distribution, op),
+                            RosenbluthPutvinskiSourceTerm(:hot_tail_distribution, g;
+                                p_cutoff, electric_field = nothing)),
+                        Equation(:runaway_density, Algebraic(),
+                            DensityMomentTerm(:hot_tail_distribution, g;
+                                region = MomentumRegion(critical)),
+                            LinearTerm(:runaway_density; coefficient = -1)),
+                        Equation(:total_electron_density, TimeDerivative())])
+            end
             u0 = zeros(length(layout))
             seed = kinetic_view(u0, layout, 1, 1)
             for i in 1:momentum_cell_count(mom), j in 1:pitch_cell_count(mom)
@@ -229,8 +249,12 @@ end
                 seed[i, j] = 1e12 * exp(-(mom.p_centers[i] - 2.0)^2 / 0.08) *
                              exp(4 * (mom.xi_centers[j] - 1))
             end
+            if source == :rosenbluth_putvinski
+                unknown_values(u0, layout, unknown_id(layout, :total_electron_density)) .= density
+            end
             solution = integrate(system, u0, times)
-            states = [reshape(solution.states[:, k], size(g)) for k in eachindex(times)]
+            states = [reshape(kinetic_view(solution.states[:, k], layout, 1, 1), size(g))
+                      for k in eachindex(times)]
             # runaways on the grid plus those that have left through p_max
             runaways(state) = sum(phase_space_jacobian(g, 1)[i, j] * mom.p_widths[i] *
                                   mom.xi_widths[j] *
@@ -288,11 +312,11 @@ end
             # runaway density above p_c (`DensityMomentTerm`, interpolated envelope), and
             # each makes knock-ons at the Møller rate of a primary at the speed of light,
             # all at the pitch ξ* of that limit (M. N. Rosenbluth and S. V. Putvinski,
-            # Nucl. Fusion 37, 1355 (1997), doi:10.1088/0029-5515/37/10/I03, eq. (4),
+            # Nucl. Fusion 37, 1355 (1997), doi:10.1088/0029-5515/37/10/I03, eq. 4,
             # p. 1356). `electric_field = nothing` takes ξ* > 0, the sign of the field
             # here. The source is the knock-on operator in the limit of primary momentum far
             # above the knock-ons, which this case meets: the mean momentum of the primaries
-            # above p_c is 34, the knock-ons that count lie between the cutoff 0.13 and
+            # above p_c is 34 mₑc, the knock-ons that count lie between the cutoff 0.13 and
             # p_c = 0.23. Measured: the number of knock-ons per second from the Møller
             # rate of the primaries of the run is 1.017 times that of this source above the
             # cutoff and 0.996 times above p_c. The growth rate of this source is 1.043
@@ -303,44 +327,7 @@ end
             # the pitch of the knock-ons, all in one cell at ξ* here and spread over the
             # pitch of the primaries by the operator. The band holds the measured ratio to
             # 0.005, the change that halving the step makes.
-            region = MomentumRegion(critical)
-            layout = UnknownLayout(g.radial_grid,
-                [KineticUnknown(:hot_tail_distribution, g; scale = 1e12),
-                    RadialUnknown(:runaway_density; scale = 1e12),
-                    RadialUnknown(:total_electron_density; scale = 1e20)])
-            system = EquationSystem(layout,
-                [
-                    Equation(:hot_tail_distribution, TimeDerivative(),
-                        FokkerPlanckTerm(:hot_tail_distribution, op),
-                        RosenbluthPutvinskiSourceTerm(:hot_tail_distribution, g;
-                            p_cutoff = cutoff.p_cutoff, electric_field = nothing)),
-                    Equation(:runaway_density, Algebraic(),
-                        DensityMomentTerm(:hot_tail_distribution, g; region),
-                        LinearTerm(:runaway_density; coefficient = -1)),
-                    Equation(:total_electron_density, TimeDerivative())])
-            u0 = zeros(length(layout))
-            seed = kinetic_view(u0, layout, 1, 1)
-            for i in 1:momentum_cell_count(mom), j in 1:pitch_cell_count(mom)
-
-                seed[i, j] = 1e12 * exp(-(mom.p_centers[i] - 2.0)^2 / 0.08) *
-                             exp(4 * (mom.xi_centers[j] - 1))
-            end
-            unknown_values(u0, layout, unknown_id(layout, :total_electron_density)) .= density
-            solution = integrate(system, u0, times)
-            states = [reshape(kinetic_view(solution.states[:, k], layout, 1, 1), size(g))
-                      for k in eachindex(times)]
-            # runaways on the grid plus those that have left through p_max, as above
-            runaways(state) = sum(phase_space_jacobian(g, 1)[i, j] * mom.p_widths[i] *
-                                  mom.xi_widths[j] * state[i, j, 1]
-            for i in 1:momentum_cell_count(mom), j in 1:pitch_cell_count(mom)
-            if mom.p_centers[i] > critical) / g.radial_grid.spatial_jacobian[1]
-            outflux = [momentum_flux(op, s, momentum_cell_count(mom) + 1) for s in states]
-            lost = cumsum([0.0;
-                           [(outflux[k] + outflux[k + 1]) / 2 * (times[k + 1] - times[k])
-                            for k in 1:(length(times) - 1)]])
-            counts = [runaways(states[k]) + lost[k] for k in eachindex(times)]
-            rp_rate = log(counts[end] / counts[end - third]) /
-                      (times[end] - times[end - third])
+            rp_rate = growth_rate(cutoff.p_cutoff; source = :rosenbluth_putvinski)
             @test rp_rate / rate ≈ 1.043 rtol = 0.005
         end
     end

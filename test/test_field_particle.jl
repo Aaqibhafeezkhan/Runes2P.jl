@@ -152,17 +152,17 @@ const SPITZER_HARM = Dict(1 => 0.5816, 2 => 0.6833, 4 => 0.7849, 16 => 0.9225)
 
     @testset "conductivity against Braams-Karney above 1 keV" begin
         # B. J. Braams and C. F. F. Karney, Phys. Fluids B 1, 1355 (1989),
-        # doi:10.1063/1.858966 (arXiv:plasm-ph/9502001): σ = 4πε₀² T^{3/2}/(m^{1/2} e² Z
-        # lnΛ) σ̄(Θ, Z), Sec. VII (unnumbered, arXiv p. 20), the prefactor of
-        # braams_karney_conductivity, with σ̄ of their Table I (arXiv p. 35). Its Z = 1
-        # column at Θ = 0, 0.01, 0.02 (0, 5.1 and 10.2 keV), 7.42898, 7.27359, 7.12772,
-        # agrees with data/braams_karney_conductivity.toml to the 4 to 5 digits kept there;
-        # σ̄ is linear in Θ between them. Operator and reference share
+        # doi:10.1063/1.858966, with the pages of its arXiv version, plasm-ph/9502001:
+        # σ = 4πε₀² T^{3/2}/(m^{1/2} e² Z lnΛ) σ̄(Θ, Z), Sec. VII (unnumbered, p. 20), the
+        # prefactor of braams_karney_conductivity, with σ̄ of their Table I (p. 35). Its
+        # Z = 1 column at Θ = 0, 0.01, 0.02 (0, 5.1 and 10.2 keV), 7.42898, 7.27359,
+        # 7.12772, agrees with data/braams_karney_conductivity.toml to the 4 to 5 digits
+        # kept there; σ̄ is linear in Θ between them. Operator and reference share
         # thermal_coulomb_logarithm, so the ratio does not depend on lnΛ. The test-particle
         # operator is relativistic, the field-particle matrix elements are those of the
-        # nonrelativistic Landau operator. Measured σ/σ_BK with 160 p cells: 0.9997 at 1 keV, 1.0010 at 2 keV,
-        # 1.0052 at 5 keV, 1.0112 at 10 keV; 320 cells lower them by 7e-4 to 8e-4. The
-        # departure grows with T to 1.1% at 10 keV, inside the 2% asked of the term; the
+        # nonrelativistic Landau operator. Measured σ/σ_BK with 160 p cells: 0.9997 at
+        # 1 keV, 1.0010 at 2 keV, 1.0052 at 5 keV, 1.0112 at 10 keV; 320 cells lower them
+        # by 7e-4 to 8e-4. The departure grows with T to 1.1 % at 10 keV; the
         # nonrelativistic field-particle elements would explain it. Each ratio is held to
         # its measured value within 2e-3, the grid change of 8e-4 and a margin.
         ne = 1e20

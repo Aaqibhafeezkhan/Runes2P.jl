@@ -447,7 +447,9 @@ end
         region = MomentumRegion(ThermalMomentum([temperature]))
         minus(name) = LinearTerm(name; coefficient = -1)
 
-        function rate_of(over_critical, collision_times; self_consistent)
+        # bulk_fraction scales the start and the target of the held source
+        function rate_of(over_critical, collision_times; self_consistent, bulk_fraction = 1.0)
+            start = bulk_fraction * maxwellian
             field = over_critical * critical_electric_field
             plasma = PlasmaState(cold_electron_temperature = [temperature],
                 cold_electron_density = [free_density],
@@ -484,7 +486,7 @@ end
                 layout = UnknownLayout(single,
                     [KineticUnknown(:hot_tail_distribution, grid; scale = free_density)])
                 bulk = sum(phase_space_jacobian(grid, 1)[i, j] * m.p_widths[i] *
-                           m.xi_widths[j] * maxwellian[i, j]
+                           m.xi_widths[j] * start[i, j]
                 for i in 1:momentum_cell_count(m), j in 1:pitch_cell_count(m)
                 if m.p_centers[i] <= 0.12) /
                        single.spatial_jacobian[1]
@@ -497,7 +499,7 @@ end
             end
             id = unknown_id(layout, :hot_tail_distribution)
             u0 = zeros(length(layout))
-            kinetic_view(u0, layout, id, 1) .= maxwellian
+            kinetic_view(u0, layout, id, 1) .= start
             if self_consistent
                 n_hot = density(grid, reshape(maxwellian, size(grid)); region)[1]
                 radial_view(u0, layout, unknown_id(layout, :hot_electron_density), 1) .= n_hot
@@ -530,8 +532,8 @@ end
         @test closed.populations.runaway < 1e-6 * free_density
         # E/E_c = 25 (E/E_D = 0.059, the low-temperature, high-E/E_D regime of the CODE
         # benchmark of DREAM's runaway rate): the bulk loses electrons to the runaway density
-        # during the 600 collision times the tail needs to settle, and the rate falls with the
-        # bulk
+        # during the 600 collision times the tail needs to settle, and the rate falls below
+        # the held one; the depleted bulk explains 0.78 of the 3.8 points (below)
         held = rate_of(25.0, 600; self_consistent = false)
         closed = rate_of(25.0, 600; self_consistent = true)
         lost = closed.populations.runaway / free_density
@@ -545,79 +547,28 @@ end
             @test n.on_grid ≈ n.cold + n.hot rtol = 1e-9
             @test n.on_grid + n.runaway ≈ free_density rtol = 1e-9
         end
-    end
 
-    # Whether the depleted bulk explains the rate the self-consistent source loses at
-    # E/E_c = 25: the held case of the testset above, rerun with its start and target
-    # scaled by the 1 − 0.0078 of the electrons left on the grid there. The plasma of the
-    # operator keeps the free density, as in the self-consistent run, so only the content
-    # of the grid changes. With fixed coefficients and a source linear in f and in its
-    # target, that scaling scales the solution, and the rate, by the same factor: the
-    # ratio is known before the run. The test checks that linearity, which a source that
-    # ignored its target would break, and with it rules the depletion out as the cause.
-    @testset "Dreicer rate with a depleted held bulk" begin
-        temperature, free_density = 1000.0, 1e20
-        single = RadialGrid(uniform_r_faces(1, 0.5))
-        grid = cylindrical_grid(
-            MomentumGrid(biuniform_p_faces(110, 80, 0.0, 0.4, 2.0), uniform_xi_faces(14)),
-            single)
-        m = momentum_grid(grid)
-        coulomb_logarithm = relativistic_coulomb_logarithm(free_density, temperature)
-        critical_electric_field = critical_field(free_density, coulomb_logarithm)
-        collision_time = thermal_collision_time(free_density, temperature,
-            thermal_coulomb_logarithm(free_density, temperature))
-        settings = CollisionSettings(mode = :full, screening = :complete,
-            coulomb_logarithm = :relativistic, bremsstrahlung = :neglect)
-        theta = temperature / Constants.ELECTRON_REST_ENERGY
-        field = 25.0 * critical_electric_field
-        plasma = PlasmaState(cold_electron_temperature = [temperature],
-            cold_electron_density = [free_density],
-            ions = [IonSpecies("D", 1, 1, [free_density])], electric_field = [field],
-            magnetic_field = [5.0])
-        operator = fokker_planck_operator(
-            grid, plasma, settings; scheme = :central, synchrotron = false)
-        times = collect(range(0, 600 * collision_time; length = 61))
-        layout = UnknownLayout(single,
-            [KineticUnknown(:hot_tail_distribution, grid; scale = free_density)])
-        id = unknown_id(layout, :hot_tail_distribution)
-        critical = critical_momentum(field, critical_electric_field)
-
-        function held_rate(bulk_fraction)
-            maxwellian = [bulk_fraction * free_density * (2pi * theta)^(-1.5) *
-                          exp(-p^2 / (2theta))
-                          for p in m.p_centers, _ in m.xi_centers]
-            bulk = cell_sum(grid, maxwellian .* (m.p_centers .<= 0.12), 1)
-            system = EquationSystem(layout,
-                [
-                    Equation(:hot_tail_distribution, TimeDerivative(),
-                    FokkerPlanckTerm(:hot_tail_distribution, operator),
-                    MaxwellianSourceTerm(:hot_tail_distribution, grid,
-                        temperature; target_density = bulk,
-                        rate = 1 / (times[2] - times[1]), bulk_momentum = 0.12))])
-            u0 = zeros(length(layout))
-            kinetic_view(u0, layout, id, 1) .= maxwellian
-            solution = integrate(system, u0, times)
-            @test all(solution.statistics.accepted)
-            f = reshape(
-                collect(kinetic_view(view(solution.states, :, length(times)),
-                    layout, id, 1)),
-                size(grid))
-            fluxes = [momentum_flux(operator, f, findfirst(>=(x * critical), m.p_faces))
-                      for x in (1.5, 2.5, 4.0)]
-            return (; rate = fluxes[1], spread = maximum(fluxes) / minimum(fluxes))
+        # Whether the depleted bulk explains the drop of the rate: the held case at
+        # E/E_c = 25, rerun with its start and target scaled by the 1 − 0.0078 of the
+        # electrons left on the grid in the self-consistent run. The plasma of the operator
+        # keeps the free density, as in the self-consistent run, so only the content of the
+        # grid changes. With fixed coefficients and a source linear in f and in its target,
+        # that scaling scales the solution, and the rate, by the same factor: the ratio is
+        # known before the run. The test checks that linearity, which a source that ignored
+        # its target would break.
+        @testset "Dreicer rate with a depleted held bulk" begin
+            depleted = rate_of(25.0, 600; self_consistent = false, bulk_fraction = 1 -
+                                                                                   0.0078)
+            @test depleted.spread < 1.05
+            # observed: 0.9922000000000009, 1 − 0.0078 to 1e-15, as the scaling above
+            # implies; the margin of 1e-9 leaves room for the tolerance of the solver
+            @test depleted.rate / held.rate ≈ 1 - 0.0078 rtol = 1e-9
+            # conclusion: the self-consistent rate is 0.962 of the held rate, a drop of 3.8
+            # points. Depleting the held bulk by the runaway fraction (0.78 %) lowers the
+            # held rate by 0.78 points, so the remaining 3.0 points lie between
+            # MaxwellianSourceTerm and ParticleSourceTerm: the particle source holds the
+            # density of the whole grid, the held source only the density below p = 0.12,
+            # and their shapes differ; not traced further.
         end
-
-        full = held_rate(1.0)
-        depleted = held_rate(1 - 0.0078)
-        @test full.spread < 1.05 && depleted.spread < 1.05
-        ratio = depleted.rate / full.rate
-        # observed: 0.9922000000000009, 1 − 0.0078 to 1e-15, as the scaling above implies;
-        # the margin of 1e-9 leaves room for the tolerance of the solver
-        @test ratio ≈ 1 - 0.0078 rtol = 1e-9
-        # conclusion: the self-consistent run loses its 0.78 % gradually, so the depleted
-        # bulk accounts for at most 0.78 % of the 3.8 % by which its rate falls below the
-        # held one. The rest lies in the source set-up: the self-consistent source holds
-        # the density of the whole grid, the held source only the density below p = 0.12,
-        # and their shapes differ; not traced further.
     end
 end
