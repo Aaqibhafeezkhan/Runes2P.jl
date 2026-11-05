@@ -88,6 +88,10 @@ The `screening` of [`CollisionSettings`](@ref) sets how the bound electrons of p
 - `:partial`: the model of Hesslow et al. (2018), between the two.
 
 Partial screening adds the Bethe stopping on the bound electrons, ``h_j``, with the mean excitation energy ``I_j`` of the charge state ([`mean_excitation_energy`](@ref)).
+``h_j`` takes DREAM's form ``\ln(1 + (h\,e^{-β^2})^k)/k`` of eq. (2.31) of Hesslow et al. (2018), which stays positive where their ``\ln(1 + h^k)/k - β^2`` turns negative (``h < 1``, below ``p ≈ 0.02`` for Ar⁺).
+The two agree to 3e-9 for ``h ≥ 16``.
+`screening = :none` counts the bound electrons among the targets of the electron-electron collisions, as DREAM's `NON_SCREENED` does.
+The limit without screening in Fig. 3(b) of that paper keeps only the free electrons there, 4 to 5 % above.
 It adds the deflection ``g_j`` by the screened nucleus, with the effective ion size of the charge state ([`ion_size`](@ref)).
 The sizes are the DFT values of Table 1 of Hesslow et al. where tabulated and their eq. 2.28 otherwise.
 This is `ion_size_table = :hesslow` (the default); `ion_size_table = :dream` takes DREAM's lookup of that table.
@@ -240,12 +244,16 @@ It is cut at zero so that the exchange keeps its sign.
 ## Comparisons
 
 - The collision frequencies against DREAM: `test/test_collisions_dream.jl`.
+  The same file checks partial screening against eqs. (2.22), (2.25) and (2.31) and Figs. 3 and 4 of Hesslow et al. (2018), Ar⁺ at 10 eV.
 - One step of the small-angle kinetic operator against DREAM: `test/test_kinetic_operator_dream.jl`.
 - The knock-on operator in the DREAM-compatible configuration against DREAM's `MollerBoltzmannOperator`: `test/test_knockon_operator.jl`.
 - The default knock-on operator against a quadrature reference, and its physics limits: `test/test_knockon_reference.jl`, `test/test_knockon_physics.jl`.
 - An avalanche run against DREAM's Boltzmann knock-on mode: `test/test_avalanche_dream.jl`.
 - The Rosenbluth-Putvinski source and the fluid growth rate against DREAM: `test/test_avalanche_rp_dream.jl`.
+- The growth rate of the Rosenbluth-Putvinski source against that of the knock-on operator in one avalanche run, whose primaries have a mean momentum of 34: the source gives 1.04 times the rate (`test/test_runaway_physics.jl`).
 - The field-particle term, `test/test_field_particle.jl`: momentum conservation, the matrix elements of the test-particle operator against Braginskii's, and the field-particle ratios against the like-species sums.
   The same file checks the Lorentz limit and the Spitzer-Härm conductivity.
+  It also checks the conductivity at ``Z = 1`` from 1 to 10 keV against that of B. J. Braams and C. F. F. Karney, Phys. Fluids B 1, 1355 (1989), doi:10.1063/1.858966.
+  It is within 1.1 % of theirs, a departure that grows with the temperature, since the field-particle matrix elements are nonrelativistic.
 
 The conductivity is that of L. Spitzer and R. Härm, Phys. Rev. 89, 977 (1953), doi:10.1103/PhysRev.89.977.

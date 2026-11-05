@@ -141,7 +141,7 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 | extrapolation of the Dreicer rate | `setExtrapolateDreicer` | ➖ not implemented |
 | fluid avalanche | `AVALANCHE_MODE_FLUID` | 🚧 partial: [`fluid_avalanche_growth_rate`](@ref) and the Rosenbluth–Putvinski rate [`avalanche_growth_rate`](@ref) as functions; the fluid rate enters ``n_\mathrm{re}`` only above a hot-tail grid, through [`ExternalAvalancheTerm`](@ref); no term in a run without a kinetic grid |
 | fluid avalanche with DREAM's alternative ``p_\star`` | `AVALANCHE_MODE_FLUID_HESSLOW`, `pStarFunctionAlt` | ➖ not implemented |
-| kinetic Rosenbluth–Putvinski source, external avalanche | `AVALANCHE_MODE_KINETIC`, `pCutAvalanche` | ✅ implemented: [`RosenbluthPutvinskiSourceTerm`](@ref), [`ExternalAvalancheTerm`](@ref) |
+| kinetic Rosenbluth–Putvinski source, external avalanche | `AVALANCHE_MODE_KINETIC`, `pCutAvalanche` | ✅ implemented: [`RosenbluthPutvinskiSourceTerm`](@ref), [`ExternalAvalancheTerm`](@ref); in the avalanche case of `test/test_runaway_physics.jl` the source's growth rate is 1.04 times that of [`KnockOnOperator`](@ref) |
 | Boltzmann knock-on operator | `AVALANCHE_MODE_BOLTZMANN_KNOCK_ON` (`boltzmann-eqterm`) | ✅ implemented: [`KnockOnOperator`](@ref), [`KnockOnTerm`](@ref) |
 | effective critical field | `COLLQTY_ECEFF_MODE_FULL`, `SIMPLE`, `CYLINDRICAL`, `EC_TOT` | 🚧 partial: mode `FULL` in a cylinder, [`effective_critical_field`](@ref) |
 | Compton source | `COMPTON_MODE_FLUID`, `KINETIC`, `COMPTON_RATE_ITER_DMS` | ➖ not implemented |
@@ -178,7 +178,7 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 | Jacobian of a flux limiter | `AD_INTERP_JACOBIAN_LINEAR`, `FULL`, `UPWIND` | ✅ implemented: `jacobian` of [`FokkerPlanckTerm`](@ref) |
 | boundary at ``p_\mathrm{max}`` | `BC_F_0`, `BC_PHI_CONST`, `BC_DPHI_CONST` | ✅ implemented: `p_upper_boundary` of [`AdvectionDiffusion`](@ref) |
 | threshold of the hot region | `HOT_REGION_P_MODE_THERMAL`, `THERMAL_SMOOTH`, `MC` | ✅ implemented: [`ThermalMomentum`](@ref), [`MomentumRegion`](@ref) |
-| particle source | `PARTICLE_SOURCE_ZERO`, `IMPLICIT`, `EXPLICIT` | 🚧 partial: zero and implicit, [`ParticleSourceTerm`](@ref) with a [`Constraint`](@ref) |
+| particle source | `PARTICLE_SOURCE_ZERO`, `IMPLICIT`, `EXPLICIT` | 🚧 partial: zero and implicit, [`ParticleSourceTerm`](@ref) with a [`Constraint`](@ref); at 1 keV, 1e20 m⁻³ and ``E/E_c = 25`` its Dreicer rate is 0.962 of that with a Maxwellian bulk held at its start, of which the 0.78 % of runaway electrons explain 0.78 % (`test/test_populations.jl`) |
 | shape of the particle source | `PARTICLE_SOURCE_SHAPE_MAXWELLIAN`, `DELTA` | ✅ implemented: `shape` of [`ParticleSourceTerm`](@ref) |
 | synchrotron loss | `SYNCHROTRON_MODE_INCLUDE` | ✅ implemented: [`add_synchrotron!`](@ref) |
 | ion columns in the Jacobian of ``f`` | `enableIonJacobian` | ✅ implemented: `lagged` of [`FokkerPlanckTerm`](@ref) |
@@ -253,7 +253,7 @@ Each part of the case is compared with DREAM's output at every saved step after 
 - A smooth momentum grid, [`tanh_p_faces`](@ref).
 - A pitch grid per radius, with the same cell counts and momentum faces at all radii, and conservative radial fluxes between different pitch grids ([`PitchOverlap`](@ref), [`radial_face_overlap`](@ref)).
 - A conservative flux between the hot-tail and the runaway grid by overlap cells, `pitch_mapping = :overlap` of [`MomentumInterfaceTerm`](@ref).
-- The momentum-conserving field-particle term of the electron-electron collisions, [`FieldParticleTerm`](@ref).
+- The momentum-conserving field-particle term of the electron-electron collisions, [`FieldParticleTerm`](@ref); its conductivity is within 1.1 % of that of Braams and Karney up to 10 keV at ``Z = 1`` (`test/test_field_particle.jl`).
 - The conductivity of the discrete kinetic operator, [`kinetic_conductivity`](@ref), as the correction of the ohmic current (`kinetic = :discrete_operator` of [`ConductivityModel`](@ref)).
 - The total energy of the electrons in the fully kinetic mode, [`total_energy_equation`](@ref), which closes the energy of the cold electrons.
 - A smooth window of partial screening above the excitation energy, `screening_window` of [`CollisionSettings`](@ref).

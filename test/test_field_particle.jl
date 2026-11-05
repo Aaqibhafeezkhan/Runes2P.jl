@@ -1,8 +1,8 @@
 # Momentum-conserving field-particle term of the electron-electron collisions:
 # conservation, the matrix elements of the test-particle operator against Braginskii's,
 # the field-particle ratios against the like-species sums, the Lorentz limit and the
-# Spitzer-Härm conductivity, the steady state of a run with a prescribed field, and the
-# Woodbury update of the solvers.
+# Spitzer-Härm conductivity, the conductivity of Braams and Karney from 1 to 10 keV, the
+# steady state of a run with a prescribed field, and the Woodbury update of the solvers.
 import LinearAlgebra
 using Random: Xoshiro
 
@@ -148,6 +148,30 @@ const SPITZER_HARM = Dict(1 => 0.5816, 2 => 0.6833, 4 => 0.7849, 16 => 0.9225)
         # the scheme of the e-e operator changes it at the discretization error only
         @test _field_particle_conductivity(; Z = 1, scheme = :exponential_fitting) ≈
               _field_particle_conductivity(; Z = 1) rtol = 1e-3
+    end
+
+    @testset "conductivity against Braams-Karney above 1 keV" begin
+        # B. J. Braams and C. F. F. Karney, Phys. Fluids B 1, 1355 (1989),
+        # doi:10.1063/1.858966 (arXiv:plasm-ph/9502001): σ = 4πε₀² T^{3/2}/(m^{1/2} e² Z
+        # lnΛ) σ̄(Θ, Z), Sec. VII (unnumbered, arXiv p. 20), the prefactor of
+        # braams_karney_conductivity, with σ̄ of their Table I (arXiv p. 35). Its Z = 1
+        # column at Θ = 0, 0.01, 0.02 (0, 5.1 and 10.2 keV), 7.42898, 7.27359, 7.12772,
+        # agrees with data/braams_karney_conductivity.toml to the 4 to 5 digits kept there;
+        # σ̄ is linear in Θ between them. Operator and reference share
+        # thermal_coulomb_logarithm, so the ratio does not depend on lnΛ. The test-particle
+        # operator is relativistic, the field-particle matrix elements are those of the
+        # nonrelativistic Landau operator. Measured σ/σ_BK with 160 p cells: 0.9997 at 1 keV, 1.0010 at 2 keV,
+        # 1.0052 at 5 keV, 1.0112 at 10 keV; 320 cells lower them by 7e-4 to 8e-4. The
+        # departure grows with T to 1.1% at 10 keV, inside the 2% asked of the term; the
+        # nonrelativistic field-particle elements would explain it. Each ratio is held to
+        # its measured value within 2e-3, the grid change of 8e-4 and a margin.
+        ne = 1e20
+        measured = (0.9997, 1.0010, 1.0052, 1.0112)
+        for (T, ratio) in zip((1e3, 2e3, 5e3, 1e4), measured)
+            sigma = _field_particle_conductivity(; Z = 1, T, ne) *
+                    _lorentz_conductivity(T, ne, 1)
+            @test sigma / braams_karney_conductivity(ne, T, 1.0) ≈ ratio atol = 2e-3
+        end
     end
 
     @testset "steady state with a prescribed field" begin
