@@ -16,8 +16,16 @@ every accepted step (`updates`), at the state and the time where that step ends.
   saved state and in every checkpoint;
 - `restore_update!(update, state)`: set the setup back to a stored state;
 - `describe(update, context)`: its record in the settings of the run.
+
+Optional: `changes_continuously(update)`, whether its changes are continuous in time, so that
+`StepController` keeps its history across them; `false` by default, a change is a jump.
 """
 abstract type IntervalUpdate end
+
+# whether the changes of the setup by an interval update are continuous in time, so that
+# the states before a change still extrapolate across it: a change is a jump unless the
+# update knows better
+changes_continuously(update) = false
 
 """
     KnockOnCutoffUpdate(operator, plasma_at; name="knockon_cutoff", placement=:energy_midpoint,

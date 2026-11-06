@@ -60,8 +60,9 @@ envelope of the region ([`momentum_envelope`](@ref)), 1 inside the region and 0 
 - `:cell_fraction`: the fraction of the cell above the limit, with the integrand of the
   cell centre (DREAM's `P_THRESHOLD_MODE_MIN_MC`).
 - `:smooth`: `(1 + tanh((p − p₀) / (smooth_width Δp))) / 2` at the cell centres, with `Δp`
-  the width of the first cell whose centre lies above `p₀` (DREAM's
-  `P_THRESHOLD_MODE_MIN_THERMAL_SMOOTH`, width 2).
+  the width of the first cell whose centre lies above `p₀`, or of the last cell when no
+  centre does (DREAM's `P_THRESHOLD_MODE_MIN_THERMAL_SMOOTH`, width 2, which takes `p₀`
+  minus the last centre there).
 
 The envelope of `side = :below` is one minus that of `:above`, so the two regions of one
 limit add up to the whole grid (DREAM's `MAX` modes for the cell fraction and the smooth
@@ -134,9 +135,11 @@ function _envelope_above(
         p_lower >= p0 && return 1.0
         return p_upper >= p0 ? (p_upper - p0) / dp : 0.0
     elseif envelope === :smooth
-        # the width of the first cell whose centre lies above the limit
+        # the width of the first cell whose centre lies above the limit, else of the last
+        # cell. DREAM takes p0 minus the last centre there (FindThresholdStep,
+        # fvm/Equation/MomentQuantity.cpp), zero at that centre.
         k = findfirst(>(p0), m.p_centers)
-        step = k === nothing ? p0 - m.p_centers[np] : m.p_widths[k]
+        step = m.p_widths[k === nothing ? np : k]
         return (1 + tanh((p - p0) / (smooth_width * step))) / 2
     end
     value = p0 <= p_lower ? 1.0 : 0.0
