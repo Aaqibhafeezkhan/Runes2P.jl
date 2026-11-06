@@ -23,8 +23,8 @@ permissions:
 
 # a newer commit of a pull request cancels the older run; a weekly or manual run finishes. A
 # run of a draft skips its jobs and has a group of its own: GitHub can create the run of a push
-# made while the pull request was a draft after the run of ready_for_review, and in one group
-# that late run would cancel the suite of the pull request that is ready
+# made while the pull request was a draft only after the run of ready_for_review, and in one
+# group that late run would cancel the suite of the ready pull request.
 concurrency:
   group: ${{ format('{0}-{1}{2}', github.workflow, github.ref, github.event.pull_request.draft && '-draft' || '') }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
