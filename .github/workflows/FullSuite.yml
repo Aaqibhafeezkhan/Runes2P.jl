@@ -7,7 +7,9 @@
 # repository (new versions of packages, a new runner image) and renews the depot cache of dev,
 # which the runs of pull requests restore. A pull request that changes no code
 # (scripts/code_changes.jl, as in CI.yml) skips the suite; its check "Full suite" is then
-# skipped, which counts as passed, as on a draft.
+# skipped, which counts as passed. A draft skips the suite too, under the check
+# "Full suite (draft)", so that only a pull request that is ready gives the check the rulesets
+# require.
 name: Full suite
 
 on:
@@ -167,9 +169,11 @@ jobs:
           path: results/
           if-no-files-found: ignore
 
-  # a table of the counts of every group, and the result of the suite as one check
+  # a table of the counts of every group, and the result of the suite as one check. A draft's
+  # run gives it another name: a skipped "Full suite" of a draft run on the same commit as the
+  # suite of the ready pull request would read as passed
   summary:
-    name: Full suite
+    name: ${{ github.event.pull_request.draft && 'Full suite (draft)' || 'Full suite' }}
     needs: [setup, groups]
     if: always() && needs.setup.result != 'skipped'
     runs-on: ubuntu-latest
