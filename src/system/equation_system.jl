@@ -482,8 +482,14 @@ every filled row holds, whatever the order of the equations. `unknowns` limits t
 to those names, the unknowns that a resumed run adds to the stored layout. Returns the
 names of the filled unknowns.
 
+The coefficient `c` of an entry is that of its own row with every entry of the unknown
+moved at once, so a row that reads other entries of its own unknown (a radial transport
+term, Ampère's law for the poloidal flux) has no value here: its `c` would be a sum over the
+entries it reads. Such a row is refused unless the values solved entry by entry satisfy it.
+
 Throws an `ArgumentError` for a row that does not depend on its unknown or is not linear in
-it, and for filled rows that read each other in a cycle.
+it, for a row that reads other entries of its unknown where its coefficient vanishes or it
+does not hold after the fill, and for filled rows that read each other in a cycle.
 """
 function fill_initial_values!(u::AbstractVector, system::EquationSystem, t::Real; unknowns = nothing)
     layout = system.layout
@@ -506,10 +512,40 @@ function fill_initial_values!(u::AbstractVector, system::EquationSystem, t::Real
         end
         return out[positions[eq.unknown]]
     end
+    # whether a row of `eq` reads another entry of its unknown: the rows with one entry
+    # moved at a time from zero, the other entries kept at zero; `u` is restored after
+    function couples_entries(eq)
+        x = positions[eq.unknown]
+        s = layout.unknowns[unknown_id(layout, eq.unknown)].scale
+        saved = u[x]
+        u[x] .= 0
+        r0 = row_values(eq)
+        coupled = false
+        for k in eachindex(x)
+            u[x[k]] = s
+            r = row_values(eq)
+            u[x[k]] = 0
+            coupled = any(r[i] != r0[i] for i in eachindex(r) if i != k)
+            coupled && break
+        end
+        u[x] .= saved
+        return coupled
+    end
+    coupling_error(eq) = ArgumentError(
+        "the row of $(eq.unknown), which gives its initial value, couples the entries of " *
+        "$(eq.unknown) (a radial transport term, Ampère's law): the fill solves each entry " *
+        "from its own row, so set $(eq.unknown) in the initial state instead")
     for eq in rows, term in eq.terms
 
         prepare_step!(term, u, layout, unknown_id(layout, eq.unknown), t)
     end
+    #! format: off
+    function holds(eq)
+        scale = layout.unknowns[unknown_id(layout, eq.unknown)].scale
+        return all(abs(r) <= 1e-10 * abs(c) * max(abs(v), scale)
+                   for (r, c, v) in zip(row_values(eq), coefficients[eq.unknown], u[positions[eq.unknown]]))
+    end
+    #! format: on
     for _ in 1:length(rows)
         for eq in rows
             x = positions[eq.unknown]
@@ -526,6 +562,10 @@ function fill_initial_values!(u::AbstractVector, system::EquationSystem, t::Real
                 # a row far larger than the unknown's scale times its coefficient loses the
                 # coefficient in round-off: the initial state is in other units than the scale
                 if !(abs(c[i]) * s > 1e-6 * magnitude)
+                    # a coefficient that is a sum over coupled entries can vanish
+                    if couples_entries(eq)
+                        throw(coupling_error(eq))
+                    end
                     throw(ArgumentError("the row of $(eq.unknown), which gives its initial value, is $magnitude in " *
                                         "magnitude against its unknown's scale $s: check the units of the initial " *
                                         "state, or that the row depends on $(eq.unknown)"))
@@ -538,14 +578,14 @@ function fill_initial_values!(u::AbstractVector, system::EquationSystem, t::Real
             u[x] .= .-r0 ./ c
             coefficients[eq.unknown] = c
         end
-        #! format: off
-        function holds(eq)
-            scale = layout.unknowns[unknown_id(layout, eq.unknown)].scale
-            return all(abs(r) <= 1e-10 * abs(c) * max(abs(v), scale)
-                       for (r, c, v) in zip(row_values(eq), coefficients[eq.unknown], u[positions[eq.unknown]]))
-        end
-        #! format: on
         all(holds, rows) && return [eq.unknown for eq in rows]
+    end
+    # of the rows that do not hold after every pass, one that couples the entries of its
+    # unknown is the cause before a cycle
+    for eq in rows
+        if !holds(eq) && couples_entries(eq)
+            throw(coupling_error(eq))
+        end
     end
     throw(ArgumentError("the rows of $(join((eq.unknown for eq in rows), ", ")), which give their initial values, " *
                         "read each other in a cycle"))

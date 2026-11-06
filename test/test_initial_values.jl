@@ -108,4 +108,29 @@
             initial_state = u)
         @test_throws ArgumentError fill_initial_values!(copy(u), quadratic, 0.0)
     end
+
+    @testset "a row that couples the entries of its own unknown" begin
+        # Ampère's law gives the flux from the current, a row that reads the flux at the
+        # neighbouring radii: the fill solves each entry from its own row and refuses it
+        flux = UnknownLayout(radial,
+            [RadialUnknown(:poloidal_flux; scale = 1.0),
+                ScalarUnknown(:edge_poloidal_flux; scale = 1.0),
+                RadialUnknown(:current_density; scale = 1.0)])
+        u = zeros(length(flux))
+        unknown_values(u, flux, 3) .= 1.0
+        coupled(terms...) = EquationSystem(flux,
+            [
+                Equation(:poloidal_flux, Algebraic(), terms...; initial_value = :from_equation),
+                Equation(:edge_poloidal_flux, Algebraic(), minus(:edge_poloidal_flux)),
+                Equation(:current_density, Algebraic(), PrescribedValueTerm(ones(2)),
+                    minus(:current_density))]; initial_state = u)
+        ampere = PoloidalFluxDiffusionTerm(:poloidal_flux, :edge_poloidal_flux)
+        # the coefficient, a sum over the coupled entries, is zero inside the plasma
+        @test_throws "couples the entries of poloidal_flux" fill_initial_values!(
+            copy(u), coupled(ampere, minus(:current_density)), 0.0)
+        # with a term of the entry itself the coefficient is not zero, but the row does
+        # not hold after the fill
+        @test_throws "couples the entries of poloidal_flux" fill_initial_values!(
+            copy(u), coupled(ampere, minus(:poloidal_flux), minus(:current_density)), 0.0)
+    end
 end

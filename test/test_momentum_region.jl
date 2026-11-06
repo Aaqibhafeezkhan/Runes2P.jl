@@ -83,9 +83,16 @@ end
         @test values ≈ [(1 + tanh((p - p0) / (2 * step))) / 2 for p in m.p_centers] rtol = 1e-14
         wide = momentum_envelope(MomentumRegion(0.0; envelope = :smooth, smooth_width = 4), m, p0)
         @test wide ≈ [(1 + tanh((p - p0) / (4 * step))) / 2 for p in m.p_centers] rtol = 1e-14
-        above_grid = momentum_envelope(smooth, m, 3.2)
-        @test above_grid ≈ [(1 + tanh((p - 3.2) / (2 * (3.2 - m.p_centers[end])))) / 2
-               for p in m.p_centers] rtol = 1e-14
+        # with no centre above the limit, the width of the last cell (DREAM: p0 − the last
+        # centre, zero at that centre): no NaN at the last centre, no jump across it
+        last_width = m.p_widths[end]
+        for limit in (m.p_centers[end], 3.2)
+            @test momentum_envelope(smooth, m, limit) ≈
+                  [(1 + tanh((p - limit) / (2 * last_width))) / 2 for p in m.p_centers] rtol = 1e-14
+        end
+        below_last = momentum_envelope(smooth, m, prevfloat(m.p_centers[end]))
+        at_last = momentum_envelope(smooth, m, m.p_centers[end])
+        @test below_last ≈ at_last rtol = 1e-12
 
         @test_throws ArgumentError MomentumRegion(0.5; side = :between)
         @test_throws ArgumentError MomentumRegion(0.5; envelope = :sharp)

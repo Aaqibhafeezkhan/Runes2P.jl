@@ -64,7 +64,8 @@ Settings of the Newton iteration of a backward-Euler step.
   (an inexact Jacobian or linear solve). An inexact linear solve with relative residual
   `η` contracts the error by about `η` per iteration, so both of its tests apply only
   when the last linear solve was accurate to `floor_linear_tolerance` (always true for
-  direct solvers; for [`GMRES`](@ref) its `relative_tolerance`), and never when the
+  direct solvers; for [`GMRES`](@ref) its `relative_tolerance`, and the workspace warns
+  when that is above `floor_linear_tolerance`), and never when the
   Newton matrix is itself approximate (a term with
   [`jacobian_kind`](@ref)`(term) === :approximate` solved on the stored matrix): such a
   quasi-Newton iteration converges linearly by design, its residual falls by a constant
@@ -398,6 +399,13 @@ function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver = Newto
     fill!(matrix.nzval, zero(T))
     matrix.nzval[diagonal_positions] .= one(T)
     cache = linear_solver_cache(solver.linear_solver, matrix, system, row_weights, scales)
+    # a looser linear solve is a valid inexact Newton iteration (the residual test still
+    # holds it), so a warning and not an error: it only loses both waivers of the residual test
+    if linear_tolerance(cache) > solver.floor_linear_tolerance
+        @warn "the linear solver's tolerance $(linear_tolerance(cache)) exceeds the floor_linear_tolerance " *
+              "$(solver.floor_linear_tolerance) of NewtonSolver: neither the waiver of the residual floor nor " *
+              "the linear acceptance applies, and a stiff step can end with :max_iterations"
+    end
     exact_jacobian = system.stored_jacobian_exact || newton_operator_exact(cache)
     kinetic_rows = Int[]
     for id in eachindex(layout.unknowns)

@@ -74,6 +74,23 @@ end
         @test all(s -> s in shifted, shifted_saves)
     end
 
+    @testset "save steps round as DREAM's running sum" begin
+        # DREAM rounds its save step, the sum of multiples of Nt / nSaveSteps, half away
+        # from zero (`InitSaveSteps` and `NextTime` of
+        # DREAM/src/TimeStepper/TimeStepperConstant.cpp): of 5 steps with 2 saves, the
+        # steps 3 (2.5) and 5 are saved
+        times, save_times = time_points([Leg(1.0; steps = 5, saves = 2)])
+        @test save_times == times[1 .+ [0, 3, 5]]
+        # 6 steps with 4 saves: 1.5, 3, 4.5 and 6 round to 2, 3, 5 and 6
+        times, save_times = time_points([Leg(1.0; steps = 6, saves = 4)])
+        @test save_times == times[1 .+ [0, 2, 3, 5, 6]]
+        # 13 steps with 12 saves: DREAM's running sum of 13 / 12 reaches 6.499999999999999
+        # at the sixth save, not 6.5, and saves step 6, not 7
+        times, save_times = time_points([Leg(1.0; steps = 13, saves = 12)])
+        @test save_times[1 + 6] == times[1 + 6]
+        @test length(save_times) == 1 + 12
+    end
+
     @testset "controller legs" begin
         times, save_times = time_points([
             Leg(1e-3; save_dt = 1e-4), Leg(2e-3; save_dt = 1e-3)])

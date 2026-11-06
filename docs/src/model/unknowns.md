@@ -85,6 +85,8 @@ By default it is the scale of the unknown whose time derivative the row holds, o
 [`residual_scales`](@ref) divides differential rows by the `time_scale` of the system.
 
 `Equation(...; initial_value = :from_equation)` sets an algebraic unknown from its row at the start of a run, as DREAM's `INITRULE_EVAL_EQUATION` does ([`fill_initial_values!`](@ref)).
+The fill solves each entry from its own row, so it refuses a row that couples the entries of its own unknown (radial transport, Ampère's law), unless the values solved entry by entry satisfy it.
+Such an unknown is set in the initial state.
 The thermal energy of the cold electrons takes its initial value this way.
 [`fill_maxwellian!`](@ref) fills a distribution with a Maxwellian from profiles of the density and the temperature, the start of a fully kinetic run in DREAM.
 [`fill_runaway_distribution!`](@ref) fills a distribution from a density in one of DREAM's shapes of `f_re` ([`RUNAWAY_SHAPES`](@ref)).
