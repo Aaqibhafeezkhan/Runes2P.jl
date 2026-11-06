@@ -182,7 +182,8 @@ end
         accurate = integrate(linear, u0, times; solver = NewtonSolver(linear_solver = GMRES()))
         @test all(accurate.statistics.accepted_as_linear)
         @test accurate.states[:, end] ≈ many.states[:, end] rtol = 1e-9
-        loose = integrate(linear, u0, times;
+        loose = @test_logs (:warn, r"floor_linear_tolerance") match_mode=:any integrate(
+            linear, u0, times;
             solver = NewtonSolver(linear_solver = GMRES(relative_tolerance = 1e-6)))
         @test !any(loose.statistics.accepted_as_linear)
         # a nonlinear scheme, or an approximate Jacobian of one, is never a linear step

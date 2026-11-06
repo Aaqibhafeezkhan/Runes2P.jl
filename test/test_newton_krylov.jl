@@ -5,7 +5,7 @@
 # example setups of example_cases.jl.
 
 using LinearAlgebra: Diagonal, norm
-using SparseArrays: SparseMatrixCSC
+using SparseArrays: SparseMatrixCSC, sparse
 
 # an assertion on allocations holds for optimised code alone: it is skipped, and reported
 # as broken, in a development run at -O0 or -O1
@@ -257,8 +257,34 @@ end
         # not bound the error, so the waiver must not apply
         loose = NewtonSolver(linear_solver = GMRES(relative_tolerance = 1e-4), max_iterations = 8)
         u = copy(u_old)
-        result = newton_solve!(u, u_old, NewtonWorkspace(system, loose), 1.0, 1.0)
+        workspace = @test_logs (:warn, r"floor_linear_tolerance") match_mode = :any NewtonWorkspace(
+            system, loose)
+        result = newton_solve!(u, u_old, workspace, 1.0, 1.0)
         @test result.status === :max_iterations
+    end
+
+    @testset "a zero pivot of the incomplete factorization is refused" begin
+        # one radius with two components: a single block of size 2. The last pivot of
+        # [1 1; 1 1] is zero with finite factors, since the last column of L is empty
+        rad = RadialGrid(uniform_r_faces(1, 0.5))
+        layout = UnknownLayout(rad, [RadialUnknown(:x; components = 2, scale = 1.0)])
+        for (A, factorizable) in ((sparse([1.0 1.0; 1.0 1.0]), false),
+            (sparse([2.0 1.0; 1.0 2.0]), true))
+            factors = Runes2P.preconditioner_factors(RadiusBlockILU(), A, layout)
+            @test Runes2P.factorize!(factors, RadiusBlockILU(), A) == factorizable
+        end
+    end
+
+    @testset "a Krylov tolerance above the floor tolerance of Newton warns" begin
+        rad = RadialGrid(uniform_r_faces(1, 0.5))
+        layout = UnknownLayout(rad, [RadialUnknown(:x; components = 2, scale = 1.0)])
+        system = EquationSystem(layout, [Equation(:x, TimeDerivative(), ExchangeTerm(:x, 1.0))])
+        loose = NewtonSolver(linear_solver = GMRES(relative_tolerance = 1e-6))
+        @test_logs (:warn, r"floor_linear_tolerance") match_mode = :any NewtonWorkspace(system, loose)
+        @test_logs NewtonWorkspace(system, NewtonSolver(linear_solver = GMRES()))
+        @test_logs NewtonWorkspace(system,
+            NewtonSolver(linear_solver = GMRES(relative_tolerance = 1e-6),
+                floor_linear_tolerance = 1e-6))
     end
 
     @testset "allocations per Newton step do not grow with the grid" begin

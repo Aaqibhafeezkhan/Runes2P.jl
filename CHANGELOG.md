@@ -58,6 +58,11 @@ Until the first release, every change is listed under "Unreleased", with the sub
   The accepted states move by at most 2e-8 of the scale of the unknown in that case.
 - A `RadialUnknown` given `groups`, even a single group, declares them: it takes the tolerances per group, and the layout of the settings record and of the output files writes its `group_starts` ([#181](https://github.com/osrep/Runes2P.jl/pull/181)).
   Until now `group_starts` was written only for more than one group.
+- `time_points` of a `Leg` places the save points as DREAM does, a running sum of `steps / saves` rounded half away from zero: `Leg(T; steps = 5, saves = 2)` saves step 3 (step 2 until now) ([#205](https://github.com/osrep/Runes2P.jl/pull/205)).
+- An update of the run whose changes are continuous in time (`changes_continuously`, a `RechesterRosenbluthUpdate` without forced time points) keeps the history of `StepController`; it still discards the stored Jacobian ([#205](https://github.com/osrep/Runes2P.jl/pull/205)).
+  Before, every change restarted the step controller with a doubling.
+  A level given as a function counts as continuous; a level that jumps is given as a `PiecewiseConstant`.
+- `NewtonWorkspace` warns when the `relative_tolerance` of `GMRES` is above the `floor_linear_tolerance` of `NewtonSolver`, where neither waiver of the Newton convergence test applies ([#205](https://github.com/osrep/Runes2P.jl/pull/205)).
 
 ### Removed
 
@@ -77,3 +82,7 @@ Until the first release, every change is listed under "Unreleased", with the sub
 - The split of the ionization at the threshold of a `KineticIonizationTerm` stays finite where the threshold lies in the first momentum cell ([#181](https://github.com/osrep/Runes2P.jl/pull/181)).
   The part of the Maxwellian below such a threshold is taken as the weight of that cell, with a warning.
   Until now it was the part the envelope gives within one cell, which tends to 0 as the threshold nears the lower face.
+- The `:smooth` envelope of a `MomentumRegion` takes the width of the last cell when no cell centre lies above its limit ([#205](https://github.com/osrep/Runes2P.jl/pull/205)).
+  Before, a limit at the last centre gave NaN, and the envelope jumped as the limit crossed it; the envelope of every limit above the last centre changes.
+- `RadiusBlockILU` refuses a factorization with a zero diagonal of `U`; before, a zero last pivot of a block passed and the solve divided by zero ([#205](https://github.com/osrep/Runes2P.jl/pull/205)).
+- `fill_initial_values!` refuses a row that couples the entries of its own unknown with a message that says so; before, the message named units or a cycle ([#205](https://github.com/osrep/Runes2P.jl/pull/205)).

@@ -446,6 +446,55 @@ distribution(layout, grid, u) = reshape(u[1:(end - 1)], size(grid))
               [1e-3]
     end
 
+    @testset "a level continuous in time keeps the history of the step controller" begin
+        minor_radius, major_radius = 2.0, 6.2
+        grid = cylindrical_grid(momentum, RadialGrid(uniform_r_faces(6, minor_radius)))
+        f0 = [1 + 0.2 * xi for _ in momentum.p_centers, xi in momentum.xi_centers, _ in 1:6]
+        function controlled(level_at, order; times = [0.0, 2e-3])
+            radial = AdvectionDiffusion(grid; scheme = :central, r_boundary = :absorbing)
+            layout, system = radial_transport_system(grid, radial)
+            update = RechesterRosenbluthUpdate(radial, level_at; major_radius)
+            stepper = StepController(initial_step = 1e-5, relative_tolerance = 1e-4, order = order)
+            solution = integrate(
+                system, state_of(layout, f0), times; stepper, updates = (update,))
+            return solution.statistics
+        end
+        # the doublings of a step after the first accepted one
+        later_halves(stats) = filter(>(findfirst(stats.accepted)), findall(==(:half_step), stats.kind))
+        # the level changes at every step, continuously: only the first step of the run is
+        # a doubling (with its rejections), and BDF2 takes fewer steps than backward Euler
+        rising(t) = 1e-3 * (1 + t / 2e-3)
+        jump = PiecewiseConstant([1e-3, 2e-3], [1e-3])
+        steps = map((1, 2)) do order
+            stats = controlled(rising, order)
+            @test isempty(later_halves(stats))
+            count(stats.accepted)
+        end
+        @test steps[1] > 10
+        @test steps[2] < steps[1]
+        # the change still discards the stored Jacobian, and only the jump clears the history
+        for (level_at, continuous) in ((rising, true), (jump, false))
+            radial = AdvectionDiffusion(grid; scheme = :central, r_boundary = :absorbing)
+            layout, system = radial_transport_system(grid, radial)
+            update = RechesterRosenbluthUpdate(radial, level_at; major_radius)
+            @test Runes2P.changes_continuously(update) == continuous
+            u0 = state_of(layout, f0)
+            Runes2P.apply_update!(update, u0, layout, 0.0)
+            ws = Runes2P.NewtonWorkspace(system)
+            state = Runes2P.stepper_state(
+                StepController(), system, [0.0, 2e-3], 0.0, Dict())
+            ws.assembled_time[], ws.assembled_step[] = 1e-3, 1e-4
+            state.previous_step = 1e-4
+            Runes2P._apply_updates!((update,), u0, layout, 1e-3, ws, state)
+            @test isnan(ws.assembled_time[]) && isnan(ws.assembled_step[])
+            @test isnan(state.previous_step) == !continuous
+        end
+        # a level that jumps restarts the estimate at the jump: a second doubling
+        stats = controlled(jump, 2; times = [0.0, 1e-3, 2e-3])
+        halves = later_halves(stats)
+        @test !isempty(halves) && all(>(1e-3), stats.time[halves])
+    end
+
     @testset "four-point schemes in r" begin
         grid = cylindrical_grid(momentum, RadialGrid(uniform_r_faces(7, 1.0)))
         @testset "$r_scheme" for r_scheme in (:quick, :upwind_second_order, :tcdf, :muscl, :van_albada)
