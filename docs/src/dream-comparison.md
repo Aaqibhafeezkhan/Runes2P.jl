@@ -247,6 +247,13 @@ Each part of the case is compared with DREAM's output at every saved step after 
 - With Runes2P's defaults the chain runs end to end as well, and the budgets of its closures hold within the bounds of the phases started from DREAM's state.
 - In the superthermal mode the initialization agrees with DREAM to 2e-9 and the phases to 4e-6, the largest in the ion densities and the cold electrons.
 
+The builder of the case also adds DREAM's runaway grid above the hot-tail grid, as the case script's `--runaway-grid` sets it (`runaway = true` of `build` in `test/example_disruption.jl`).
+With it the flux through `p_max` of `f_hot` enters `f_re` and `n_re` ([`MomentumInterfaceTerm`](@ref), [`InterfaceParticleFluxTerm`](@ref)).
+The avalanche of `n_re` above that `p_max` is the source of Rosenbluth and Putvinski, kinetic on `f_re` and fluid in `n_re`.
+`f_re` carries the runaway current, ionizes the ions and heats the cold electrons.
+This variant is not compared with DREAM.
+`test_disruption_runaway.jl` runs it from DREAM's state at the start of the quench, with `f_re` zero, and checks the budgets of its closures at both `compat` values.
+
 ## What Runes2P has that DREAM does not
 
 - Exponential fitting, the default scheme of [`fokker_planck_operator`](@ref) ([Positivity and flux limiters](model/positivity.md#Exponential-fitting)).

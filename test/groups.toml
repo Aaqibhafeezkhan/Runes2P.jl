@@ -181,3 +181,10 @@ files = [
     "test_disruption_initialization_dream.jl",
     "test_runaway_heating_dream.jl",
 ]
+
+[[group]]
+name = "full-12"
+tier = "full"
+# 11.6 minutes, mostly the compilation of its two systems (1.7 minutes at -O0): the disruption case
+# with a runaway grid at both compat values
+files = ["test_disruption_runaway.jl"]

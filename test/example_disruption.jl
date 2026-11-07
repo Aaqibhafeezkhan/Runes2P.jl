@@ -10,6 +10,9 @@
 # start (`initial_state`) or from Runes2P's own initialization (`initialize`, then
 # `initial_state_after_initialization`). With compat = dream it takes DREAM's settings of the
 # case, with compat = runes2p the defaults of Runes2P.
+# `runaway = true` adds DREAM's runaway grid above the hot-tail grid (the case script's
+# --runaway-grid), the builder of test_disruption_runaway.jl, with `runaway_budgets` for its
+# closures.
 using Runes2P, HDF5
 
 const WALL_RADIUS = 0.55            # ASDEXU.py:24
@@ -38,6 +41,17 @@ const BACKGROUND = IonComposition(["D" => 1])
 # (generate.py:221-225), and the cold temperature at the start of the phases (generate.py:346-350)
 const SUPERTHERMAL_MAXWELLIAN = 0.9999
 const SUPERTHERMAL_RESTART_TEMPERATURE = 1.0   # eV
+# the runaway grid of the case script's --runaway-grid (reference/dream/cases/disruption_kinetic.py:199-214),
+# a choice of that script for scenario 1 at the reduced size of the tests: uniform cells of about 0.1
+# from the hot-tail p_max to 2, 20 cells that grow geometrically to 20, and 8 pitch cells biuniform in
+# θ, 5 of them below θ = 0.5
+const RUNAWAY_FINE_WIDTH = 0.1
+const RUNAWAY_FINE_END = 2.0
+const RUNAWAY_P_MAX = 20.0
+const RUNAWAY_COARSE_CELLS = 20
+const RUNAWAY_PITCH_CELLS = 8
+const RUNAWAY_PITCH_CELLS_BELOW = 5
+const RUNAWAY_THETA_SEPARATION = 0.5
 
 """
     initial_temperature(r)
@@ -340,19 +354,95 @@ function initial_state_after_initialization(case, initialization, u)
     return state
 end
 
+# numpy's linspace(start, stop, cells + 1): start + i step, the last point set to stop
+function _linspace(start, stop, cells)
+    step = (stop - start) / cells
+    points = [start + i * step for i in 0:cells]
+    points[end] = stop
+    return points
+end
+
+"""
+    runaway_momentum_faces(hot_p_max)
+
+The momentum faces of the runaway grid of the case script, `runaway_p_faces` of
+reference/dream/cases/disruption_kinetic.py with its defaults: uniform cells of about
+`RUNAWAY_FINE_WIDTH` from `hot_p_max` to `RUNAWAY_FINE_END`, then `RUNAWAY_COARSE_CELLS` cells
+to `RUNAWAY_P_MAX` that grow by a constant ratio, the first as wide as the uniform ones, by the
+same bisection. The first face is `hot_p_max`. The arithmetic follows the script: numpy's
+`linspace` (`start + i step`, the last face set to `stop`), the last midpoint of the bisection, and
+the sum of the widths in order. At the defaults the faces equal the script's to the bit (numpy
+2.5.3). The powers are Julia's, which may differ from numpy's vectorized power in the last bit
+for other arguments; a file of DREAM's run with the runaway grid gives its own faces, which
+`build` takes in place of these.
+"""
+function runaway_momentum_faces(hot_p_max)
+    fine_cells = max(1, round(Int, (RUNAWAY_FINE_END - hot_p_max) / RUNAWAY_FINE_WIDTH))
+    fine = _linspace(hot_p_max, RUNAWAY_FINE_END, fine_cells)
+    width = fine[2] - fine[1]
+    span = RUNAWAY_P_MAX - RUNAWAY_FINE_END
+    n = RUNAWAY_COARSE_CELLS
+    if width * n >= span
+        throw(ArgumentError("$n cells of $width reach beyond $RUNAWAY_P_MAX: no growing cells"))
+    end
+    # the ratio q of width (qⁿ − 1)/(q − 1) = span, by bisection; q is the last midpoint
+    lower, upper = 1.0 + 1e-12, 2.0
+    while width * (upper^Float64(n) - 1) / (upper - 1) < span
+        upper *= 2
+    end
+    q = 0.0
+    for _ in 1:200
+        q = 0.5 * (lower + upper)
+        if width * (q^Float64(n) - 1) / (q - 1) < span
+            lower = q
+        else
+            upper = q
+        end
+    end
+    coarse = zeros(n)
+    total = 0.0
+    for k in 1:n
+        total += width * q^Float64(k - 1)
+        coarse[k] = RUNAWAY_FINE_END + total
+    end
+    coarse[end] = RUNAWAY_P_MAX
+    return vcat(fine, coarse)
+end
+
+"""
+    runaway_pitch_faces()
+
+The pitch faces of the runaway grid of the case script, `biuniform_theta_xi_faces` of
+reference/dream/cases/disruption_kinetic.py with its defaults: `RUNAWAY_PITCH_CELLS_BELOW`
+cells uniform in θ to `RUNAWAY_THETA_SEPARATION`, the others uniform in θ to π, as increasing
+ξ, with numpy's `linspace`, from which Runes2P's `biuniform_theta_xi_faces` differs in the last
+bit.
+"""
+function runaway_pitch_faces()
+    lower = _linspace(0.0, RUNAWAY_THETA_SEPARATION, RUNAWAY_PITCH_CELLS_BELOW)
+    upper = _linspace(RUNAWAY_THETA_SEPARATION, Float64(pi),
+        RUNAWAY_PITCH_CELLS - RUNAWAY_PITCH_CELLS_BELOW)
+    return reverse(cos.(vcat(lower, upper[2:end])))
+end
+
 # DREAM's output of a run, an HDF5 file or group with DREAM's groups eqsys and grid: (name =>
-# array) with the time last, as HDF5 gives DREAM's arrays to Julia
+# array) with the time last, as HDF5 gives DREAM's arrays to Julia; with the runaway grid also
+# f_re and its faces (p1_f_re, p2_f_re)
 function read_dream_state(h5)
     data = Dict{String, Any}()
     for name in ("T_cold", "n_cold", "n_hot", "n_re", "n_tot",
         "E_field", "psi_p", "psi_edge", "psi_wall", "I_p",
-        "j_ohm", "j_hot", "j_re", "j_tot", "W_cold", "n_i", "W_i", "f_hot")
+        "j_ohm", "j_hot", "j_re", "j_tot", "W_cold", "n_i", "W_i", "f_hot", "f_re")
         haskey(h5["eqsys"], name) && (data[name] = read(h5["eqsys"][name]))
     end
     data["t"] = read(h5["grid/t"])
     data["r_f"] = read(h5["grid/r_f"])
     data["p1_f"] = read(h5["grid/hottail/p1_f"])
     data["p2_f"] = read(h5["grid/hottail/p2_f"])
+    if haskey(h5["grid"], "runaway")
+        data["p1_f_re"] = read(h5["grid/runaway/p1_f"])
+        data["p2_f_re"] = read(h5["grid/runaway/p2_f"])
+    end
     data["B"] = MAGNETIC_FIELD
     return data
 end
@@ -371,12 +461,20 @@ end
 
 # the kinetic part shared by the phases (`build`) and the initialization
 # (`build_initialization`) on `grid`, with the ions of `prescribed` as unknowns: the collision
-# settings of the mode `collisions` (:full or :superthermal), the hot region, the Fokker-Planck
-# term of f with the field of the unknown, and the conductivity of the ohmic current, DREAM's
-# corrected one with `corrected`. Without the full collision frequencies there is no hot region:
-# DREAM counts all of f as hot (pThreshold = 0, src/Settings/Equations/n_hot.cpp:50-53).
+# settings of the mode `collisions` (:full or :superthermal), the hot region, the plasma of the
+# kinetic terms, the Fokker-Planck term of f with the field of the unknown, and the conductivity
+# of the ohmic current, DREAM's corrected one with `corrected`. Without the full collision
+# frequencies there is no hot region: DREAM counts all of f as hot (pThreshold = 0,
+# src/Settings/Equations/n_hot.cpp:50-53). With a runaway grid `runaway`, the Fokker-Planck term
+# of f_re on it as well (`fp_re`, otherwise nothing), with the scheme `runaway_scheme` and the
+# collision settings, the plasma, the synchrotron loss and the lagged plasma of f: DREAM builds the
+# collisions of both grids from one section of settings (src/Settings/EquationSystem.cpp:146-153).
+# f's p_max is then the interface to f_re in place of f = 0 (src/Settings/Equations/f_hot.cpp:94-95,
+# 107-113), and f_re keeps the flux of its last face at its own p_max (BC_PHI_CONST, the case
+# script's setting, disruption_kinetic.py:463).
 function kinetic_terms(
-        grid, prescribed; scheme, compat, collisions = :full, corrected = true)
+        grid, prescribed; scheme, compat, collisions = :full, corrected = true,
+        runaway = nothing, runaway_scheme = scheme)
     settings = collision_settings(compat; mode = collisions)
     # the hot region: DREAM's 5 thermal momenta for compat = dream; for runes2p, which splits the
     # ionization with CHIANTI's cross sections, the minimum of that split, 7
@@ -391,25 +489,50 @@ function kinetic_terms(
         nothing
     end
     plasma = PlasmaFromUnknowns(prescribed; ions = :ion_densities, temperature_floor = 0.01)
-    operator = AdvectionDiffusion(grid; scheme, p_upper_boundary = :f_zero)
-    fp = FokkerPlanckTerm(
-        :f, operator; plasma, settings, synchrotron = compat === :runes2p,
-        electric_field = :electric_field,
-        lagged = compat === :dream ? () : :ions)
+    function fokker_planck(name, operator)
+        FokkerPlanckTerm(
+            name, operator; plasma, settings, synchrotron = compat === :runes2p,
+            electric_field = :electric_field, lagged = compat === :dream ? () : :ions)
+    end
+    p_upper_boundary = runaway === nothing ? :f_zero : :interface
+    fp = fokker_planck(:f, AdvectionDiffusion(grid; scheme, p_upper_boundary))
+    fp_re = if runaway === nothing
+        nothing
+    else
+        fokker_planck(:f_re,
+            AdvectionDiffusion(
+                runaway; scheme = runaway_scheme, p_lower_boundary = :interface,
+                p_upper_boundary = :constant_flux))
+    end
     conductivity = ConductivityTerm(:electric_field,
         ConductivityModel(
             PlasmaFromUnknowns(prescribed; ions = :ion_densities,
                 temperature_floor = 0.01);
             kinetic = corrected ? :dream_fit : :none))
-    return (; settings, region, fp, conductivity)
+    return (; settings, region, plasma, fp, fp_re, conductivity)
 end
 
 # the system of a phase of the case on the grids of `start` (`read_dream_state`): `mode = :kinetic`
 # for DREAM's fully kinetic mode, `:superthermal` for its superthermal mode (the header of this
 # file), `compat` and `diffusivity` of the heat transport as in the header. Returns the layout, the
-# equations, the grids, the radius count and the mode; `budgets` and `phase_differences` take it.
+# equations, the grids, the radius count, the mode and the labels of the channels of the row of
+# W_cold; `budgets` and `phase_differences` take it.
+#
+# `runaway = true`, by default when `start` holds DREAM's runaway grid, adds the runaway grid
+# above the hot-tail grid as DREAM v26.5 builds it, on the momentum faces `runaway_p_faces` (the
+# first the hot-tail p_max) and the pitch faces `runaway_xi_faces`: those of `start`, or those of
+# the case script (`runaway_momentum_faces`, `runaway_pitch_faces`). f_re takes the scheme
+# `runaway_scheme`: that of f at compat = dream (the case script's choice, disruption_kinetic.py:461),
+# Runes2P's default exponential fitting at compat = runes2p. The case then also returns the
+# runaway grid `runaway_grid`, the Fokker-Planck term of f_re `fp_re` and the interface
+# `interface` (all `nothing` without the runaway grid).
 function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
-        diffusivity::Real = DIFFUSIVITY, mode::Symbol = :kinetic)
+        diffusivity::Real = DIFFUSIVITY, mode::Symbol = :kinetic,
+        runaway::Bool = haskey(start, "p1_f_re"),
+        runaway_p_faces::AbstractVector{<:Real} = get(
+            () -> runaway_momentum_faces(last(start["p1_f"])), start, "p1_f_re"),
+        runaway_xi_faces::AbstractVector{<:Real} = get(runaway_pitch_faces, start, "p2_f_re"),
+        runaway_scheme::Symbol = compat === :dream ? scheme : :exponential_fitting)
     mode in (:kinetic, :superthermal) ||
         throw(ArgumentError("mode must be :kinetic or :superthermal, not $mode"))
     superthermal = mode === :superthermal
@@ -417,6 +540,15 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
     grid = cylindrical_grid(MomentumGrid(start["p1_f"], start["p2_f"]), radial)
     nr = radial_cell_count(radial)
     p_max = last(start["p1_f"])
+    re_grid = if runaway
+        if first(runaway_p_faces) != p_max
+            throw(ArgumentError("the runaway grid starts at p = $(first(runaway_p_faces)), " *
+                                "not at the hot-tail p_max = $p_max"))
+        end
+        runaway_grid(grid, runaway_p_faces[2:end], runaway_xi_faces)
+    else
+        nothing
+    end
     # the prescribed part: the magnetic field and the composition (the values are unknowns)
     background = [IonSpecies(name, Z, zeros(Z + 1, nr))
                   for (name, Z) in zip(COMPOSITION.names, COMPOSITION.nuclear_charges)]
@@ -426,9 +558,10 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
     # the superthermal mode: the superthermal collision frequencies (generate.py:342-344) and
     # Ohm's law for the cold electrons, as DREAM's j_ohm without the full collision frequencies
     # (src/Settings/Equations/j_ohm.cpp:66, 119-126)
-    (; settings, region, fp, conductivity) = kinetic_terms(
+    (; settings, region, plasma, fp, fp_re, conductivity) = kinetic_terms(
         grid, prescribed; scheme, compat,
-        collisions = superthermal ? :superthermal : :full, corrected = !superthermal)
+        collisions = superthermal ? :superthermal : :full, corrected = !superthermal,
+        runaway = re_grid, runaway_scheme)
     minus(name) = LinearTerm(name; coefficient = -1)
     current(; kwargs...) = CurrentMomentTerm(:f, grid; pitch_rule = :cell_center, kwargs...)
     # the cross sections of the kinetic ionization: DREAM's form and fits for compat = dream,
@@ -449,11 +582,22 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
     else
         (kinetic_ionization = kinetic,)
     end
-    external = ExternalAvalancheTerm(prescribed; p_cutoff = p_max, settings, fluid_ions...)
+    # the avalanche above the hot-tail grid (src/Settings/RunawaySourceTerms.cpp:44-57): without a
+    # runaway grid DREAM's external avalanche, matched to the fluid growth rate; with one the
+    # Rosenbluth-Putvinski source integrated above p_max, as the knock-ons of f_re's kinetic
+    # source (the term on f_re below) plus those beyond its p_max. The same term goes into the
+    # row of n_re (src/Settings/Equations/n_re.cpp:150-156) and the particle source
+    # (src/Settings/Equations/f_hot.cpp:413-421)
+    external = if runaway
+        ProductTerm(:total_electron_density, :runaway_density;
+            coefficient = rosenbluth_putvinski_rate(p_max))
+    else
+        ExternalAvalancheTerm(prescribed; p_cutoff = p_max, settings, fluid_ions...)
+    end
     # the superthermal mode: the heating of the cold electrons by the friction of f
     # (src/Settings/Equations/T_cold.cpp:318-340)
     friction = if superthermal
-        (FrictionEnergyTransferTerm(:f, grid,
+        ("friction of f" => FrictionEnergyTransferTerm(:f, grid,
             PlasmaFromUnknowns(prescribed; ions = :ion_densities, temperature_floor = 0.01)),)
     else
         ()
@@ -480,13 +624,70 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
     if superthermal
         unknowns = [u for u in unknowns if u.name !== :particle_source]
     end
+    if runaway
+        push!(unknowns, KineticUnknown(:f_re, re_grid; scale = 1e16))
+    end
     layout = UnknownLayout(radial, unknowns)
+    # the kinetic avalanche on f below p_max, with or without a runaway grid
+    # (src/Settings/Equations/f_hot.cpp:116-127)
     knock_on = RosenbluthPutvinskiSourceTerm(:f, grid; p_cutoff = P_CUT)
+    # the runaway grid: the flux through the interface of the two grids, with DREAM's mapping of the
+    # pitch at compat = dream (PXiExternalKineticKinetic, f_hot.cpp:107-113, f_re.cpp:130-137) and
+    # Runes2P's overlap at compat = runes2p; on f_re the kinetic avalanche above the hot-tail
+    # p_max, at positive pitch (RunawaySourceTerms.cpp:49-50); its electrons ionize the ions
+    # (src/Settings/Equations/ions.cpp:342-353) and heat the cold electrons
+    # (src/Settings/Equations/T_cold.cpp:341-354; `runaway_heating_term`), and j_re is its current
+    # (src/Settings/Equations/j_re.cpp:72-86). Without it, the flux through f's p_max feeds n_re,
+    # whose current is e c n_re, and n_re heats the cold electrons by e c E_c n_re
+    # (T_cold.cpp:355-365)
+    interface = if runaway
+        MomentumInterfaceTerm(:f, :f_re, fp, fp_re;
+            pitch_mapping = compat === :dream ? :dream : :overlap)
+    else
+        nothing
+    end
+    interface_terms = runaway ? (interface,) : ()
+    kinetic_re = if runaway
+        (KineticIonizationTerm(COMPOSITION, :f_re, re_grid;
+            ionization_cross_section_form = compat === :dream ? :dream : :chianti),)
+    else
+        ()
+    end
+    runaway_equations = if runaway
+        [Equation(:f_re, TimeDerivative(), fp_re, interface,
+            RosenbluthPutvinskiSourceTerm(:f_re, re_grid; p_cutoff = p_max, electric_field = nothing))]
+    else
+        Equation[]
+    end
+    influx = runaway ? InterfaceParticleFluxTerm(interface) :
+             MomentumBoundaryFluxTerm(:f, fp)
+    runaway_current = if runaway
+        CurrentMomentTerm(:f_re, re_grid; pitch_rule = :cell_center)
+    else
+        LinearTerm(:runaway_density;
+            coefficient = Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT)
+    end
+    runaway_heating = if runaway
+        (compat === :dream ? "friction of f_re" : "heating by f_re") =>
+            runaway_heating_term(compat, fp_re, re_grid, plasma)
+    else
+        "e c E_c n_re" => RunawayFluidEnergyTransferTerm(prescribed; fluid_ions...)
+    end
+    # the channels of the row of W_cold with their labels for `budgets`
+    heating = [
+        "E j_ohm" => ohmic_heating_term(),
+        "radiation and binding" => RadiatedPowerTerm(
+            prescribed; radiation = :dream, fluid_ions..., split..., gould...),
+        "heat diffusion" => HeatTransportTerm(; diffusion = diffusivity),
+        runaway_heating,
+        "exchange (electrons)" => IonEnergyExchangeTerm(
+            prescribed; side = :electrons, fluid_ions..., exchange...),
+        friction...]
     # the rows of the mode: the particle source and the corrected ohmic current of the fully
     # kinetic mode, or f without a source and Ohm's law of the cold electrons in the superthermal
     # mode (src/Settings/Equations/j_ohm.cpp:66, 119-126)
     source_equations, f_equation, ohmic_equation = if superthermal
-        (Equation[], Equation(:f, TimeDerivative(), fp, knock_on),
+        (Equation[], Equation(:f, TimeDerivative(), fp, interface_terms..., knock_on),
             Equation(:ohmic_current_density, Algebraic(), conductivity,
                 minus(:ohmic_current_density)))
     else
@@ -496,7 +697,7 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
                 LinearTerm(:particle_source),
                 ProductTerm(:total_electron_density, :runaway_density; coefficient = internal),
                 external)],
-            Equation(:f, TimeDerivative(), fp,
+            Equation(:f, TimeDerivative(), fp, interface_terms...,
                 ParticleSourceTerm(:particle_source, grid, :cold_electron_temperature;
                     shape = :lowest_cell),
                 knock_on),
@@ -512,7 +713,9 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
             # fully kinetic mode at compat = runes2p, takes the cold electrons below the threshold
             # alone (IonRateTerm with kinetic_ionization). In the superthermal phases f holds no
             # thermal bulk, the cold electrons are a fluid of their own, and nothing ionizes twice
-            Equation(:ion_densities, TimeDerivative(), IonRateTerm(COMPOSITION; split...), kinetic),
+            Equation(:ion_densities, TimeDerivative(),
+                IonRateTerm(COMPOSITION; split...), kinetic,
+                kinetic_re...),
             population_equations(COMPOSITION; hot_density = :hot_electron_density,
                 runaway_density = :runaway_density)...,
             Equation(:hot_electron_density, Algebraic(),
@@ -525,12 +728,12 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
                 minus(:free_electron_density)),
             source_equations...,
             f_equation,
-            Equation(:runaway_density, TimeDerivative(), MomentumBoundaryFluxTerm(:f, fp), external),
-            # j_re = e c n_re; DREAM's takes the sign of the field (j_re.cpp:95), which is positive at
-            # every radius of both phases of the case
-            Equation(:runaway_current_density, Algebraic(),
-                LinearTerm(:runaway_density;
-                    coefficient = Constants.ELEMENTARY_CHARGE * Constants.SPEED_OF_LIGHT),
+            runaway_equations...,
+            # n_re: the flux through f's p_max or the interface (n_re.cpp:122-145) and the avalanche
+            Equation(:runaway_density, TimeDerivative(), influx, external),
+            # without a runaway grid j_re = e c n_re; DREAM's takes the sign of the field (j_re.cpp:95),
+            # which is positive at every radius of both phases of the case
+            Equation(:runaway_current_density, Algebraic(), runaway_current,
                 minus(:runaway_current_density)),
             Equation(:hot_electron_current_density, Algebraic(),
                 current(; region), minus(:hot_electron_current_density)),
@@ -541,20 +744,16 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
                 minus(:total_current_density)),
             thermal_energy_equation(),
             Equation(:cold_electron_temperature,
-                TimeDerivative(:cold_thermal_energy), ohmic_heating_term(),
-                RadiatedPowerTerm(
-                    prescribed; radiation = :dream, fluid_ions..., split..., gould...),
-                HeatTransportTerm(; diffusion = diffusivity),
-                RunawayFluidEnergyTransferTerm(prescribed; fluid_ions...),
-                IonEnergyExchangeTerm(prescribed; side = :electrons, fluid_ions..., exchange...),
-                friction...),
+                TimeDerivative(:cold_thermal_energy), last.(heating)...),
             Equation(:ion_thermal_energy,
                 TimeDerivative(),
                 IonEnergyExchangeTerm(prescribed; side = :ions, fluid_ions..., exchange...))])
-    return (; layout, equations, grid, radial, nr, mode)
+    return (; layout, equations, grid, radial, nr, mode, channel_labels = first.(heating),
+        runaway_grid = re_grid, fp_re, interface)
 end
 
-# DREAM's first state of the phase as the initial state of Runes2P
+# DREAM's first state of the phase as the initial state of Runes2P; f_re, with a runaway grid,
+# from `start` when it holds f_re, and zero otherwise
 function initial_state(case, start)
     layout = case.layout
     u = zeros(length(layout))
@@ -583,6 +782,12 @@ function initial_state(case, start)
         radial_view(u, layout, ions_id, ir) .= states[ir, :]
         radial_view(u, layout, energy_id, ir) .= energies[ir, :]
         kinetic_view(u, layout, unknown_id(layout, :f), ir) .= start["f_hot"][:, :, ir, 1]
+    end
+    if case.runaway_grid !== nothing && haskey(start, "f_re")
+        for ir in 1:case.nr
+            kinetic_view(u, layout, unknown_id(layout, :f_re), ir) .= start["f_re"][
+                :, :, ir, 1]
+        end
     end
     unknown_values(u,
         layout,
@@ -622,8 +827,11 @@ largest electron side), `diffusion` (the net flux of the heat diffusion, relativ
 sum), `closure` (the row of `W_cold` against its channels, relative to `dW/dt`), `drift` (of
 `∫f − n_cold − n_hot`, relative to `n_cold`) and `field` (the change of the field energy against
 the work of the field, relative to the change); and `channels` with `labels`, the energy of each
-channel of the row of `W_cold` over the solution (volume mean, J/m³), with the friction of f as a
-sixth channel in the superthermal mode.
+channel of the row of `W_cold` over the solution (volume mean, J/m³), labelled by the builder
+(`channel_labels`): with the friction of f as a sixth channel in the superthermal mode, and with
+a runaway grid the heating by f_re in place of `e c E_c n_re`. The terms are prepared for each
+step from the state at its start, as the system does (`prepare_terms!`), so that a term
+with a lagged plasma takes the plasma of that step.
 """
 function budgets(case, solution)
     layout = case.layout
@@ -631,12 +839,7 @@ function budgets(case, solution)
     row_T = unknown_id(layout, :cold_electron_temperature)
     T_equation = only(e for e in case.equations if e.unknown === :cold_electron_temperature)
     W_i_equation = only(e for e in case.equations if e.unknown === :ion_thermal_energy)
-    labels = ["E j_ohm", "radiation and binding", "heat diffusion",
-        "e c E_c n_re", "exchange (electrons)"]
-    # the superthermal mode heats the cold electrons by the friction of f as well
-    if any(t -> t isa FrictionEnergyTransferTerm, T_equation.terms)
-        push!(labels, "friction of f")
-    end
+    labels = case.channel_labels
     channels = zeros(length(labels))
     ions_id, energy_id, f_id = unknown_id(layout, :ion_densities),
     unknown_id(layout, :ion_thermal_energy), unknown_id(layout, :f)
@@ -659,6 +862,7 @@ function budgets(case, solution)
     for m in 2:length(solution.times)
         u, t = solution.states[:, m], solution.times[m]
         dt = t - solution.times[m - 1]
+        prepare_terms!(case, solution.states[:, m - 1], t)
         # the row of the temperature holds the time derivative of the thermal energy
         parts = [_term_values(term, u, layout, row_T, t) for term in T_equation.terms]
         channels .+= dt .* [sum(weights .* p) for p in parts] ./ sum(weights)
@@ -708,7 +912,8 @@ initialization) against DREAM's run `dream` (`read_dream_state`) over the saved 
 `solution`, by default those after the first: of the radial quantities the largest difference
 over the radii relative to DREAM's largest value over the radii at each step, of `f_hot`, `n_i`
 and `W_i` the same over the cells, charge states or species of each radius (`W_i` where the
-system has the ion energies, which the initialization has not), and of `I_p` the difference
+system has the ion energies, which the initialization has not; `f_re` the same as `f_hot` where
+both runs have the runaway grid), and of `I_p` the difference
 relative to DREAM's value. The quantities of `per_radius` are compared at each radius relative to
 DREAM's largest value at that radius over the run: the runaway density differs by 15 orders of
 magnitude between the radii. With `per_radius = ()` they are compared over the radii as the
@@ -736,6 +941,15 @@ function phase_differences(case, solution, dream; per_radius = ("n_re", "j_re"),
                                   dream["f_hot"][:, :, ir, m]) /
                               maximum(abs, dream["f_hot"][:, :, ir, m])
     for ir in 1:case.nr, m in steps)
+    # f_re, where both the system and DREAM's run have the runaway grid
+    if any(u -> u.name === :f_re, layout.unknowns) && haskey(dream, "f_re")
+        re_id = unknown_id(layout, :f_re)
+        errors["f_re"] = maximum(maximum(abs,
+                                     kinetic_view(solution.states[:, m], layout, re_id, ir) .-
+                                     dream["f_re"][:, :, ir, m]) /
+                                 maximum(abs, dream["f_re"][:, :, ir, m])
+        for ir in 1:case.nr, m in steps)
+    end
     errors["n_i"] = maximum(maximum(abs,
                                 radial_view(solution.states[:, m], layout, ions_id, ir) .-
                                 dream["n_i"][ir, :, m]) /
@@ -754,6 +968,73 @@ function phase_differences(case, solution, dream; per_radius = ("n_re", "j_re"),
     errors["I_p"] = maximum(abs(solution.states[current, m] - dream["I_p"][m]) /
                             abs(dream["I_p"][m]) for m in steps)
     return errors
+end
+
+# the terms of the equations of `case` prepared for a step from its start `u_old` to the time
+# `t`, as the system prepares them before each residual (`Runes2P.prepare_step!`)
+function prepare_terms!(case, u_old, t)
+    for equation in case.equations, term in equation.terms
+
+        row = unknown_id(case.layout, equation.unknown)
+        Runes2P.prepare_step!(term, u_old, case.layout, row, t)
+    end
+    return nothing
+end
+
+"""
+    runaway_budgets(case, solution)
+
+The closures of the runaway grid of `case` (`build` with `runaway = true`) over `solution`,
+independent of DREAM, the worst relative values over the steps and the radii:
+
+- `interface`: the particles through the interface, as the density that the
+  `MomentumInterfaceTerm` takes from f and gives to f_re, against the influx of n_re
+  (`InterfaceParticleFluxTerm`), relative to the largest influx of the radius;
+- `avalanche`: the runaways beyond the runaway grid, `d(n_re − ∫f_re)/dt` of the step against
+  `n_re n_tot R(p_max,re, ∞)` with `R` of [`rosenbluth_putvinski_rate`](@ref) and the
+  outflow through f_re's p_max (`MomentumBoundaryFluxTerm` of f_re, outside the system), at the
+  end of the step (backward Euler), relative to the largest of `dn_re/dt` and `d∫f_re/dt`
+  at that radius. The fluid avalanche of n_re above the hot-tail p_max is the kinetic one of
+  f_re, whose sum is that of `R` to f_re's p_max, plus the tail beyond it.
+
+Also the largest influx `influx` and outflow `outflow` (m⁻³ s⁻¹) over the steps and radii.
+"""
+function runaway_budgets(case, solution)
+    layout, interface = case.layout, case.interface
+    re_row = unknown_id(layout, :runaway_density)
+    f_id, re_id = unknown_id(layout, :f), unknown_id(layout, :f_re)
+    influx_term = InterfaceParticleFluxTerm(interface)
+    outflow_term = MomentumBoundaryFluxTerm(:f_re, case.fp_re)
+    p_max = last(momentum_grid(case.runaway_grid, 1).p_faces)
+    tail = rosenbluth_putvinski_rate(p_max)
+    radial_values(u, name) = collect(unknown_values(u, layout, unknown_id(layout, name)))
+    on_grid(u) = density(case.runaway_grid, kinetic_array(u, layout, re_id))
+    worst = Dict(:interface => 0.0, :avalanche => 0.0, :influx => 0.0, :outflow => 0.0)
+    for m in 2:length(solution.times)
+        u_old, u, t = solution.states[:, m - 1], solution.states[:, m], solution.times[m]
+        dt = t - solution.times[m - 1]
+        prepare_terms!(case, u_old, t)
+        influx = _term_values(influx_term, u, layout, re_row, t)
+        from_f = Runes2P.rhs!(zeros(length(u)), interface, u, layout, f_id, t)
+        to_f_re = Runes2P.rhs!(zeros(length(u)), interface, u, layout, re_id, t)
+        taken = density(case.grid, kinetic_array(from_f, layout, f_id))
+        given = density(case.runaway_grid, kinetic_array(to_f_re, layout, re_id))
+        crossing = max.(abs.(taken .+ influx), abs.(given .- influx)) ./ abs.(influx)
+        outflow = _term_values(outflow_term, u, layout, re_row, t)
+        n_re = radial_values(u, :runaway_density)
+        n_tot = radial_values(u, :total_electron_density)
+        change = (n_re .- radial_values(u_old, :runaway_density)) ./ dt
+        on_grid_change = (on_grid(u) .- on_grid(u_old)) ./ dt
+        expected = tail .* n_re .* n_tot .+ outflow
+        beyond = abs.(change .- on_grid_change .- expected) ./
+                 max.(abs.(change), abs.(on_grid_change))
+        worst[:interface] = max(worst[:interface], maximum(crossing))
+        worst[:avalanche] = max(worst[:avalanche], maximum(beyond))
+        worst[:influx] = max(worst[:influx], maximum(abs, influx))
+        worst[:outflow] = max(worst[:outflow], maximum(abs, outflow))
+    end
+    return (; interface = worst[:interface], avalanche = worst[:avalanche],
+        influx = worst[:influx], outflow = worst[:outflow])
 end
 
 # the closures of the assembled system (`budgets`), independent of DREAM: round-off bounds, at
