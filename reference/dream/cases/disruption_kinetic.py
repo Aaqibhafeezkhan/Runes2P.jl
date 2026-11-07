@@ -30,7 +30,11 @@ frequencies (src/Settings/Equations/f_hot.cpp:163-197 at v26.5).
 `--runaway-grid` turns on DREAM's runaway grid from run 1 on, which the example leaves off
 (generate.py:169): momentum faces uniform from the hot-tail p_max, then growing geometrically to
 `--re-pmax`, and one pitch grid biuniform in theta; the settings of f_re are stated where the
-grid is set. Without it the settings are those above.
+grid is set. Without it the settings are those above. The defaults of the runaway grid are a
+choice of this package for scenario 1 at the reduced size of the tests: 12 cells of 0.1 from the
+hot-tail p_max 0.8 to 2, 20 geometric cells to 20, where the avalanche source still holds f_re
+after 300 us of the quench, and 8 pitch cells, 5 below theta = 0.5, unlike the 4 uniform cells of
+the hot-tail grid there, so that the test crosses DREAM's mapping between the two pitch grids.
 
 The chain: a one-step run for the conductivity of the initial plasma, the field of the
 prescribed current profile of ASDEXU.getCurrentDensity, two runs of 1 s in 3 steps with
@@ -171,15 +175,15 @@ def arguments(argv=None):
                         help="width of the uniform momentum cells of the runaway grid from --pmax to --re-p-fine-to")
     parser.add_argument("--re-p-fine-to", type=float, default=2.0,
                         help="end of the uniform cells of the runaway grid")
-    parser.add_argument("--re-pmax", type=float, default=60.0,
+    parser.add_argument("--re-pmax", type=float, default=20.0,
                         help="p_max of the runaway grid; the cells from --re-p-fine-to grow geometrically, the "
                              "first as wide as --re-dp-fine")
-    parser.add_argument("--re-np-coarse", type=int, default=40,
+    parser.add_argument("--re-np-coarse", type=int, default=20,
                         help="momentum cells of the runaway grid from --re-p-fine-to to --re-pmax")
-    parser.add_argument("--re-nxi", type=int, default=15,
-                        help="pitch cells of the runaway grid, biuniform in theta (notes of the production "
-                             "settings: 10 to theta = 0.5, 5 to pi)")
-    parser.add_argument("--re-nxi-sep", type=int, default=10,
+    parser.add_argument("--re-nxi", type=int, default=8,
+                        help="pitch cells of the runaway grid, biuniform in theta, fine near xi = 1 where the "
+                             "runaways and the knock-ons of the avalanche source lie")
+    parser.add_argument("--re-nxi-sep", type=int, default=5,
                         help="pitch cells of the runaway grid below theta = 0.5")
     parser.add_argument("--re-scheme", choices=sorted(SCHEMES), default=None,
                         help="advection interpolation of f_re (default: that of f_hot, --scheme; DREAM's own "
