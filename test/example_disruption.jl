@@ -1027,7 +1027,8 @@ independent of DREAM, the worst relative values over the steps and the radii:
   the step at that radius. The fluid avalanche of n_re above the hot-tail p_max is the kinetic one of
   f_re, whose sum is that of `R` to f_re's p_max, plus the tail beyond it.
 
-Also the largest influx `influx` (m⁻³ s⁻¹) over the steps and radii.
+Also the largest influx `influx` (m⁻³ s⁻¹) over the steps and radii, and the smallest, signed,
+`least_influx`: positive where electrons cross from f into f_re at every step and radius.
 """
 function runaway_budgets(case, solution)
     layout, interface = case.layout, case.interface
@@ -1039,7 +1040,7 @@ function runaway_budgets(case, solution)
     tail = rosenbluth_putvinski_rate(p_max)
     radial_values(u, name) = collect(unknown_values(u, layout, unknown_id(layout, name)))
     on_grid(u) = density(case.runaway_grid, kinetic_array(u, layout, re_id))
-    worst = Dict(:interface => 0.0, :avalanche => 0.0, :influx => 0.0)
+    worst = Dict(:interface => 0.0, :avalanche => 0.0, :influx => 0.0, :least_influx => Inf)
     for m in 2:length(solution.times)
         u_old, u, t = solution.states[:, m - 1], solution.states[:, m], solution.times[m]
         dt = t - solution.times[m - 1]
@@ -1061,9 +1062,10 @@ function runaway_budgets(case, solution)
         worst[:interface] = max(worst[:interface], maximum(crossing))
         worst[:avalanche] = max(worst[:avalanche], maximum(beyond))
         worst[:influx] = max(worst[:influx], maximum(abs, influx))
+        worst[:least_influx] = min(worst[:least_influx], minimum(influx))
     end
     return (; interface = worst[:interface], avalanche = worst[:avalanche],
-        influx = worst[:influx])
+        influx = worst[:influx], least_influx = worst[:least_influx])
 end
 
 # the closures of the assembled system (`budgets`), independent of DREAM: round-off bounds, at
@@ -1107,15 +1109,16 @@ function budget_checks(case, solution, label, drift_bound)
 end
 
 # the closures of the runaway grid (`runaway_budgets`) against `bounds`, a named tuple of bounds
-# of `interface` and `avalanche`, and the influx against 0, as (name, value, bound) for a test
-# `value < bound` (the influx as its negative: electrons cross from f into f_re)
+# of `interface` and `avalanche`, and the smallest signed influx against 0, as (name, value,
+# bound) for a test `value < bound` (the influx as its negative: electrons cross from f into f_re
+# at every step and radius)
 function runaway_budget_checks(case, solution, label, bounds)
     b = runaway_budgets(case, solution)
     checks = [(name, getfield(b, name), getfield(bounds, name)) for name in keys(bounds)]
     for (name, value, _) in checks
         @info "the disruption case, $label: $name $value"
     end
-    @info "the disruption case, $label: influx $(b.influx) m⁻³ s⁻¹"
-    push!(checks, (:negative_influx, -b.influx, 0.0))
+    @info "the disruption case, $label: influx from $(b.least_influx) to $(b.influx) m⁻³ s⁻¹"
+    push!(checks, (:negative_influx, -b.least_influx, 0.0))
     return checks
 end

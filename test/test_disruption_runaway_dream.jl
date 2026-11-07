@@ -1,19 +1,19 @@
 # The disruption case with DREAM's runaway grid against DREAM: DREAM's examples/Disruptions
 # generate.py --kinetic --cylindrical, scenario 1, at the size of the tests (2 radii, a hot-tail
-# grid of 30 × 4 cells) with the case script's runaway grid (reference/dream/cases/disruption_kinetic.py
-# --runaway-grid: 32 × 8 cells from the hot-tail p_max 0.8 to 20). The window of
-# dream_disruption_runaway_small.h5 is DREAM's state at step 170 of the quench, 1.31e-4 s after
-# the start of the scenario, where the runaway current is 5.9 % of the plasma current, and the
-# 10 steps of 6.53e-7 s after it. The system of example_disruption.jl with `runaway = true` starts from that
-# state and runs the 10 steps with DREAM's settings: the flux through the interface of the two
-# grids into f_re and n_re, the kinetic avalanche on f_re and the fluid one in n_re above the
-# hot-tail p_max, the runaway current as the moment of f_re, the kinetic ionization by f_re and
-# the heating of the cold electrons by it, with every term of the case without a runaway grid.
-# At the first state, DREAM's j_re is checked against the moment of its f_re on the built grid,
-# and n_re against ∫f_re (n_re exceeds it by the runaways beyond the grid's p_max). The budgets of
-# the assembled system and of the runaway grid are asserted independently of DREAM, and the
-# window runs once more with Runes2P's defaults (compat = runes2p), where only the budgets are
-# checked. Needs the ADF11 cache.
+# grid of 30 × 4 cells) with the case script's runaway grid
+# (reference/dream/cases/disruption_kinetic.py --runaway-grid: 32 × 8 cells from the hot-tail p_max
+# 0.8 to 20). The window of dream_disruption_runaway_small.h5 is DREAM's state at step 170 of the
+# quench, 1.31e-4 s after the start of the scenario, where the runaway current is 5.9 % of the
+# plasma current, and the 10 steps of 6.53e-7 s after it. The system of example_disruption.jl with
+# `runaway = true` starts from that state and runs the 10 steps with DREAM's settings: the flux
+# through the interface of the two grids into f_re and n_re, the kinetic avalanche on f_re and the
+# fluid one in n_re above the hot-tail p_max, the runaway current as the moment of f_re, the kinetic
+# ionization by f_re and the heating of the cold electrons by it, with every term of the case
+# without a runaway grid. At the first state, DREAM's j_re is checked against the moment of its f_re
+# on the built grid, and n_re against ∫f_re (n_re exceeds it by the runaways beyond the grid's
+# p_max). The budgets of the assembled system and of the runaway grid are asserted independently of
+# DREAM, and the window runs once more with Runes2P's defaults (compat = runes2p), where only the
+# budgets are checked. Needs the ADF11 cache.
 using HDF5
 include(joinpath(@__DIR__, "example_disruption.jl"))
 
@@ -79,14 +79,14 @@ end
         # DREAM's first state: the runaway current is the moment of f_re, and n_re holds ∫f_re
         # and the runaways beyond the grid's p_max, 3e-6 and 8e-6 of n_re at the two radii
         @test algebraic_mismatch(case, system, u0, times[1], times[2] - times[1],
-            (:runaway_current_density,)) < 1e-13
+            (:runaway_current_density,)) < 1e-13   # 1.1e-15
         n_re = collect(unknown_values(u0, case.layout, unknown_id(case.layout, :runaway_density)))
         on_grid = density(case.runaway_grid,
             kinetic_array(u0, case.layout, unknown_id(case.layout, :f_re)))
         @test all(0 .< (n_re .- on_grid) ./ n_re .< 1e-4)
         @test all(solution.statistics.accepted)
         errors = phase_differences(case, solution, start)
-        @test issubset(keys(WINDOW_TOLERANCES), keys(errors))
+        @test Set(keys(WINDOW_TOLERANCES)) == Set(keys(errors))
         for name in sort!(collect(keys(errors)))
             @info "the disruption case with a runaway grid against DREAM: $name $(errors[name])"
             @test errors[name] < WINDOW_TOLERANCES[name]

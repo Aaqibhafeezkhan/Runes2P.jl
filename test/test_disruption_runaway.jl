@@ -80,10 +80,11 @@ const RUNAWAY_BUDGETS = (interface = 2e-14,   # 2.0e-16 / 3.5e-16
             for (_, value, bound) in budget_checks(case, solution, label, DRIFT["quench"])
                 @test value < bound
             end
-            # electrons cross into f_re, and f_re fills
+            # the closures of the runaway grid, and electrons cross into f_re
             for (_, value, bound) in runaway_budget_checks(case, solution, label, RUNAWAY_BUDGETS)
                 @test value < bound
             end
+            # f_re fills
             final = density(case.runaway_grid, kinetic_array(solution.states[:, end], case.layout, re_id))
             @test all(>(0), final)
         end
