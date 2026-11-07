@@ -331,11 +331,21 @@ using SparseArrays: findnz, sparse
         J = jacobian_prototype(system)
         jacobian!(J, system, u, 0.0)
         @test J * u ≈ du rtol = 1e-12
-        record = describe(particles, Runes2P.DescriptionContext())
+        context = Runes2P.DescriptionContext()
+        record = describe(particles, context)
+        interface_record = describe(interface, context)
         @test record["type"] == "InterfaceParticleFluxTerm" && record["coefficient"] == 1.0
         @test record["interface"]["type"] == "MomentumInterfaceTerm"
-        # the record of the energy through the interface keeps its keys
-        @test Set(keys(describe(InterfaceEnergyFluxTerm(interface), Runes2P.DescriptionContext()))) ==
-              Set(keys(record))
+        @test record["interface"] == interface_record
+        # the record of the energy through the interface: the record of a term with its
+        # coefficient and the record of its interface, as the particle flux
+        energy = InterfaceEnergyFluxTerm(interface)
+        energy_record = describe(energy, context)
+        expected = Runes2P._term_record(energy)
+        expected["coefficient"] = -1.0
+        expected["interface"] = interface_record
+        @test energy_record == expected
+        @test energy_record["type"] == "InterfaceEnergyFluxTerm"
+        @test Set(keys(energy_record)) == Set(keys(record))
     end
 end

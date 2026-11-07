@@ -990,8 +990,7 @@ function describe(term::FrictionEnergyTransferTerm, context::DescriptionContext)
     return _describe_plasma_source!(record, term.source, context)
 end
 
-function describe(term::Union{InterfaceEnergyFluxTerm, InterfaceParticleFluxTerm},
-        context::DescriptionContext)
+function describe(term::InterfaceFluxTerm, context::DescriptionContext)
     record = _term_record(term)
     record["coefficient"] = term.coefficient
     record["interface"] = describe(term.interface, context)

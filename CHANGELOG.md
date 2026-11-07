@@ -8,8 +8,6 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Added
 
-- `MomentumInterfaceTerm` takes a hot-tail Fokker-Planck term whose coefficients follow the plasma unknowns (`lagged = ()` or `:ions`).
-  Its Jacobian holds the columns of the temperature, the density, and the ion densities unless the lower term lags them, as DREAM's `PXiExternalKineticKinetic`; until now it asked for `lagged = :all` ([#214](https://github.com/osrep/Runes2P.jl/pull/214)).
 - `InterfaceParticleFluxTerm` puts the particle flux through the interface into a radial row, the influx of DREAM's `n_re` from the hot-tail grid.
   Its settings record is new in the format 0.0.4 ([#214](https://github.com/osrep/Runes2P.jl/pull/214)).
 - `p_zero_boundary` of `AdvectionDiffusion`, `fokker_planck_operator` and `electron_electron_operator` sets the flux through `p = 0` on a grid from `p = 0`.
@@ -29,6 +27,9 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Changed
 
+- `MomentumInterfaceTerm` takes a hot-tail Fokker-Planck term whose coefficients follow the plasma unknowns (`lagged = ()` or `:ions`).
+  Its Jacobian holds the columns of the temperature, the density, and the ion densities unless the lower term lags them, as DREAM's `PXiExternalKineticKinetic`.
+  Until now it asked for `lagged = :all` ([#214](https://github.com/osrep/Runes2P.jl/pull/214)).
 - `NewtonSolver` accepts a stiff step at the round-off floor of its residual at the first iterate that reaches it ([#179](https://github.com/osrep/Runes2P.jl/pull/179)).
   It is accepted when every row above `residual_tolerance` is within its round-off bound `eps Σ_j |(∂F/∂u)_ij u_j|`, computed from the stored Jacobian when that holds every implicit term exactly.
   Until now such a step waited for the residual to stop decreasing, which at the floor wanders for a few iterations; that stall test stays where the bound is not available or a row is above it.

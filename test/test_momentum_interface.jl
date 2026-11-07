@@ -3,7 +3,7 @@
 # grids, DREAM's pitch interpolation, the Jacobian with the plasma columns, the settings
 # record. The flux through the interface in a radial row is in test_energy_transfer.jl.
 using Random: Xoshiro
-using SparseArrays: findnz
+using SparseArrays: findnz, nnz
 
 # Σ 𝒱' Δp Δξ Δr of a kinetic unknown in a state or a rate
 function kinetic_content(layout, name, values)
@@ -424,12 +424,14 @@ end
         @test du_overlap ≈ du_dream rtol = 1e-13
     end
 
-    @testset "the plasma columns of the interface ($scheme, $mapping)" for (scheme, mapping) in (
-        (:exponential_fitting, :overlap), (:upwind, :dream))
-        # an implicit hot-tail term (lagged = ()) whose plasma reads the temperature, the
-        # density and the charge states, with the field as an unknown (DREAM's disruption
-        # case): the columns of the face cells of both grids and of the radial rows of the
-        # flux against central differences of the residual
+    @testset "the plasma columns of the interface ($scheme, $mapping, lagged = $lagged)" for (
+            scheme, mapping) in ((:exponential_fitting, :overlap), (:upwind, :dream)),
+        lagged in ((), :ions)
+        # an implicit hot-tail term whose plasma reads the temperature, the density and the
+        # charge states, with the field as an unknown (DREAM's disruption case): the columns
+        # of the face cells of both grids and of the radial rows of the flux against central
+        # differences of the residual. With lagged = :ions the charge states are those of the
+        # start of the step, and the rows have no ion columns.
         lower_grid = cylindrical_grid(
             MomentumGrid(uniform_p_faces(24, 0.0, 0.05), uniform_xi_faces(3)), rad)
         upper_grid = runaway_grid(lower_grid, uniform_p_faces(6, 0.05, 0.2)[2:end])
@@ -453,7 +455,7 @@ end
             AdvectionDiffusion(lower_grid; scheme, p_upper_boundary = :interface);
             plasma = PlasmaFromUnknowns(prescribed; ions = :ion_densities),
             settings = CollisionSettings(; mode = :full, screening = :partial),
-            electric_field = :electric_field, lagged = ())
+            electric_field = :electric_field, lagged)
         upper_op = random_coefficients!(
             AdvectionDiffusion(upper_grid; p_lower_boundary = :interface), rng)
         upper_op.advection_p[end, :, :] .= 0
@@ -461,9 +463,9 @@ end
             lower_term, upper_op; pitch_mapping = mapping)
         @test Runes2P.has_plasma_columns(interface) && !is_linear(interface)
         @test issubset(
-            [:cold_electron_temperature, :cold_electron_density,
-                :ion_densities, :electric_field],
+            [:cold_electron_temperature, :cold_electron_density, :electric_field],
             dependencies(interface))
+        @test (:ion_densities in dependencies(interface)) == (lagged == ())
         density = InterfaceParticleFluxTerm(interface)
         energy = InterfaceEnergyFluxTerm(interface)
         @test Runes2P.has_plasma_columns(density) && Runes2P.has_plasma_columns(energy)
@@ -495,6 +497,8 @@ end
                 Equation(:lost_energy, TimeDerivative(), energy),
                 hold(:electric_field, [20.0, 30.0])];
             initial_state = u)
+        # the system prepares the lagged ions of the step
+        lagged == :ions && Runes2P.prepare_step!(lower_term, u, layout, 4, 0.0)
         J = jacobian_prototype(system)
         jacobian!(J, system, u, 0.0)
         rhs_of(x) = (out = zeros(length(x)); rhs!(out, x, system, 0.0); out)
@@ -505,8 +509,14 @@ end
             upper = [Runes2P._kinetic_index(layout, 5, ir, 1, J) for ir in 1:2
                      for J in 1:20],
             radial = [first(unknown_range(layout, id, ir)) for id in (6, 7) for ir in 1:2])
+        ion_columns = [column for ir in 1:2 for column in unknown_range(layout, 1, ir)]
+        if lagged == :ions
+            for rows in row_groups
+                @test nnz(J[rows, ion_columns]) == 0
+            end
+        end
         for ir in 1:2,
-            column in [collect(unknown_range(layout, 1, ir));
+            column in [(lagged == () ? collect(unknown_range(layout, 1, ir)) : Int[]);
                        first(unknown_range(layout, 2, ir));
                        first(unknown_range(layout, 3, ir));
                        first(unknown_range(layout, 8, ir))]
