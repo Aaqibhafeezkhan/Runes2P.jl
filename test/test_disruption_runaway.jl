@@ -3,7 +3,9 @@
 # reference/dream/cases/disruption_kinetic.py, with its default grid, the constants `RUNAWAY_*`
 # of example_disruption.jl). The system starts from DREAM's state at the start of the quench of
 # dream_disruption_small.h5, a run without the runaway grid, with f_re zero, and takes 3 of its
-# steps of 1e-7 s at both compat values.
+# steps of 1e-7 s at both compat values. f_re grows from zero to 1.8e7 in them, so its scale is
+# `STARTUP_SCALE` rather than the default near DREAM's f_re in the quench (1e16): Newton's tests
+# on f_re's rows are then at 1e-10 of it, and a step that left f_re unchanged would fail them.
 # Nothing is compared with DREAM here. The checks, independent of DREAM: the steps are accepted,
 # the budgets of the case hold within the bounds of the phases started from DREAM's state
 # (`budget_checks`, among them ∫f − n_cold − n_hot fixed to round-off), the electrons that the
@@ -13,6 +15,9 @@
 # Needs the ADF11 cache.
 using HDF5
 include(joinpath(@__DIR__, "example_disruption.jl"))
+
+# the scale of f_re in these steps, near its largest value after them
+const STARTUP_SCALE = 1e7
 
 # the bounds of `runaway_budgets`, at least 45 times the values measured at -O0 (in the comment;
 # compat = dream / runes2p).
@@ -50,7 +55,7 @@ const RUNAWAY_BUDGETS = (interface = 2e-14,   # 2.0e-16 / 3.5e-16
         end
 
         @testset "compat = $compat" for compat in (:dream, :runes2p)
-            case = build(start; compat, runaway = true)
+            case = build(start; compat, runaway = true, runaway_scale = STARTUP_SCALE)
             p_faces = momentum_grid(case.runaway_grid, 1).p_faces
             @test first(p_faces) == last(start["p1_f"]) && last(p_faces) == RUNAWAY_P_MAX
             @test length(p_faces) == 33

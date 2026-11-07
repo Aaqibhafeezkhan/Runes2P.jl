@@ -48,7 +48,10 @@ const SUPERTHERMAL_RESTART_TEMPERATURE = 1.0   # eV
 # the runaway grid of the case script's --runaway-grid (reference/dream/cases/disruption_kinetic.py:199-214,
 # θ = 0.5 at :296), a choice of that script for scenario 1 at the reduced size of the tests: uniform
 # cells of about 0.1 from the hot-tail p_max to 2, 20 cells that grow geometrically to 20, and 8
-# pitch cells biuniform in θ, 5 of them below θ = 0.5
+# pitch cells biuniform in θ, 5 of them below θ = 0.5. The script computes the faces from its
+# --pmax 0.8 (:155), and DREAM replaces the first by the hot-tail p_max
+# (src/Settings/KineticGrid.cpp:234-240)
+const RUNAWAY_SCRIPT_P_MIN = 0.8
 const RUNAWAY_FINE_WIDTH = 0.1
 const RUNAWAY_FINE_END = 2.0
 const RUNAWAY_P_MAX = 20.0
@@ -56,6 +59,9 @@ const RUNAWAY_COARSE_CELLS = 20
 const RUNAWAY_PITCH_CELLS = 8
 const RUNAWAY_PITCH_CELLS_BELOW = 5
 const RUNAWAY_THETA_SEPARATION = 0.5
+# the scale of f_re, by default near the largest f_re of DREAM's run of the case in the quench
+# (1.1e16 at step 170 with the runaway grid); its absolute tolerance is 1e-10 of it
+const RUNAWAY_SCALE = 1e16
 
 """
     initial_temperature(r)
@@ -375,10 +381,12 @@ reference/dream/cases/disruption_kinetic.py with its defaults: uniform cells of 
 to `RUNAWAY_P_MAX` that grow by a constant ratio, the first as wide as the uniform ones, by the
 same bisection. The first face is `hot_p_max`. The arithmetic follows the script: numpy's
 `linspace` (`start + i step`, the last face set to `stop`), the last midpoint of the bisection, and
-the sum of the widths in order. At the defaults the faces equal the script's to the bit (numpy
-2.5.3). The powers are Julia's, which may differ from numpy's vectorized power in the last bit
-for other arguments; a file of DREAM's run with the runaway grid gives its own faces, which
-`build` takes in place of these.
+the sum of the widths in order. From the script's `RUNAWAY_SCRIPT_P_MIN` the faces equal the
+script's to the bit (numpy 2.5.3). `build` computes them from it and then sets the first face to
+the hot-tail p_max of the file, as DREAM does, which gives DREAM's faces where the hot-tail p_max
+of the file differs from 0.8 in the last bits. The powers are Julia's, which may differ from
+numpy's vectorized power in the last bit for other arguments; a file of DREAM's run with the
+runaway grid gives its own faces, which `build` takes in place of these.
 """
 function runaway_momentum_faces(hot_p_max)
     fine_cells = max(1, round(Int, (RUNAWAY_FINE_END - hot_p_max) / RUNAWAY_FINE_WIDTH))
@@ -411,6 +419,14 @@ function runaway_momentum_faces(hot_p_max)
     end
     coarse[end] = RUNAWAY_P_MAX
     return vcat(fine, coarse)
+end
+
+# the momentum faces of the runaway grid as DREAM builds them from the case script: computed from
+# the script's --pmax, the first then set to the hot-tail p_max (src/Settings/KineticGrid.cpp:234-240)
+function _dream_runaway_faces(hot_p_max)
+    faces = runaway_momentum_faces(RUNAWAY_SCRIPT_P_MIN)
+    faces[1] = hot_p_max
+    return faces
 end
 
 """
@@ -534,9 +550,10 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
         diffusivity::Real = DIFFUSIVITY, mode::Symbol = :kinetic,
         runaway::Bool = haskey(start, "p1_f_re"),
         runaway_p_faces::AbstractVector{<:Real} = get(
-            () -> runaway_momentum_faces(last(start["p1_f"])), start, "p1_f_re"),
+            () -> _dream_runaway_faces(last(start["p1_f"])), start, "p1_f_re"),
         runaway_xi_faces::AbstractVector{<:Real} = get(runaway_pitch_faces, start, "p2_f_re"),
-        runaway_scheme::Symbol = compat === :dream ? scheme : :exponential_fitting)
+        runaway_scheme::Symbol = compat === :dream ? scheme : :exponential_fitting,
+        runaway_scale::Real = RUNAWAY_SCALE)
     mode in (:kinetic, :superthermal) ||
         throw(ArgumentError("mode must be :kinetic or :superthermal, not $mode"))
     superthermal = mode === :superthermal
@@ -629,7 +646,7 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
         unknowns = [u for u in unknowns if u.name !== :particle_source]
     end
     if runaway
-        push!(unknowns, KineticUnknown(:f_re, re_grid; scale = 1e16))
+        push!(unknowns, KineticUnknown(:f_re, re_grid; scale = runaway_scale))
     end
     layout = UnknownLayout(radial, unknowns)
     # the kinetic avalanche on f below p_max, with or without a runaway grid
@@ -1000,12 +1017,12 @@ independent of DREAM, the worst relative values over the steps and the radii:
 
 - `interface`: the particles through the interface, as the density that the
   `MomentumInterfaceTerm` takes from f and gives to f_re, against the influx of n_re
-  (`InterfaceParticleFluxTerm`), relative to the largest influx of the radius;
+  (`InterfaceParticleFluxTerm`), relative to that influx at the radius in the step;
 - `avalanche`: the runaways beyond the runaway grid, `d(n_re − ∫f_re)/dt` of the step against
   `n_re n_tot R(p_max,re, ∞)` with `R` of [`rosenbluth_putvinski_rate`](@ref) and the
   outflow through f_re's p_max (`MomentumBoundaryFluxTerm` of f_re, outside the system), at the
-  end of the step (backward Euler), relative to the largest of `dn_re/dt` and `d∫f_re/dt`
-  at that radius. The fluid avalanche of n_re above the hot-tail p_max is the kinetic one of
+  end of the step (backward Euler), relative to the larger of `dn_re/dt` and `d∫f_re/dt` of
+  the step at that radius. The fluid avalanche of n_re above the hot-tail p_max is the kinetic one of
   f_re, whose sum is that of `R` to f_re's p_max, plus the tail beyond it.
 
 Also the largest influx `influx` (m⁻³ s⁻¹) over the steps and radii.
