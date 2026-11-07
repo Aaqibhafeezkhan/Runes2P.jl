@@ -39,7 +39,7 @@ Each set is published as a tarball with its files at the top level:
 | `dream_cooling_positivity.h5` | `dream-v26.5` | `cooling_positivity.py` | `test_cooling_dream.jl` |
 | `dream_coronal_start.h5` | `dream-v26.5-initial-state` | `initial_state.py case=coronal` | `test_initial_state_dream.jl` |
 | `dream_disruption_chain_small.h5` | `dream-v26.5-disruption` | `disruption_kinetic.py` | `test_disruption_initialization_dream.jl` (runs 0 to 2, the initialization), `test_disruption_chain_dream.jl` (runs 0 to 4, end to end) |
-| `dream_disruption_small.h5` | `dream-v26.5` | `disruption_kinetic.py` | `test_disruption_dream.jl` |
+| `dream_disruption_small.h5` | `dream-v26.5` | `disruption_kinetic.py` | `test_disruption_dream.jl`, `test_disruption_runaway.jl` (the quench with a runaway grid, from `f_re` zero) |
 | `dream_disruption_superthermal_channels_small.h5` | `dream-v26.5-initial-state` | `disruption_kinetic.py --mode superthermal --test-data-channels` | `test_collisional_heating_dream.jl` |
 | `dream_disruption_superthermal_small.h5` | `dream-v26.5-disruption` | `disruption_kinetic.py --mode superthermal` | `test_disruption_superthermal_dream.jl` (runs 0 to 4, end to end, and the phases from DREAM's state) |
 | `dream_dreicer_kinetic.h5` | `dream-v26.5` | `dreicer_kinetic.py` | `test_runaway_physics.jl` |

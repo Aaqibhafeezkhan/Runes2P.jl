@@ -229,6 +229,8 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 The coupled reference case is DREAM's disruption of `examples/Disruptions/generate.py`, scenario 1, in a cylinder, at the size of a test, fully kinetic and in the superthermal mode.
 Its case script is `reference/dream/cases/disruption_kinetic.py` ([Reference data](reference-data.md)).
 Each part of the case is compared with DREAM's output at every saved step after its start; the chain end to end compares its two phases, and the initialization has its own test.
+The quench with a runaway grid is not compared with DREAM yet.
+Its test checks the budgets of its closures alone.
 
 | Part | DREAM | Runes2P | Test |
 |---|---|---|---|
@@ -237,6 +239,7 @@ Each part of the case is compared with DREAM's output at every saved step after 
 | thermal and current quench | run 4 | started from DREAM's state at the start of the phase | `test_disruption_dream.jl` |
 | the chain end to end | runs 0 to 4 | the initialization, then each phase from Runes2P's own end state of the run before it | `test_disruption_chain_dream.jl` |
 | the chain end to end in the superthermal mode | runs 0 to 4 of `generate.py --superthermal` | the same with `mode = :superthermal` of the builder of the case, and each phase from DREAM's state at its start | `test_disruption_superthermal_dream.jl` |
+| thermal and current quench with a runaway grid | not compared with DREAM yet: the case script's `--runaway-grid` ([Choices](choices.md#Reference-cases)) | `runaway = true` of the builder of the case: the flux through `p_max` of `f_hot` enters `f_re` and `n_re` ([`MomentumInterfaceTerm`](@ref), [`InterfaceParticleFluxTerm`](@ref)), the avalanche above that `p_max` is kinetic on `f_re` and fluid in `n_re`, and `f_re` carries the runaway current, ionizes the ions and heats the cold electrons; started from DREAM's state at the start of the quench with `f_re` zero, with the budgets of its closures at both `compat` values | `test_disruption_runaway.jl` |
 
 - The initialization agrees with DREAM to 8e-10 in the field, the currents, the poloidal flux and the plasma current.
 - It agrees to 3e-11 in `f_hot` and the hot-electron density; DREAM's Newton tolerance of these runs is 1e-7.
