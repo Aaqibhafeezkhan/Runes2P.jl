@@ -1,9 +1,9 @@
 # The disruption case with DREAM's runaway grid above the hot-tail grid (`build` of
 # example_disruption.jl with `runaway = true`; the case script's --runaway-grid,
-# reference/dream/cases/disruption_kinetic.py, with its default grid: 12 cells of 0.1 from the
-# hot-tail p_max 0.8 to 2, 20 geometric cells to 20, 8 pitch cells biuniform in θ). The system
-# starts from DREAM's state at the start of the quench of dream_disruption_small.h5, a run without
-# the runaway grid, with f_re zero, and takes 3 of its steps of 1e-7 s at both compat values.
+# reference/dream/cases/disruption_kinetic.py, with its default grid, the constants `RUNAWAY_*`
+# of example_disruption.jl). The system starts from DREAM's state at the start of the quench of
+# dream_disruption_small.h5, a run without the runaway grid, with f_re zero, and takes 3 of its
+# steps of 1e-7 s at both compat values.
 # Nothing is compared with DREAM here. The checks, independent of DREAM: the steps are accepted,
 # the budgets of the case hold within the bounds of the phases started from DREAM's state
 # (`budget_checks`, among them ∫f − n_cold − n_hot fixed to round-off), the electrons that the
