@@ -3,7 +3,9 @@
 # runaway population against the friction power of superthermal electrons, its Jacobian
 # with the plasma columns and with the plasma lagged, the Jacobian of the energy loss of f
 # (KineticEnergyLossTerm) with a lagged source, and the energy carried through p_max and
-# through the interface, with its column of the field when the interface reads the field.
+# through the interface, with its column of the field when the interface reads the field,
+# and the particles through the interface in a radial row (InterfaceParticleFluxTerm).
+using Random: Xoshiro
 using SparseArrays: findnz, sparse
 
 @testset "energy transfer" begin
@@ -272,5 +274,78 @@ using SparseArrays: findnz, sparse
         difference = (F_up[T_row] - F_down[T_row]) / (2h)
         @test difference != 0
         @test J[T_row, column] ≈ difference rtol = 1e-8
+    end
+    @testset "the particle flux into a radial row ($mapping)" for mapping in (:overlap, :dream)
+        # DREAM's n_re takes the flux through the interface (PXiExternalKineticKinetic,
+        # TYPE_DENSITY): the lower grid loses what the upper grid and the radial row gain
+        rng = Xoshiro(54)
+        radii = RadialGrid(uniform_r_faces(2, 0.5))
+        lower_grid = cylindrical_grid(
+            MomentumGrid(biuniform_p_faces(9, 4, 0.0, 0.4, 2.5), uniform_xi_faces(9)), radii)
+        upper_grid = runaway_grid(lower_grid, uniform_p_faces(5, 2.5, 12.0)[2:end])
+        lower_op = AdvectionDiffusion(lower_grid; scheme = :central, p_upper_boundary = :interface)
+        for A in (lower_op.advection_p, lower_op.advection_xi, lower_op.advection_r)
+            A .= randn(rng, size(A))
+        end
+        for D in (lower_op.diffusion_p_p, lower_op.diffusion_xi_xi, lower_op.diffusion_r_r)
+            D .= rand(rng, size(D))
+        end
+        upper_op = AdvectionDiffusion(upper_grid; p_lower_boundary = :interface)
+        interface = MomentumInterfaceTerm(:hot_tail_distribution, :runaway_distribution,
+            lower_op, upper_op; pitch_mapping = mapping)
+        particles = InterfaceParticleFluxTerm(interface)
+        @test particles.coefficient == 1
+        layout = UnknownLayout(radii,
+            [KineticUnknown(:hot_tail_distribution, lower_grid),
+                KineticUnknown(:runaway_distribution, upper_grid),
+                RadialUnknown(:runaway_density)])
+        system = EquationSystem(layout,
+            [Equation(:hot_tail_distribution, TimeDerivative(), interface),
+                Equation(:runaway_distribution, TimeDerivative(), interface),
+                Equation(:runaway_density, TimeDerivative(), particles)])
+        u = rand(rng, length(layout))
+        du = zeros(length(layout))
+        rhs!(du, u, system, 0.0)
+        rates = unknown_values(du, layout, unknown_id(layout, :runaway_density))
+        @test rates == [interface_flux(interface, u, layout, ir) for ir in 1:2]
+        @test all(!=(0), rates)
+        # Σ 𝒱' Δp Δξ Δr of the rate of a kinetic unknown
+        function content(name)
+            id = unknown_id(layout, name)
+            grid = kinetic_grid(layout, id)
+            return sum(1:2) do ir
+                m = momentum_grid(grid, ir)
+                V = phase_space_jacobian(grid, ir)
+                f = kinetic_view(du, layout, id, ir)
+                sum(V[i, j] * m.p_widths[i] * m.xi_widths[j] * radii.r_widths[ir] * f[i, j]
+                for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m))
+            end
+        end
+        lower_change = content(:hot_tail_distribution)
+        upper_change = content(:runaway_distribution)
+        radial_change = sum(rates[ir] * radii.spatial_jacobian[ir] * radii.r_widths[ir]
+        for ir in 1:2)
+        @test upper_change ≈ -lower_change rtol = 1e-13
+        @test radial_change ≈ upper_change rtol = 1e-13
+        # linear in the state: the stored Jacobian is the term
+        J = jacobian_prototype(system)
+        jacobian!(J, system, u, 0.0)
+        @test J * u ≈ du rtol = 1e-12
+        context = Runes2P.DescriptionContext()
+        record = describe(particles, context)
+        interface_record = describe(interface, context)
+        @test record["type"] == "InterfaceParticleFluxTerm" && record["coefficient"] == 1.0
+        @test record["interface"]["type"] == "MomentumInterfaceTerm"
+        @test record["interface"] == interface_record
+        # the record of the energy through the interface: the record of a term with its
+        # coefficient and the record of its interface, as the particle flux
+        energy = InterfaceEnergyFluxTerm(interface)
+        energy_record = describe(energy, context)
+        expected = Runes2P._term_record(energy)
+        expected["coefficient"] = -1.0
+        expected["interface"] = interface_record
+        @test energy_record == expected
+        @test energy_record["type"] == "InterfaceEnergyFluxTerm"
+        @test Set(keys(energy_record)) == Set(keys(record))
     end
 end

@@ -26,7 +26,12 @@ and the two operators add no flux of their own through the face: the lower one h
 `p_upper_boundary = :interface`, `upper_operator` has `p_lower_boundary = :interface`. When
 `lower_term` takes the electric field as an unknown, the advection at the face holds the
 field of the state, and the term depends on the field as well. The cross term `Dᵖᵠ` at the
-face is not included (none in DREAM either, and zero for the collision operator).
+face is not included (none in DREAM either, and zero for the collision operator). When the
+coefficients of `lower_term` follow the plasma unknowns ([`has_plasma_columns`](@ref)), so
+does the flux: its columns of the temperature, the density, and the ion densities unless
+the lower term lags them, come from the flux of the term's coefficients in dual numbers
+([`add_plasma_columns!`](@ref)), as DREAM's `PXiExternalKineticKinetic` adds the
+derivatives of its coefficients (`AddPartialJacobianContributions`).
 
 `pitch_mapping`:
 
@@ -52,7 +57,8 @@ face is not included (none in DREAM either, and zero for the collision operator)
   negative weights in the diffusive part, so this mapping does not keep the sign of `f` by
   construction.
 
-Both conserve particles to round-off. Linear in the state, stored sparse.
+Both conserve particles to round-off. Linear in the state unless the coefficients follow
+the field or the plasma unknowns; stored sparse.
 [`interface_flux`](@ref) gives the flux through the face as a rate per volume.
 """
 struct MomentumInterfaceTerm{T, F} <: EquationTerm
@@ -174,16 +180,20 @@ end
 
 function dependencies(term::MomentumInterfaceTerm)
     field = _electric_field_of(term)
-    return field === nothing ? [term.lower, term.upper] : [term.lower, term.upper, field]
+    names = field === nothing ? [term.lower, term.upper] : [term.lower, term.upper, field]
+    if has_plasma_columns(term)
+        append!(names, _plasma_column_unknowns(term.lower_term))
+    end
+    return unique!(names)
 end
-is_linear(term::MomentumInterfaceTerm) = _electric_field_of(term) === nothing
+function is_linear(term::MomentumInterfaceTerm)
+    _electric_field_of(term) === nothing && !has_plasma_columns(term)
+end
+
+# the flux follows the plasma unknowns of an implicit Fokker-Planck term below the face
+has_plasma_columns(term::MomentumInterfaceTerm) = has_plasma_columns(term.lower_term)
 
 function validate(term::MomentumInterfaceTerm, layout, row)
-    # the flux follows the plasma unknowns of the Fokker-Planck term, whose columns this
-    # term does not have
-    has_plasma_columns(term.lower_term) &&
-        throw(ArgumentError("MomentumInterfaceTerm reads the coefficients of a Fokker-Planck term whose plasma follows unknowns, " *
-                            "and has no Jacobian columns for them: use lagged = :all"))
     lower, upper = unknown_id(layout, term.lower), unknown_id(layout, term.upper)
     layout.kinds[lower] === :kinetic && layout.kinds[upper] === :kinetic ||
         throw(ArgumentError("MomentumInterfaceTerm lies between two kinetic unknowns"))
@@ -229,7 +239,7 @@ Base.@propagate_inbounds function _lower_cell_flux(
         return V * _interface_gamma(
             term, op, f_lower, f_upper, j, 0, ir, distance, weight_left, field)
     end
-    flux = zero(promote_type(eltype(f_lower), eltype(f_upper)))
+    flux = zero(promote_type(eltype(f_lower), eltype(f_upper), eltype(op.advection_p)))
     for s in overlap.left_ranges[j]
         #! format: off
         flux += overlap.left_fractions[s] *
@@ -246,7 +256,7 @@ Base.@propagate_inbounds function _upper_cell_flux(
         distance, weight_left, field = nothing)
     np = size(f_lower, 1)
     overlap = term.overlaps[ir]
-    flux = zero(promote_type(eltype(f_lower), eltype(f_upper)))
+    flux = zero(promote_type(eltype(f_lower), eltype(f_upper), eltype(op.advection_p)))
     for s in overlap.right_ranges[J]
         j = overlap.left_cells[s]
         V = op.jacobian_p_faces[np + 1, j, ir]
@@ -309,6 +319,17 @@ function _upper_cells_of(term::MomentumInterfaceTerm, j, ir)
     return overlap.right_cells[first(range)]:overlap.right_cells[last(range)]
 end
 
+# the cells of the row at the face at radius ir: the last momentum cells of the lower grid
+# or the first of the upper grid
+function _face_cells(term::MomentumInterfaceTerm, layout, row, ir)
+    lower, upper = unknown_id(layout, term.lower), unknown_id(layout, term.upper)
+    if row == lower
+        np, nxi = layout.shapes[lower, ir]
+        return (_kinetic_index(layout, lower, ir, np, j) for j in 1:nxi)
+    end
+    return (_kinetic_index(layout, upper, ir, 1, J) for J in 1:layout.shapes[upper, ir][2])
+end
+
 function sparsity!(entries, term::MomentumInterfaceTerm, layout, row)
     lower, upper = unknown_id(layout, term.lower), unknown_id(layout, term.upper)
     field = _electric_field_of(term)
@@ -318,12 +339,7 @@ function sparsity!(entries, term::MomentumInterfaceTerm, layout, row)
         if field !== nothing
             # the field of the radius acts on the cells at the face
             column = first(unknown_range(layout, unknown_id(layout, field), ir))
-            cells = if row == lower
-                (_kinetic_index(layout, lower, ir, np, j) for j in 1:layout.shapes[lower, ir][2])
-            else
-                (_kinetic_index(layout, upper, ir, 1, J) for J in 1:layout.shapes[upper, ir][2])
-            end
-            append!(entries, ((r, column) for r in cells))
+            append!(entries, ((r, column) for r in _face_cells(term, layout, row, ir)))
         end
         if row == lower
             for j in 1:layout.shapes[lower, ir][2]
@@ -353,6 +369,52 @@ function sparsity!(entries, term::MomentumInterfaceTerm, layout, row)
     return entries
 end
 
+function plasma_column_sparsity!(entries, term::MomentumInterfaceTerm, layout, row)
+    source = term.lower_term
+    for ir in 1:radial_cell_count(layout)
+        columns = plasma_columns(source.plasma, layout, ir; with_ions = !_lags_ions(source))
+        for r in _face_cells(term, layout, row, ir)
+            append!(entries, ((r, column) for column in columns))
+        end
+    end
+    return entries
+end
+
+# the rows of the face cells as in rhs!, with the flux of the coefficients in dual numbers
+function add_plasma_columns!(J, term::MomentumInterfaceTerm, u, layout, row, t)
+    source = term.lower_term
+    op, with_ions = _dual_coefficients!(source, u, layout, t)
+    lower, upper = unknown_id(layout, term.lower), unknown_id(layout, term.upper)
+    field = _field_values(_electric_field_of(term), u, layout)
+    on_lower = row == lower
+    grid = on_lower ? term.lower_grid : term.upper_grid
+    for ir in 1:radial_cell_count(layout)
+        f_lower, f_upper = kinetic_view(u, layout, lower, ir),
+        kinetic_view(u, layout, upper, ir)
+        distance, weight_left = _interface_distance(term, ir)
+        columns = plasma_columns(source.plasma, layout, ir; with_ions)
+        m = momentum_grid(grid, ir)
+        jacobian = phase_space_jacobian(grid, ir)
+        i = on_lower ? momentum_cell_count(m) : 1
+        for k in 1:pitch_cell_count(m)
+            jacobian[i, k] == 0 && continue
+            rate = if on_lower
+                -_lower_cell_flux(
+                    term, op, f_lower, f_upper, k, ir, distance, weight_left, field)
+            else
+                _upper_cell_flux(
+                    term, op, f_lower, f_upper, k, ir, distance, weight_left, field)
+            end
+            partials = ForwardDiff.partials(rate / (jacobian[i, k] * m.p_widths[i]))
+            r = _kinetic_index(layout, row, ir, i, k)
+            for n in eachindex(columns)
+                _add_entry!(J, r, columns[n], partials[n])
+            end
+        end
+    end
+    return J
+end
+
 """
     interface_flux(term::MomentumInterfaceTerm, u, layout, ir, t=0)
 
@@ -365,14 +427,18 @@ momentum this is the runaway rate.
 function interface_flux(
         term::MomentumInterfaceTerm, u::AbstractVector, layout::UnknownLayout, ir::Integer,
         t::Real = 0.0)
-    op = _operator_at(term.lower_term, u, layout, t)
+    return _interface_flux(term, _operator_at(term.lower_term, u, layout, t), u, layout, ir)
+end
+
+# the same with the coefficients of the operator op
+function _interface_flux(term::MomentumInterfaceTerm, op, u, layout, ir)
     lower, upper = unknown_id(layout, term.lower), unknown_id(layout, term.upper)
     f_lower, f_upper = kinetic_view(u, layout, lower, ir),
     kinetic_view(u, layout, upper, ir)
     field = _field_values(_electric_field_of(term), u, layout)
     distance, weight_left = _interface_distance(term, ir)
     m = momentum_grid(term.lower_grid, ir)
-    total = zero(eltype(u))
+    total = zero(promote_type(eltype(u), eltype(op.advection_p)))
     for j in 1:pitch_cell_count(m)
         total += m.xi_widths[j] * _lower_cell_flux(
             term, op, f_lower, f_upper, j, ir, distance, weight_left, field)

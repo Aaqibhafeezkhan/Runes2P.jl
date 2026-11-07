@@ -176,6 +176,11 @@ lags_in_ode_form(term::FokkerPlanckTerm) = _is_lagged(term) || _lags_ions(term)
 function _lags_ions(term::FokkerPlanckTerm)
     ion_dependency(term.plasma) !== nothing && ion_dependency(term.plasma) in term.lagged
 end
+# the unknowns of the plasma columns of a Fokker-Planck term: without the charge states it lags
+function _plasma_column_unknowns(term::FokkerPlanckTerm)
+    filter(name -> !(_lags_ions(term) && name === ion_dependency(term.plasma)),
+        collect(Symbol, source_dependencies(term.plasma)))
+end
 # the state of the ion densities of the plasma of a term
 function _ion_state(term::FokkerPlanckTerm, u)
     _lags_ions(term) && !isempty(term.ion_state) ? term.ion_state : u
@@ -267,7 +272,10 @@ of the term with respect to the temperature and the density of each radius, whic
 colored AD of the term does not see, since its coefficients hold numbers. Such a term lists
 them with [`plasma_column_sparsity!`](@ref) and adds them with
 [`add_plasma_columns!`](@ref). True for a [`FokkerPlanckTerm`](@ref) whose plasma reads
-unknowns and whose coefficients are implicit.
+unknowns and whose coefficients are implicit. The terms that read the coefficients of such a
+term ([`MomentumBoundaryFluxTerm`](@ref), [`MomentumInterfaceTerm`](@ref),
+[`InterfaceEnergyFluxTerm`](@ref), [`InterfaceParticleFluxTerm`](@ref)) pass its plasma
+columns on.
 """
 has_plasma_columns(::Any) = false
 function has_plasma_columns(term::FokkerPlanckTerm)

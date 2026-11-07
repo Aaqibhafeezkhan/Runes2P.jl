@@ -1231,7 +1231,7 @@ function _check_plasma_pairings(equations)
         #! format: off
         sources = if term isa KineticEnergyLossTerm
             (term.source,)
-        elseif term isa InterfaceEnergyFluxTerm
+        elseif term isa InterfaceFluxTerm
             (term.interface,)
         else
             filter(s -> s isa FokkerPlanckTerm && is_state_dependent(s.plasma), _coefficient_sources(term))

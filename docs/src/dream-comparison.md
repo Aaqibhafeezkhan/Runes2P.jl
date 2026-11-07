@@ -135,7 +135,7 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 
 | Feature | DREAM | Runes2P |
 |---|---|---|
-| fluid runaway density | unknown `n_re` | 🚧 partial: a radial unknown above a hot-tail grid without a runaway grid, fed by [`ExternalAvalancheTerm`](@ref) and the flux through ``p_\mathrm{max}`` ([`MomentumBoundaryFluxTerm`](@ref)) |
+| fluid runaway density | unknown `n_re` | 🚧 partial: a radial unknown above a hot-tail grid without a runaway grid, fed by [`ExternalAvalancheTerm`](@ref) and the flux through ``p_\mathrm{max}`` ([`MomentumBoundaryFluxTerm`](@ref)); with a runaway grid, fed by the particle flux through the interface ([`InterfaceParticleFluxTerm`](@ref)) |
 | Connor–Hastie Dreicer rate | `DREICER_RATE_CONNOR_HASTIE`, `_NOCORR` | 🚧 partial: [`connor_hastie_rate`](@ref), no source term |
 | Dreicer rate of the neural network | `DREICER_RATE_NEURAL_NETWORK` | ➖ not implemented |
 | extrapolation of the Dreicer rate | `setExtrapolateDreicer` | ➖ not implemented |

@@ -299,7 +299,9 @@ function MomentumBoundaryFluxTerm(kinetic::Symbol, source; weight::Symbol = :den
     weight in (:density, :current, :energy) ||
         throw(ArgumentError("weight must be :density, :current or :energy, not $weight"))
     _operator_of(source).p_upper_boundary === :interface &&
-        throw(ArgumentError("the flux through an interface belongs to the MomentumInterfaceTerm"))
+        throw(ArgumentError("the flux through an interface belongs to the MomentumInterfaceTerm " *
+                            "in the rows of the two grids and to " *
+                            "InterfaceParticleFluxTerm in a radial row"))
     return MomentumBoundaryFluxTerm(kinetic, source, weight, Float64(coefficient))
 end
 
@@ -325,11 +327,6 @@ end
 # the flux follows the plasma unknowns of an implicit Fokker-Planck term
 function has_plasma_columns(term::MomentumBoundaryFluxTerm)
     term.source isa FokkerPlanckTerm && has_plasma_columns(term.source)
-end
-# the unknowns of the plasma columns of a Fokker-Planck term: without the charge states it lags
-function _plasma_column_unknowns(term::FokkerPlanckTerm)
-    filter(name -> !(_lags_ions(term) && name === ion_dependency(term.plasma)),
-        collect(Symbol, source_dependencies(term.plasma)))
 end
 
 function plasma_column_sparsity!(entries, term::MomentumBoundaryFluxTerm, layout, row)
