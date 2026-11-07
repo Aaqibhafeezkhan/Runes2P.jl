@@ -130,4 +130,4 @@ The pitch grids of the two sides meet through their overlap, in one of two mappi
 [`interface_flux`](@ref) gives the flux through the face as a rate per volume.
 With the face above the critical momentum it is the runaway rate.
 The energy carried through the face enters the energy balance through [`InterfaceEnergyFluxTerm`](@ref) (see [Energy and current balance](energy-current.md)).
-The same term with `weight = :density` puts the particles that cross into a radial row, such as the runaway density.
+[`InterfaceParticleFluxTerm`](@ref) puts the particles that cross into a radial row, such as the runaway density.

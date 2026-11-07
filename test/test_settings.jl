@@ -92,7 +92,7 @@ _is_plain(x) = false
             IonRateTerm, KineticIonizationTerm, IonDiffusionTerm, SecondaryHeatingTerm,
             EnergyMomentTerm, HeatTransportTerm, IonEnergyExchangeTerm,
             RunawayFluidEnergyTransferTerm, KineticEnergyLossTerm, FrictionEnergyTransferTerm,
-            InterfaceEnergyFluxTerm, KnockOnTerm, LinearTerm, DensityMomentTerm,
+            InterfaceEnergyFluxTerm, InterfaceParticleFluxTerm, KnockOnTerm, LinearTerm, DensityMomentTerm,
             CurrentMomentTerm, MaxwellianSourceTerm, MomentumInterfaceTerm, RadialEdgeLossTerm, LossRateTerm,
             PrescribedValueTerm, ParticleSourceTerm, MomentumBoundaryFluxTerm, PoloidalFluxDiffusionTerm,
             CrossSectionIntegralTerm, ConductivityTerm, RadiatedPowerTerm,

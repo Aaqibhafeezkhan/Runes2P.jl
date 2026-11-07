@@ -272,7 +272,10 @@ of the term with respect to the temperature and the density of each radius, whic
 colored AD of the term does not see, since its coefficients hold numbers. Such a term lists
 them with [`plasma_column_sparsity!`](@ref) and adds them with
 [`add_plasma_columns!`](@ref). True for a [`FokkerPlanckTerm`](@ref) whose plasma reads
-unknowns and whose coefficients are implicit.
+unknowns and whose coefficients are implicit. The terms that read the coefficients of such a
+term ([`MomentumBoundaryFluxTerm`](@ref), [`MomentumInterfaceTerm`](@ref),
+[`InterfaceEnergyFluxTerm`](@ref), [`InterfaceParticleFluxTerm`](@ref)) pass its plasma
+columns on.
 """
 has_plasma_columns(::Any) = false
 function has_plasma_columns(term::FokkerPlanckTerm)

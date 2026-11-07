@@ -28,10 +28,10 @@ and the two operators add no flux of their own through the face: the lower one h
 field of the state, and the term depends on the field as well. The cross term `Dᵖᵠ` at the
 face is not included (none in DREAM either, and zero for the collision operator). When the
 coefficients of `lower_term` follow the plasma unknowns ([`has_plasma_columns`](@ref)), so
-does the flux: its columns of the temperature, the density and the charge states come from
-the flux of the term's coefficients in dual numbers ([`add_plasma_columns!`](@ref)), as
-DREAM's `PXiExternalKineticKinetic` adds the derivatives of its coefficients
-(`AddPartialJacobianContributions`).
+does the flux: its columns of the temperature, the density, and the ion densities unless
+the lower term lags them, come from the flux of the term's coefficients in dual numbers
+([`add_plasma_columns!`](@ref)), as DREAM's `PXiExternalKineticKinetic` adds the
+derivatives of its coefficients (`AddPartialJacobianContributions`).
 
 `pitch_mapping`:
 

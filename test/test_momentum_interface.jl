@@ -1,6 +1,7 @@
 # Runaway grid above the hot-tail grid and the flux handover between them: the grid, the
 # interface term against a single grid cut in two, conservation across different pitch
-# grids, DREAM's pitch interpolation, the Jacobian.
+# grids, DREAM's pitch interpolation, the Jacobian with the plasma columns, the settings
+# record. The flux through the interface in a radial row is in test_energy_transfer.jl.
 using Random: Xoshiro
 using SparseArrays: findnz
 
@@ -423,46 +424,6 @@ end
         @test du_overlap ≈ du_dream rtol = 1e-13
     end
 
-    @testset "the particle flux into a radial row ($mapping)" for mapping in (:overlap, :dream)
-        # DREAM's n_re takes the flux through the interface (PXiExternalKineticKinetic,
-        # TYPE_DENSITY): the lower grid loses what the upper grid and the radial row gain
-        hot_op = random_coefficients!(
-            AdvectionDiffusion(hot; scheme = :central, p_upper_boundary = :interface), rng)
-        runaway_op = AdvectionDiffusion(runaway; p_lower_boundary = :interface)
-        interface = MomentumInterfaceTerm(:hot_tail_distribution, :runaway_distribution,
-            hot_op, runaway_op; pitch_mapping = mapping)
-        density = InterfaceEnergyFluxTerm(interface; weight = :density, coefficient = 1)
-        @test density.weight === :density &&
-              InterfaceEnergyFluxTerm(interface).weight === :energy
-        @test_throws ArgumentError InterfaceEnergyFluxTerm(interface; weight = :current)
-        layout = UnknownLayout(rad,
-            [KineticUnknown(:hot_tail_distribution, hot),
-                KineticUnknown(:runaway_distribution, runaway),
-                RadialUnknown(:runaway_density)])
-        system = EquationSystem(layout,
-            [Equation(:hot_tail_distribution, TimeDerivative(), interface),
-                Equation(:runaway_distribution, TimeDerivative(), interface),
-                Equation(:runaway_density, TimeDerivative(), density)])
-        u = rand(rng, length(layout))
-        du = zeros(length(layout))
-        rhs!(du, u, system, 0.0)
-        rates = unknown_values(du, layout, unknown_id(layout, :runaway_density))
-        @test rates == [interface_flux(interface, u, layout, ir) for ir in 1:2]
-        @test all(!=(0), rates)
-        hot_change = kinetic_content(layout, :hot_tail_distribution, du)
-        runaway_change = kinetic_content(layout, :runaway_distribution, du)
-        radial_change = sum(rates[ir] * rad.spatial_jacobian[ir] * rad.r_widths[ir]
-        for ir in 1:2)
-        @test runaway_change ≈ -hot_change rtol = 1e-13
-        @test radial_change ≈ runaway_change rtol = 1e-13
-        # linear in the state: the stored Jacobian is the term
-        J = jacobian_prototype(system)
-        jacobian!(J, system, u, 0.0)
-        @test J * u ≈ du rtol = 1e-12
-        record = describe(density, Runes2P.DescriptionContext())
-        @test record["weight"] == "density" && record["coefficient"] == 1.0
-    end
-
     @testset "the plasma columns of the interface ($scheme, $mapping)" for (scheme, mapping) in (
         (:exponential_fitting, :overlap), (:upwind, :dream))
         # an implicit hot-tail term (lagged = ()) whose plasma reads the temperature, the
@@ -503,7 +464,7 @@ end
             [:cold_electron_temperature, :cold_electron_density,
                 :ion_densities, :electric_field],
             dependencies(interface))
-        density = InterfaceEnergyFluxTerm(interface; weight = :density, coefficient = 1)
+        density = InterfaceParticleFluxTerm(interface)
         energy = InterfaceEnergyFluxTerm(interface)
         @test Runes2P.has_plasma_columns(density) && Runes2P.has_plasma_columns(energy)
         hold(name, value) = Equation(name, Algebraic(), PrescribedValueTerm(value),

@@ -126,7 +126,7 @@ with the envelope ``w`` of the region.
 The sinks take no flux through ``p_\mathrm{max}``: the energy of the electrons that leave there belongs to [`MomentumBoundaryFluxTerm`](@ref) alone, so it is not counted twice.
 With the sinks charged to ``W_\mathrm{tot}``, the cold electrons receive exactly the free-electron part of what the hot electrons lose.
 
-[`MomentumBoundaryFluxTerm`](@ref) and [`InterfaceEnergyFluxTerm`](@ref) weight the flux at the top of the grid with the kinetic energy of the last momentum cell.
+[`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` and [`InterfaceEnergyFluxTerm`](@ref) weight the flux at the top of the grid with the kinetic energy of the last momentum cell.
 That is the energy that the discrete energy moment of the grid loses with the electrons.
 The electrons that cross to the runaway grid take their energy with them and do not heat the cold ones.
 `test/test_energy_transfer.jl` and `test/test_energy_moment.jl` test these terms and the energy moment, and `test/test_friction_energy_transfer.jl` tests [`FrictionEnergyTransferTerm`](@ref).

@@ -1231,7 +1231,7 @@ function _check_plasma_pairings(equations)
         #! format: off
         sources = if term isa KineticEnergyLossTerm
             (term.source,)
-        elseif term isa InterfaceEnergyFluxTerm
+        elseif term isa InterfaceFluxTerm
             (term.interface,)
         else
             filter(s -> s isa FokkerPlanckTerm && is_state_dependent(s.plasma), _coefficient_sources(term))
@@ -1524,7 +1524,7 @@ function _check_total_energy_rows(equations)
                         crossings = [t
                                      for t in listed
                                      if t isa InterfaceEnergyFluxTerm &&
-                                            t.weight === :energy && t.interface.lower === d]
+                            t.interface.lower === d]
                         if isempty(crossings)
                             throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy " *
                                                 "$total, and the electrons of $d that cross the interface to the runaway " *
