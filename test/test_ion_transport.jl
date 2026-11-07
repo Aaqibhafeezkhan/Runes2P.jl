@@ -78,7 +78,11 @@ end
         for gmres in (GMRES(preconditioner = RadiusBlockILU(drop_tolerance = 1e-2)),
             GMRES(preconditioner = RadiusBlockILU(drop_tolerance = 1e-1),
             relative_tolerance = 1e-6))
-            solution = integrate(system, u0, times; solver = NewtonSolver(linear_solver = gmres))
+            solve_with_gmres() = integrate(system, u0, times; solver = NewtonSolver(linear_solver = gmres))
+            # a tolerance above the floor of NewtonSolver (1e-8) gives a warning
+            solution = gmres.relative_tolerance > 1e-8 ?
+                       (@test_logs (:warn, r"floor_linear_tolerance") match_mode = :any solve_with_gmres()) :
+                       solve_with_gmres()
             @test all(solution.statistics.accepted)
             final = solution.states[:, end]
             @test all(radial_view(final, layout, 1, ir)[3] == 0 for ir in inner)

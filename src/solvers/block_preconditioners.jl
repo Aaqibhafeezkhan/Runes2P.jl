@@ -3,6 +3,7 @@
 # follows the types it extends.
 
 using IncompleteLU: ILUFactorization, ilu
+using LinearAlgebra: diag
 
 """
     BlockPreconditioner
@@ -106,8 +107,11 @@ end
 function _refactorize!(factors::BlockFactors, p::RadiusBlockILU, k)
     factorization = ilu(factors.matrices[k]; τ = p.drop_tolerance)
     factors.factorizations[k] = factorization
-    # a zero pivot shows up as non-finite entries of the factors
-    return all(isfinite, factorization.L.nzval) && all(isfinite, factorization.U.nzval)
+    # a zero pivot shows up as non-finite entries of the factors only when its column of L
+    # has entries; with that column empty (always so for the last pivot) the factors stay
+    # finite and the zero shows on the diagonal of U only
+    return all(isfinite, factorization.L.nzval) && all(isfinite, factorization.U.nzval) &&
+           all(!iszero, diag(factorization.U))
 end
 
 # copy the current values of `matrix` into the blocks and factorize them, with the Woodbury

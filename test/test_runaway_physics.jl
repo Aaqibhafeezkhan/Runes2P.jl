@@ -3,7 +3,8 @@
 # published references (Connor-Hastie and DREAM's neural network of Hesslow et al., both
 # from reference/dream/cases/runaway_rates.py), and the avalanche growth rate against the
 # kinetic rate of the literature (Embréus et al. 2018) and DREAM's fluid formula, including
-# its independence of the knock-on cutoff inside the cutoff window.
+# its independence of the knock-on cutoff inside the cutoff window, and the growth that the
+# Rosenbluth-Putvinski source gives against that of the knock-on operator.
 using HDF5
 
 const DREAM_DREICER_KINETIC_DATA = reference_file("dream_dreicer_kinetic.h5")
@@ -213,14 +214,34 @@ end
         times = collect(range(0, 0.08; length = 193))
         third = (length(times) - 1) ÷ 3
 
-        function growth_rate(p_cutoff)
-            knockon = KnockOnOperator(g, g, p_cutoff)
-            layout = UnknownLayout(g.radial_grid, [KineticUnknown(:hot_tail_distribution, g; scale = 1e12)])
-            system = EquationSystem(layout,
-                [Equation(:hot_tail_distribution, TimeDerivative(),
-                    FokkerPlanckTerm(:hot_tail_distribution, op),
-                    KnockOnTerm(:hot_tail_distribution, knockon;
-                        target_density = [density], treatment = :explicit))])
+        # source = :knock_on: the knock-on operator; :rosenbluth_putvinski: the
+        # Rosenbluth-Putvinski source, whose primaries are the runaway density above p_c
+        function growth_rate(p_cutoff; source = :knock_on)
+            distribution = KineticUnknown(:hot_tail_distribution, g; scale = 1e12)
+            if source == :knock_on
+                knockon = KnockOnOperator(g, g, p_cutoff)
+                layout = UnknownLayout(g.radial_grid, [distribution])
+                system = EquationSystem(layout,
+                    [Equation(:hot_tail_distribution, TimeDerivative(),
+                        FokkerPlanckTerm(:hot_tail_distribution, op),
+                        KnockOnTerm(:hot_tail_distribution, knockon;
+                            target_density = [density], treatment = :explicit))])
+            else
+                layout = UnknownLayout(g.radial_grid,
+                    [distribution, RadialUnknown(:runaway_density; scale = 1e12),
+                        RadialUnknown(:total_electron_density; scale = 1e20)])
+                system = EquationSystem(layout,
+                    [
+                        Equation(:hot_tail_distribution, TimeDerivative(),
+                            FokkerPlanckTerm(:hot_tail_distribution, op),
+                            RosenbluthPutvinskiSourceTerm(:hot_tail_distribution, g;
+                                p_cutoff, electric_field = nothing)),
+                        Equation(:runaway_density, Algebraic(),
+                            DensityMomentTerm(:hot_tail_distribution, g;
+                                region = MomentumRegion(critical)),
+                            LinearTerm(:runaway_density; coefficient = -1)),
+                        Equation(:total_electron_density, TimeDerivative())])
+            end
             u0 = zeros(length(layout))
             seed = kinetic_view(u0, layout, 1, 1)
             for i in 1:momentum_cell_count(mom), j in 1:pitch_cell_count(mom)
@@ -228,8 +249,12 @@ end
                 seed[i, j] = 1e12 * exp(-(mom.p_centers[i] - 2.0)^2 / 0.08) *
                              exp(4 * (mom.xi_centers[j] - 1))
             end
+            if source == :rosenbluth_putvinski
+                unknown_values(u0, layout, unknown_id(layout, :total_electron_density)) .= density
+            end
             solution = integrate(system, u0, times)
-            states = [reshape(solution.states[:, k], size(g)) for k in eachindex(times)]
+            states = [reshape(kinetic_view(solution.states[:, k], layout, 1, 1), size(g))
+                      for k in eachindex(times)]
             # runaways on the grid plus those that have left through p_max
             runaways(state) = sum(phase_space_jacobian(g, 1)[i, j] * mom.p_widths[i] *
                                   mom.xi_widths[j] *
@@ -279,6 +304,31 @@ end
             rates = [growth_rate(p)
                      for p in (first(faces), faces[length(faces) ÷ 2], last(faces))]
             @test maximum(rates) / minimum(rates) < 1 + 1e-4
+        end
+
+        @testset "Rosenbluth-Putvinski source against the knock-on operator" begin
+            # The same run with `RosenbluthPutvinskiSourceTerm` in place of the knock-on
+            # operator: same grid, field, cutoff and time steps. Its primaries are the
+            # runaway density above p_c (`DensityMomentTerm`, interpolated envelope), and
+            # each makes knock-ons at the Møller rate of a primary at the speed of light,
+            # all at the pitch ξ* of that limit (M. N. Rosenbluth and S. V. Putvinski,
+            # Nucl. Fusion 37, 1355 (1997), doi:10.1088/0029-5515/37/10/I03, eq. 4,
+            # p. 1356). `electric_field = nothing` takes ξ* > 0, the sign of the field
+            # here. The source is the knock-on operator in the limit of primary momentum far
+            # above the knock-ons, which this case meets: the mean momentum of the primaries
+            # above p_c is 34 mₑc, the knock-ons that count lie between the cutoff 0.13 and
+            # p_c = 0.23. Measured: the number of knock-ons per second from the Møller
+            # rate of the primaries of the run is 1.017 times that of this source above the
+            # cutoff and 0.996 times above p_c. The growth rate of this source is 1.043
+            # times that of the knock-on operator at these 192 steps and 1.037 at 384:
+            # the explicit knock-on term is low by ΓΔt/2 and the implicit source high by
+            # as much, ΓΔt = 0.011 here. Extrapolated to a zero step the ratio is 1.031;
+            # that remainder is assigned, by elimination and not measured on its own, to
+            # the pitch of the knock-ons, all in one cell at ξ* here and spread over the
+            # pitch of the primaries by the operator. The band holds the measured ratio to
+            # 0.005, the change that halving the step makes.
+            rp_rate = growth_rate(cutoff.p_cutoff; source = :rosenbluth_putvinski)
+            @test rp_rate / rate ≈ 1.043 rtol = 0.005
         end
     end
     close(h5)
