@@ -1,7 +1,8 @@
 # The electron populations around the two distributions: the particle
 # source with its magnitude as an unknown, the constraint it enforces, the flux through the
 # upper momentum boundary into the electrons above the grid, and the particle budget of a
-# run with the field as an unknown, the flux between the grids and the knock-on source.
+# run with the field as an unknown, the flux between the grids and the knock-on source,
+# and the Dreicer rate under the self-consistent source against a held bulk.
 # The cases need a net flux out through the upper momentum boundary, which the radiation
 # losses reverse at 5 T, so the operators leave them out.
 using Random: Xoshiro
@@ -446,7 +447,9 @@ end
         region = MomentumRegion(ThermalMomentum([temperature]))
         minus(name) = LinearTerm(name; coefficient = -1)
 
-        function rate_of(over_critical, collision_times; self_consistent)
+        # bulk_fraction scales the start and the target of the held source
+        function rate_of(over_critical, collision_times; self_consistent, bulk_fraction = 1.0)
+            start = bulk_fraction * maxwellian
             field = over_critical * critical_electric_field
             plasma = PlasmaState(cold_electron_temperature = [temperature],
                 cold_electron_density = [free_density],
@@ -483,7 +486,7 @@ end
                 layout = UnknownLayout(single,
                     [KineticUnknown(:hot_tail_distribution, grid; scale = free_density)])
                 bulk = sum(phase_space_jacobian(grid, 1)[i, j] * m.p_widths[i] *
-                           m.xi_widths[j] * maxwellian[i, j]
+                           m.xi_widths[j] * start[i, j]
                 for i in 1:momentum_cell_count(m), j in 1:pitch_cell_count(m)
                 if m.p_centers[i] <= 0.12) /
                        single.spatial_jacobian[1]
@@ -496,9 +499,9 @@ end
             end
             id = unknown_id(layout, :hot_tail_distribution)
             u0 = zeros(length(layout))
-            kinetic_view(u0, layout, id, 1) .= maxwellian
+            kinetic_view(u0, layout, id, 1) .= start
             if self_consistent
-                n_hot = density(grid, reshape(maxwellian, size(grid)); region)[1]
+                n_hot = density(grid, reshape(start, size(grid)); region)[1]
                 radial_view(u0, layout, unknown_id(layout, :hot_electron_density), 1) .= n_hot
                 radial_view(u0, layout, unknown_id(layout, :cold_electron_density), 1) .= free_density -
                                                                                           n_hot
@@ -529,8 +532,8 @@ end
         @test closed.populations.runaway < 1e-6 * free_density
         # E/E_c = 25 (E/E_D = 0.059, the low-temperature, high-E/E_D regime of the CODE
         # benchmark of DREAM's runaway rate): the bulk loses electrons to the runaway density
-        # during the 600 collision times the tail needs to settle, and the rate falls with the
-        # bulk
+        # during the 600 collision times the tail needs to settle, and the rate falls below
+        # the held one; the depleted bulk explains at most 0.78 of the 3.8 points (below)
         held = rate_of(25.0, 600; self_consistent = false)
         closed = rate_of(25.0, 600; self_consistent = true)
         lost = closed.populations.runaway / free_density
@@ -543,6 +546,32 @@ end
             @test n.cold + n.hot + n.runaway ≈ free_density rtol = 1e-10
             @test n.on_grid ≈ n.cold + n.hot rtol = 1e-9
             @test n.on_grid + n.runaway ≈ free_density rtol = 1e-9
+        end
+
+        # Whether the depleted bulk explains the drop of the rate: the held case at
+        # E/E_c = 25, rerun with its start and target scaled by the fraction of the
+        # electrons left on the grid at the end of the self-consistent run, 1 − lost. The
+        # plasma of the operator keeps the free density, as in the self-consistent run, so
+        # only the content of the grid changes. With fixed coefficients and a source linear
+        # in f and in its target, that scaling scales the solution, and the rate, by the
+        # same factor: the ratio is known before the run. The test checks that linearity,
+        # which a source that ignored its target would break.
+        @testset "Dreicer rate with a depleted held bulk" begin
+            remaining = 1 - lost
+            depleted = rate_of(25.0, 600; self_consistent = false, bulk_fraction = remaining)
+            @test depleted.spread < 1.05
+            # observed: equal to 1 − lost to 1e-15, as the scaling above implies; the margin
+            # of 1e-9 leaves room for the tolerance of the solver
+            @test depleted.rate / held.rate ≈ remaining rtol = 1e-9
+            # the conclusion: the self-consistent rate is 0.962 of the held rate, a drop of
+            # 3.8 points. The depleted held run lacks the 0.78 % from t = 0, while the
+            # self-consistent bulk loses them over the run, so the 0.78 points it lowers the
+            # held rate by are an upper bound on the share of the depletion. At least 3.0
+            # points lie between MaxwellianSourceTerm and ParticleSourceTerm: the particle
+            # source holds the density of the whole grid, the held source only the density
+            # below p = 0.12, and their shapes differ; not traced further. The test holds
+            # that remainder to at least 2 points.
+            @test closed.rate / held.rate < remaining - 0.02
         end
     end
 end
