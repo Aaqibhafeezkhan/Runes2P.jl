@@ -178,7 +178,7 @@ The reference case `reference/dream/cases/disruption_kinetic.py` runs the disrup
 | scenario of the disruption chain | `--scenario 1`, the full-conversion scenario |
 | elongation of the radial grid | `--elongation 1`, a cylinder without shaping |
 | steps of phase 1 | `--nt-ioniz 500`, steps of 4e-8 s, passed with `--elongation 1` (the default is the 200 of scenario 1) |
-| runaway grid (`--runaway-grid`) | 12 momentum cells of 0.1 from the hot-tail `p_max` 0.8 to 2, 20 geometric cells to `p_max` 20, 8 pitch cells biuniform in θ (5 below θ = 0.5) |
+| runaway grid (`--runaway-grid`) | 12 momentum cells of 0.1 from the hot-tail `p_max` 0.8 to 2, 20 geometric cells to `p_max` 20 (the first of them also 0.1 wide, from 2.0 to 2.1), 8 pitch cells biuniform in θ (5 below θ = 0.5) |
 | advection scheme of `f_re` | that of `f_hot` (`--scheme`) in both phases, not DREAM's default centred scheme |
 | absolute tolerance of `f_re` | 1e5 from run 1 on, that of `f_hot` in the phases |
 | window of phase 2 of the test (`--window-start`, `--window-steps`) | `--window-start 170 --window-steps 10`: steps 170 to 180 of the 429 steps of phase 2 on the reduced grid of the tests with the scenario's step (`--nt-quench 429 --t-quench 3e-4`); the default of `--window-steps` is 10 |

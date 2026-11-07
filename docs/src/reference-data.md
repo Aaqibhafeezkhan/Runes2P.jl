@@ -1,6 +1,6 @@
 # Reference data
 
-The tests compare Runes2P with the output of DREAM and of GSL stored in five reference sets, so they do not run DREAM themselves.
+The tests compare Runes2P with the output of DREAM and of GSL stored in six reference sets, so they do not run DREAM themselves.
 The DREAM cases are DREAM's public examples, run with their own settings and a few stated overrides, and synthetic cases written for one comparison each.
 The generator scripts, the build of DREAM and the regeneration are in `reference/` of the repository.
 
@@ -11,6 +11,7 @@ The generator scripts, the build of DREAM and the regeneration are in `reference
 | `dream-v26.5` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a` | 16 |
 | `dream-v26.5-disruption` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a`: the disruption chain from its initialization | 2 |
 | `dream-v26.5-initial-state` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a`: the starts of a run and the collisional heating of the cold electrons | 4 |
+| `dream-v26.5-runaway-grid` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a`: the disruption with a runaway grid | 1 |
 | `dream-boltzmann-eqterm-93d27e17` | DREAM branch `boltzmann-eqterm`, commit `93d27e1763827e19dafb1fe790e99c2688ad6d62` | 6 |
 | `gsl-2.8` | GSL 2.8 of conda-forge | 1 |
 
@@ -26,6 +27,7 @@ Each set is published as a tarball with its files at the top level:
 - <https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5/dream-v26.5.tar.gz>
 - <https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5-disruption/dream-v26.5-disruption.tar.gz>
 - <https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5-initial-state/dream-v26.5-initial-state.tar.gz>
+- <https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5-runaway-grid/dream-v26.5-runaway-grid.tar.gz>
 - <https://deep.reak.bme.hu/~data/runes2p/reference/dream-boltzmann-eqterm-93d27e17/dream-boltzmann-eqterm-93d27e17.tar.gz>
 - <https://deep.reak.bme.hu/~data/runes2p/reference/gsl-2.8/gsl-2.8.tar.gz>
 
@@ -39,6 +41,7 @@ Each set is published as a tarball with its files at the top level:
 | `dream_cooling_positivity.h5` | `dream-v26.5` | `cooling_positivity.py` | `test_cooling_dream.jl` |
 | `dream_coronal_start.h5` | `dream-v26.5-initial-state` | `initial_state.py case=coronal` | `test_initial_state_dream.jl` |
 | `dream_disruption_chain_small.h5` | `dream-v26.5-disruption` | `disruption_kinetic.py` | `test_disruption_initialization_dream.jl` (runs 0 to 2, the initialization), `test_disruption_chain_dream.jl` (runs 0 to 4, end to end) |
+| `dream_disruption_runaway_small.h5` | `dream-v26.5-runaway-grid` | `disruption_kinetic.py --runaway-grid --window-start 170` | `test_disruption_runaway_dream.jl` |
 | `dream_disruption_small.h5` | `dream-v26.5` | `disruption_kinetic.py` | `test_disruption_dream.jl`, `test_disruption_runaway.jl` (the quench with a runaway grid, from `f_re` zero) |
 | `dream_disruption_superthermal_channels_small.h5` | `dream-v26.5-initial-state` | `disruption_kinetic.py --mode superthermal --test-data-channels` | `test_collisional_heating_dream.jl` |
 | `dream_disruption_superthermal_small.h5` | `dream-v26.5-disruption` | `disruption_kinetic.py --mode superthermal` | `test_disruption_superthermal_dream.jl` (runs 0 to 4, end to end, and the phases from DREAM's state) |
@@ -76,7 +79,7 @@ For the output of a DREAM example it also names the last DREAM commit that chang
 Every DREAM file records `dream_commit`, `dream_branch` and `petsc_version` as attributes.
 `test/test_kinetic_operator_dream.jl` checks the commit and the branch of every DREAM file against its set.
 With the DREAM checkout of a set's build at `reference/dream/<build>/DREAM` it also checks that the checkout is at that commit, and that each example is unchanged since its recorded commit.
-The build is named after its set; `dream-v26.5-disruption` and `dream-v26.5-initial-state` use that of `dream-v26.5`.
+The build is named after its set; `dream-v26.5-disruption`, `dream-v26.5-initial-state` and `dream-v26.5-runaway-grid` use that of `dream-v26.5`.
 Without the checkout these checks are skipped.
 
 Test nodes without network need the sets installed beforehand, on a node that has network:

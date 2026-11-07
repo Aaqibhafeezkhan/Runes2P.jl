@@ -22,6 +22,14 @@ lazy = true
     url = "https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5-initial-state/dream-v26.5-initial-state.tar.gz"
     sha256 = "1549df9fa476b0fb749a5db75c23ff683a54530615763715e6ed650837084145"
 
+["dream-v26.5-runaway-grid"]
+git-tree-sha1 = "f53497b78047bd69d33c0cc24962297f4610d5a3"
+lazy = true
+
+    [["dream-v26.5-runaway-grid".download]]
+    url = "https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5-runaway-grid/dream-v26.5-runaway-grid.tar.gz"
+    sha256 = "7766abb42b025e58fd90f6268e73d109820768096161a8297b61813882c4edf8"
+
 ["dream-boltzmann-eqterm-93d27e17"]
 git-tree-sha1 = "77d8da5460738ec8a58e7c82ea9903be2842fab4"
 lazy = true

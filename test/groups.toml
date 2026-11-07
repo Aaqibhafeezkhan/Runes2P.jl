@@ -188,3 +188,10 @@ tier = "full"
 # 11.6 minutes, mostly the compilation of its two systems (1.6 minutes at -O0): the disruption case
 # with a runaway grid at both compat values
 files = ["test_disruption_runaway.jl"]
+
+[[group]]
+name = "full-13"
+tier = "full"
+# 11.7 minutes, mostly the compilation of its two systems (1.8 minutes at -O0): the disruption case
+# with a runaway grid against DREAM's window, at both compat values
+files = ["test_disruption_runaway_dream.jl"]

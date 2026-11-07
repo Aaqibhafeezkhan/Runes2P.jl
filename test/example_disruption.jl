@@ -1,8 +1,9 @@
 # The system of Runes2P for DREAM's disruption case (reference/dream/cases/disruption_kinetic.py:
 # DREAM's examples/Disruptions/generate.py, scenario 1, with examples/Disruptions/ASDEXU.py):
-# the builder of test_disruption_dream.jl, test_disruption_initialization_dream.jl and
-# test_disruption_chain_dream.jl, with the comparison of a run with DREAM (`phase_differences`)
-# and the budgets of the assembled system with their bounds (`budgets`, `budget_checks`).
+# the builder of test_disruption_dream.jl, test_disruption_initialization_dream.jl,
+# test_disruption_chain_dream.jl and test_disruption_runaway_dream.jl, with the comparison of a
+# run with DREAM (`phase_differences`) and the budgets of the assembled system with their bounds
+# (`budgets`, `budget_checks`).
 # `mode = :superthermal` builds DREAM's superthermal mode of the case (generate.py --superthermal,
 # MODE_SUPERTHERMAL), the builder of test_disruption_superthermal_dream.jl.
 # `build` gives the system of one of the two phases of the case (the ionization of the
@@ -11,10 +12,11 @@
 # `initial_state_after_initialization`). With compat = dream it takes DREAM's settings of the
 # case, with compat = runes2p the defaults of Runes2P.
 # `runaway = true` adds DREAM's runaway grid above the hot-tail grid (the case script's
-# --runaway-grid), the builder of test_disruption_runaway.jl: on the faces `runaway_p_faces` and
-# `runaway_xi_faces`, by default those of the case script (`runaway_momentum_faces`,
-# `runaway_pitch_faces`), with the scheme `runaway_scheme` of f_re, and with `runaway_budgets` for
-# its closures; `prepare_terms!` prepares the terms of the case for a step, as the system does.
+# --runaway-grid), the builder of test_disruption_runaway.jl and test_disruption_runaway_dream.jl:
+# on the faces `runaway_p_faces` and `runaway_xi_faces`, by default those of the case script
+# (`runaway_momentum_faces`, `runaway_pitch_faces`), with the scheme `runaway_scheme` of f_re, and
+# with `runaway_budgets` and `runaway_budget_checks` for its closures; `prepare_terms!` prepares
+# the terms of the case for a step, as the system does.
 # With a runaway grid `build` takes `runaway_heating_term` of example_cases.jl, which a script
 # that includes this file includes as well (the test modules of runtests.jl have it).
 using Runes2P, HDF5
@@ -1025,7 +1027,8 @@ independent of DREAM, the worst relative values over the steps and the radii:
   the step at that radius. The fluid avalanche of n_re above the hot-tail p_max is the kinetic one of
   f_re, whose sum is that of `R` to f_re's p_max, plus the tail beyond it.
 
-Also the largest influx `influx` (m⁻³ s⁻¹) over the steps and radii.
+Also the largest influx `influx` (m⁻³ s⁻¹) over the steps and radii, and the smallest, signed,
+`least_influx`: positive where electrons cross from f into f_re at every step and radius.
 """
 function runaway_budgets(case, solution)
     layout, interface = case.layout, case.interface
@@ -1037,7 +1040,7 @@ function runaway_budgets(case, solution)
     tail = rosenbluth_putvinski_rate(p_max)
     radial_values(u, name) = collect(unknown_values(u, layout, unknown_id(layout, name)))
     on_grid(u) = density(case.runaway_grid, kinetic_array(u, layout, re_id))
-    worst = Dict(:interface => 0.0, :avalanche => 0.0, :influx => 0.0)
+    worst = Dict(:interface => 0.0, :avalanche => 0.0, :influx => 0.0, :least_influx => Inf)
     for m in 2:length(solution.times)
         u_old, u, t = solution.states[:, m - 1], solution.states[:, m], solution.times[m]
         dt = t - solution.times[m - 1]
@@ -1059,9 +1062,10 @@ function runaway_budgets(case, solution)
         worst[:interface] = max(worst[:interface], maximum(crossing))
         worst[:avalanche] = max(worst[:avalanche], maximum(beyond))
         worst[:influx] = max(worst[:influx], maximum(abs, influx))
+        worst[:least_influx] = min(worst[:least_influx], minimum(influx))
     end
     return (; interface = worst[:interface], avalanche = worst[:avalanche],
-        influx = worst[:influx])
+        influx = worst[:influx], least_influx = worst[:least_influx])
 end
 
 # the closures of the assembled system (`budgets`), independent of DREAM: round-off bounds, at
@@ -1101,5 +1105,20 @@ function budget_checks(case, solution, label, drift_bound)
     for (name, value, _) in checks
         @info "the disruption case, $label: $name $value"
     end
+    return checks
+end
+
+# the closures of the runaway grid (`runaway_budgets`) against `bounds`, a named tuple of bounds
+# of `interface` and `avalanche`, and the smallest signed influx against 0, as (name, value,
+# bound) for a test `value < bound` (the influx as its negative: electrons cross from f into f_re
+# at every step and radius)
+function runaway_budget_checks(case, solution, label, bounds)
+    b = runaway_budgets(case, solution)
+    checks = [(name, getfield(b, name), getfield(bounds, name)) for name in keys(bounds)]
+    for (name, value, _) in checks
+        @info "the disruption case, $label: $name $value"
+    end
+    @info "the disruption case, $label: influx from $(b.least_influx) to $(b.influx) m⁻³ s⁻¹"
+    push!(checks, (:negative_influx, -b.least_influx, 0.0))
     return checks
 end
