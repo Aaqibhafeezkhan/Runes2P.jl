@@ -32,10 +32,11 @@ frequencies (src/Settings/Equations/f_hot.cpp:163-197 at v26.5).
 `--re-pmax`, and one pitch grid biuniform in theta; the settings of f_re are stated where the
 grid is set. Without it the settings are those above. The defaults of the runaway grid are a
 choice of this package for scenario 1 at the reduced size of the tests: 12 cells of 0.1 from the
-hot-tail p_max 0.8 to 2, 20 geometric cells to 20, where the avalanche source still holds f_re
-after 300 us of the quench, and 8 pitch cells, 5 below theta = 0.5, unlike the 4 uniform cells of
-the hot-tail grid there, so that the test crosses DREAM's mapping between the two pitch grids
-(see the docs page Choices of this package).
+hot-tail p_max 0.8 to 2, 20 geometric cells to 20, and 8 pitch cells, 5 below theta = 0.5, unlike
+the 4 uniform cells of the hot-tail grid there, so that the test crosses DREAM's mapping between
+the two pitch grids. A grid to p_max = 60 held 3e-5 of the density of f_re above p = 20 at 300 us
+of the scenario: the avalanche source keeps a small population up to the last cell, so a few cells
+more do not change the result (see the docs page *Choices of this package*).
 
 The chain: a one-step run for the conductivity of the initial plasma, the field of the
 prescribed current profile of ASDEXU.getCurrentDensity, two runs of 1 s in 3 steps with
@@ -174,7 +175,9 @@ def arguments(argv=None):
                         help="turn on DREAM's runaway grid from p_max of the hot-tail grid, from run 1 on "
                              "(in the kinetic and superthermal modes; the --re-* arguments set it)")
     parser.add_argument("--re-dp-fine", type=float, default=0.1,
-                        help="width of the uniform momentum cells of the runaway grid from --pmax to --re-p-fine-to")
+                        help="width of the uniform momentum cells of the runaway grid from --pmax to --re-p-fine-to; "
+                             "the cells take the width nearest to it that fills the interval with a whole number of "
+                             "cells, at least one")
     parser.add_argument("--re-p-fine-to", type=float, default=2.0,
                         help="end of the uniform cells of the runaway grid")
     parser.add_argument("--re-pmax", type=float, default=20.0,
@@ -188,13 +191,37 @@ def arguments(argv=None):
     parser.add_argument("--re-nxi-sep", type=int, default=5,
                         help="pitch cells of the runaway grid below theta = 0.5")
     parser.add_argument("--re-scheme", choices=sorted(SCHEMES), default=None,
-                        help="advection interpolation of f_re (default: that of f_hot, --scheme; DREAM's own "
-                             "default is the centred one, py/DREAM/Settings/Equations/RunawayElectronDistribution.py:22-28)")
-    return parser.parse_args(argv)
+                        help="advection interpolation of f_re in both phases (default: that of f_hot, --scheme, "
+                             "with its switch to upwind in phase 2; DREAM's own default is the centred one, "
+                             "py/DREAM/Settings/Equations/RunawayElectronDistribution.py:22-28)")
+    args = parser.parse_args(argv)
+    check_arguments(args)
+    return args
+
+
+def check_arguments(args):
+    """Refuse the combinations that the chain cannot run, before any run or file is written."""
+    if args.runaway_grid and args.mode == "fluid":
+        raise SystemExit("--runaway-grid needs the kinetic or superthermal mode")
+    if not args.runaway_grid:
+        return
+    if not 1 <= args.re_nxi_sep < args.re_nxi:
+        raise SystemExit("--re-nxi-sep must be at least 1 and below --re-nxi")
+    if args.re_dp_fine <= 0:
+        raise SystemExit("--re-dp-fine must be positive")
+    if not args.re_p_fine_to > args.pmax:
+        raise SystemExit("--re-p-fine-to must be above --pmax")
+    runaway_p_faces(args)                                                                # refuses no growing cells
 
 
 RE_ARGUMENTS = ("runaway_grid", "re_dp_fine", "re_p_fine_to", "re_pmax", "re_np_coarse", "re_nxi", "re_nxi_sep",
                 "re_scheme")
+
+
+def omitted_arguments(args):
+    """The arguments of the runaway grid, left out of the stored arguments without --runaway-grid, so
+    that the files made without it keep the arguments they were made with."""
+    return () if args.runaway_grid else RE_ARGUMENTS
 
 
 def biuniform_theta_xi_faces(nxi, nsep, thetasep=0.5):
@@ -205,11 +232,11 @@ def biuniform_theta_xi_faces(nxi, nsep, thetasep=0.5):
 
 
 def runaway_p_faces(args):
-    """The momentum faces of the runaway grid: uniform cells of --re-dp-fine from p_max of the
+    """The momentum faces of the runaway grid: uniform cells of about --re-dp-fine from p_max of the
     hot-tail grid to --re-p-fine-to, then --re-np-coarse cells to --re-pmax that grow by a constant
-    ratio, the first as wide as --re-dp-fine. The first face is the hot-tail p_max, which DREAM
+    ratio, the first as wide as the uniform ones. The first face is the hot-tail p_max, which DREAM
     imposes (src/Settings/KineticGrid.cpp:158-166, 237-240 at v26.5)."""
-    nfine = int(round((args.re_p_fine_to - args.pmax) / args.re_dp_fine))
+    nfine = max(1, int(round((args.re_p_fine_to - args.pmax) / args.re_dp_fine)))
     fine = np.linspace(args.pmax, args.re_p_fine_to, nfine + 1)
     dp, length, n = fine[1] - fine[0], args.re_pmax - args.re_p_fine_to, args.re_np_coarse
     if dp * n >= length:
@@ -292,7 +319,7 @@ def run(ds, args, name):
     print(f"run {RUNS.index(name)} {name}", flush=True)
     # the arguments of the invocation that made this run: a later --run-from keeps them
     (args.outdir / f"arguments_{RUNS.index(name)}_{name}.json").write_text(
-        json.dumps({k: str(v) for k, v in vars(args).items()}, indent=1))
+        json.dumps({k: str(v) for k, v in vars(args).items() if k not in omitted_arguments(args)}, indent=1))
     with open(args.outdir / f"log_{RUNS.index(name)}_{name}.txt", "w") as log:
         subprocess.run([str(base.DREAMI), str(settings)], check=True, stdout=log, stderr=subprocess.STDOUT)
     return output
@@ -305,8 +332,6 @@ def chain(args):
     kinetic = args.mode == "kinetic"
     superthermal = args.mode == "superthermal"
     hot = kinetic or superthermal                                                        # mode != MODE_FLUID
-    if args.runaway_grid and not hot:
-        raise SystemExit("--runaway-grid needs the kinetic or superthermal mode")
     todo = range(args.run_from, args.run_to + 1)
 
     ds, rT, T0 = baseline(args)
@@ -356,8 +381,9 @@ def chain(args):
         ds.runawaygrid.setCustomGrid(p_f=runaway_p_faces(args),
                                      xi_f=biuniform_theta_xi_faces(args.re_nxi, args.re_nxi_sep))
         # the settings of f_re stated, as those of f_hot above: the scheme of f_hot unless --re-scheme
-        # (DREAM's default is the centred one,
-        # py/DREAM/Settings/Equations/RunawayElectronDistribution.py:22-28), the boundary condition at
+        # (a choice of this package, so that one scheme holds across the interface at p_max; DREAM's
+        # default is the centred one, py/DREAM/Settings/Equations/RunawayElectronDistribution.py:22-28;
+        # see the docs page *Choices of this package*), the boundary condition at
         # the runaway p_max that keeps the flux of the last face (BC_PHI_CONST, DREAM's default),
         # synchrotron losses neglected as the example leaves them for f_hot (DREAM's default,
         # py/DREAM/Settings/Equations/DistributionFunction.py:67), and the ion Jacobian off as for
@@ -390,7 +416,10 @@ def chain(args):
         ds.solver.tolerance.set("n_hot", abstol=1e5)                                     # generate.py:282-283
         ds.solver.tolerance.set("j_hot", abstol=1)
     if hot and args.runaway_grid:
-        ds.solver.tolerance.set("f_re", abstol=1e5)                                       # 1e5, as f_hot later
+        # a choice of this package: the abstol of f_hot of the phases (generate.py:375-387), as DREAM sets
+        # none for f_re, only the relative tolerance of all unknowns (py/DREAM/Settings/ToleranceSettings.py:14-17);
+        # see the docs page *Choices of this package*
+        ds.solver.tolerance.set("f_re", abstol=1e5)
     if 1 in todo:
         run(ds, args, "init")
     if args.run_to < 2:
@@ -440,7 +469,8 @@ def chain(args):
         ds1.solver.tolerance.set(unknown="n_hot", reltol=reltol, abstol=1e5)
         ds1.solver.tolerance.set(unknown="j_hot", reltol=reltol, abstol=1e-5)
     if hot and args.runaway_grid:
-        # generate.py:375-387 sets none for f_re; that of f_hot
+        # a choice of this package, as in the runs before: generate.py:375-387 sets none for f_re, nor
+        # does DREAM (py/DREAM/Settings/ToleranceSettings.py:14-17); the abstol of f_hot
         ds1.solver.tolerance.set(unknown="f_re", reltol=reltol, abstol=1e5)
     ds1.output.setTiming(True, True)                                                     # generate.py:391
     ds1.solver.setVerbose(args.verbose)
@@ -469,15 +499,16 @@ def chain(args):
     ds2.timestep.setNt(nt_quench)
     if args.save_steps > 0:
         ds2.timestep.setNumberOfSaveSteps(min(args.save_steps, nt_quench))
-    # generate.py:478-480 switches scenario 0 to upwind in kinetic mode; with --scheme the
-    # scheme is the argument's in both phases, and scenario 0 keeps the switch of the example
-    if args.scenario == 0 and kinetic and args.scheme == "tcdf":
+    # generate.py:478-480 switches scenario 0 to upwind in kinetic mode, and generate.py:476-477
+    # scenarios 2 and 3 in the superthermal mode; with --scheme the scheme is the argument's in both
+    # phases, and these scenarios keep the switch of the example
+    if args.scheme == "tcdf" and ((args.scenario == 0 and kinetic) or (args.scenario in (2, 3) and superthermal)):
         ds2.eqsys.f_hot.setAdvectionInterpolationMethod(ad_int=FHot.AD_INTERP_UPWIND,
                                                          ad_jac=FHot.AD_INTERP_JACOBIAN_FULL)
-    # generate.py:476-477, likewise for scenarios 2 and 3 in the superthermal mode
-    if args.scenario in (2, 3) and superthermal and args.scheme == "tcdf":
-        ds2.eqsys.f_hot.setAdvectionInterpolationMethod(ad_int=FHot.AD_INTERP_UPWIND,
-                                                         ad_jac=FHot.AD_INTERP_JACOBIAN_FULL)
+        # f_re follows f_hot unless --re-scheme (a choice of this package, as in run 1)
+        if args.runaway_grid and args.re_scheme is None:
+            ds2.eqsys.f_re.setAdvectionInterpolationMethod(ad_int=FHot.AD_INTERP_UPWIND,
+                                                            ad_jac=FHot.AD_INTERP_JACOBIAN_FULL)
     if 4 in todo:
         run(ds2, args, "quench")
 
@@ -544,12 +575,10 @@ def stored_arguments(args):
     the data holds no paths of the machine that made it. --test-data-channels is stored only when
     it is given, and the arguments of the runaway grid only with --runaway-grid, so that the files made
     without them keep the arguments they were published with."""
-    stored = {k: (v.name if isinstance(v, Path) else str(v)) for k, v in vars(args).items()}
+    stored = {k: (v.name if isinstance(v, Path) else str(v)) for k, v in vars(args).items()
+              if k not in omitted_arguments(args)}
     if not args.test_data_channels:
         del stored["test_data_channels"]
-    if not args.runaway_grid:
-        for k in RE_ARGUMENTS:
-            del stored[k]
     return stored
 
 
