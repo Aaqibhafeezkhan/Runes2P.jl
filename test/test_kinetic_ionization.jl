@@ -170,7 +170,8 @@ end
             for ir in 1:2
                 m = momentum_grid(kinetic.grid, ir)
                 T = unknown_values(u, layout, 3)[ir]
-                p0 = 5.0 * sqrt(2T / Constants.ELECTRON_REST_ENERGY)
+                p0 = kinetic.envelopes.region.limit.factor *
+                     sqrt(2T / Constants.ELECTRON_REST_ENERGY)
                 i = searchsortedlast(m.p_faces, p0)
                 @test 0.1 < (p0 - m.p_faces[i]) / m.p_widths[i] < 0.9
                 envelope = momentum_envelope!(zeros(length(m.p_centers)), kinetic.envelopes.region, m, p0)
@@ -347,10 +348,13 @@ end
             rhs!(zeros(length(u)), u, system, 0.0)
             jacobian!(J, system, u, 0.0)
             rhs_all(x) = (out = zeros(length(x)); rhs!(out, x, system, 0.0); out)
-            # the temperature, through the split and ADAS, and the cold density at both radii,
-            # and the charge states of radius 2, which take the fluid coefficient of the split
-            # there; the rows of both radii, so a column reaches no other radius. A step of
-            # 1e-6 T keeps the threshold away from the faces (the testset of the term above).
+            # the temperature and the cold density at both radii and the charge states of
+            # radius 2, compared on the rows of both radii, so that a column that reached the
+            # other radius would show. At the threshold of the case, 5 thermal momenta, the
+            # split moves these columns by about 1e-10 of their size, below the tolerance:
+            # they check the ADAS rates and the densities, and the split is checked on its
+            # own below (threshold_split). A step of 1e-6 T keeps the threshold away from
+            # the faces (the testset of the term above).
             # Its truncation error, (h/T)² = 1e-12 times T³ r'''/(6 r') of the rates r, is
             # measured at 3e-9 of the column, far below the tolerance of 1e-5. The charge
             # states enter linearly, so their central difference is exact to round-off.
@@ -396,7 +400,7 @@ end
                     zeros(eltype(x), n), term, x, layout, 3, 0.0), u)
             @test Matrix(J)≈reference rtol=1e-10 atol=1e-12*maximum(abs, reference)
             # and the temperature columns of both radii against central differences, with
-            # the step of the fluid rate above
+            # the step of the fluid rate above (the split moves them by about 1e-10, as there)
             for ir in 1:2
                 column = first(unknown_range(layout, 3, ir))
                 h = 1e-6 * u[column]
@@ -406,6 +410,34 @@ end
                 difference = (Runes2P.rhs!(zeros(n), term, up, layout, 3, 0.0) -
                               Runes2P.rhs!(zeros(n), term, down, layout, 3, 0.0)) / 2h
                 @test Vector(J[:, column])≈difference rtol=1e-5 atol=1e-8*maximum(abs, difference)
+            end
+            # the split itself, which the Jacobians of the fluid rate and the radiated power
+            # differentiate in the temperature by forward mode: the derivative of the part of
+            # the Maxwellian above the threshold and of the fluid coefficients against a
+            # central difference, at both radii. The moving threshold carries most of it:
+            # holding it changes the derivative of the part above by a factor of 15 to 100.
+            # The error, round-off amplified by the cancellation in the part above, stays below
+            # 2e-5 of each component for steps from 1e-7 T to 1e-5 T; components below 1e-6
+            # of the largest coefficient are left out.
+            for ir in 1:2
+                column = first(unknown_range(layout, 3, ir))
+                function split_values(temperature)
+                    x = convert(Vector{typeof(temperature)}, u)
+                    x[column] = temperature
+                    split = Runes2P.threshold_split(kinetic, ir, x, layout, 0.0)
+                    return [split.fraction; split.coefficients]
+                end
+                temperature = u[column]
+                derivative = ForwardDiff.derivative(split_values, temperature)
+                h = 1e-6 * temperature
+                difference = (split_values(temperature + h) -
+                              split_values(temperature - h)) / 2h
+                floor = 1e-6 * maximum(abs, derivative[2:end])
+                checked = [1;
+                           [i for i in 2:length(derivative) if abs(derivative[i]) > floor]]
+                @test derivative[1] != 0
+                @test all(abs.(derivative[checked] - difference[checked]) .<=
+                          1e-4 .* abs.(derivative[checked]))
             end
         end
         @testset "secondaries and the energy of the kinetic ionization" begin

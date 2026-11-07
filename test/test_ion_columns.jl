@@ -125,6 +125,11 @@ end
                 # 20 eV, a node of the tables of hydrogen. The bicubic interpolation is C¹
                 # alone there: the difference across it errs by the step times the jump of
                 # the second derivative, below 1e-9 of the column here.
+                # every term of these cases reads the temperature, and all but the
+                # conductivity the density, so no column below is skipped unnoticed
+                @test :cold_electron_temperature in Runes2P.dependencies(term)
+                @test (:cold_electron_density in Runes2P.dependencies(term)) ==
+                      !(term isa ConductivityTerm)
                 for unknown in (:cold_electron_temperature, :cold_electron_density),
                     ir in 1:2
 
