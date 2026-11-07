@@ -178,11 +178,17 @@ The reference case `reference/dream/cases/disruption_kinetic.py` runs the disrup
 | scenario of the disruption chain | `--scenario 1`, the full-conversion scenario |
 | elongation of the radial grid | `--elongation 1`, a cylinder without shaping |
 | steps of phase 1 | `--nt-ioniz 500`, steps of 4e-8 s, passed with `--elongation 1` (the default is the 200 of scenario 1) |
+| runaway grid (`--runaway-grid`) | 12 momentum cells of 0.1 from the hot-tail `p_max` 0.8 to 2, 20 geometric cells to `p_max` 20, 8 pitch cells biuniform in θ (5 below θ = 0.5) |
+| advection scheme of `f_re` | that of `f_hot` (`--scheme`), not DREAM's default centred scheme |
 
 The DREAM paper runs scenarios 1 and 4, and `generate.py` runs scenario 0 by default, which `--scenario 0` reproduces.
 The cylinder of Runes2P has no shaping, so the case departs from the elongation of `ASDEXU.py`, linear from 1.0 to 1.15 in the radius, which `--elongation asdexu` reproduces.
 At `--elongation 1` the case is run with `--nt-ioniz 500`, so that each step of phase 1 is 4e-8 s instead of the 1e-7 s of the 200 steps of scenario 1.
 The default of the script stays the scenario's count.
+The example runs no runaway grid; the defaults of `--runaway-grid` serve scenario 1 at the reduced size of the tests.
+Above `p = 20` the avalanche source still holds `f_re` after 300 µs of the quench, but a grid to `p_max = 60` held 3e-5 of its density there.
+Its 8 pitch cells, fine near `ξ = 1`, differ from the 4 uniform cells of the hot-tail grid, so that a test crosses DREAM's mapping between the two pitch grids.
+The scheme of `f_hot` on `f_re` keeps one scheme across the interface; DREAM's own default for `f_re` is centred.
 In DREAM runs with `--linear-solver mkl`, with 200 steps the first step fails: its Newton iteration meets a non-finite value (`brent.c:69: computed function value is infinite or NaN`), also in the retry of the step.
 With 500 steps phase 1 converges, and phase 2 runs its 1500 steps.
 The step of 4e-8 s is also that of the case at the size of a test in `test/test_disruption_dream.jl`.

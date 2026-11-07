@@ -34,7 +34,8 @@ grid is set. Without it the settings are those above. The defaults of the runawa
 choice of this package for scenario 1 at the reduced size of the tests: 12 cells of 0.1 from the
 hot-tail p_max 0.8 to 2, 20 geometric cells to 20, where the avalanche source still holds f_re
 after 300 us of the quench, and 8 pitch cells, 5 below theta = 0.5, unlike the 4 uniform cells of
-the hot-tail grid there, so that the test crosses DREAM's mapping between the two pitch grids.
+the hot-tail grid there, so that the test crosses DREAM's mapping between the two pitch grids
+(see the docs page Choices of this package).
 
 The chain: a one-step run for the conductivity of the initial plasma, the field of the
 prescribed current profile of ASDEXU.getCurrentDensity, two runs of 1 s in 3 steps with
@@ -45,7 +46,8 @@ can be repeated without the runs before it.
 
 Every parameter that a run may change is an argument: the radius count, the grid
 sizes, the mode, the advection scheme, the scenario, the step counts. The defaults are
-those of generate.py and ASDEXU.py, cited next to each.
+those of generate.py and ASDEXU.py, cited next to each, except those of the runaway grid
+above.
 
 Usage (from reference/dream, with the environment that run_all.sh sets for <set>), the full case and its extract for the comparison:
     pixi run python <set>/cases/disruption_kinetic.py --outdir <directory> --nt-ioniz 500
@@ -348,16 +350,18 @@ def chain(args):
         # p_max in place of its boundary condition (src/Settings/Equations/f_hot.cpp:94-95 at v26.5), and
         # the kinetic avalanche of the phases puts the Rosenbluth-Putvinski source on f_re above p_max
         # in place of the external avalanche term; the heating of T_cold, the kinetic ionization and
-        # j_re come from f_re (T_cold.cpp:341-365, ions.cpp:340-353, j_re.cpp at v26.5). Nothing below
-        # sets them otherwise.
+        # j_re come from f_re (src/Settings/Equations/T_cold.cpp:341-365, ions.cpp:340-353 and
+        # j_re.cpp at v26.5). Nothing below sets them otherwise.
         ds.runawaygrid.setEnabled(True)
         ds.runawaygrid.setCustomGrid(p_f=runaway_p_faces(args),
                                      xi_f=biuniform_theta_xi_faces(args.re_nxi, args.re_nxi_sep))
         # the settings of f_re stated, as those of f_hot above: the scheme of f_hot unless --re-scheme
-        # (DREAM's default is the centred one, RunawayElectronDistribution.py:22-28), the boundary
-        # condition at the runaway p_max that keeps the flux of the last face (BC_PHI_CONST, DREAM's
-        # default), synchrotron losses neglected as the example leaves them for f_hot (DREAM's default,
-        # DistributionFunction.py:67), and the ion Jacobian off as for f_hot (generate.py:243)
+        # (DREAM's default is the centred one,
+        # py/DREAM/Settings/Equations/RunawayElectronDistribution.py:22-28), the boundary condition at
+        # the runaway p_max that keeps the flux of the last face (BC_PHI_CONST, DREAM's default),
+        # synchrotron losses neglected as the example leaves them for f_hot (DREAM's default,
+        # py/DREAM/Settings/Equations/DistributionFunction.py:67), and the ion Jacobian off as for
+        # f_hot (generate.py:243)
         re_scheme = SCHEMES[args.re_scheme or args.scheme]
         ds.eqsys.f_re.setAdvectionInterpolationMethod(ad_int=re_scheme, ad_jac=FHot.AD_INTERP_JACOBIAN_FULL)
         ds.eqsys.f_re.setBoundaryCondition(bc=DistFunc.BC_PHI_CONST)
@@ -386,7 +390,7 @@ def chain(args):
         ds.solver.tolerance.set("n_hot", abstol=1e5)                                     # generate.py:282-283
         ds.solver.tolerance.set("j_hot", abstol=1)
     if hot and args.runaway_grid:
-        ds.solver.tolerance.set("f_re", abstol=1e5)                                       # as n_hot
+        ds.solver.tolerance.set("f_re", abstol=1e5)                                       # 1e5, as f_hot later
     if 1 in todo:
         run(ds, args, "init")
     if args.run_to < 2:
