@@ -181,6 +181,7 @@ The reference case `reference/dream/cases/disruption_kinetic.py` runs the disrup
 | runaway grid (`--runaway-grid`) | 12 momentum cells of 0.1 from the hot-tail `p_max` 0.8 to 2, 20 geometric cells to `p_max` 20, 8 pitch cells biuniform in θ (5 below θ = 0.5) |
 | advection scheme of `f_re` | that of `f_hot` (`--scheme`) in both phases, not DREAM's default centred scheme |
 | absolute tolerance of `f_re` | 1e5 from run 1 on, that of `f_hot` in the phases |
+| window of phase 2 of the test (`--window-start`, `--window-steps`) | `--window-start 170 --window-steps 10`: steps 170 to 180 of the 429 steps of phase 2 at the reduced size of the tests (`--nt-quench 429 --t-quench 3e-4`); the default of `--window-steps` is 10 |
 
 The DREAM paper runs scenarios 1 and 4, and `generate.py` runs scenario 0 by default, which `--scenario 0` reproduces.
 The cylinder of Runes2P has no shaping, so the case departs from the elongation of `ASDEXU.py`, linear from 1.0 to 1.15 in the radius, which `--elongation asdexu` reproduces.
@@ -196,6 +197,9 @@ DREAM's own default for `f_re` is centred.
 In DREAM runs with `--linear-solver mkl`, with 200 steps the first step fails: its Newton iteration meets a non-finite value (`brent.c:69: computed function value is infinite or NaN`), also in the retry of the step.
 With 500 steps phase 1 converges, and phase 2 runs its 1500 steps.
 The step of 4e-8 s is also that of the case at the size of a test in `test/test_disruption_dream.jl`.
+The window starts where `f_re` carries part of the current: step 170 is at 131.0 µs of the scenario, where the runaway share of the plasma current is 5.9 %.
+This lies inside the 1 to 10 % and the 130 to 150 µs that the window was chosen to meet.
+Ten steps are enough for a test of the suite and keep it short.
 
 The case `heating` of the reference case `reference/dream/cases/initial_state.py` runs the runaway grid of DREAM's `examples/init_f_re/generate.py`.
 The test case `runaway_heating_example` (`test/example_cases.jl`) builds it.

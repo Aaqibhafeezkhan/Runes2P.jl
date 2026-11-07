@@ -49,22 +49,26 @@ can be repeated without the runs before it.
 and run 5 (window) takes n steps from DREAM's state there, with the step length of the unsplit phase
 2, so that its states are those of steps k to k + n of the unsplit run up to the tolerance of the
 solver. `--test-data` then writes the window only, the reference of a test that starts Runes2P from
-DREAM's state partway through the quench. Without it the chain is the one above. `--frac-dinj`
-replaces the injected deuterium of the scenario; without it the density is the scenario's.
+DREAM's state partway through the quench. Without it the chain is the one above. The default of
+10 steps is a choice of this package: a few steps, enough for a test of the suite (see the docs
+page *Choices of this package*). `--frac-dinj` replaces the injected deuterium of the scenario;
+without it the density is the scenario's.
 
 Every parameter that a run may change is an argument: the radius count, the grid
 sizes, the mode, the advection scheme, the scenario, the step counts. The defaults are
 those of generate.py and ASDEXU.py, cited next to each, except those of the runaway grid
-above.
+and of the window above.
 
 Usage (from reference/dream, with the environment that run_all.sh sets for <set>), the full case and its extract for the comparison:
     pixi run python <set>/cases/disruption_kinetic.py --outdir <directory> --nt-ioniz 500
     pixi run python <set>/cases/disruption_kinetic.py --outdir <directory> --nt-ioniz 500 \\
         --run-from 3 --extract <directory>/extract.h5
-and the window of phase 2 with the runaway grid at the reduced size of the tests, from the 164th of 429 steps:
+and the window of phase 2 with the runaway grid at the reduced size of the tests, from step 170 of 429
+(131.0 us of scenario 1, where the runaway share of the plasma current is 5.9 %), into a file such as
+dream_disruption_runaway_small.h5:
     pixi run python <set>/cases/disruption_kinetic.py --outdir <directory> --nr 2 --np1 10 --np2 20 --nxi 4 \\
         --nt-ioniz 500 --t-ioniz 2e-5 --nt-quench 429 --t-quench 3e-4 --linear-solver mkl --runaway-grid \\
-        --window-start 164 --window-steps 10 --test-data dream_disruption_runaway_small.h5
+        --window-start 170 --window-steps 10 --test-data dream_disruption_runaway_small.h5
 """
 import argparse
 import json
@@ -128,6 +132,8 @@ MODES = ("kinetic", "superthermal", "fluid")
 RUNS = ("conductivity", "init", "init_rescaled", "ionization", "quench")
 # the run of --window-start, after the chain; not in RUNS, whose defaults the files made without it store
 WINDOW = "window"
+# the default of --window-steps, a choice of this package: a few steps, enough for a test of the suite
+WINDOW_STEPS = 10
 ALL_RUNS = RUNS + (WINDOW,)
 
 
@@ -177,7 +183,7 @@ def arguments(argv=None):
                              "conductivity, the grids) to this path, the reference of the Runes2P tests of the "
                              "coupled system (dream_disruption_small.h5, dream_disruption_chain_small.h5, "
                              "dream_disruption_superthermal_small.h5; with --runaway-grid and --window-start "
-                             "the window, dream_disruption_runaway_small.h5)")
+                             "the window, e.g. dream_disruption_runaway_small.h5)")
     parser.add_argument("--test-data-runs", default=None,
                         help="the runs that --test-data writes, separated by commas (default: runs 0 to 4, or "
                              "window with --window-start; dream_disruption_small.h5 holds ionization,quench)")
@@ -214,8 +220,9 @@ def arguments(argv=None):
     parser.add_argument("--window-start", type=int, default=None,
                         help="split phase 2 at this saved step of the unsplit phase (a step index with "
                              "--save-steps 0): run 4 stops there and run 5 (window) continues from DREAM's state")
-    parser.add_argument("--window-steps", type=int, default=10,
-                        help="steps of the window run, each as long as a step of the unsplit phase 2")
+    parser.add_argument("--window-steps", type=int, default=WINDOW_STEPS,
+                        help="steps of the window run, each as long as a step of the unsplit phase 2 "
+                             "(only with --window-start)")
     # the injected deuterium, an addition to the example
     parser.add_argument("--frac-dinj", type=float, default=None,
                         help="density of the injected deuterium in units of the initial electron density "
@@ -237,6 +244,13 @@ def check_arguments(args):
         raise SystemExit("--runaway-grid needs the kinetic or superthermal mode")
     if args.window_start is None and args.run_to == len(RUNS):
         raise SystemExit("run 5 (window) needs --window-start")
+    if args.window_start is None and args.run_from == len(RUNS):
+        raise SystemExit("--run-from 5 (window) needs --window-start")
+    if args.window_start is None and args.window_steps != WINDOW_STEPS:
+        raise SystemExit("--window-steps needs --window-start")
+    if args.window_start is not None and args.extract is not None:
+        raise SystemExit("--extract reads the full phase 2, which --window-start splits: run it without "
+                         "--window-start")
     if args.window_start is not None:
         nt_quench = phase_times(args)[3]
         if not 1 <= args.window_start < nt_quench:
