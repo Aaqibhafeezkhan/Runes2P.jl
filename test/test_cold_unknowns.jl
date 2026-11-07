@@ -444,16 +444,16 @@ end
             [KineticUnknown(:f, g), KineticUnknown(:runaway, runaway),
                 RadialUnknown(:cold_electron_temperature),
                 RadialUnknown(:cold_electron_density)])
-        for (lagged, refused) in ((:ions, true), (:all, false))
+        # the interface follows the plasma unknowns with the coefficients, and is linear when
+        # they are lagged
+        for (lagged, columns) in ((:ions, true), (:all, false))
             lower = FokkerPlanckTerm(:f,
                 AdvectionDiffusion(g; scheme = :exponential_fitting, p_upper_boundary = :interface);
                 plasma = PlasmaFromUnknowns(_cold_base), settings = COLD_SETTINGS, lagged)
             interface = MomentumInterfaceTerm(:f, :runaway, lower, upper)
-            if refused
-                @test_throws "no Jacobian columns for them" Runes2P.validate(interface, two_grids, 1)
-            else
-                @test Runes2P.validate(interface, two_grids, 1) === nothing
-            end
+            @test Runes2P.validate(interface, two_grids, 1) === nothing
+            @test Runes2P.has_plasma_columns(interface) == columns
+            @test is_linear(interface) == !columns
         end
     end
 end

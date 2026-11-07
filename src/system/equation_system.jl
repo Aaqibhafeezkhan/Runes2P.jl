@@ -1524,7 +1524,7 @@ function _check_total_energy_rows(equations)
                         crossings = [t
                                      for t in listed
                                      if t isa InterfaceEnergyFluxTerm &&
-                            t.interface.lower === d]
+                                            t.weight === :energy && t.interface.lower === d]
                         if isempty(crossings)
                             throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy " *
                                                 "$total, and the electrons of $d that cross the interface to the runaway " *

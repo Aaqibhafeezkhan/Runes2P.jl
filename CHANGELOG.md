@@ -8,6 +8,10 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Added
 
+- `MomentumInterfaceTerm` takes a hot-tail Fokker-Planck term whose coefficients follow the plasma unknowns (`lagged = ()` or `:ions`).
+  Its Jacobian holds the columns of the temperature, the density and the charge states, as DREAM's `PXiExternalKineticKinetic`; until now it asked for `lagged = :all`.
+- `weight = :density` of `InterfaceEnergyFluxTerm` puts the particle flux through the interface into a radial row, the influx of DREAM's `n_re` from the hot-tail grid; the default `:energy` stays.
+  The settings record of the term holds the weight, a key of the format 0.0.4.
 - `p_zero_boundary` of `AdvectionDiffusion`, `fokker_planck_operator` and `electron_electron_operator` sets the flux through `p = 0` on a grid from `p = 0`.
   The default `:outflow` keeps the flux of the friction there, as DREAM's hot-tail grid; `:zero_flux` takes none, as DREAM's runaway grid.
   The settings record of an operator holds it, and `OUTPUT_FORMAT_VERSION` is 0.0.4 for the new key ([#203](https://github.com/osrep/Runes2P.jl/pull/203)).

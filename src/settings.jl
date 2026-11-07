@@ -992,6 +992,7 @@ end
 
 function describe(term::InterfaceEnergyFluxTerm, context::DescriptionContext)
     record = _term_record(term)
+    record["weight"] = String(term.weight)
     record["coefficient"] = term.coefficient
     record["interface"] = describe(term.interface, context)
     return record

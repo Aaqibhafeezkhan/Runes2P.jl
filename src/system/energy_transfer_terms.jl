@@ -459,28 +459,54 @@ function sparsity!(entries, term::FrictionEnergyTransferTerm, layout, row)
 end
 
 """
-    InterfaceEnergyFluxTerm(interface::MomentumInterfaceTerm; coefficient=-1)
+    InterfaceEnergyFluxTerm(interface::MomentumInterfaceTerm; weight=:energy, coefficient=-1)
 
-`coefficient` times the kinetic energy that electrons carry through the momentum interface
-from the lower grid to the upper one, per volume and second [W/m³]: `mₑc²(γ − 1)` of the
-last momentum cell of the lower grid times [`interface_flux`](@ref). The interface takes
-the electrons from that cell, so this is the energy that the discrete energy moment of the
-lower grid loses (the energy at the interface itself differs by about Δp/(2p)). With the default `coefficient = −1` in the row of
-the temperature it is the energy that leaves the total energy of the electrons on the
-hot-tail grid for the runaway grid ([`total_energy_equation`](@ref)), so the electrons that
-cross take their energy with them and do not heat the cold ones.
+`coefficient` times what the electrons carry through the momentum interface from the lower
+grid to the upper one, per volume and second, into a radial row. `weight`:
+
+- `:energy` [W/m³]: their kinetic energy, `mₑc²(γ − 1)` of the last momentum cell of the
+  lower grid times [`interface_flux`](@ref). The interface takes the electrons from that
+  cell, so this is the energy that the discrete energy moment of the lower grid loses (the
+  energy at the interface itself differs by about Δp/(2p)). With the default
+  `coefficient = −1` in the row of the temperature it is the energy that leaves the total
+  energy of the electrons on the hot-tail grid for the runaway grid
+  ([`total_energy_equation`](@ref)), so the electrons that cross take their energy with
+  them and do not heat the cold ones.
+- `:density` [m⁻³ s⁻¹]: the particle flux [`interface_flux`](@ref) itself. With
+  `coefficient = 1` in the row of the runaway density it is the influx of DREAM's `n_re`
+  from the hot-tail grid (`src/Settings/Equations/n_re.cpp`, `PXiExternalKineticKinetic`
+  with `TYPE_DENSITY`).
+
+When the flux follows the plasma unknowns of the Fokker-Planck term of the interface, the
+row has their columns ([`has_plasma_columns`](@ref)).
 """
 struct InterfaceEnergyFluxTerm{I <: MomentumInterfaceTerm} <: EquationTerm
     interface::I
+    weight::Symbol
     coefficient::Float64
 end
-function InterfaceEnergyFluxTerm(interface::MomentumInterfaceTerm; coefficient::Real = -1.0)
-    InterfaceEnergyFluxTerm(interface, Float64(coefficient))
+function InterfaceEnergyFluxTerm(
+        interface::MomentumInterfaceTerm; weight::Symbol = :energy,
+        coefficient::Real = -1.0)
+    weight in (:energy, :density) ||
+        throw(ArgumentError("weight must be :energy or :density, not $weight"))
+    return InterfaceEnergyFluxTerm(interface, weight, Float64(coefficient))
 end
 
 dependencies(term::InterfaceEnergyFluxTerm) = dependencies(term.interface)
 is_linear(term::InterfaceEnergyFluxTerm) = is_linear(term.interface)
 _coefficient_sources(term::InterfaceEnergyFluxTerm) = _coefficient_sources(term.interface)
+has_plasma_columns(term::InterfaceEnergyFluxTerm) = has_plasma_columns(term.interface)
+
+# coefficient times the factor of the flux at radius ir: the kinetic energy of the last
+# momentum cell of the lower grid, or 1 for the particles
+function _crossing_weight(term::InterfaceEnergyFluxTerm, ir)
+    term.weight === :density && return term.coefficient
+    p = momentum_grid(term.interface.lower_grid, ir).p_centers[end]
+    energy = Constants.ELECTRON_REST_ENERGY * Constants.ELEMENTARY_CHARGE * p^2 /
+             (1 + sqrt(1 + p^2))
+    return term.coefficient * energy
+end
 
 function validate(term::InterfaceEnergyFluxTerm, layout, row)
     layout.kinds[row] === :radial && layout.sizes[row, 1] == 1 ||
@@ -489,16 +515,37 @@ function validate(term::InterfaceEnergyFluxTerm, layout, row)
 end
 
 function rhs!(out, term::InterfaceEnergyFluxTerm, u, layout, row, t)
-    grid = term.interface.lower_grid
     for ir in 1:radial_cell_count(layout)
-        p = momentum_grid(grid, ir).p_centers[end]
-        energy = Constants.ELECTRON_REST_ENERGY * Constants.ELEMENTARY_CHARGE * p^2 /
-                 (1 + sqrt(1 + p^2))
-        #! format: off
-        out[first(unknown_range(layout, row, ir))] += term.coefficient * energy * interface_flux(term.interface, u, layout, ir, t)
-        #! format: on
+        flux = interface_flux(term.interface, u, layout, ir, t)
+        out[first(unknown_range(layout, row, ir))] += _crossing_weight(term, ir) * flux
     end
     return out
+end
+
+function plasma_column_sparsity!(entries, term::InterfaceEnergyFluxTerm, layout, row)
+    source = term.interface.lower_term
+    for ir in 1:radial_cell_count(layout)
+        r = first(unknown_range(layout, row, ir))
+        columns = plasma_columns(source.plasma, layout, ir; with_ions = !_lags_ions(source))
+        append!(entries, ((r, column) for column in columns))
+    end
+    return entries
+end
+
+# the flux with the coefficients of the Fokker-Planck term in dual numbers
+function add_plasma_columns!(J, term::InterfaceEnergyFluxTerm, u, layout, row, t)
+    source = term.interface.lower_term
+    op, with_ions = _dual_coefficients!(source, u, layout, t)
+    for ir in 1:radial_cell_count(layout)
+        flux = _interface_flux(term.interface, op, u, layout, ir)
+        partials = ForwardDiff.partials(_crossing_weight(term, ir) * flux)
+        r = first(unknown_range(layout, row, ir))
+        columns = plasma_columns(source.plasma, layout, ir; with_ions)
+        for n in eachindex(columns)
+            _add_entry!(J, r, columns[n], partials[n])
+        end
+    end
+    return J
 end
 
 # the row reads the last momentum cells of the lower grid, the first of the upper grid, and

@@ -176,6 +176,11 @@ lags_in_ode_form(term::FokkerPlanckTerm) = _is_lagged(term) || _lags_ions(term)
 function _lags_ions(term::FokkerPlanckTerm)
     ion_dependency(term.plasma) !== nothing && ion_dependency(term.plasma) in term.lagged
 end
+# the unknowns of the plasma columns of a Fokker-Planck term: without the charge states it lags
+function _plasma_column_unknowns(term::FokkerPlanckTerm)
+    filter(name -> !(_lags_ions(term) && name === ion_dependency(term.plasma)),
+        collect(Symbol, source_dependencies(term.plasma)))
+end
 # the state of the ion densities of the plasma of a term
 function _ion_state(term::FokkerPlanckTerm, u)
     _lags_ions(term) && !isempty(term.ion_state) ? term.ion_state : u
