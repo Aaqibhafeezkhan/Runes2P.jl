@@ -45,6 +45,13 @@ D and Ar) and phase 2 (thermal and current quench). Each run writes its DREAM ou
 `--outdir`, and `--run-from` starts the chain at a later run from those files, so a phase
 can be repeated without the runs before it.
 
+`--window-start k --window-steps n` splits phase 2 at its saved step k: run 4 then stops at step k,
+and run 5 (window) takes n steps from DREAM's state there, with the step length of the unsplit phase
+2, so that its states are those of steps k to k + n of the unsplit run up to the tolerance of the
+solver. `--test-data` then writes the window only, the reference of a test that starts Runes2P from
+DREAM's state partway through the quench. Without it the chain is the one above. `--frac-dinj`
+replaces the injected deuterium of the scenario; without it the density is the scenario's.
+
 Every parameter that a run may change is an argument: the radius count, the grid
 sizes, the mode, the advection scheme, the scenario, the step counts. The defaults are
 those of generate.py and ASDEXU.py, cited next to each, except those of the runaway grid
@@ -54,6 +61,10 @@ Usage (from reference/dream, with the environment that run_all.sh sets for <set>
     pixi run python <set>/cases/disruption_kinetic.py --outdir <directory> --nt-ioniz 500
     pixi run python <set>/cases/disruption_kinetic.py --outdir <directory> --nt-ioniz 500 \\
         --run-from 3 --extract <directory>/extract.h5
+and the window of phase 2 with the runaway grid at the reduced size of the tests, from the 164th of 429 steps:
+    pixi run python <set>/cases/disruption_kinetic.py --outdir <directory> --nr 2 --np1 10 --np2 20 --nxi 4 \\
+        --nt-ioniz 500 --t-ioniz 2e-5 --nt-quench 429 --t-quench 3e-4 --linear-solver mkl --runaway-grid \\
+        --window-start 164 --window-steps 10 --test-data dream_disruption_runaway_small.h5
 """
 import argparse
 import json
@@ -115,6 +126,9 @@ SCHEMES = {"tcdf": FHot.AD_INTERP_TCDF, "upwind": FHot.AD_INTERP_UPWIND, "centra
            "quick": FHot.AD_INTERP_QUICK}
 MODES = ("kinetic", "superthermal", "fluid")
 RUNS = ("conductivity", "init", "init_rescaled", "ionization", "quench")
+# the run of --window-start, after the chain; not in RUNS, whose defaults the files made without it store
+WINDOW = "window"
+ALL_RUNS = RUNS + (WINDOW,)
 
 
 def arguments(argv=None):
@@ -151,20 +165,22 @@ def arguments(argv=None):
                         help="lu, PETSc's sequential LU of the example (generate.py:60), or mkl, PARDISO with LU as "
                              "the backup (generate.py:59): the same Newton iteration, a faster factorization")
     parser.add_argument("--verbose", action="store_true", help="print DREAM's Newton iterations of the phases")
-    parser.add_argument("--run-from", type=int, default=0, choices=range(len(RUNS)),
-                        help="first run of the chain: " + ", ".join(f"{i} {n}" for i, n in enumerate(RUNS)))
-    parser.add_argument("--run-to", type=int, default=len(RUNS) - 1, choices=range(len(RUNS)),
-                        help="last run of the chain")
+    parser.add_argument("--run-from", type=int, default=0, choices=range(len(ALL_RUNS)),
+                        help="first run of the chain: " + ", ".join(f"{i} {n}" for i, n in enumerate(ALL_RUNS)) +
+                             " (5 only with --window-start)")
+    parser.add_argument("--run-to", type=int, default=None, choices=range(len(ALL_RUNS)),
+                        help="last run of the chain (default: 4, or 5 with --window-start)")
     parser.add_argument("--extract", type=Path, default=None,
                         help="write the compact comparison file of the phases to this path")
     parser.add_argument("--test-data", type=Path, default=None,
                         help="write DREAM's outputs of the runs of the chain in --outdir (the unknowns, the "
                              "conductivity, the grids) to this path, the reference of the Runes2P tests of the "
                              "coupled system (dream_disruption_small.h5, dream_disruption_chain_small.h5, "
-                             "dream_disruption_superthermal_small.h5)")
-    parser.add_argument("--test-data-runs", default=",".join(RUNS),
-                        help="the runs that --test-data writes, separated by commas (default: all; "
-                             "dream_disruption_small.h5 holds ionization,quench)")
+                             "dream_disruption_superthermal_small.h5; with --runaway-grid and --window-start "
+                             "the window, dream_disruption_runaway_small.h5)")
+    parser.add_argument("--test-data-runs", default=None,
+                        help="the runs that --test-data writes, separated by commas (default: runs 0 to 4, or "
+                             "window with --window-start; dream_disruption_small.h5 holds ionization,quench)")
     parser.add_argument("--test-data-channels", action="store_true",
                         help="write with --test-data also the channels of the equation of T_cold that DREAM saves "
                              "(other/fluid/Tcold_*), such as the heating by f_hot (Tcold_fhot_coll)")
@@ -194,7 +210,23 @@ def arguments(argv=None):
                         help="advection interpolation of f_re in both phases (default: that of f_hot, --scheme, "
                              "with its switch to upwind in phase 2; DREAM's own default is the centred one, "
                              "py/DREAM/Settings/Equations/RunawayElectronDistribution.py:22-28)")
+    # the window of phase 2, an addition to the example
+    parser.add_argument("--window-start", type=int, default=None,
+                        help="split phase 2 at this saved step of the unsplit phase (a step index with "
+                             "--save-steps 0): run 4 stops there and run 5 (window) continues from DREAM's state")
+    parser.add_argument("--window-steps", type=int, default=10,
+                        help="steps of the window run, each as long as a step of the unsplit phase 2")
+    # the injected deuterium, an addition to the example
+    parser.add_argument("--frac-dinj", type=float, default=None,
+                        help="density of the injected deuterium in units of the initial electron density "
+                             "(default: the scenario's fracDinj, generate.py:498-509)")
     args = parser.parse_args(argv)
+    # the defaults that depend on --window-start, resolved here so that the runs without it store
+    # the values they stored before the option existed
+    if args.run_to is None:
+        args.run_to = len(ALL_RUNS) - 1 if args.window_start is not None else len(RUNS) - 1
+    if args.test_data_runs is None:
+        args.test_data_runs = WINDOW if args.window_start is not None else ",".join(RUNS)
     check_arguments(args)
     return args
 
@@ -203,6 +235,18 @@ def check_arguments(args):
     """Refuse the combinations that the chain cannot run, before any run or file is written."""
     if args.runaway_grid and args.mode == "fluid":
         raise SystemExit("--runaway-grid needs the kinetic or superthermal mode")
+    if args.window_start is None and args.run_to == len(RUNS):
+        raise SystemExit("run 5 (window) needs --window-start")
+    if args.window_start is not None:
+        nt_quench = phase_times(args)[3]
+        if not 1 <= args.window_start < nt_quench:
+            raise SystemExit(f"--window-start must be a step of phase 2, from 1 to {nt_quench - 1}")
+        if not 1 <= args.window_steps <= nt_quench - args.window_start:
+            raise SystemExit(f"--window-steps must be from 1 to {nt_quench - args.window_start}, the steps of "
+                             "phase 2 after --window-start")
+        if args.save_steps > 0:
+            raise SystemExit("--window-start counts the saved steps of phase 2 with every step saved: "
+                             "--save-steps 0")
     if not args.runaway_grid:
         return
     if not 1 <= args.re_nxi_sep < args.re_nxi:
@@ -218,10 +262,19 @@ RE_ARGUMENTS = ("runaway_grid", "re_dp_fine", "re_p_fine_to", "re_pmax", "re_np_
                 "re_scheme")
 
 
+WINDOW_ARGUMENTS = ("window_start", "window_steps")
+
+
 def omitted_arguments(args):
-    """The arguments of the runaway grid, left out of the stored arguments without --runaway-grid, so
-    that the files made without it keep the arguments they were made with."""
-    return () if args.runaway_grid else RE_ARGUMENTS
+    """The arguments of the runaway grid, left out of the stored arguments without --runaway-grid, those
+    of the window without --window-start and --frac-dinj without a value, so that the files made
+    without them keep the arguments they were made with."""
+    omitted = () if args.runaway_grid else RE_ARGUMENTS
+    if args.window_start is None:
+        omitted += WINDOW_ARGUMENTS
+    if args.frac_dinj is None:
+        omitted += ("frac_dinj",)
+    return omitted
 
 
 def biuniform_theta_xi_faces(nxi, nsep, thetasep=0.5):
@@ -264,7 +317,7 @@ def phase_times(args):
 
 
 def path(args, run, kind="output"):
-    return args.outdir / f"{kind}_{RUNS.index(run)}_{run}.h5"
+    return args.outdir / f"{kind}_{ALL_RUNS.index(run)}_{run}.h5"
 
 
 def set_grid(ds, args):
@@ -307,8 +360,8 @@ def earlier_output(args, name):
     """DREAM's output of an earlier run of the chain, which a later --run-from starts from."""
     output = path(args, name)
     if not output.exists():
-        raise SystemExit(f"{output} is missing: run {RUNS.index(name)} ({name}) first, "
-                         f"with --run-from {RUNS.index(name)} or lower")
+        raise SystemExit(f"{output} is missing: run {ALL_RUNS.index(name)} ({name}) first, "
+                         f"with --run-from {ALL_RUNS.index(name)} or lower")
     return DREAMOutput(str(output))
 
 
@@ -316,11 +369,12 @@ def run(ds, args, name):
     settings, output = path(args, name, "settings"), path(args, name)
     ds.output.setFilename(str(output))
     ds.save(str(settings))
-    print(f"run {RUNS.index(name)} {name}", flush=True)
+    index = ALL_RUNS.index(name)
+    print(f"run {index} {name}", flush=True)
     # the arguments of the invocation that made this run: a later --run-from keeps them
-    (args.outdir / f"arguments_{RUNS.index(name)}_{name}.json").write_text(
+    (args.outdir / f"arguments_{index}_{name}.json").write_text(
         json.dumps({k: str(v) for k, v in vars(args).items() if k not in omitted_arguments(args)}, indent=1))
-    with open(args.outdir / f"log_{RUNS.index(name)}_{name}.txt", "w") as log:
+    with open(args.outdir / f"log_{index}_{name}.txt", "w") as log:
         subprocess.run([str(base.DREAMI), str(settings)], check=True, stdout=log, stderr=subprocess.STDOUT)
     return output
 
@@ -477,7 +531,8 @@ def chain(args):
     ds1.fromOutput(str(path(args, "init_rescaled")), ignore=ignorelist)                  # generate.py:394
 
     # generate.py simulate, phase 1: ionization
-    ds1.eqsys.n_i.addIon("Dinj", Z=1, iontype=Ions.IONS_DYNAMIC_NEUTRAL, n=scenario["fracDinj"] * NE0, T=1)
+    frac_dinj = scenario["fracDinj"] if args.frac_dinj is None else args.frac_dinj
+    ds1.eqsys.n_i.addIon("Dinj", Z=1, iontype=Ions.IONS_DYNAMIC_NEUTRAL, n=frac_dinj * NE0, T=1)
     ds1.eqsys.n_i.addIon("Ar", Z=18, iontype=Ions.IONS_DYNAMIC_NEUTRAL, n=scenario["fracAr"] * NE0, T=1)
     if scenario["Drr"] > 0:
         ds1.eqsys.T_cold.transport.prescribeDiffusion(drr=scenario["Drr"])               # generate.py:443-444
@@ -495,8 +550,13 @@ def chain(args):
     ds2 = DREAMSettings(ds1)
     ds2.fromOutput(str(path(args, "ionization")))
     ds2.clearIgnore()
-    ds2.timestep.setTmax(t_quench - t_ioniz)
-    ds2.timestep.setNt(nt_quench)
+    if args.window_start is None:
+        ds2.timestep.setTmax(t_quench - t_ioniz)
+        ds2.timestep.setNt(nt_quench)
+    else:
+        # run 4 to the window start, with the step length (t_quench - t_ioniz)/nt_quench of the unsplit phase
+        ds2.timestep.setTmax((t_quench - t_ioniz) * args.window_start / nt_quench)
+        ds2.timestep.setNt(args.window_start)
     if args.save_steps > 0:
         ds2.timestep.setNumberOfSaveSteps(min(args.save_steps, nt_quench))
     # generate.py:478-480 switches scenario 0 to upwind in kinetic mode, and generate.py:476-477
@@ -511,6 +571,20 @@ def chain(args):
                                                             ad_jac=FHot.AD_INTERP_JACOBIAN_FULL)
     if 4 in todo:
         run(ds2, args, "quench")
+    if args.run_to < 5:
+        return
+    with h5py.File(path(args, "quench"), "r") as res:                                    # not an unsplit run 4
+        if res["grid/t"].size != args.window_start + 1:
+            raise SystemExit(f"{path(args, 'quench')} holds {res['grid/t'].size - 1} steps, not the "
+                             f"--window-start {args.window_start}: run 4 again with --run-from 4")
+
+    # the window: the steps window_start to window_start + window_steps of phase 2 from DREAM's state at
+    # the end of run 4, as generate.py:460-470 starts phase 2 from phase 1, with the settings of phase 2
+    ds3 = DREAMSettings(ds2)
+    ds3.fromOutput(str(path(args, "quench")))
+    ds3.timestep.setTmax((t_quench - t_ioniz) * args.window_steps / nt_quench)
+    ds3.timestep.setNt(args.window_steps)
+    run(ds3, args, WINDOW)
 
 
 # the fluid and scalar quantities of the comparison, (time, radius) and (time,)
@@ -594,11 +668,19 @@ def test_data(args):
         out.attrs["source"] = "disruption_kinetic.py"
         out.attrs["arguments"] = json.dumps(stored_arguments(args))
         base.provenance(out)
-        for name in RUNS:
+        for name in ALL_RUNS:
             if name not in args.test_data_runs.split(",") or not path(args, name).exists():
                 continue
             with h5py.File(path(args, name), "r") as res:
                 group = out.create_group(name)
+                if name == WINDOW:
+                    # the times of the window count from its start, as those of each phase do: its start
+                    # as a step of phase 2 and as a time from the start of phase 2 and of phase 1
+                    t_ioniz, _, t_quench, nt_quench = phase_times(args)
+                    t_start = (t_quench - t_ioniz) * args.window_start / nt_quench
+                    group.attrs["window_start_step"] = args.window_start
+                    group.attrs["window_start_time_quench"] = t_start
+                    group.attrs["window_start_time"] = t_ioniz + t_start
                 for q in TEST_UNKNOWNS:
                     if f"eqsys/{q}" in res:
                         group[f"eqsys/{q}"] = res[f"eqsys/{q}"][:]
