@@ -3,21 +3,23 @@
 # the GSL program in ../gsl/.
 #
 # Usage: bash run_all.sh [<data directory>] [set ...]
-#   sets: dream-v26.5, dream-v26.5-disruption, dream-v26.5-initial-state, dream-boltzmann-eqterm-93d27e17,
-#   gsl-2.8 (default: all)
+#   sets: dream-v26.5, dream-v26.5-disruption, dream-v26.5-initial-state, dream-v26.5-runaway-grid,
+#   dream-boltzmann-eqterm-93d27e17, gsl-2.8 (default: all)
 #   The data directory defaults to the folder of this script. A first argument that is not
 #   the name of a set is taken as the data directory.
 #   ONLY="<script> ..." in the environment runs only those case scripts of the DREAM sets.
 #
 # The data directory holds pixi.toml, pixi.lock and scripts/ of this folder, and what
 # build_all.sh builds there: petsc/ and one directory per DREAM build with DREAM/ and build/
-# (dream-v26.5-disruption and dream-v26.5-initial-state run on the build of dream-v26.5).
+# (dream-v26.5-disruption, dream-v26.5-initial-state and dream-v26.5-runaway-grid run on the build
+# of dream-v26.5).
 # The case scripts are copied into <build>/cases/, because they find dreami, the DREAM checkout
 # and PETSc relative to their own folder. The outputs go to out/<set>/, the working files to
 # work/<set>/ and the logs to logs/.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SET_NAMES=(dream-v26.5 dream-v26.5-disruption dream-v26.5-initial-state dream-boltzmann-eqterm-93d27e17 gsl-2.8)
+SET_NAMES=(dream-v26.5 dream-v26.5-disruption dream-v26.5-initial-state dream-v26.5-runaway-grid
+    dream-boltzmann-eqterm-93d27e17 gsl-2.8)
 DATA_DIR="$HERE"
 if [[ $# -gt 0 && " ${SET_NAMES[*]} " != *" $1 "* ]]; then
     DATA_DIR="$(cd "$1" && pwd)"
@@ -65,6 +67,11 @@ INITIAL_STATE_CASES=(
     "initial_state dream_runaway_heating.h5 case=heating"
     "disruption_kinetic dream_disruption_superthermal_channels_small.h5 --mode superthermal --test-data-runs ionization,quench --test-data-channels"
 )
+# the disruption of scenario 1 with DREAM's runaway grid, in a window of 10 steps of phase 2 from its
+# step 170; its own arguments in place of DISRUPTION_ARGS (RUNAWAY_GRID_ARGS)
+RUNAWAY_GRID_CASES=(
+    "disruption_kinetic dream_disruption_runaway_small.h5 --runaway-grid --window-start 170"
+)
 BOLTZMANN_CASES=(
     "knockon_operator dream_knockon_operator.h5"
     "avalanche_kinetic dream_avalanche_kinetic.h5 source=boltzmann pmax=200 tmax=0.08 nt=192 windows=4 pcut=0.13 store=test"
@@ -75,6 +82,8 @@ BOLTZMANN_CASES=(
 )
 # the test-size disruption of test/test_disruption_dream.jl, with the MKL linear solver
 DISRUPTION_ARGS="--nr 2 --np1 10 --np2 20 --nxi 4 --nt-ioniz 10 --t-ioniz 4e-7 --nt-quench 10 --t-quench 1.4e-6 --linear-solver mkl"
+# the same grid with phase 1 in 500 steps over 2e-5 s and phase 2 in 429 steps over 3e-4 s
+RUNAWAY_GRID_ARGS="--nr 2 --np1 10 --np2 20 --nxi 4 --nt-ioniz 500 --t-ioniz 2e-5 --nt-quench 429 --t-quench 3e-4 --linear-solver mkl"
 
 run_dream_set() {  # run_dream_set <set> <build> <commit> <branch label> <case lines...>
     local set=$1 build=$2 commit=$3 branch=$4
@@ -115,6 +124,10 @@ for set in "${SETS[@]}"; do
             run_dream_set "$set" dream-v26.5 ecdd5e146537c77602c9d7cc76b36100200e4b9a v26.5 "${DISRUPTION_CASES[@]}" ;;
         dream-v26.5-initial-state)
             run_dream_set "$set" dream-v26.5 ecdd5e146537c77602c9d7cc76b36100200e4b9a v26.5 "${INITIAL_STATE_CASES[@]}" ;;
+        dream-v26.5-runaway-grid)
+            # the assignment holds for this call only
+            DISRUPTION_ARGS="$RUNAWAY_GRID_ARGS" \
+                run_dream_set "$set" dream-v26.5 ecdd5e146537c77602c9d7cc76b36100200e4b9a v26.5 "${RUNAWAY_GRID_CASES[@]}" ;;
         dream-boltzmann-eqterm-93d27e17)
             run_dream_set "$set" "$set" 93d27e1763827e19dafb1fe790e99c2688ad6d62 boltzmann-eqterm "${BOLTZMANN_CASES[@]}" ;;
         gsl-2.8)

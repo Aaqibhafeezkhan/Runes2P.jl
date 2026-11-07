@@ -239,7 +239,8 @@ Its test checks the budgets of its closures alone.
 | thermal and current quench | run 4 | started from DREAM's state at the start of the phase | `test_disruption_dream.jl` |
 | the chain end to end | runs 0 to 4 | the initialization, then each phase from Runes2P's own end state of the run before it | `test_disruption_chain_dream.jl` |
 | the chain end to end in the superthermal mode | runs 0 to 4 of `generate.py --superthermal` | the same with `mode = :superthermal` of the builder of the case, and each phase from DREAM's state at its start | `test_disruption_superthermal_dream.jl` |
-| thermal and current quench with a runaway grid | not compared with DREAM yet: the case script's `--runaway-grid` ([Choices](choices.md#Reference-cases)) | `runaway = true` of the builder of the case: the flux through `p_max` of `f_hot` enters `f_re` and `n_re` ([`MomentumInterfaceTerm`](@ref), [`InterfaceParticleFluxTerm`](@ref)), the avalanche above that `p_max` is kinetic on `f_re` and fluid in `n_re`, and `f_re` carries the runaway current, ionizes the ions and heats the cold electrons; started from DREAM's state at the start of the quench with `f_re` zero, with the budgets of its closures at both `compat` values | `test_disruption_runaway.jl` |
+| thermal and current quench with a runaway grid | the case script's `--runaway-grid` ([Choices](choices.md#Reference-cases)): runs 1 to 4 with the runaway grid, and the window of 10 steps from step 170 of the quench | `runaway = true` of the builder of the case: the flux through `p_max` of `f_hot` enters `f_re` and `n_re` ([`MomentumInterfaceTerm`](@ref), [`InterfaceParticleFluxTerm`](@ref)), the avalanche above that `p_max` is kinetic on `f_re` and fluid in `n_re`, and `f_re` carries the runaway current, ionizes the ions and heats the cold electrons; the window started from DREAM's state at its start, with the budgets of its closures at both `compat` values | `test_disruption_runaway_dream.jl` |
+| the same from `f_re` zero | not compared with DREAM: the quench of run 4 without the runaway grid | the start of the quench with `f_re` zero, the budgets of its closures at both `compat` values | `test_disruption_runaway.jl` |
 
 - The initialization agrees with DREAM to 8e-10 in the field, the currents, the poloidal flux and the plasma current.
 - It agrees to 3e-11 in `f_hot` and the hot-electron density; DREAM's Newton tolerance of these runs is 1e-7.
@@ -249,6 +250,8 @@ Its test checks the budgets of its closures alone.
 - From DREAM's state they differ by 7e-13, 1e-12 and 6e-12 (`test_disruption_dream.jl`; the runaway density at the first radius).
 - With Runes2P's defaults the chain runs end to end as well, and the budgets of its closures hold within the bounds of the phases started from DREAM's state.
 - In the superthermal mode the initialization agrees with DREAM to 2e-9 and the phases to 4e-6, the largest in the ion densities and the cold electrons.
+- With the runaway grid, the window agrees with DREAM to 1e-9 in `f_re`, `n_re` and `j_re`, and to 2e-8 in every other quantity, the largest in the ion densities.
+- In it the runaway current is 5.9 % of the plasma current at the start; DREAM's `j_re` equals the moment of its `f_re` on Runes2P's grid to 1e-15.
 
 ## What Runes2P has that DREAM does not
 

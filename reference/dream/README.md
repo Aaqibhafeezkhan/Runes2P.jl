@@ -14,6 +14,7 @@ Each script in `cases/` states its case, its overrides and the test that reads i
 | `dream-v26.5` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a` | 16 |
 | `dream-v26.5-disruption` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a`: the disruption chain from its initialization | 2 |
 | `dream-v26.5-initial-state` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a`: the starts of a run (the coronal start, the runaway shapes) and the heating of the cold electrons by a runaway grid and by the superthermal hot tail | 4 |
+| `dream-v26.5-runaway-grid` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a`: the disruption with the runaway grid, in a window of 10 steps of phase 2 | 1 |
 | `dream-boltzmann-eqterm-93d27e17` | DREAM branch `boltzmann-eqterm`, commit `93d27e1763827e19dafb1fe790e99c2688ad6d62` | 6 |
 | `gsl-2.8` | GSL 2.8 of conda-forge | 1 |
 
@@ -52,21 +53,21 @@ The logs go to `logs/`.
 ## Regenerate
 
 ```bash
-bash run_all.sh                       # all five sets
+bash run_all.sh                       # all six sets
 bash run_all.sh gsl-2.8               # named sets only
 ONLY="kinetic_operator" bash run_all.sh dream-v26.5
 ```
 
 A first argument that is not the name of a set is the data directory, which defaults to this folder.
 `run_all.sh` checks that the DREAM checkout of each set is at its commit before it runs a case.
-The sets `dream-v26.5-disruption` and `dream-v26.5-initial-state` run on the build of `dream-v26.5`, so they need no checkout of their own.
+The sets `dream-v26.5-disruption`, `dream-v26.5-initial-state` and `dream-v26.5-runaway-grid` run on the build of `dream-v26.5`, so they need no checkout of their own.
 
 ## Layout
 
 - `cases/`: the 23 case scripts of the DREAM sets.
 - `scripts/`: the fetch and build steps that `pixi.toml` runs as tasks.
 - `petsc/`: the shared PETSc, made by `build_all.sh`.
-- `<build>/DREAM/`, `<build>/build/`: the DREAM checkout and build of a set, named after the set; `dream-v26.5-disruption` and `dream-v26.5-initial-state` use that of `dream-v26.5`.
+- `<build>/DREAM/`, `<build>/build/`: the DREAM checkout and build of a set, named after the set; `dream-v26.5-disruption`, `dream-v26.5-initial-state` and `dream-v26.5-runaway-grid` use that of `dream-v26.5`.
   `<build>/petsc` links to the shared PETSc.
 - `<build>/cases/`: the copies of the case scripts that `run_all.sh` runs.
   They find `dreami`, the DREAM checkout and PETSc relative to their own folder.
