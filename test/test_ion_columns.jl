@@ -1,9 +1,10 @@
 # The terms of the fluid rows that read the ion charge states from the unknowns: the radiated
 # power, the conductivity, the energy exchange with the ions and the heating by fluid
 # runaways. Each gives the residual of the same ions prescribed, its direct
-# Jacobian agrees with the forward-mode Jacobian of its residual and with a central
-# difference, and the binding energy of the radiated power is the ionization energy times
-# the flows between the charge states of the rate equations. Needs the ADF11 cache.
+# Jacobian agrees with the forward-mode Jacobian of its residual and, in the columns of the
+# ion densities, the temperature and the density, with a central difference, and the binding
+# energy of the radiated power is the ionization energy times the flows between the charge
+# states of the rate equations. Needs the ADF11 cache.
 using ForwardDiff
 using SparseArrays: sparse, nnz
 using Runes2P: add_local_jacobian!, local_layout
@@ -40,8 +41,7 @@ function _column_case(; nr = 2)
     return layout, prescribed, u
 end
 
-# the column of the unknown entry j by a central difference, with a large step on the ion
-# densities, where the terms bend only through the logarithms
+# the column of the unknown entry j by a central difference of step h
 function _central_column(rhs, u, j, h)
     up, down = copy(u), copy(u)
     up[j] += h
@@ -106,12 +106,39 @@ end
                 listed = Set(entries)
                 @test all(iszero(reference_jacobian[i, j]) || (i, j) in listed
                 for i in 1:n, j in 1:n)
-                # the columns of a radius against a central difference
+                # the columns of the ion densities of a radius against a central difference,
+                # with a large step, where the terms bend only through the logarithms
                 size_of_rhs = maximum(abs, rhs(u))
                 for j in unknown_range(layout, 1, 2)
                     column = _central_column(rhs, u, j, 1e13)
                     @test maximum(abs, Matrix(J)[:, j] - column) <=
                           1e-5 * maximum(abs, column) + 1e-13 * size_of_rhs / 1e13
+                end
+                # the columns of the temperature and the density at both radii against a
+                # central difference of step 1e-4 of the value: the direct block takes these
+                # derivatives through ForwardDiff, so the comparison above does not check
+                # them independently. The truncation error, of order the step squared, is at
+                # most 1.4e-8 of the column here (the exchange; 3e-9 for the radiated power
+                # and the runaway heating), the round-off about 1e-11. The state is inside the
+                # ADF11 tables, away from their edges and the extrapolation, and the steps
+                # cross no node of the tables (the nearest 0.3 % away in T, 1 % in n) but
+                # 20 eV, a node of the tables of hydrogen. The bicubic interpolation is C¹
+                # alone there: the difference across it errs by the step times the jump of
+                # the second derivative, below 1e-9 of the column here.
+                # every term of these cases reads the temperature, and all but the
+                # conductivity the density, so no column below is skipped unnoticed
+                @test :cold_electron_temperature in Runes2P.dependencies(term)
+                @test (:cold_electron_density in Runes2P.dependencies(term)) ==
+                      !(term isa ConductivityTerm)
+                for unknown in (:cold_electron_temperature, :cold_electron_density),
+                    ir in 1:2
+
+                    unknown in Runes2P.dependencies(term) || continue
+                    j = first(unknown_range(layout, row(unknown), ir))
+                    h = 1e-4 * u[j]
+                    column = _central_column(rhs, u, j, h)
+                    @test maximum(abs, Matrix(J)[:, j] - column) <=
+                          1e-7 * maximum(abs, column) + 1e-13 * size_of_rhs / h
                 end
                 # the derivative of a charge state that is empty: the column holds the
                 # derivative at zero density
