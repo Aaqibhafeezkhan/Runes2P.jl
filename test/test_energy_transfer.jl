@@ -1,8 +1,9 @@
 # The energy that the runaway grid and the electrons leaving the hot-tail grid exchange with
 # the total energy of the electrons: the collisional transfer of a
 # runaway population against the friction power of superthermal electrons, its Jacobian
-# with the plasma columns, and the energy carried through p_max and through the interface.
-using SparseArrays: findnz
+# with the plasma columns and with the plasma lagged (no plasma columns), and the energy
+# carried through p_max and through the interface, with the column of the field.
+using SparseArrays: findnz, nnz, sparse
 
 @testset "energy transfer" begin
     e, c, r0, me = Constants.ELEMENTARY_CHARGE,
@@ -94,6 +95,57 @@ using SparseArrays: findnz
         power(state) = Runes2P.rhs!(zeros(length(u)), term, state, layout, 2, 0.0)[first(Runes2P.unknown_range(
             layout, 2, 1))]
         @test power(hotter) == power(u)
+        # lagged in a step: the Newton residual prepares the terms at the start of the step
+        # u_old, and the loss row holds the columns of f alone. u_old is hotter than the
+        # iterate, so that the columns of f tell the plasma of u_old from that of the iterate.
+        collisions = fp(:all)
+        lagged = system(:all, collisions)
+        loss = free_electron_energy_transfer_term(collisions)
+        u_old, dt = copy(hotter), 1e-6
+        T_row = first(Runes2P.unknown_range(layout, 2, 1))
+        T_column, n_column = first(Runes2P.unknown_range(layout, 2, 1)),
+        first(Runes2P.unknown_range(layout, 3, 1))
+        residual!(zeros(length(u)), u, u_old, lagged, 0.0, dt)
+        J = jacobian_prototype(lagged)
+        jacobian!(J, lagged, u, 0.0)
+        # the pattern and the values of the loss alone, a copy of that of the system prepared
+        # at u_old as the system prepares its own: no column of the temperature or the
+        # density, which the implicit loss has
+        Runes2P.prepare_step!(loss, u_old, layout, 2, 0.0)
+        entries = Runes2P.sparsity!(Tuple{Int, Int}[], loss, layout, 2)
+        @test all(in(Runes2P.unknown_range(layout, 1, 1)), last.(entries))
+        JL = sparse(first.(entries), last.(entries), zeros(length(entries)), length(u),
+            length(u))
+        Runes2P.add_jacobian!(JL, loss, u, layout, 2, 0.0)
+        @test nnz(JL[:, [T_column, n_column]]) == 0
+        # the row in the system: the temperature column is that of the linear term alone
+        @test J[T_row, T_column] == -1e3 && J[T_row, n_column] == 0
+        # The loss is linear in f with the plasma held, so the central difference of the
+        # residual is exact up to round-off: a step of 1e-6 of the scale of f, and the
+        # tolerance of the implicit columns above (the difference is within 1e-11).
+        # The row is algebraic, so its residual is minus the right-hand side.
+        function residual_row(x)
+            F = zeros(length(x))
+            residual!(F, x, u_old, lagged, 0.0, dt)
+            return F[T_row]
+        end
+        for column in (Runes2P._kinetic_index(layout, 1, 1, 120, 2),
+            Runes2P._kinetic_index(layout, 1, 1, 150, 4))
+            h = 1e-6 * 1e16
+            up, down = copy(u), copy(u)
+            up[column] += h
+            down[column] -= h
+            @test J[T_row, column] ≈ -(residual_row(up) - residual_row(down)) / 2h rtol = 1e-6
+        end
+        # the loss reads the plasma of u_old, held as numbers, so a step in the temperature
+        # or the density of the iterate leaves it unchanged exactly, not to round-off
+        loss_row(x) = Runes2P.rhs!(zeros(length(x)), loss, x, layout, 2, 0.0)[T_row]
+        for (column, h) in ((T_column, 1e-6 * 100.0), (n_column, 1e-6 * 1e19))
+            up, down = copy(u), copy(u)
+            up[column] += h
+            down[column] -= h
+            @test loss_row(up) - loss_row(down) == 0
+        end
     end
 
     @testset "energy through p_max and through the interface" begin
@@ -178,5 +230,50 @@ using SparseArrays: findnz
                 Equation(:cold_electron_temperature, Algebraic(), stray,
                     LinearTerm(:cold_electron_temperature; coefficient = -1e3))];
             initial_state = w)
+
+        # the field as an unknown: the lower Fokker-Planck term takes it, the advection at
+        # the interface face holds the field of the state, and the energy row its column
+        E0 = 50.0
+        field_op = fokker_planck_operator(
+            hot, driven, settings; p_upper_boundary = :interface, field_in_coefficients = false)
+        lower_term = FokkerPlanckTerm(:f, field_op; electric_field = :electric_field)
+        field_interface = MomentumInterfaceTerm(:f, :runaway, lower_term, upper_op)
+        field_term = InterfaceEnergyFluxTerm(field_interface)
+        @test :electric_field in dependencies(field_term) && !is_linear(field_term)
+        with_field = UnknownLayout(rad,
+            [RadialUnknown(:electric_field), KineticUnknown(:f, hot; scale = 1e16),
+                KineticUnknown(:runaway, upper; scale = 1e16),
+                RadialUnknown(:cold_electron_temperature)])
+        v = zeros(length(with_field))
+        unknown_values(v, with_field, 1) .= E0
+        kinetic_array(v, with_field, 2) .= kinetic_array(w, two, 1)
+        kinetic_array(v, with_field, 3) .= kinetic_array(w, two, 2)
+        field_system = EquationSystem(with_field,
+            [
+                Equation(:electric_field, Algebraic(), PrescribedValueTerm([E0]),
+                    LinearTerm(:electric_field; coefficient = -1)),
+                Equation(:f, TimeDerivative(), lower_term, field_interface),
+                Equation(:runaway, TimeDerivative(), field_interface),
+                Equation(:cold_electron_temperature, Algebraic(), field_term,
+                    LinearTerm(:cold_electron_temperature; coefficient = -1e3))];
+            initial_state = v)
+        J = jacobian_prototype(field_system)
+        jacobian!(J, field_system, v, 0.0)
+        T_row = first(Runes2P.unknown_range(with_field, 4, 1))
+        E_column = first(Runes2P.unknown_range(with_field, 1, 1))
+        @test (T_row, E_column) in zip(findnz(J)[1:2]...)
+        # The superthermal operator has no diffusion at the face, so the flux is upwind. The
+        # advection at the face changes sign in a pitch cell at |E| below 0.05 V/m, so at
+        # 50 V/m the row is linear in E within the step: a step of 1e-6 E is exact up to
+        # round-off (within 1e-10), and the tolerance is that of the columns above.
+        h = 1e-6 * E0
+        up, down = copy(v), copy(v)
+        up[E_column] += h
+        down[E_column] -= h
+        F_up, F_down = zeros(length(v)), zeros(length(v))
+        rhs!(F_up, up, field_system, 0.0)
+        rhs!(F_down, down, field_system, 0.0)
+        @test J[T_row, E_column] != 0
+        @test J[T_row, E_column] ≈ (F_up[T_row] - F_down[T_row]) / (2h) rtol = 1e-6
     end
 end
