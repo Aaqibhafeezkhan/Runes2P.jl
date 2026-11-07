@@ -1112,9 +1112,10 @@ end
 function runaway_budget_checks(case, solution, label, bounds)
     b = runaway_budgets(case, solution)
     checks = [(name, getfield(b, name), getfield(bounds, name)) for name in keys(bounds)]
-    push!(checks, (:influx, -b.influx, 0.0))
     for (name, value, _) in checks
         @info "the disruption case, $label: $name $value"
     end
+    @info "the disruption case, $label: influx $(b.influx) m⁻³ s⁻¹"
+    push!(checks, (:negative_influx, -b.influx, 0.0))
     return checks
 end
