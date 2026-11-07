@@ -3,8 +3,8 @@
 # grid of 30 × 4 cells) with the case script's runaway grid (reference/dream/cases/disruption_kinetic.py
 # --runaway-grid: 32 × 8 cells from the hot-tail p_max 0.8 to 20). The window of
 # dream_disruption_runaway_small.h5 is DREAM's state at step 170 of the quench, 1.31e-4 s after
-# the start, where the runaway current is 5.9 % of the plasma current, and the 10 steps of
-# 6.53e-7 s after it. The system of example_disruption.jl with `runaway = true` starts from that
+# the start of the scenario, where the runaway current is 5.9 % of the plasma current, and the
+# 10 steps of 6.53e-7 s after it. The system of example_disruption.jl with `runaway = true` starts from that
 # state and runs the 10 steps with DREAM's settings: the flux through the interface of the two
 # grids into f_re and n_re, the kinetic avalanche on f_re and the fluid one in n_re above the
 # hot-tail p_max, the runaway current as the moment of f_re, the kinetic ionization by f_re and
@@ -66,16 +66,6 @@ function run_window(start, compat)
     return case, system, u0, solution
 end
 
-function check_runaway_budgets(case, solution, label)
-    b = runaway_budgets(case, solution)
-    for name in keys(WINDOW_RUNAWAY_BUDGETS)
-        @info "the disruption case with a runaway grid, $label: $name $(getfield(b, name))"
-        @test getfield(b, name) < getfield(WINDOW_RUNAWAY_BUDGETS, name)
-    end
-    # electrons cross from f into f_re
-    @test b.influx > 0
-end
-
 @testset "the disruption case with a runaway grid against DREAM" begin
     if !isdir(adas_cache_directory())
         @info "no ADF11 cache at $(adas_cache_directory()): the disruption case with a runaway grid against DREAM is skipped"
@@ -104,13 +94,21 @@ end
         for (_, value, bound) in budget_checks(case, solution, "window, compat = dream", DRIFT["quench"])
             @test value < bound
         end
-        check_runaway_budgets(case, solution, "window, compat = dream")
+        for (_, value, bound) in runaway_budget_checks(
+            case, solution, "window, compat = dream",
+            WINDOW_RUNAWAY_BUDGETS)
+            @test value < bound
+        end
         # Runes2P's defaults: the budgets alone, since the physics departs from DREAM's
         case, _, _, solution = run_window(start, :runes2p)
         @test all(solution.statistics.accepted)
         for (_, value, bound) in budget_checks(case, solution, "window, compat = runes2p", DRIFT["quench"])
             @test value < bound
         end
-        check_runaway_budgets(case, solution, "window, compat = runes2p")
+        for (_, value, bound) in runaway_budget_checks(
+            case, solution, "window, compat = runes2p",
+            WINDOW_RUNAWAY_BUDGETS)
+            @test value < bound
+        end
     end
 end

@@ -1,8 +1,9 @@
 # The system of Runes2P for DREAM's disruption case (reference/dream/cases/disruption_kinetic.py:
 # DREAM's examples/Disruptions/generate.py, scenario 1, with examples/Disruptions/ASDEXU.py):
-# the builder of test_disruption_dream.jl, test_disruption_initialization_dream.jl and
-# test_disruption_chain_dream.jl, with the comparison of a run with DREAM (`phase_differences`)
-# and the budgets of the assembled system with their bounds (`budgets`, `budget_checks`).
+# the builder of test_disruption_dream.jl, test_disruption_initialization_dream.jl,
+# test_disruption_chain_dream.jl and test_disruption_runaway_dream.jl, with the comparison of a
+# run with DREAM (`phase_differences`) and the budgets of the assembled system with their bounds
+# (`budgets`, `budget_checks`).
 # `mode = :superthermal` builds DREAM's superthermal mode of the case (generate.py --superthermal,
 # MODE_SUPERTHERMAL), the builder of test_disruption_superthermal_dream.jl.
 # `build` gives the system of one of the two phases of the case (the ionization of the
@@ -11,10 +12,11 @@
 # `initial_state_after_initialization`). With compat = dream it takes DREAM's settings of the
 # case, with compat = runes2p the defaults of Runes2P.
 # `runaway = true` adds DREAM's runaway grid above the hot-tail grid (the case script's
-# --runaway-grid), the builder of test_disruption_runaway.jl: on the faces `runaway_p_faces` and
-# `runaway_xi_faces`, by default those of the case script (`runaway_momentum_faces`,
-# `runaway_pitch_faces`), with the scheme `runaway_scheme` of f_re, and with `runaway_budgets` for
-# its closures; `prepare_terms!` prepares the terms of the case for a step, as the system does.
+# --runaway-grid), the builder of test_disruption_runaway.jl and test_disruption_runaway_dream.jl:
+# on the faces `runaway_p_faces` and `runaway_xi_faces`, by default those of the case script
+# (`runaway_momentum_faces`, `runaway_pitch_faces`), with the scheme `runaway_scheme` of f_re, and
+# with `runaway_budgets` and `runaway_budget_checks` for its closures; `prepare_terms!` prepares
+# the terms of the case for a step, as the system does.
 # With a runaway grid `build` takes `runaway_heating_term` of example_cases.jl, which a script
 # that includes this file includes as well (the test modules of runtests.jl have it).
 using Runes2P, HDF5
@@ -1098,6 +1100,19 @@ function budget_checks(case, solution, label, drift_bound)
         push!(checks, (:drift, b.drift, drift_bound))
     end
     push!(checks, (:field_energy_change, b.field_energy_change, 0.0))
+    for (name, value, _) in checks
+        @info "the disruption case, $label: $name $value"
+    end
+    return checks
+end
+
+# the closures of the runaway grid (`runaway_budgets`) against `bounds`, a named tuple of bounds
+# of `interface` and `avalanche`, and the influx against 0, as (name, value, bound) for a test
+# `value < bound` (the influx as its negative: electrons cross from f into f_re)
+function runaway_budget_checks(case, solution, label, bounds)
+    b = runaway_budgets(case, solution)
+    checks = [(name, getfield(b, name), getfield(bounds, name)) for name in keys(bounds)]
+    push!(checks, (:influx, -b.influx, 0.0))
     for (name, value, _) in checks
         @info "the disruption case, $label: $name $value"
     end

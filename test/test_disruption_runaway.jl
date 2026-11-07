@@ -80,13 +80,10 @@ const RUNAWAY_BUDGETS = (interface = 2e-14,   # 2.0e-16 / 3.5e-16
             for (_, value, bound) in budget_checks(case, solution, label, DRIFT["quench"])
                 @test value < bound
             end
-            b = runaway_budgets(case, solution)
-            for name in keys(RUNAWAY_BUDGETS)
-                @info "the disruption case, $label: $name $(getfield(b, name))"
-                @test getfield(b, name) < getfield(RUNAWAY_BUDGETS, name)
-            end
             # electrons cross into f_re, and f_re fills
-            @test b.influx > 0
+            for (_, value, bound) in runaway_budget_checks(case, solution, label, RUNAWAY_BUDGETS)
+                @test value < bound
+            end
             final = density(case.runaway_grid, kinetic_array(solution.states[:, end], case.layout, re_id))
             @test all(>(0), final)
         end

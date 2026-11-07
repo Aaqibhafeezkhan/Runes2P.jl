@@ -54,7 +54,7 @@ julia --project=test test/runtests.jl --files test_grids.jl,test_layout.jl     #
 - `--results <path>` writes a TOML summary of the run: the commit, local changes, the counts and the time per file.
 - The groups are independent, so they can run side by side in separate processes.
 
-The comparison tests read the reference sets of `Artifacts.toml`, which are downloaded at their first use (about 6.6 MB).
+The comparison tests read the reference sets of `Artifacts.toml`, which are downloaded at their first use (about 6.7 MB).
 Where the test nodes have no network, install them beforehand on a node that has:
 
 ```sh
