@@ -251,6 +251,8 @@ def check_arguments(args):
     if args.window_start is not None and args.extract is not None:
         raise SystemExit("--extract reads the full phase 2, which --window-start splits: run it without "
                          "--window-start")
+    if args.frac_dinj is not None and args.frac_dinj <= 0:
+        raise SystemExit("--frac-dinj must be positive")
     if args.window_start is not None:
         nt_quench = phase_times(args)[3]
         if not 1 <= args.window_start < nt_quench:
@@ -587,10 +589,18 @@ def chain(args):
         run(ds2, args, "quench")
     if args.run_to < 5:
         return
-    with h5py.File(path(args, "quench"), "r") as res:                                    # not an unsplit run 4
-        if res["grid/t"].size != args.window_start + 1:
-            raise SystemExit(f"{path(args, 'quench')} holds {res['grid/t'].size - 1} steps, not the "
-                             f"--window-start {args.window_start}: run 4 again with --run-from 4")
+    earlier_output(args, "quench").close()
+    # run 4 must stop at the window start with the step of the unsplit phase 2, not be an unsplit
+    # run 4 nor one of other phase times
+    with h5py.File(path(args, "quench"), "r") as res:
+        t = res["grid/t"][:]
+    if t.size != args.window_start + 1:
+        raise SystemExit(f"{path(args, 'quench')} holds {t.size - 1} steps, not the "
+                         f"--window-start {args.window_start}: run 4 again with --run-from 4")
+    dt = (t_quench - t_ioniz) / nt_quench
+    if abs((t[1] - t[0]) - dt) > 1e-9 * dt:
+        raise SystemExit(f"{path(args, 'quench')} has steps of {t[1] - t[0]:.6e} s, not the "
+                         f"{dt:.6e} s of --t-ioniz, --t-quench and --nt-quench: run 4 again with --run-from 4")
 
     # the window: the steps window_start to window_start + window_steps of phase 2 from DREAM's state at
     # the end of run 4, as generate.py:460-470 starts phase 2 from phase 1, with the settings of phase 2
@@ -670,29 +680,55 @@ def stored_arguments(args):
     return stored
 
 
+def window_arguments(args):
+    """The arguments that set the start of the window, as the window run stored them
+    (arguments_5_window.json); the current ones where an output directory without that file holds
+    the window, as made before the run stored its arguments."""
+    made = args.outdir / f"arguments_{ALL_RUNS.index(WINDOW)}_{WINDOW}.json"
+    if not made.exists():
+        return args
+    stored = json.loads(made.read_text())
+
+    def value(key, kind):
+        return None if stored[key] == "None" else kind(stored[key])
+
+    return argparse.Namespace(scenario=value("scenario", int), t_ioniz=value("t_ioniz", float),
+                              t_quench=value("t_quench", float), nt_ioniz=value("nt_ioniz", int),
+                              nt_quench=value("nt_quench", int), window_start=value("window_start", int))
+
+
 def test_data(args):
-    """DREAM's outputs of the runs of the chain that the output directory holds, of those named by
-    --test-data-runs, as the Runes2P tests read them: per run the unknowns of TEST_UNKNOWNS that it has at every saved time, the
+    """DREAM's outputs of the runs of the chain named by --test-data-runs, which the output directory
+    must hold, as the Runes2P tests read them: per run the unknowns of TEST_UNKNOWNS that it has at every saved time, the
     conductivity of the fluid quantities where DREAM saved it, with --test-data-channels the channels
     of the equation of T_cold (other/fluid/Tcold_*), the times and the grids, with the
     provenance. The runs before the phases (conductivity, init, init_rescaled) are those of the
-    initialization of the case."""
+    initialization of the case. A named run without its output is refused before the file is written."""
+    requested = args.test_data_runs.split(",")
+    for name in requested:
+        if name not in ALL_RUNS:
+            raise SystemExit(f"--test-data-runs names {name}, not a run of {','.join(ALL_RUNS)}")
+        if not path(args, name).exists():
+            raise SystemExit(f"--test-data-runs names {name}, but {path(args, name)} is missing: run "
+                             f"{ALL_RUNS.index(name)} ({name}) first")
     args.test_data.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(args.test_data, "w") as out:
         out.attrs["source"] = "disruption_kinetic.py"
         out.attrs["arguments"] = json.dumps(stored_arguments(args))
         base.provenance(out)
         for name in ALL_RUNS:
-            if name not in args.test_data_runs.split(",") or not path(args, name).exists():
+            if name not in requested:
                 continue
             with h5py.File(path(args, name), "r") as res:
                 group = out.create_group(name)
                 if name == WINDOW:
                     # the times of the window count from its start, as those of each phase do: its start
-                    # as a step of phase 2 and as a time from the start of phase 2 and of phase 1
-                    t_ioniz, _, t_quench, nt_quench = phase_times(args)
-                    t_start = (t_quench - t_ioniz) * args.window_start / nt_quench
-                    group.attrs["window_start_step"] = args.window_start
+                    # as a step of phase 2 and as a time from the start of phase 2 and of phase 1, from
+                    # the arguments the window run was made with
+                    made = window_arguments(args)
+                    t_ioniz, _, t_quench, nt_quench = phase_times(made)
+                    t_start = (t_quench - t_ioniz) * made.window_start / nt_quench
+                    group.attrs["window_start_step"] = made.window_start
                     group.attrs["window_start_time_quench"] = t_start
                     group.attrs["window_start_time"] = t_ioniz + t_start
                 for q in TEST_UNKNOWNS:
