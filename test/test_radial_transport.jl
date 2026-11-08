@@ -363,17 +363,19 @@ distribution(layout, grid, u) = reshape(u[1:(end - 1)], size(grid))
         @test Runes2P.apply_update!(run.update, u0, run.layout, 1e-3) === true
         @test run.radial.diffusion_r_r ≈ 1e-4 .* expected.diffusion_r_r rtol = 1e-13
 
-        # the operator of a prescribed term is rebuilt, which clears its radial coefficients:
-        # the update refuses it
+        # the operator of a prescribed term is rebuilt, which clears its radial coefficients,
+        # and the term declares no radial transport for it: an update made before the term
+        # is refused by the run, one made after it by its constructor
         let shared = AdvectionDiffusion(grid; scheme = :central, r_boundary = :absorbing)
             bulk = PlasmaState(; cold_electron_temperature = fill(100.0, 6),
                 ions = [IonSpecies("D", 1, 1, fill(1e19, 6))],
                 electric_field = zeros(6), magnetic_field = fill(5.0, 6))
             layout = UnknownLayout(grid.radial_grid, [KineticUnknown(:f, grid)])
+            update = RechesterRosenbluthUpdate(shared, history; major_radius)
             system = EquationSystem(layout,
                 [Equation(:f, TimeDerivative(), prescribed_fokker_planck_term(:f, shared, t -> bulk))])
-            update = RechesterRosenbluthUpdate(shared, history; major_radius)
             @test_throws "rebuild clears it" integrate(system, vec(f0), times; updates = (update,))
+            @test_throws "declares no radial transport" RechesterRosenbluthUpdate(shared, history; major_radius)
         end
 
         run = case(history)

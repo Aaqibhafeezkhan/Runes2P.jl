@@ -195,6 +195,11 @@ only, `p_lower_boundary` to a grid with `p_min > 0` only.
 a field that is an unknown of the system: the operator holds the collisions and the
 coefficients of a unit field, and the term passes the field
 ([`FokkerPlanckTerm`](@ref)`(...; electric_field = :electric_field)`).
+
+The operator declares no radial transport and no cross diffusion (`radial_transport = false`,
+`cross_diffusion = false` of [`AdvectionDiffusion`](@ref)), since none of these terms
+writes them: its stencil couples neither the radii nor the corners of the 3×3 block in p
+and ξ. Radial transport takes an operator of its own.
 """
 function fokker_planck_operator(grid::KineticGrid, plasma::PlasmaState,
         settings::CollisionSettings = CollisionSettings();
@@ -210,7 +215,7 @@ function fokker_planck_operator(grid::KineticGrid, plasma::PlasmaState,
         throw(ArgumentError("the reduced equation (one pitch cell) is not implemented"))
     op = AdvectionDiffusion(
         grid; scheme, p_scheme, xi_scheme, p_lower_boundary, p_upper_boundary,
-        p_zero_boundary, r_boundary)
+        p_zero_boundary, r_boundary, radial_transport = false, cross_diffusion = false)
     set_unit_field_coefficients!(op)
     set_fokker_planck_coefficients!(
         op, plasma, settings; synchrotron, field_in_coefficients)
@@ -242,8 +247,9 @@ end
 Rebuild `op`'s coefficients in place from `plasma` and `settings`
 ([`zero_coefficients!`](@ref) then the same `add_*!` calls as
 [`fokker_planck_operator`](@ref)), for a Fokker-Planck term whose plasma state changes
-with time ([`prescribed_fokker_planck_term`](@ref)). `op`'s scheme and
-boundary conditions are unchanged. `field_in_coefficients = false` leaves the field of the plasma
+with time ([`prescribed_fokker_planck_term`](@ref)). `op`'s scheme,
+boundary conditions and declarations ([`AdvectionDiffusion`](@ref)) are unchanged; the
+rebuild writes no radial transport and no cross diffusion. `field_in_coefficients = false` leaves the field of the plasma
 out, for a field that is an unknown of the system. The synchrotron loss is on by default, as
 in [`fokker_planck_operator`](@ref).
 """

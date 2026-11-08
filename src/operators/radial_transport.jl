@@ -35,6 +35,9 @@ The pitch of the coefficient is that of the pitch cells of the radial face
 ([`radial_face_overlap`](@ref)), which are the pitch cells of the grid when all radii share
 their pitch grid. A level of zero on a face leaves the face without transport.
 
+`op` declares radial transport (`radial_transport = true` of [`AdvectionDiffusion`](@ref),
+the default of an operator built by hand), so that its stencil holds the radial neighbours.
+
 DREAM (`RechesterRosenbluthTransport.cpp`) has `q = 1` fixed and sets `R₀ = 1` in
 cylindrical geometry, where its major radius is infinite, so that the level of the
 perturbation alone sets the coefficient. `major_radius = 1` with the default safety factor
@@ -45,6 +48,10 @@ function add_rechester_rosenbluth_diffusion!(
         op::AdvectionDiffusion{T}, delta_b_over_b; major_radius::Real,
         safety_factor = 1.0) where {T}
     major_radius > 0 || throw(ArgumentError("the major radius must be positive"))
+    op.radial_transport[] ||
+        throw(ArgumentError("the operator declares no radial transport (radial_transport = false), so its " *
+                            "stencil has no radial neighbours: give the radial transport an operator built " *
+                            "with radial_transport = true"))
     grid = op.grid
     level = radial_face_values(delta_b_over_b, grid)
     q = radial_face_values(safety_factor, grid)

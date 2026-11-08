@@ -17,7 +17,9 @@ the time points gives every step from `t_k` to `t_{k+1}` the level at `t_k`. The
 the faces are the state of the update, stored with the checkpoints and restored on resume.
 
 `operator` is the operator of the radial transport alone: the update owns its
-`diffusion_r_r`. A [`PiecewiseConstant`](@ref) level needs its switch times among the time
+`diffusion_r_r`, and the operator declares radial transport (`radial_transport = true` of
+[`AdvectionDiffusion`](@ref), the default of an operator built by hand), so that its
+stencil holds the radial neighbours before the system is built. A [`PiecewiseConstant`](@ref) level needs its switch times among the time
 points of the run. DREAM interpolates the table of its `dBB` linearly in time and takes the
 value at the end of a step.
 
@@ -41,6 +43,10 @@ function RechesterRosenbluthUpdate(
         operator::AdvectionDiffusion, delta_b_over_b_at; major_radius::Real,
         safety_factor = 1.0, name::AbstractString = "radial_transport")
     major_radius > 0 || throw(ArgumentError("the major radius must be positive"))
+    operator.radial_transport[] ||
+        throw(ArgumentError("the operator of the update $name declares no radial transport " *
+                            "(radial_transport = false), so its stencil has no radial neighbours: give the " *
+                            "radial transport an operator built with radial_transport = true"))
     q = radial_face_values(safety_factor, operator.grid)
     all(>(0), q) || throw(ArgumentError("the safety factor must be positive"))
     return RechesterRosenbluthUpdate(
@@ -59,6 +65,7 @@ function _set_levels!(update::RechesterRosenbluthUpdate, levels)
         update.operator, levels; major_radius = update.major_radius,
         safety_factor = update.safety_factor)
     copyto!(update.delta_b_over_b, levels)
+    _check_declared_coefficients(update.operator, "the operator of the update $(update.name)")
     return update
 end
 

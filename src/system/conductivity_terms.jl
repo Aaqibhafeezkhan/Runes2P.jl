@@ -75,6 +75,7 @@ function kinetic_conductivity(
     (any(!iszero, operator.advection_r) || any(!iszero, operator.diffusion_r_r)) &&
         throw(ArgumentError("the operator holds radial transport: the linear response is that of the operator in " *
                             "momentum space, radius by radius"))
+    _check_declared_coefficients(operator, "the operator")
     if !any(!iszero, operator.unit_field_advection_p)
         set_unit_field_coefficients!(operator)
     end
@@ -175,7 +176,8 @@ function _with_upper_boundary(op::AdvectionDiffusion{T, C}, boundary::Symbol) wh
         op.p_lower_boundary, boundary, op.p_zero_boundary, op.r_boundary, op.momentum_grids,
         op.radial_overlaps,
         op.jacobian_centers, op.jacobian_p_faces, op.jacobian_xi_faces, op.jacobian_r_faces,
-        op.jacobian_over_p2_at_zero, op.coefficient_source)
+        op.jacobian_over_p2_at_zero, op.coefficient_source, op.radial_transport,
+        op.cross_diffusion)
 end
 
 function _scale_to_density!(f, grid::KineticGrid, target)
