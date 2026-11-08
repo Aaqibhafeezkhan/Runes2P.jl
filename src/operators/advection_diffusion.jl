@@ -130,6 +130,22 @@ A four-point scheme in r gives the face value of the radial advection.
 The radial diffusion is central. Ghost cells as in DREAM: mirrored at the first face, zero beyond
 the edge of the plasma. The flux through the edge is the upwind outflow. It needs one pitch
 grid at all radii, and with fewer than three radii the face value is central.
+
+The operator declares which coefficients beyond those of momentum space it can carry, and
+its Jacobian pattern ([`stencil_pattern`](@ref)) holds only the cells they couple:
+`radial_transport` (`advection_r`, `diffusion_r_r`) the radial neighbours, `cross_diffusion`
+(`diffusion_p_xi`, `diffusion_xi_p`) the corners of the 3×3 block in p and ξ. Without them
+the radii of a Fokker-Planck operator are not coupled, and a direct factorization treats the
+radii as separate blocks. A nonzero coefficient that the operator does not declare is
+refused where the coefficients are checked: the operator's place in an
+[`EquationSystem`](@ref), a rebuild by a [`FokkerPlanckTerm`](@ref), a
+[`RechesterRosenbluthUpdate`](@ref), [`operator_matrix`](@ref) and
+[`kinetic_conductivity`](@ref). In the coloring of a Jacobian with that pattern its entries
+would otherwise be added to declared entries without an error. A [`FokkerPlanckTerm`](@ref)
+with a plasma source clears both declarations of its operator, since the rebuild of its
+coefficients writes neither. A declaration may be cleared after the operator is built but
+never set: the pattern of an [`EquationSystem`](@ref) is fixed when the system is built, and
+a declaration set later would not reach it.
 """
 struct AdvectionDiffusion{T <: AbstractFloat, C <: Real}
     grid::KineticGrid{T}
@@ -163,15 +179,27 @@ struct AdvectionDiffusion{T <: AbstractFloat, C <: Real}
     # what the coefficients were last built from by set_fokker_planck_coefficients!
     # (`nothing` for coefficients set by hand); read by `describe`, shared by with_scheme
     coefficient_source::Base.RefValue{Any}
+    # whether the operator can carry radial transport (`advection_r`, `diffusion_r_r`) and
+    # cross diffusion (`diffusion_p_xi`, `diffusion_xi_p`), which decide its stencil; a
+    # FokkerPlanckTerm with a plasma source clears both, shared by with_scheme; cleared,
+    # never set, after construction
+    radial_transport::Base.RefValue{Bool}
+    cross_diffusion::Base.RefValue{Bool}
 end
 
 """
     AdvectionDiffusion(grid; scheme=:upwind, p_scheme=scheme, xi_scheme=scheme,
                        r_scheme=(scheme is four-point ? :central : scheme),
                        p_lower_boundary=:zero_flux, p_upper_boundary=:outflow,
-                       p_zero_boundary=:outflow, r_boundary=:zero_flux)
+                       p_zero_boundary=:outflow, r_boundary=:zero_flux,
+                       radial_transport=true, cross_diffusion=true)
 
 Operator with all coefficients zero; set them in place, e.g. `op.diffusion_p_p .= 1`.
+`radial_transport = false` declares that the operator carries no `advection_r` and
+`diffusion_r_r`, and `cross_diffusion = false` that it carries no `diffusion_p_xi` and
+`diffusion_xi_p`: its stencil then leaves out the radial neighbours or the corners of the
+3×3 block in p and ξ ([`stencil_pattern`](@ref)). Both are declared by default, so that an
+operator filled by hand may hold every coefficient.
 """
 function AdvectionDiffusion(
         grid::KineticGrid{T}; scheme::Symbol = :upwind, p_scheme::Symbol = scheme,
@@ -180,7 +208,8 @@ function AdvectionDiffusion(
         p_lower_boundary::Symbol = :zero_flux,
         p_upper_boundary::Symbol = :outflow,
         p_zero_boundary::Symbol = :outflow,
-        r_boundary::Symbol = :zero_flux) where {T}
+        r_boundary::Symbol = :zero_flux, radial_transport::Bool = true,
+        cross_diffusion::Bool = true) where {T}
     for s in (p_scheme, xi_scheme)
         s in (:upwind, :central, :exponential_fitting) || is_four_point_scheme(s) ||
             throw(ArgumentError("unknown scheme $s"))
@@ -247,14 +276,15 @@ function AdvectionDiffusion(
         stack(phase_space_jacobian_xi_faces(grid, ir) for ir in radii),
         copy(phase_space_jacobian_r_faces(grid)),
         stack(phase_space_jacobian_over_p2_at_zero(grid, ir) for ir in radii),
-        Ref{Any}(nothing))
+        Ref{Any}(nothing), Ref(radial_transport), Ref(cross_diffusion))
 end
 
 """
     with_scheme(op::AdvectionDiffusion, scheme; p_scheme=scheme, xi_scheme=scheme)
 
 The operator `op` with other interpolation schemes in p and ξ, sharing every coefficient
-array, boundary value and boundary condition with `op` (a rebuild of `op`'s coefficients,
+array, boundary value, boundary condition and the declarations of radial transport and cross
+diffusion with `op` (a rebuild of `op`'s coefficients,
 [`set_fokker_planck_coefficients!`](@ref), is seen by both). The radial scheme is
 unchanged. Used by the Jacobian modes of [`FokkerPlanckTerm`](@ref): the
 residual of one scheme with the stored Jacobian of another.
@@ -277,16 +307,18 @@ function with_scheme(
         op.r_scheme, op.p_lower_boundary, op.p_upper_boundary, op.p_zero_boundary,
         op.r_boundary, op.momentum_grids, op.radial_overlaps,
         op.jacobian_centers, op.jacobian_p_faces, op.jacobian_xi_faces, op.jacobian_r_faces,
-        op.jacobian_over_p2_at_zero, op.coefficient_source)
+        op.jacobian_over_p2_at_zero, op.coefficient_source, op.radial_transport,
+        op.cross_diffusion)
 end
 
 """
     similar_coefficients(op::AdvectionDiffusion, ::Type{C})
 
-An operator with the grid, the schemes and the boundary conditions of `op` and zero
-coefficients of the number type `C`: coefficients that hold dual numbers,
-whose application to a distribution gives the derivative of the residual with respect to
-the plasma values the coefficients are built from, through the scheme's own face weights.
+An operator with the grid, the schemes, the boundary conditions and the declarations of
+radial transport and cross diffusion of `op`, and zero coefficients of the number type `C`:
+coefficients that hold dual numbers, whose application to a distribution gives the
+derivative of the residual with respect to the plasma values the coefficients are built
+from, through the scheme's own face weights.
 """
 function similar_coefficients(op::AdvectionDiffusion{T}, ::Type{C}) where {T, C <: Real}
     zeroed(A) = zeros(C, size(A))
@@ -299,7 +331,35 @@ function similar_coefficients(op::AdvectionDiffusion{T}, ::Type{C}) where {T, C 
         op.p_scheme, op.xi_scheme, op.r_scheme, op.p_lower_boundary, op.p_upper_boundary,
         op.p_zero_boundary, op.r_boundary, op.momentum_grids, op.radial_overlaps, op.jacobian_centers,
         op.jacobian_p_faces, op.jacobian_xi_faces, op.jacobian_r_faces,
-        op.jacobian_over_p2_at_zero, Ref{Any}(nothing))
+        op.jacobian_over_p2_at_zero, Ref{Any}(nothing), Ref(op.radial_transport[]),
+        Ref(op.cross_diffusion[]))
+end
+
+# The coefficients of each declaration of an operator: `radial_transport` and
+# `cross_diffusion`
+const DECLARED_COEFFICIENTS = (radial_transport = (:advection_r, :diffusion_r_r),
+    cross_diffusion = (:diffusion_p_xi, :diffusion_xi_p))
+
+# Refuse a nonzero coefficient that `op` does not declare. Its entries lie outside the
+# stencil of the operator, and the coloring of a Jacobian with that stencil would add them
+# to declared entries without an error. `owner` names the operator in the message. One pass
+# over arrays that are zero, cheap against a rebuild of the coefficients.
+function _check_declared_coefficients(op::AdvectionDiffusion, owner::AbstractString)
+    for (declaration, names) in pairs(DECLARED_COEFFICIENTS)
+        getfield(op, declaration)[] && continue
+        for name in names
+            if any(!iszero, getfield(op, name))
+                kind = replace(String(declaration), "_" => " ")
+                throw(ArgumentError("$owner holds $name, a coefficient of $kind " *
+                                    "that it does not declare ($declaration = false), so its Jacobian pattern " *
+                                    "leaves out the cells it couples. Build the operator with $declaration = true; " *
+                                    "a FokkerPlanckTerm with a plasma source clears both declarations, since its " *
+                                    "rebuild writes neither coefficient, and takes radial transport in an operator " *
+                                    "and a term of its own"))
+            end
+        end
+    end
+    return nothing
 end
 
 # the scheme of a direction with too few cells for a four-point scheme: central, as in DREAM

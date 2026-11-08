@@ -4,7 +4,7 @@
 using ForwardDiff: ForwardDiff
 using LinearAlgebra: Diagonal, mul!
 using Random: Xoshiro
-using SparseArrays: nnz
+using SparseArrays: findnz, nnz
 
 # test terms: a nonlinear decay -c x² of a radial unknown, and a scalar that sums a radial
 # unknown over the radii with the volume weights V' Δr
@@ -197,6 +197,56 @@ end
         # 5-argument product
         w = ones(length(u))
         @test mul!(copy(w), L, v, 2.0, 0.5) ≈ 2 .* (reference * v) .+ 0.5 .* w rtol = 1e-8
+    end
+
+    @testset "radial transport: the stored Jacobian against central differences" begin
+        # the collisions declare no radial transport and no cross diffusion, so the stored
+        # block of f couples neither the radii nor p and ξ off the axes; the radial transport
+        # of an operator of its own adds the radial neighbours, and the stored Jacobian holds
+        # every term exactly
+        # the rows of f in the order of the cells (i, j, ir)
+        rows = reduce(vcat, [unknown_range(layout, f_id, ir) for ir in 1:2])
+        cells = CartesianIndices(size(g))
+        function f_couplings(pattern)
+            f_block = pattern[rows, rows]
+            block_rows, block_columns, _ = findnz(f_block)
+            radial = count(k -> cells[block_rows[k]][3] != cells[block_columns[k]][3],
+                eachindex(block_rows))
+            off_axes = count(eachindex(block_rows)) do k
+                a, b = cells[block_rows[k]], cells[block_columns[k]]
+                a[1] != b[1] && a[2] != b[2]
+            end
+            return (; radial, off_axes)
+        end
+        rest = equations(:implicit)[2:end]
+        collisions = EquationSystem(layout,
+            [Equation(:hot_tail_distribution, TimeDerivative(),
+                 FokkerPlanckTerm(:hot_tail_distribution, fp)); rest])
+        @test f_couplings(jacobian_sparsity(collisions)) == (radial = 0, off_axes = 0)
+        radial = AdvectionDiffusion(g; scheme = :central, r_boundary = :absorbing, cross_diffusion = false)
+        add_rechester_rosenbluth_diffusion!(radial, 1e-3; major_radius = 1.0)
+        transported = EquationSystem(layout,
+            [Equation(:hot_tail_distribution, TimeDerivative(),
+                 FokkerPlanckTerm(:hot_tail_distribution, fp),
+                 FokkerPlanckTerm(:hot_tail_distribution, radial)); rest])
+        couplings = f_couplings(jacobian_sparsity(transported))
+        @test couplings.radial > 0 && couplings.off_axes == 0
+        J_transported = jacobian_prototype(transported)
+        jacobian!(J_transported, transported, u, 0.0)
+        reference = central_difference_jacobian(transported, u, 0.0)
+        # every entry of the difference lies in the stored pattern, and agrees with it
+        @test all(jacobian_sparsity(transported)[findall(!iszero, reference)])
+        @test maximum(abs, Matrix(J_transported) - reference) <
+              1e-8 * maximum(abs, reference)
+        # the radial entries alone, which are small against the collisions
+        block_rows, block_columns, _ = findnz(jacobian_sparsity(transported)[rows, rows])
+        between_radii = [(rows[block_rows[k]], rows[block_columns[k]])
+                         for k in eachindex(block_rows)
+                         if cells[block_rows[k]][3] != cells[block_columns[k]][3]]
+        stored = [J_transported[r, c] for (r, c) in between_radii]
+        differences = [reference[r, c] for (r, c) in between_radii]
+        @test any(!iszero, stored)
+        @test stored ≈ differences rtol = 1e-6
     end
 
     @testset "residual, explicit terms at the previous time level" begin

@@ -129,11 +129,15 @@ end
         layout = system.layout
         u0 = small.initial_state(layout, 1)
         times = collect(range(0, 10 * small.time_step; length = 11))
-        run(refresh) = integrate(system, u0, times;
-            solver = NewtonSolver(linear_solver = GMRES(preconditioner_refresh = refresh)))
+        run(refresh; growth = 2.0) = integrate(system, u0, times;
+            solver = NewtonSolver(linear_solver = GMRES(preconditioner_refresh = refresh,
+                refresh_count_growth = growth)))
         every_iteration = run(:every_iteration)
         every_step = run(:every_step)
-        on_demand = run(:on_demand)
+        # A solve with fresh factors takes 6 Krylov iterations, one with the factors of the
+        # first step about 12 or 13, which sits on the default growth of 2: the pivot order of
+        # the factorization decides the side. A growth of 3 leaves the count rule out of it.
+        on_demand = run(:on_demand; growth = 3.0)
         # the system is linear in the state: the matrix of the second iteration of a step is
         # that of the first, and its factors are kept
         @test all(==(1), every_iteration.statistics.preconditioner_updates)
@@ -143,7 +147,8 @@ end
         @test stats.preconditioner_updates == stats.newton_iterations
         @test every_matrix.states == every_iteration.states
         @test all(==(1), every_step.statistics.preconditioner_updates)
-        # prescribed coefficients and a constant step: one factorization for the whole run
+        # prescribed coefficients and a constant step: one factorization for the whole run,
+        # since the count rule does not fire at a growth of 3
         @test sum(on_demand.statistics.preconditioner_updates) == 1
         for other in (every_step, on_demand)
             @test relative_difference(other.states[:, end], every_iteration.states[:, end]) <

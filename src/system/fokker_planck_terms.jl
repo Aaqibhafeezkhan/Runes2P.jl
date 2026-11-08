@@ -7,9 +7,11 @@
 
 Advection-diffusion (Fokker-Planck) operator applied to the kinetic unknown `unknown`,
 added to the equation of the row unknown (normally the same). Stored sparse, with the
-3×3 `(p, ξ)` stencil, the second neighbours of the four-point schemes and the radial
-neighbours: the cell of the same pitch at each neighbouring radius, or with different
-pitch grids the cells that overlap it. Needs the same cell counts and p faces at all radii.
+3×3 `(p, ξ)` stencil and the second neighbours of the four-point schemes. The corners of the
+3×3 block are stored when the operator declares cross diffusion, and the radial neighbours
+when it declares radial transport: the cell of the same pitch at each neighbouring radius,
+or with different pitch grids the cells that overlap it ([`stencil_pattern`](@ref)). Needs
+the same cell counts and p faces at all radii.
 
 `electric_field` names the radial unknown of the electric field [V/m] when the field is an
 unknown of the system. The advection of every face is then that of the operator, which holds
@@ -31,6 +33,9 @@ see the docs page *Choices of this package*). The rebuild happens when the plasm
 of any radius differ from those of the last rebuild ([`update_key!`](@ref)), not at every
 new time, and rebuilds all radii. Without `plasma` the coefficients of `operator` are
 fixed. [`prescribed_fokker_planck_term`](@ref) builds such a term from a function of time.
+The rebuild writes no radial transport and no cross diffusion, so a term with `plasma`
+clears both declarations of `operator` ([`AdvectionDiffusion`](@ref)), and its stored block
+couples neither the radii nor the corners of the 3×3 block.
 
 With a plasma that reads unknowns ([`PlasmaFromUnknowns`](@ref)) the term depends on them
 and is not linear. `lagged` names the part of that plasma taken at the start of the step;
@@ -161,6 +166,13 @@ function FokkerPlanckTerm(
     else
         (0, 0, 0)
     end
+    # the rebuild writes no radial transport and no cross diffusion: the stencil leaves out
+    # the radial neighbours and the corners of the 3×3 block. Cleared after the checks
+    # above, so that a refused term leaves the operator as it was; `stored` shares them
+    if plasma_from !== nothing
+        operator.radial_transport[] = false
+        operator.cross_diffusion[] = false
+    end
     D = ForwardDiff.Dual{JacobianCorrectionTag, T, 1}
     radii = electric_field === nothing ? 0 : radial_cell_count(operator.grid)
     return FokkerPlanckTerm{T, typeof(plasma_from)}(
@@ -224,6 +236,7 @@ function _rebuild_coefficients!(term::FokkerPlanckTerm, u, layout, t)
         set_fokker_planck_coefficients!(
             term.operator, plasma, term.settings; synchrotron = term.synchrotron,
             field_in_coefficients = field)
+        _check_declared_coefficients(term.operator, _operator_owner(term))
     catch
         reset_key!(term.plasma_key)
         rethrow()
@@ -392,6 +405,11 @@ end
 
 validate(term::FokkerPlanckTerm, layout, row) = _check_fokker_planck(term, layout, row, 0.0)
 
+# the operator of a term, for the messages of the checks of its coefficients
+function _operator_owner(term::FokkerPlanckTerm)
+    "the operator of the FokkerPlanckTerm of $(term.unknown)"
+end
+
 # the checks of the grid, the field and the plasma unknowns; the composition of the ions is
 # read at the time `t`, the start of the run, where the prescribed part is defined
 function _check_fokker_planck(term::FokkerPlanckTerm, layout, row, t)
@@ -429,6 +447,7 @@ function _check_fokker_planck(term::FokkerPlanckTerm, layout, row, t)
             throw(ArgumentError("the plasma unknown $name of a FokkerPlanckTerm is a radial unknown with one component"))
         end
     end
+    _check_declared_coefficients(term.operator, _operator_owner(term))
     return nothing
 end
 
@@ -511,12 +530,10 @@ function sparsity!(entries, term::FokkerPlanckTerm, layout, row)
     id = unknown_id(layout, term.unknown)
     op = term.stored_operator
     np, nxi, nr = size(op.grid)
-    widths = (p_width = stencil_half_width(op.p_scheme),
-        xi_width = stencil_half_width(op.xi_scheme),
-        r_width = stencil_half_width(op.r_scheme), p_upper_boundary = op.p_upper_boundary)
+    options = _stencil_options(op)
     for ir in 1:nr, j in 1:nxi, i in 1:np
         r = _kinetic_index(layout, row, ir, i, j)
-        _visit_stencil(op.grid, i, j, ir; widths...) do i2, j2, ir2
+        _visit_stencil(op.grid, i, j, ir; options...) do i2, j2, ir2
             push!(entries, (r, _kinetic_index(layout, id, ir2, i2, j2)))
         end
         # the field of the radius acts on every cell of the radius

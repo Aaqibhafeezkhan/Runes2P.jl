@@ -302,8 +302,20 @@ end
                     MomentumInterfaceTerm(:hot_tail_distribution, :runaway_distribution, prescribed, upper)),
                 Equation(:runaway_distribution, TimeDerivative(),
                     FokkerPlanckTerm(:runaway_distribution, upper))])
-        update = RechesterRosenbluthUpdate(prescribed.operator, t -> 1e-3; major_radius = 1.0)
-        @test_throws "rebuild clears it" Runes2P.check_update(update, behind)
+        # the term declares no radial transport for its operator, so an update refuses it; an
+        # update made before the term is refused by the system
+        @test_throws "declares no radial transport" RechesterRosenbluthUpdate(
+            prescribed.operator, t -> 1e-3; major_radius = 1.0)
+        shared = AdvectionDiffusion(hot; p_upper_boundary = :interface)
+        update = RechesterRosenbluthUpdate(shared, t -> 1e-3; major_radius = 1.0)
+        later = prescribed_fokker_planck_term(:hot_tail_distribution, shared, t -> plasma; settings)
+        behind_later = EquationSystem(layout,
+            [
+                Equation(:hot_tail_distribution, TimeDerivative(),
+                    MomentumInterfaceTerm(:hot_tail_distribution, :runaway_distribution, later, upper)),
+                Equation(:runaway_distribution, TimeDerivative(),
+                    FokkerPlanckTerm(:runaway_distribution, upper))])
+        @test_throws "rebuild clears it" Runes2P.check_update(update, behind_later)
     end
 
     @testset "diffusion across the interface" begin

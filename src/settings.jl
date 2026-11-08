@@ -420,7 +420,7 @@ function settings_fields(::Type{<:AdvectionDiffusion})
     (
         described = (:grid, COEFFICIENT_FIELDS...,
             :p_flux_at_lower_boundary, OPERATOR_OPTION_FIELDS...,
-            :coefficient_source),
+            :coefficient_source, :radial_transport, :cross_diffusion),
         derived = (:momentum_grids, :radial_overlaps, :jacobian_centers,
             :jacobian_p_faces, :jacobian_xi_faces,
             :jacobian_r_faces, :jacobian_over_p2_at_zero, :unit_field_advection_p, :unit_field_advection_xi))
@@ -429,8 +429,9 @@ end
 """
     describe(op::AdvectionDiffusion, context=DescriptionContext(); coefficients=true)
 
-Record of the operator: its grid, schemes and boundary conditions, the boundary flux at
-`p_min` when it is not zero, and with `coefficients = true` the coefficient arrays. An
+Record of the operator: its grid, schemes and boundary conditions, its declarations of
+radial transport and cross diffusion, the boundary flux at `p_min` when it is not zero, and
+with `coefficients = true` the coefficient arrays. An
 array that is zero everywhere is named in `zero_coefficients` and not stored. When the
 coefficients were built by [`set_fokker_planck_coefficients!`](@ref), the plasma and the
 collision settings they were built from are recorded under `coefficient_source`. The
@@ -445,6 +446,8 @@ function describe(
     for field in OPERATOR_OPTION_FIELDS
         record[String(field)] = String(getfield(op, field))
     end
+    record["radial_transport"] = op.radial_transport[]
+    record["cross_diffusion"] = op.cross_diffusion[]
     if any(!iszero, op.p_flux_at_lower_boundary)
         record["p_flux_at_lower_boundary"] = _plain(op.p_flux_at_lower_boundary)
     end

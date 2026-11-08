@@ -18,7 +18,11 @@ distribution as electrons run away or the free-electron density changes.
 
 - `:relativistic_maxwellian`: `exp(-(γ − 1)/Θ)` with `Θ = T/mₑc²` (DREAM's default);
 - `:maxwellian`: the non-relativistic `exp(-p²/2Θ)` of [`MaxwellianSourceTerm`](@ref);
-- `:lowest_cell`: the momentum cell at `p = 0` alone (DREAM's delta shape).
+- `:lowest_cell`: the momentum cell at `p = 0` alone (DREAM's delta shape). It does not
+  depend on the temperature, and the stored Jacobian holds the first momentum cell of every
+  pitch cell in the column of the magnitude and no column of the temperature. A temperature
+  that is an unknown stays among the term's [`dependencies`](@ref), and the term is not
+  linear ([`is_linear`](@ref)), although its column of the temperature is zero.
 
 `temperature` is the cold-electron temperature in eV at each radius, or a function of time
 that returns the temperatures or a [`PlasmaState`](@ref). The shape follows it in time and
@@ -195,11 +199,18 @@ function add_jacobian!(J, term::ParticleSourceTerm, u, layout, row, t)
     for ir in 1:radial_cell_count(layout)
         column = first(unknown_range(layout, id, ir))
         shape = shapes[ir]
-        for (k, r) in enumerate(unknown_range(layout, row, ir))
-            _add_entry!(J, r, column, shape[k])
+        if term.shape_kind === :lowest_cell
+            # the shape fills the first momentum cell of every pitch cell alone
+            for j in axes(shape, 2)
+                _add_entry!(J, _kinetic_index(layout, row, ir, 1, j), column, shape[1, j])
+            end
+        else
+            for (k, r) in enumerate(unknown_range(layout, row, ir))
+                _add_entry!(J, r, column, shape[k])
+            end
         end
     end
-    term.temperature isa Symbol || return J
+    _has_temperature_column(term) || return J
     # the column of the temperature: S ∂g/∂T, the normalization included
     D = ForwardDiff.Dual{PlasmaColumnTag, Float64, 1}
     temperature = unknown_values(u, layout, unknown_id(layout, term.temperature))
@@ -217,12 +228,29 @@ function add_jacobian!(J, term::ParticleSourceTerm, u, layout, row, t)
     return J
 end
 
-function sparsity!(entries, term::ParticleSourceTerm, layout, row)
-    for name in (term.source, _temperature_unknown(term)...),
-        ir in 1:radial_cell_count(layout)
+# the shape of the lowest cell does not depend on the temperature, so its column is zero
+function _has_temperature_column(term::ParticleSourceTerm)
+    term.temperature isa Symbol && term.shape_kind !== :lowest_cell
+end
 
-        column = first(unknown_range(layout, unknown_id(layout, name), ir))
-        append!(entries, ((r, column) for r in unknown_range(layout, row, ir)))
+function sparsity!(entries, term::ParticleSourceTerm, layout, row)
+    source_id = unknown_id(layout, term.source)
+    for ir in 1:radial_cell_count(layout)
+        column = first(unknown_range(layout, source_id, ir))
+        if term.shape_kind === :lowest_cell
+            pitch_cells = layout.shapes[row, ir][2]
+            append!(entries,
+                ((_kinetic_index(layout, row, ir, 1, j), column) for j in 1:pitch_cells))
+        else
+            append!(entries, ((r, column) for r in unknown_range(layout, row, ir)))
+        end
+    end
+    if _has_temperature_column(term)
+        temperature_id = unknown_id(layout, term.temperature)
+        for ir in 1:radial_cell_count(layout)
+            column = first(unknown_range(layout, temperature_id, ir))
+            append!(entries, ((r, column) for r in unknown_range(layout, row, ir)))
+        end
     end
     return entries
 end
