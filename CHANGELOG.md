@@ -30,11 +30,12 @@ Until the first release, every change is listed under "Unreleased", with the sub
 - The stencil of an `AdvectionDiffusion` holds the radial neighbours only when the operator declares radial transport, and the corners of the 3×3 block in p and ξ only when it declares cross diffusion ([#228](https://github.com/osrep/Runes2P.jl/pull/228)).
   The keywords `radial_transport` and `cross_diffusion` declare them, both `true` for an operator built by hand.
   `fokker_planck_operator` declares neither, and a `FokkerPlanckTerm` with a plasma source clears both, since the rebuild of its coefficients writes neither.
-  The radii of such an operator are then separate blocks of the direct factorization.
+  The radii of such an operator are then separate blocks of the direct factorization, unless radial transport acts on the same unknown.
   The values of the Jacobian are unchanged, and the results change at the round-off of the linear solve, since the pivot order moves.
   A nonzero coefficient that an operator does not declare is refused, and the radial transport writers require `radial_transport`.
   `ParticleSourceTerm` with `shape = :lowest_cell` stores its first momentum cells alone and no column of the temperature.
   The settings record of an operator holds both declarations, new in the format 0.0.4.
+  A run resumed from a checkpoint written before this change records the section of the operator as changed and warns of it.
 - `MomentumInterfaceTerm` takes a hot-tail Fokker-Planck term whose coefficients follow the plasma unknowns (`lagged = ()` or `:ions`).
   Its Jacobian holds the columns of the temperature, the density, and the ion densities unless the lower term lags them, as DREAM's `PXiExternalKineticKinetic`.
   Until now it asked for `lagged = :all` ([#214](https://github.com/osrep/Runes2P.jl/pull/214)).

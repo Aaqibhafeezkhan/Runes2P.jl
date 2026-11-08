@@ -47,10 +47,12 @@ terms = EquationTerm[prescribed_fokker_planck_term(
 
 # radial diffusion D_rr = π R (δB/B)² |v_∥| (DREAM RechesterRosenbluthTransport, cylindrical
 # form with q = 1), a linear term of its own so the rebuild of the collision
-# coefficients leaves it alone
+# coefficients leaves it alone; it declares no cross diffusion, so that its stencil adds
+# the radial neighbours alone
 dbb = number("dbb", 1e-3)
 if nr > 1 && dbb > 0
-    radial = AdvectionDiffusion(grid; scheme = :central, r_boundary = :absorbing)
+    radial = AdvectionDiffusion(grid; scheme = :central, r_boundary = :absorbing,
+        cross_diffusion = false)
     for k in axes(radial.diffusion_r_r, 3), j in axes(radial.diffusion_r_r, 2),
         i in axes(radial.diffusion_r_r, 1)
         p, xi = mom.p_centers[i], mom.xi_centers[j]

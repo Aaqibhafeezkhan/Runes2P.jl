@@ -144,12 +144,6 @@ function FokkerPlanckTerm(
     if plasma_from !== nothing && electric_field !== nothing
         operator.coefficient_source[] = nothing
     end
-    # the rebuild writes no radial transport and no cross diffusion: the stencil leaves out
-    # the radial neighbours and the corners of the 3 × 3 block
-    if plasma_from !== nothing
-        operator.radial_transport[] = false
-        operator.cross_diffusion[] = false
-    end
     if electric_field !== nothing
         source = operator.coefficient_source[]
         if source !== nothing && get(source, :electric_field, true) &&
@@ -171,6 +165,13 @@ function FokkerPlanckTerm(
         size(operator.grid)
     else
         (0, 0, 0)
+    end
+    # the rebuild writes no radial transport and no cross diffusion: the stencil leaves out
+    # the radial neighbours and the corners of the 3×3 block. Cleared after the checks
+    # above, so that a refused term leaves the operator as it was; `stored` shares them
+    if plasma_from !== nothing
+        operator.radial_transport[] = false
+        operator.cross_diffusion[] = false
     end
     D = ForwardDiff.Dual{JacobianCorrectionTag, T, 1}
     radii = electric_field === nothing ? 0 : radial_cell_count(operator.grid)

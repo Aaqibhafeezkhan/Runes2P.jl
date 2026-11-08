@@ -18,10 +18,13 @@ the faces are the state of the update, stored with the checkpoints and restored 
 
 `operator` is the operator of the radial transport alone: the update owns its
 `diffusion_r_r`, and the operator declares radial transport (`radial_transport = true` of
-[`AdvectionDiffusion`](@ref), the default of an operator built by hand), so that its
-stencil holds the radial neighbours before the system is built. A [`PiecewiseConstant`](@ref) level needs its switch times among the time
-points of the run. DREAM interpolates the table of its `dBB` linearly in time and takes the
-value at the end of a step.
+[`AdvectionDiffusion`](@ref), the default of an operator built by hand), so that its stencil
+holds the radial neighbours before the system is built. Build it with
+`cross_diffusion = false`, as [`add_rechester_rosenbluth_diffusion!`](@ref) advises, so that
+its stencil leaves out the corners of the 3×3 block in p and ξ. A
+[`PiecewiseConstant`](@ref) level needs its switch times among the time points of the run.
+DREAM interpolates the table of its `dBB` linearly in time and takes the value at the end of
+a step.
 
 A level without [`forced_time_points`](@ref), any function other than a
 [`PiecewiseConstant`](@ref), is taken as continuous in time: its change at every step

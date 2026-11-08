@@ -38,7 +38,10 @@ operator conserves particles. `p_zero_boundary` sets only the ghost cells of the
 four-point schemes below `p = 0` on a grid from `p = 0`; a grid with `p_min > 0` takes
 `p_lower_boundary` instead ([`AdvectionDiffusion`](@ref)). The coefficients take the
 number type of the plasma, so a plasma with derivative parts gives the derivatives of the
-operator.
+operator. The operator declares no radial transport and no cross diffusion
+(`radial_transport = false`, `cross_diffusion = false`), as
+[`fokker_planck_operator`](@ref): its stencil couples neither the radii nor the corners of
+the 3×3 block in p and ξ.
 """
 function electron_electron_operator(
         grid::KineticGrid, plasma::PlasmaState, settings::CollisionSettings;
@@ -47,7 +50,8 @@ function electron_electron_operator(
     settings.mode in (:full, :superthermal) ||
         throw(ArgumentError("the electron-electron operator takes collision mode :full or :superthermal"))
     op = AdvectionDiffusion(
-        grid; scheme, p_lower_boundary, p_upper_boundary, p_zero_boundary)
+        grid; scheme, p_lower_boundary, p_upper_boundary, p_zero_boundary,
+        radial_transport = false, cross_diffusion = false)
     C = eltype(plasma.cold_electron_temperature)
     if C !== Float64
         op = similar_coefficients(op, C)

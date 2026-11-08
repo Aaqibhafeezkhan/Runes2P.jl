@@ -37,6 +37,10 @@ their pitch grid. A level of zero on a face leaves the face without transport.
 
 `op` declares radial transport (`radial_transport = true` of [`AdvectionDiffusion`](@ref),
 the default of an operator built by hand), so that its stencil holds the radial neighbours.
+Build an operator of radial transport alone with `cross_diffusion = false`: declared, the
+cross diffusion adds the corners of the 3×3 block in p and ξ to the stored Jacobian of every
+cell of its unknown, and the automatic Jacobian then takes more colors. The radial transport
+couples the radii of its unknown in the direct factorization either way.
 
 DREAM (`RechesterRosenbluthTransport.cpp`) has `q = 1` fixed and sets `R₀ = 1` in
 cylindrical geometry, where its major radius is infinite, so that the level of the

@@ -139,10 +139,13 @@ the radii of a Fokker-Planck operator are not coupled, and a direct factorizatio
 radii as separate blocks. A nonzero coefficient that the operator does not declare is
 refused where the coefficients are checked: the operator's place in an
 [`EquationSystem`](@ref), a rebuild by a [`FokkerPlanckTerm`](@ref), a
-[`RechesterRosenbluthUpdate`](@ref) and [`operator_matrix`](@ref). In the coloring of a
-Jacobian with that pattern its entries would otherwise be added to declared entries without
-an error. A [`FokkerPlanckTerm`](@ref) with a plasma source clears both declarations of
-its operator, since the rebuild of its coefficients writes neither.
+[`RechesterRosenbluthUpdate`](@ref), [`operator_matrix`](@ref) and
+[`kinetic_conductivity`](@ref). In the coloring of a Jacobian with that pattern its entries
+would otherwise be added to declared entries without an error. A [`FokkerPlanckTerm`](@ref)
+with a plasma source clears both declarations of its operator, since the rebuild of its
+coefficients writes neither. A declaration may be cleared after the operator is built but
+never set: the pattern of an [`EquationSystem`](@ref) is fixed when the system is built, and
+a declaration set later would not reach it.
 """
 struct AdvectionDiffusion{T <: AbstractFloat, C <: Real}
     grid::KineticGrid{T}
@@ -178,7 +181,8 @@ struct AdvectionDiffusion{T <: AbstractFloat, C <: Real}
     coefficient_source::Base.RefValue{Any}
     # whether the operator can carry radial transport (`advection_r`, `diffusion_r_r`) and
     # cross diffusion (`diffusion_p_xi`, `diffusion_xi_p`), which decide its stencil; a
-    # FokkerPlanckTerm with a plasma source clears both, shared by with_scheme
+    # FokkerPlanckTerm with a plasma source clears both, shared by with_scheme; cleared,
+    # never set, after construction
     radial_transport::Base.RefValue{Bool}
     cross_diffusion::Base.RefValue{Bool}
 end
@@ -331,7 +335,8 @@ function similar_coefficients(op::AdvectionDiffusion{T}, ::Type{C}) where {T, C 
         Ref(op.cross_diffusion[]))
 end
 
-# The coefficients of each declaration of an operator (`radial_transport`, `cross_diffusion`)
+# The coefficients of each declaration of an operator: `radial_transport` and
+# `cross_diffusion`
 const DECLARED_COEFFICIENTS = (radial_transport = (:advection_r, :diffusion_r_r),
     cross_diffusion = (:diffusion_p_xi, :diffusion_xi_p))
 
@@ -348,8 +353,9 @@ function _check_declared_coefficients(op::AdvectionDiffusion, owner::AbstractStr
                 throw(ArgumentError("$owner holds $name, a coefficient of $kind " *
                                     "that it does not declare ($declaration = false), so its Jacobian pattern " *
                                     "leaves out the cells it couples. Build the operator with $declaration = true; " *
-                                    "a FokkerPlanckTerm with a plasma source declares neither, since its rebuild " *
-                                    "clears them, and takes radial transport in an operator and a term of its own"))
+                                    "a FokkerPlanckTerm with a plasma source clears both declarations, since its " *
+                                    "rebuild writes neither coefficient, and takes radial transport in an operator " *
+                                    "and a term of its own"))
             end
         end
     end

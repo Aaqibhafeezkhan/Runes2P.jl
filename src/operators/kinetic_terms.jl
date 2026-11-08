@@ -196,10 +196,10 @@ a field that is an unknown of the system: the operator holds the collisions and 
 coefficients of a unit field, and the term passes the field
 ([`FokkerPlanckTerm`](@ref)`(...; electric_field = :electric_field)`).
 
-The operator declares no radial transport and no cross diffusion (`radial_transport = false`,
-`cross_diffusion = false` of [`AdvectionDiffusion`](@ref)), since none of these terms
-writes them: its stencil couples neither the radii nor the corners of the 3×3 block in p
-and ξ. Radial transport takes an operator of its own.
+The operator declares no radial transport and no cross diffusion
+(`radial_transport = false`, `cross_diffusion = false` of [`AdvectionDiffusion`](@ref)),
+since none of these terms writes them: its stencil couples neither the radii nor the
+corners of the 3×3 block in p and ξ. Radial transport takes an operator of its own.
 """
 function fokker_planck_operator(grid::KineticGrid, plasma::PlasmaState,
         settings::CollisionSettings = CollisionSettings();
@@ -247,11 +247,11 @@ end
 Rebuild `op`'s coefficients in place from `plasma` and `settings`
 ([`zero_coefficients!`](@ref) then the same `add_*!` calls as
 [`fokker_planck_operator`](@ref)), for a Fokker-Planck term whose plasma state changes
-with time ([`prescribed_fokker_planck_term`](@ref)). `op`'s scheme,
-boundary conditions and declarations ([`AdvectionDiffusion`](@ref)) are unchanged; the
-rebuild writes no radial transport and no cross diffusion. `field_in_coefficients = false` leaves the field of the plasma
-out, for a field that is an unknown of the system. The synchrotron loss is on by default, as
-in [`fokker_planck_operator`](@ref).
+with time ([`prescribed_fokker_planck_term`](@ref)). `op`'s scheme, boundary conditions and
+declarations ([`AdvectionDiffusion`](@ref)) are unchanged; the rebuild writes no radial
+transport and no cross diffusion. `field_in_coefficients = false` leaves the field of the
+plasma out, for a field that is an unknown of the system. The synchrotron loss is on by
+default, as in [`fokker_planck_operator`](@ref).
 """
 function set_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaState,
         settings::CollisionSettings = CollisionSettings();

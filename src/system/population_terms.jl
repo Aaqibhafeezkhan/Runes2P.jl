@@ -20,7 +20,9 @@ distribution as electrons run away or the free-electron density changes.
 - `:maxwellian`: the non-relativistic `exp(-p²/2Θ)` of [`MaxwellianSourceTerm`](@ref);
 - `:lowest_cell`: the momentum cell at `p = 0` alone (DREAM's delta shape). It does not
   depend on the temperature, and the stored Jacobian holds the first momentum cell of every
-  pitch cell in the column of the magnitude and no column of the temperature.
+  pitch cell in the column of the magnitude and no column of the temperature. A temperature
+  that is an unknown stays among the term's [`dependencies`](@ref), and the term is not
+  linear ([`is_linear`](@ref)), although its column of the temperature is zero.
 
 `temperature` is the cold-electron temperature in eV at each radius, or a function of time
 that returns the temperatures or a [`PlasmaState`](@ref). The shape follows it in time and

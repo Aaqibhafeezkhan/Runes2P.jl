@@ -113,7 +113,8 @@ flux uses the last two interior faces), and, for `:extrapolated_flux_consistent`
 contribution (`:extrapolated_flux`'s second term has none).
 
 For an operator, the widths follow its schemes, and the boundary at `p_max` and the
-declarations of radial transport and cross diffusion are its own ([`AdvectionDiffusion`](@ref)).
+declarations of radial transport and cross diffusion are its own
+([`AdvectionDiffusion`](@ref)).
 """
 function stencil_pattern(op::AdvectionDiffusion)
     stencil_pattern(op.grid; _stencil_options(op)...)
@@ -137,7 +138,7 @@ function stencil_pattern(grid::KineticGrid; p_width::Integer = 1,
             push!(columns, index[i2, j2, ir2])
         end
     end
-    # the extrapolated flux repeats cells of the 3 × 3 block
+    # the extrapolated flux repeats cells of the 3×3 block
     return sparse(rows, columns, trues(length(rows)), np * nxi * nr, np * nxi * nr, |)
 end
 
@@ -151,7 +152,7 @@ function _stencil_options(op::AdvectionDiffusion)
 end
 
 # Calls `visit(i2, j2, ir2)` for every cell that the flux divergence of cell (i, j, ir)
-# reads: the 3 × 3 block in p and ξ (its corners with cross diffusion), the second
+# reads: the 3×3 block in p and ξ (its corners with cross diffusion), the second
 # neighbours of the four-point schemes along the axes, with radial transport the radial
 # neighbours (the cells of the neighbouring radii that overlap pitch cell j) and the second
 # radial neighbours of the four-point schemes, and for the extrapolated flux at p_max the
@@ -323,7 +324,8 @@ end
 Sparse matrix `M` with `vec(apply(op, f)) = M * vec(f) + c` for an operator `op` that is
 linear in `f` up to a constant source `c`. The default pattern follows the operator's
 schemes, boundary conditions and declarations ([`stencil_pattern`](@ref)), and an operator
-that holds a coefficient it does not declare is refused with it ([`AdvectionDiffusion`](@ref)).
+that holds a coefficient it does not declare is refused with it
+([`AdvectionDiffusion`](@ref)).
 `check_local = true` refuses operators that are not local ([`is_local`](@ref)); pass `false`
 only with a backend that detects the pattern itself.
 """

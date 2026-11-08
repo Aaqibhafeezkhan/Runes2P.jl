@@ -122,10 +122,18 @@ end
         end
         return (; radial, off_axes)
     end
-    for scheme in (:central, :quick),
-        p_upper_boundary in (:f_zero, :constant_flux, :extrapolated_flux, :extrapolated_flux_consistent)
+    for scheme in (:central, :quick, :exponential_fitting, :upwind_second_order, :van_albada),
+        p_lower_boundary in (:zero_flux, :interface),
+        p_upper_boundary in (:f_zero, :constant_flux, :extrapolated_flux,
+            :extrapolated_flux_consistent, :interface)
 
-        op = fokker_planck_operator(g, plasma; scheme, p_upper_boundary)
+        # the extrapolated flux has no form with exponential fitting
+        extrapolated = p_upper_boundary in
+                       (:extrapolated_flux, :extrapolated_flux_consistent)
+        if scheme === :exponential_fitting && extrapolated
+            continue
+        end
+        op = fokker_planck_operator(g, plasma; scheme, p_lower_boundary, p_upper_boundary)
         @test !op.radial_transport[] && !op.cross_diffusion[]
         @test couplings(stencil_pattern(op)) == (radial = 0, off_axes = 0)
         @test check_stencil_pattern(op)
@@ -145,6 +153,20 @@ end
     @test Set(entries) == Set(zip(findnz(stencil_pattern(op))[1:2]...))
     @test couplings(stencil_pattern(op)) == (radial = 0, off_axes = 0)
     @test describe(op; coefficients = false)["radial_transport"] == false
+    # a linear Jacobian mode stores the pattern of its own scheme, with the declarations it
+    # shares with the operator
+    op = AdvectionDiffusion(g; scheme = :central, r_boundary = :absorbing)
+    term = prescribed_fokker_planck_term(:f, op, t -> plasma; jacobian = :upwind)
+    stored = term.stored_operator
+    @test stored.p_scheme === :upwind && !stored.radial_transport[] &&
+          !stored.cross_diffusion[]
+    entries = Runes2P.sparsity!(Tuple{Int, Int}[], term, layout, 1)
+    @test Set(entries) == Set(zip(findnz(stencil_pattern(stored))[1:2]...))
+    @test couplings(stencil_pattern(stored)) == (radial = 0, off_axes = 0)
+    # a term that is refused leaves the declarations of its operator as they were
+    op = AdvectionDiffusion(g; scheme = :central, r_boundary = :absorbing)
+    @test_throws "jacobian must be" prescribed_fokker_planck_term(:f, op, t -> plasma; jacobian = :none)
+    @test op.radial_transport[] && op.cross_diffusion[]
     # each declaration alone, and the keyword form on a bare grid
     radial_only = couplings(stencil_pattern(AdvectionDiffusion(g; cross_diffusion = false)))
     @test radial_only.radial == full.radial && radial_only.off_axes == 0
@@ -176,6 +198,14 @@ end
     local_op.diffusion_r_r .= 1.0
     @test_throws "holds diffusion_r_r" system_of(local_op)
     @test_throws "radial_transport = false" operator_matrix(local_op)
+    # the conductivity refuses radial transport on its own, so only cross diffusion reaches
+    # the check of the declarations
+    plasma = PlasmaState(cold_electron_temperature = fill(100.0, 3),
+        ions = [IonSpecies("D", 1, 1, fill(1e20, 3))], electric_field = zeros(3),
+        magnetic_field = fill(5.0, 3))
+    collisions = fokker_planck_operator(g, plasma; field_in_coefficients = false)
+    collisions.diffusion_p_xi .= 1.0
+    @test_throws "holds diffusion_p_xi" kinetic_conductivity(collisions)
 end
 
 @testset "non-local operators are refused" begin
