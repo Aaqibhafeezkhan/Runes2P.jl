@@ -38,11 +38,11 @@ const WINDOW_TOLERANCES = Dict("f_hot" => 5e-8,      # 4.9e-9
                                "j_tot" => 4e-11,     # 3.5e-12
                                "psi_p" => 2e-11,     # 1.4e-12
                                "n_tot" => 1e-14)     # 2.5e-16, round-off of the quasi-neutral sum
-# the closures of the runaway grid over the window (`runaway_budgets`), at least 70 times the
+# the closures of the runaway grid over the window (`runaway_budgets`), at least 44 times the
 # larger of the values measured at -O0 and -O2 (compat = dream / runes2p): the particles through
 # the interface to round-off, and the balance of n_re − ∫f_re against the avalanche beyond the
 # grid and the outflow there
-const WINDOW_RUNAWAY_BUDGETS = (interface = 2e-14,   # 2.8e-16 / 2.5e-16
+const WINDOW_RUNAWAY_BUDGETS = (interface = 2e-14,   # 2.8e-16 / 4.5e-16
                                 avalanche = 1e-11)   # 1.3e-13 / 9.0e-14
 #! format: on
 

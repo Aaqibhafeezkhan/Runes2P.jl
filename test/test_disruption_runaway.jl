@@ -25,8 +25,8 @@ const STARTUP_SCALE = 1e7
 # by the change of n_re in a step, 3e-6 of n_re at the first radius: the round-off of n_re,
 # 1e-16 of it, is then 4e-11 of the change
 #! format: off
-const RUNAWAY_BUDGETS = (interface = 2e-14,   # 2.0e-16 / 3.5e-16
-                         avalanche = 1e-9)    # 2.2e-11 / 2.0e-11
+const RUNAWAY_BUDGETS = (interface = 2e-14,   # 2.0e-16 / 1.8e-16
+                         avalanche = 1e-9)    # 2.2e-11 / 2.1e-11
 #! format: on
 
 @testset "the disruption case with a runaway grid" begin

@@ -248,7 +248,8 @@ From `f_re` zero its test checks the budgets of its closures alone.
 - End to end, the phases agree with DREAM as closely as when they start from DREAM's state in `f_hot` (4e-5) and the field (4e-7).
 - The poloidal flux, the plasma current and the runaway density carry the differences of the initialization: 3e-10, 1e-11 and 4e-11.
 - From DREAM's state they differ by 7e-13, 1e-12 and 6e-12 (`test_disruption_dream.jl`; the runaway density at the first radius).
-- With Runes2P's defaults the chain runs end to end as well, and the budgets of its closures hold within the bounds of the phases started from DREAM's state.
+- With Runes2P's defaults, the synchrotron loss off as in DREAM's case, the chain runs end to end as well.
+  The budgets of its closures hold within the bounds of the phases started from DREAM's state.
 - In the superthermal mode the initialization agrees with DREAM to 2e-9 and the phases to 4e-6, the largest in the ion densities and the cold electrons.
 - With the runaway grid, the window agrees with DREAM to 1.2e-9 in `f_re`, `n_re` and `j_re`, and to 2.2e-8 in every other quantity, the largest in the ion densities.
 - In it the runaway current is 5.9 % of the plasma current at the start.
