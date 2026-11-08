@@ -10,7 +10,7 @@
 # injected D and Ar, or the thermal and current quench), started from DREAM's state at its
 # start (`initial_state`) or from Runes2P's own initialization (`initialize`, then
 # `initial_state_after_initialization`). With compat = dream it takes DREAM's settings of the
-# case, with compat = runes2p the defaults of Runes2P.
+# case, with compat = runes2p the defaults of Runes2P. The synchrotron loss is off at both.
 # `runaway = true` adds DREAM's runaway grid above the hot-tail grid (the case script's
 # --runaway-grid), the builder of test_disruption_runaway.jl and test_disruption_runaway_dream.jl:
 # on the faces `runaway_p_faces` and `runaway_xi_faces`, by default those of the case script
@@ -489,8 +489,9 @@ end
 # frequencies there is no hot region: DREAM counts all of f as hot (pThreshold = 0,
 # src/Settings/Equations/n_hot.cpp:50-53). With a runaway grid `runaway`, the Fokker-Planck term
 # of f_re on it as well (`fp_re`, otherwise nothing), with the scheme `runaway_scheme` and the
-# collision settings, the plasma, the synchrotron loss and the lagged plasma of f: DREAM builds the
-# collisions of both grids from one section of settings (src/Settings/EquationSystem.cpp:146-153).
+# collision settings, the plasma, the synchrotron loss (off) and the lagged plasma of f: DREAM
+# builds the collisions of both grids from one section of settings
+# (src/Settings/EquationSystem.cpp:146-153).
 # f's p_max is then the interface to f_re in place of f = 0 (src/Settings/Equations/f_hot.cpp:94-95,
 # 107-113), and f_re keeps the flux of its last face at its own p_max (BC_PHI_CONST, the case
 # script's setting, disruption_kinetic.py:463).
@@ -511,9 +512,12 @@ function kinetic_terms(
         nothing
     end
     plasma = PlasmaFromUnknowns(prescribed; ions = :ion_densities, temperature_floor = 0.01)
+    # the synchrotron loss off at both compat values, as in DREAM's case: generate.py leaves it out
+    # of f_hot (DREAM's default, py/DREAM/Settings/Equations/DistributionFunction.py:67) and the
+    # case script out of f_re (disruption_kinetic.py:458-464)
     function fokker_planck(name, operator)
         FokkerPlanckTerm(
-            name, operator; plasma, settings, synchrotron = compat === :runes2p,
+            name, operator; plasma, settings, synchrotron = false,
             electric_field = :electric_field, lagged = compat === :dream ? () : :ions)
     end
     p_upper_boundary = runaway === nothing ? :f_zero : :interface
@@ -1069,21 +1073,21 @@ function runaway_budgets(case, solution)
 end
 
 # the closures of the assembled system (`budgets`), independent of DREAM: round-off bounds, at
-# least 37 times the values measured at -O0 in the phases started from DREAM's state (in the
-# comment; test_disruption_dream.jl, compat = dream / runes2p, ionization and quench). At the
-# default optimisation level the chain of test_disruption_chain_dream.jl stays below them at least
-# 28 times (the exchange, 3.6e-15), and the superthermal runs of test_disruption_superthermal_dream.jl
-# at least 43 times (the closure, 2.3e-14).
+# least 33 times the values measured at -O0 in the phases started from DREAM's state (in the
+# comment; test_disruption_dream.jl, ionization / quench at compat = dream, then at compat =
+# runes2p). At the default optimisation level the chain of test_disruption_chain_dream.jl stays
+# below them at least 28 times (the exchange, 3.6e-15), and the superthermal runs of
+# test_disruption_superthermal_dream.jl at least 28 times (the closure, 3.5e-14).
 #! format: off
 const BUDGETS = (species=1e-13,     # 3.2e-16 / 4.7e-16, 3.2e-16 / 3.2e-16
-                 exchange=1e-13,    # 2.7e-15 / 1.3e-15, 5.1e-16 / 1.3e-15
-                 diffusion=1e-13,   # 7.0e-17 / 7.3e-17, 0 / 7.3e-17
-                 closure=1e-12,     # 7.9e-15 / 1.1e-14, 4.4e-15 / 4.2e-15, the row of W_cold against its channels
-                 field=1e-8)        # 1.8e-10 / 1.2e-11, 2.7e-12 / 1.3e-11 of a change that is 3e-6 and 3e-5 of the energy
+                 exchange=1e-13,    # 3.0e-15 / 6.2e-16, 1.3e-15 / 6.0e-16
+                 diffusion=1e-13,   # 7.1e-17 / 7.4e-17, 0 / 7.3e-17
+                 closure=1e-12,     # 8.1e-15 / 4.4e-15, 9.1e-15 / 6.3e-15, the row of W_cold against its channels
+                 field=1e-8)        # 1.8e-10 / 2.7e-12, 1.7e-10 / 1.1e-11 of a change that is 3e-6 and 3e-5 of the energy
 #! format: on
 # the drift of ∫f − n_cold − n_hot, relative to n_cold, per phase: the deposition of the ionization
 # phase moves it at the Newton level of the particle-source row (2.7e-8 measured); in the quench it
-# is round-off (7.9e-16 / 6.9e-16), and the bound pins the knock-on number of the kinetic source
+# is round-off (9.6e-16 / 7.8e-16), and the bound pins the knock-on number of the kinetic source
 # against the ProductTerm of the particle source, 3e-9 of n_cold over the phase, to 3e-5
 const DRIFT = Dict("ionization" => 1e-6, "quench" => 1e-13)
 
