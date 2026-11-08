@@ -328,16 +328,20 @@ function add_plasma_columns!(J, term::FokkerPlanckTerm, u, layout, row, t)
     df = term.dual_columns[]::Array{D, 3}
     fill!(df, zero(D))
     apply!(df, op, f; electric_field = _field_values(term.electric_field, u, layout))
+    return _add_kinetic_plasma_columns!(J, df, term.plasma, layout, row, with_ions)
+end
+
+# the partials of the term in dual numbers `df` into the rows of the cells; the number of
+# partials is picked at run time, so the loop runs behind this barrier on the concrete type
+function _add_kinetic_plasma_columns!(
+        J, df::Array{<:ForwardDiff.Dual, 3}, plasma, layout, row, with_ions)
     np, nxi, nr = size(df)
     for ir in 1:nr
-        columns = plasma_columns(term.plasma, layout, ir; with_ions)
+        columns = plasma_columns(plasma, layout, ir; with_ions)::Vector{Int}
         for j in 1:nxi, i in 1:np
 
             r = _kinetic_index(layout, row, ir, i, j)
-            partials = ForwardDiff.partials(df[i, j, ir])
-            for k in eachindex(columns)
-                _add_entry!(J, r, columns[k], partials[k])
-            end
+            _add_partials!(J, r, columns, df[i, j, ir])
         end
     end
     return J

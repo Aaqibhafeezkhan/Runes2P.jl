@@ -375,6 +375,15 @@ function add_plasma_columns!(J, term::MomentumBoundaryFluxTerm, u, layout, row, 
     f = kinetic_array(u, layout, unknown_id(layout, term.kinetic))
     name = _electric_field_of(term)
     field = name === nothing ? nothing : _field_values(name, u, layout)
+    return _add_boundary_plasma_columns!(J, term, op, f, field, with_ions, layout, row)
+end
+
+# the radial rows with the operator of dual coefficients `op`; the number of partials is
+# picked at run time, so the loop runs behind this barrier on the concrete type
+function _add_boundary_plasma_columns!(
+        J, term::MomentumBoundaryFluxTerm, op::AdvectionDiffusion, f, field, with_ions,
+        layout, row)
+    source = term.source
     rg = layout.radial_grid
     for ir in 1:radial_cell_count(layout)
         m = op.momentum_grids[ir]
@@ -383,10 +392,8 @@ function add_plasma_columns!(J, term::MomentumBoundaryFluxTerm, u, layout, row, 
                     _p_flux(op, f, face, j, ir, nothing, field)
         for j in 1:pitch_cell_count(m))
         r = first(unknown_range(layout, row, ir))
-        partials = ForwardDiff.partials(total)
-        for (k, column) in enumerate(plasma_columns(source.plasma, layout, ir; with_ions))
-            _add_entry!(J, r, column, partials[k])
-        end
+        columns = plasma_columns(source.plasma, layout, ir; with_ions)::Vector{Int}
+        _add_partials!(J, r, columns, total)
     end
     return J
 end

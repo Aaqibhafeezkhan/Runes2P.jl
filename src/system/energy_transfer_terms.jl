@@ -247,14 +247,7 @@ function add_jacobian!(J, term::KineticEnergyLossTerm, u, layout, row, t)
         with_ions = ion_dependency(source) !== nothing && !_lags_ions(term.source)
         dual = dual_plasma(plasma, source.density !== nothing, with_ions)
         df = _loss_change(_loss_operators(term, grid, dual), f)
-        for ir in 1:nr
-            loss_weights = _loss_weights(term, grid, ir, u, layout, t)
-            loss = -term.coefficient * sum(loss_weights .* view(df, :, :, ir))
-            partials = ForwardDiff.partials(loss)
-            for (k, column) in enumerate(plasma_columns(source, layout, ir; with_ions))
-                _add_entry!(J, first(unknown_range(layout, row, ir)), column, partials[k])
-            end
-        end
+        _add_loss_plasma_columns!(J, term, df, grid, source, with_ions, u, layout, row, t)
     end
     # the column of the temperature that moves the limit of the region
     temperature = _region_unknowns(term.envelopes)
@@ -280,6 +273,19 @@ function add_jacobian!(J, term::KineticEnergyLossTerm, u, layout, row, t)
                 first(unknown_range(layout, T_id, ir)),
                 -term.coefficient * value)
         end
+    end
+    return J
+end
+
+# the radial rows with the change of f in dual numbers `df`; the number of partials is
+# picked at run time, so the loop runs behind this barrier on the concrete type
+function _add_loss_plasma_columns!(J, term::KineticEnergyLossTerm,
+        df::Array{<:ForwardDiff.Dual, 3}, grid, source, with_ions, u, layout, row, t)
+    for ir in 1:size(df, 3)
+        loss_weights = _loss_weights(term, grid, ir, u, layout, t)
+        loss = -term.coefficient * sum(loss_weights .* view(df, :, :, ir))
+        columns = plasma_columns(source, layout, ir; with_ions)::Vector{Int}
+        _add_partials!(J, first(unknown_range(layout, row, ir)), columns, loss)
     end
     return J
 end
@@ -429,15 +435,21 @@ function add_jacobian!(J, term::FrictionEnergyTransferTerm, u, layout, row, t)
         with_ions = ion_dependency(term.source) !== nothing
         dual = CollisionModel(
             dual_plasma(plasma, term.source.density !== nothing, with_ions), term.settings)
-        for ir in 1:radial_cell_count(layout)
-            weights = _friction_weights(term, dual, ir)
-            power = term.coefficient * sum(weights .* kinetic_view(u, layout, id, ir))
-            partials = ForwardDiff.partials(power)
-            columns = plasma_columns(term.source, layout, ir; with_ions)
-            for (k, column) in enumerate(columns)
-                _add_entry!(J, first(unknown_range(layout, row, ir)), column, partials[k])
-            end
-        end
+        _add_friction_plasma_columns!(J, term, dual, with_ions, u, layout, row)
+    end
+    return J
+end
+
+# the radial rows with the collision model of a plasma in dual numbers `dual`; the number of
+# partials is picked at run time, so the loop runs behind this barrier on the concrete type
+function _add_friction_plasma_columns!(
+        J, term::FrictionEnergyTransferTerm, dual::CollisionModel, with_ions, u, layout, row)
+    id = unknown_id(layout, term.kinetic)
+    for ir in 1:radial_cell_count(layout)
+        weights = _friction_weights(term, dual, ir)
+        power = term.coefficient * sum(weights .* kinetic_view(u, layout, id, ir))
+        columns = plasma_columns(term.source, layout, ir; with_ions)::Vector{Int}
+        _add_partials!(J, first(unknown_range(layout, row, ir)), columns, power)
     end
     return J
 end
@@ -545,14 +557,19 @@ end
 function add_plasma_columns!(J, term::InterfaceFluxTerm, u, layout, row, t)
     source = term.interface.lower_term
     op, with_ions = _dual_coefficients!(source, u, layout, t)
+    return _add_crossing_plasma_columns!(J, term, op, with_ions, u, layout, row)
+end
+
+# the radial rows with the operator of dual coefficients `op`; the number of partials is
+# picked at run time, so the loop runs behind this barrier on the concrete type
+function _add_crossing_plasma_columns!(
+        J, term::InterfaceFluxTerm, op::AdvectionDiffusion, with_ions, u, layout, row)
+    source = term.interface.lower_term
     for ir in 1:radial_cell_count(layout)
         flux = _interface_flux(term.interface, op, u, layout, ir)
-        partials = ForwardDiff.partials(_crossing_weight(term, ir) * flux)
         r = first(unknown_range(layout, row, ir))
-        columns = plasma_columns(source.plasma, layout, ir; with_ions)
-        for n in eachindex(columns)
-            _add_entry!(J, r, columns[n], partials[n])
-        end
+        columns = plasma_columns(source.plasma, layout, ir; with_ions)::Vector{Int}
+        _add_partials!(J, r, columns, _crossing_weight(term, ir) * flux)
     end
     return J
 end

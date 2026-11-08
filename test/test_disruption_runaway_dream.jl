@@ -13,7 +13,8 @@
 # on the built grid, and n_re against ∫f_re (n_re exceeds it by the runaways beyond the grid's
 # p_max). The budgets of the assembled system and of the runaway grid are asserted independently of
 # DREAM, and the window runs once more with Runes2P's defaults (compat = runes2p), where only the
-# budgets are checked. Needs the ADF11 cache.
+# budgets are checked. The allocation of jacobian! at the first state is bounded, and so is that
+# of the plasma columns of the two Fokker-Planck terms. Needs the ADF11 cache.
 using HDF5
 include(joinpath(@__DIR__, "example_disruption.jl"))
 
@@ -45,6 +46,16 @@ const WINDOW_TOLERANCES = Dict("f_hot" => 5e-8,      # 4.9e-9
 const WINDOW_RUNAWAY_BUDGETS = (interface = 2e-14,   # 2.8e-16 / 4.5e-16
                                 avalanche = 1e-11)   # 1.3e-13 / 9.0e-14
 #! format: on
+
+# an assertion on allocations holds for optimised code alone: it is skipped, and reported
+# as broken, in a development run at -O0 or -O1
+const OPTIMIZED = Base.JLOptions().opt_level >= 2
+# the bytes a call of jacobian! of the window allocates after a first call, and those of the
+# plasma columns of each Fokker-Planck term: about twice those measured at -O2 (in the
+# comment). A loop that inserts the partials of a dual number of a type picked at run time
+# boxes every entry, 7.0e6 bytes for jacobian! and 1.8e6 and 3.9e6 bytes for the two terms.
+const JACOBIAN_ALLOCATION = 2.5e6           # 1.19e6
+const KINETIC_COLUMNS_ALLOCATION = 1.5e5    # 7.3e4 (f), 6.1e4 (f_re)
 
 # the largest relative residual of the algebraic rows `names` at the state `u` of `case`
 function algebraic_mismatch(case, system, u, t, dt, names)
@@ -98,6 +109,18 @@ end
             case, solution, "window, compat = dream",
             WINDOW_RUNAWAY_BUDGETS)
             @test value < bound
+        end
+        # the plasma columns insert their partials without a box per entry
+        J = jacobian_prototype(system)
+        jacobian!(J, system, u0, times[1])
+        @test (@allocated jacobian!(J, system, u0, times[1])) < JACOBIAN_ALLOCATION skip = !OPTIMIZED
+        kinetic = [b for b in system.column_terms if b.term isa FokkerPlanckTerm]
+        @test length(kinetic) == 2
+        for b in kinetic
+            Runes2P.add_plasma_columns!(J, b.term, u0, case.layout, b.row, times[1])
+            allocated = @allocated Runes2P.add_plasma_columns!(
+                J, b.term, u0, case.layout, b.row, times[1])
+            @test allocated < KINETIC_COLUMNS_ALLOCATION skip = !OPTIMIZED
         end
         # Runes2P's defaults: the budgets alone, since the physics departs from DREAM's
         case, _, _, solution = run_window(start, :runes2p)
