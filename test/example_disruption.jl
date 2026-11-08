@@ -10,7 +10,7 @@
 # injected D and Ar, or the thermal and current quench), started from DREAM's state at its
 # start (`initial_state`) or from Runes2P's own initialization (`initialize`, then
 # `initial_state_after_initialization`). With compat = dream it takes DREAM's settings of the
-# case, with compat = runes2p the defaults of Runes2P.
+# case, with compat = runes2p the defaults of Runes2P; the synchrotron loss is off at both.
 # `runaway = true` adds DREAM's runaway grid above the hot-tail grid (the case script's
 # --runaway-grid), the builder of test_disruption_runaway.jl and test_disruption_runaway_dream.jl:
 # on the faces `runaway_p_faces` and `runaway_xi_faces`, by default those of the case script
@@ -489,8 +489,9 @@ end
 # frequencies there is no hot region: DREAM counts all of f as hot (pThreshold = 0,
 # src/Settings/Equations/n_hot.cpp:50-53). With a runaway grid `runaway`, the Fokker-Planck term
 # of f_re on it as well (`fp_re`, otherwise nothing), with the scheme `runaway_scheme` and the
-# collision settings, the plasma, the synchrotron loss and the lagged plasma of f: DREAM builds the
-# collisions of both grids from one section of settings (src/Settings/EquationSystem.cpp:146-153).
+# collision settings, the plasma, the synchrotron loss (off) and the lagged plasma of f: DREAM
+# builds the collisions of both grids from one section of settings
+# (src/Settings/EquationSystem.cpp:146-153).
 # f's p_max is then the interface to f_re in place of f = 0 (src/Settings/Equations/f_hot.cpp:94-95,
 # 107-113), and f_re keeps the flux of its last face at its own p_max (BC_PHI_CONST, the case
 # script's setting, disruption_kinetic.py:463).
@@ -511,9 +512,11 @@ function kinetic_terms(
         nothing
     end
     plasma = PlasmaFromUnknowns(prescribed; ions = :ion_densities, temperature_floor = 0.01)
+    # the synchrotron loss off at both compat values, a choice of the case: the example leaves it
+    # out of f_hot and the case script out of f_re (disruption_kinetic.py:458-464)
     function fokker_planck(name, operator)
         FokkerPlanckTerm(
-            name, operator; plasma, settings, synchrotron = compat === :runes2p,
+            name, operator; plasma, settings, synchrotron = false,
             electric_field = :electric_field, lagged = compat === :dream ? () : :ions)
     end
     p_upper_boundary = runaway === nothing ? :f_zero : :interface
