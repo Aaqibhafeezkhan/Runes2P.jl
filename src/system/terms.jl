@@ -180,6 +180,8 @@ end
 # add partial k of the dual number `value` to the entry (row, columns[k]) of J, for every k
 # in the order of `columns`
 @inline function _add_partials!(J::SparseMatrixCSC, row::Integer, columns::Vector{Int}, value)
+    length(columns) == ForwardDiff.npartials(value) ||
+        throw(DimensionMismatch("$(length(columns)) plasma columns for $(ForwardDiff.npartials(value)) partials"))
     partials = ForwardDiff.partials(value)
     for k in eachindex(columns)
         _add_entry!(J, row, columns[k], partials[k])

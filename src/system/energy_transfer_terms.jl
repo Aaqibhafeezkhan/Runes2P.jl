@@ -247,7 +247,7 @@ function add_jacobian!(J, term::KineticEnergyLossTerm, u, layout, row, t)
         with_ions = ion_dependency(source) !== nothing && !_lags_ions(term.source)
         dual = dual_plasma(plasma, source.density !== nothing, with_ions)
         df = _loss_change(_loss_operators(term, grid, dual), f)
-        _add_loss_plasma_columns!(J, term, df, grid, source, with_ions, u, layout, row, t)
+        _add_loss_plasma_columns!(J, term, df, grid, with_ions, u, layout, row, t)
     end
     # the column of the temperature that moves the limit of the region
     temperature = _region_unknowns(term.envelopes)
@@ -280,7 +280,8 @@ end
 # the radial rows with the change of f in dual numbers `df`; the number of partials is
 # picked at run time, so the loop runs behind this barrier on the concrete type
 function _add_loss_plasma_columns!(J, term::KineticEnergyLossTerm,
-        df::Array{<:ForwardDiff.Dual, 3}, grid, source, with_ions, u, layout, row, t)
+        df::Array{<:ForwardDiff.Dual, 3}, grid, with_ions, u, layout, row, t)
+    source = term.source.plasma
     for ir in 1:size(df, 3)
         loss_weights = _loss_weights(term, grid, ir, u, layout, t)
         loss = -term.coefficient * sum(loss_weights .* view(df, :, :, ir))
