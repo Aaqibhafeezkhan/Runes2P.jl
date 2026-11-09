@@ -1,8 +1,9 @@
 # The ionization of the ions by the electrons of a distribution: the cross sections of DREAM's
 # fits against the ADAS coefficients at low density, the conservation of each species, the
-# Jacobian of the term against central differences, and the split of the ionization at the hot
-# threshold: a Maxwellian f ionizes at the ADAS rate for every threshold, and DREAM's pairing
-# counts the tail above the threshold twice. Needs the ADF11 cache (scripts/fetch_adas.py).
+# Jacobian of the term against central differences, a stored pattern without an ion row of a
+# cell column refused, and the split of the ionization at the hot threshold: a Maxwellian f
+# ionizes at the ADAS rate for every threshold, and DREAM's pairing counts the tail above
+# the threshold twice. Needs the ADF11 cache (scripts/fetch_adas.py).
 using SparseArrays: sparse
 using ForwardDiff
 using QuadGK: quadgk
@@ -154,6 +155,16 @@ end
                 difference = (term_rhs(up) - term_rhs(down)) / 2h
                 @test maximum(abs, Vector(J[:, column]) - difference) <=
                       1e-6 * maximum(abs, difference) + 1e-13 * size_of_rhs / h
+            end
+            # a pattern without one ion row of a cell column is refused: the first, a middle
+            # and the last row of the ion densities at the radius
+            ion_rows = unknown_range(layout, 1, 2)
+            for missing_row in (first(ion_rows), ion_rows[5], last(ion_rows))
+                kept = [entry != (missing_row, cells[40]) for entry in entries]
+                partial = sparse(first.(entries[kept]), last.(entries[kept]),
+                    zeros(count(kept)), n, n)
+                @test_throws ArgumentError Runes2P.add_jacobian!(
+                    partial, kinetic, u, layout, 1, 0.0)
             end
         end
 

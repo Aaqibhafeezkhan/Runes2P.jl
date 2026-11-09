@@ -339,16 +339,33 @@ function add_plasma_columns!(J, term::FokkerPlanckTerm, u, layout, row, t)
 end
 
 # the partials of the term in dual numbers `df` into the rows of the cells; the number of
-# partials is picked at run time, so the loop runs behind this barrier on the concrete type
-function _add_kinetic_plasma_columns!(
-        J, term::FokkerPlanckTerm, df::Array{<:ForwardDiff.Dual, 3}, with_ions, layout, row)
+# partials is picked at run time, so the loop runs behind this barrier on the concrete type;
+# the rows of the unknown at a radius are contiguous, so the entries of a plasma column in
+# these rows are a run of its stored values: one search per radius and column finds the
+# start of the run, and each cell adds at its offset in the run
+function _add_kinetic_plasma_columns!(J, term::FokkerPlanckTerm,
+        df::Array{<:ForwardDiff.Dual{<:Any, <:Any, N}, 3}, with_ions, layout, row) where {N}
     np, nxi, nr = size(df)
+    values = nonzeros(J)
     for ir in 1:nr
         columns = plasma_columns(term.plasma, layout, ir; with_ions)::Vector{Int}
+        if length(columns) != N
+            throw(DimensionMismatch("$(length(columns)) plasma columns for $N partials"))
+        end
+        rows = unknown_range(layout, row, ir)
+        # the cells of the row unknown match those of `df`, so the offsets stay inside the
+        # run, which the `@inbounds` below relies on
+        if layout.shapes[row, ir] != (np, nxi)
+            throw(DimensionMismatch("the cells of the row unknown at radius $ir differ from those of the term"))
+        end
+        starts = ntuple(k -> _run_start(J, rows, columns[k]), Val(N))
         for j in 1:nxi, i in 1:np
 
-            r = _kinetic_index(layout, row, ir, i, j)
-            _add_partials!(J, r, columns, df[i, j, ir])
+            offset = _kinetic_index(layout, row, ir, i, j) - first(rows)
+            partials = ForwardDiff.partials(df[i, j, ir])
+            @inbounds for k in 1:N
+                values[starts[k] + offset] += partials[k]
+            end
         end
     end
     return J
