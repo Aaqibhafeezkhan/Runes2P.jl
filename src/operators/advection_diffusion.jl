@@ -834,9 +834,13 @@ loop over the cells is compiled for it.
 
 Each p face of a pitch row is evaluated once: the flux through the face above a cell is
 carried to the next cell as the flux through its face below, also past a cell with no
-phase-space volume. The ξ faces are evaluated from both of their cells, and the r faces once
-per radius on each side, since a buffer of either would need storage per call or in the
-operator.
+phase-space volume. The exception is the last one or two interior p faces, which the
+boundary at p_max evaluates again when it continues or extrapolates their flux
+(`:constant_flux`, `:extrapolated_flux`, `:extrapolated_flux_consistent`). The ξ faces
+are evaluated from both of their cells, since a buffer of them would need storage per call
+or in the operator. Each r face is evaluated from the radius on each side of it: with
+per-radius pitch grids the two sides give different values, and a buffer across radii would
+tie a radius to the one before it.
 """
 @inline function apply_radius!(
         df, op::AdvectionDiffusion, f, ir, scale, state = nothing, field = nothing,
@@ -850,13 +854,14 @@ operator.
             p_flux_upper = _p_flux(op, f, i + 1, j, ir, state, field)
             V = op.jacobian_centers[i, j, ir]
             if V != 0
-                divergence = (p_flux_upper - p_flux_lower) / m.p_widths[i] +
-                             (_xi_flux(op, f, i, j + 1, ir, state, field) -
-                              _xi_flux(op, f, i, j, ir, state, field)) /
-                             m.xi_widths[j] +
-                             (_r_flux(op, f, i, j, ir, ir + 1, state, radial_mode) -
-                              _r_flux(op, f, i, j, ir, ir, state, radial_mode)) /
-                             rg.r_widths[ir]
+                divergence_p = (p_flux_upper - p_flux_lower) / m.p_widths[i]
+                divergence_xi = (_xi_flux(op, f, i, j + 1, ir, state, field) -
+                                 _xi_flux(op, f, i, j, ir, state, field)) / m.xi_widths[j]
+                divergence_r = (_r_flux(op, f, i, j, ir, ir + 1, state, radial_mode) -
+                                _r_flux(op, f, i, j, ir, ir, state, radial_mode)) /
+                               rg.r_widths[ir]
+                # in this order: another order of the sum changes the rounding
+                divergence = divergence_p + divergence_xi + divergence_r
                 df[i, j, ir] -= scale * divergence / V
             end
             p_flux_lower = p_flux_upper

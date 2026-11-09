@@ -1,6 +1,10 @@
 using ForwardDiff
 using Random
 
+# an assertion on allocations holds for optimised code alone: it is skipped, and reported
+# as broken, in a development run at -O0 or -O1
+const OPTIMIZED = Base.JLOptions().opt_level >= 2
+
 @testset "advection-diffusion" begin
     rng = Xoshiro(1)
     mom = MomentumGrid(biuniform_p_faces(20, 8, 0.0, 0.5, 3.0), uniform_xi_faces(10))
@@ -196,10 +200,13 @@ function _apply_from_both_sides!(df, op, f; scale = true, limiter_state = nothin
     return df
 end
 
-const BOTH_SIDES_COEFFICIENTS = (
-    :advection_p, :diffusion_p_p, :diffusion_p_xi, :advection_xi, :diffusion_xi_xi,
-    :diffusion_xi_p, :advection_r, :diffusion_r_r, :unit_field_advection_p,
-    :unit_field_advection_xi, :p_flux_at_lower_boundary, :advection_p_times_p2_at_zero)
+# the coefficient arrays of the operator: its fields with the number type of the
+# coefficients, which an operator of Float64 grids with Float32 coefficients sets apart from
+# the arrays of the grid
+const SEPARATE_COEFFICIENTS = AdvectionDiffusion{Float64, Float32}
+const BOTH_SIDES_COEFFICIENTS = filter(
+    name -> fieldtype(SEPARATE_COEFFICIENTS, name) <: AbstractArray{Float32},
+    fieldnames(SEPARATE_COEFFICIENTS))
 
 # apply! from `df` against the reference, bit for bit; `label` goes into `failures` when
 # they differ
@@ -237,6 +244,9 @@ end
     K = 4
     P = 25
     failures = String[]
+    # the derived list holds the coefficients on faces and those of a boundary
+    @test issubset((:advection_p, :diffusion_r_r, :p_flux_at_lower_boundary),
+        BOTH_SIDES_COEFFICIENTS)
     for (grid, options) in configurations, scheme in schemes, upper in upper_boundaries
         scheme === :exponential_fitting && upper === :extrapolated_flux && continue
         op = AdvectionDiffusion(grid; scheme, p_upper_boundary = upper, options...)
@@ -287,7 +297,7 @@ end
     @test isempty(failures)
 end
 
-@testset "each p face once: allocation free for Float64 and dual states" begin
+@testset "each p face once: allocation free for Float64 and dual states and coefficients" begin
     rng = Xoshiro(8)
     grid = cylindrical_grid(
         MomentumGrid(uniform_p_faces(6, 0.0, 2.0), uniform_xi_faces(4)),
@@ -296,9 +306,18 @@ end
     f = 0.1 .+ rand(rng, size(grid)...)
     df = zeros(size(grid))
     apply!(df, op, f; limiter_state = f)
-    @test (@allocated apply!(df, op, f; limiter_state = f)) == 0
+    @test (@allocated apply!(df, op, f; limiter_state = f)) == 0 skip = !OPTIMIZED
+    field = randn(rng, radial_cell_count(grid))
+    apply!(df, op, f; electric_field = field)
+    @test (@allocated apply!(df, op, f; electric_field = field)) == 0 skip = !OPTIMIZED
     dual_f = [ForwardDiff.Dual{Nothing}(x, ntuple(_ -> randn(rng), 4)...) for x in f]
     dual_df = zeros(eltype(dual_f), size(grid))
     apply!(dual_df, op, dual_f)
-    @test (@allocated apply!(dual_df, op, dual_f)) == 0
+    @test (@allocated apply!(dual_df, op, dual_f)) == 0 skip = !OPTIMIZED
+    # dual coefficients on a Float64 state (the plasma columns)
+    C = ForwardDiff.Dual{Nothing, Float64, 25}
+    dual_op = Runes2P.similar_coefficients(op, C)
+    coefficient_df = zeros(C, size(grid))
+    apply!(coefficient_df, dual_op, f)
+    @test (@allocated apply!(coefficient_df, dual_op, f)) == 0 skip = !OPTIMIZED
 end
