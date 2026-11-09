@@ -158,11 +158,13 @@ end
 
 function add_jacobian!(J, term::KineticIonizationTerm, u, layout, row, t)
     c = term.composition
+    values = nonzeros(J)
     kinetic = unknown_id(layout, term.kinetic)
     temperature = _region_unknowns(term.envelopes)
     for ir in 1:radial_cell_count(layout)
         m = momentum_grid(term.grid, ir)
         rows = unknown_range(layout, row, ir)
+        isempty(rows) && continue
         n = radial_view(u, layout, row, ir)
         K = kinetic_ionization_rates(term, u, layout, t, ir)
         envelope = _envelope_at(term.envelopes, term.grid, ir, u, layout, t)
@@ -188,18 +190,30 @@ function add_jacobian!(J, term::KineticIonizationTerm, u, layout, row, t)
         else
             first(unknown_range(layout, unknown_id(layout, only(temperature)), ir))
         end
+        # the flow K_k n_k from state k to k + 1, in the columns of the ion densities
         for s in 1:length(c), k in species_components(c, s)[1:(end - 1)]
-            # the flow K_k n_k from state k to k + 1
+
             _add_entry!(J, rows[k], rows[k], -K[k])
             _add_entry!(J, rows[k + 1], rows[k], K[k])
-            for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
+        end
+        # in the column of each cell: the rows of the ion densities at the radius are a run of
+        # its stored values, found by one search; the flows add in ascending order, so the
+        # entry of state k + 1, which flows k and k + 1 share, takes flow k first
+        for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
+
+            column = _kinetic_index(layout, kinetic, ir, i, j)
+            # the entry of row r is at offset + r
+            offset = _run_start(J, rows, column) - first(rows)
+            for s in 1:length(c), k in species_components(c, s)[1:(end - 1)]
 
                 value = n[k] * _envelope_value(envelope, i) * rates[i, k] * w[i, j]
-                column = _kinetic_index(layout, kinetic, ir, i, j)
-                _add_entry!(J, rows[k], column, -value)
-                _add_entry!(J, rows[k + 1], column, value)
+                values[offset + rows[k]] += -value
+                values[offset + rows[k + 1]] += value
             end
-            if dK !== nothing
+        end
+        if dK !== nothing
+            for s in 1:length(c), k in species_components(c, s)[1:(end - 1)]
+
                 _add_entry!(J, rows[k], T_column, -n[k] * dK[k])
                 _add_entry!(J, rows[k + 1], T_column, n[k] * dK[k])
             end

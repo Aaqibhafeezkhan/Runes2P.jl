@@ -177,6 +177,24 @@ function add_jacobian! end
     return J
 end
 
+# The position in the stored values of J of the entry (first(rows), column), where the rows
+# `rows` of the column are stored one after the other: the entry of row r is at the position
+# plus r - first(rows). The stored rows of a column increase strictly, so the run holds every
+# row of `rows` when its first and last positions hold the first and last rows; otherwise an
+# entry is not in the pattern, an `ArgumentError` as in `_add_entry!`.
+function _run_start(J::SparseMatrixCSC, rows::UnitRange{Int}, column::Integer)
+    isempty(rows) && throw(ArgumentError("an empty run of rows in column $column"))
+    range = nzrange(J, column)
+    stored = rowvals(J)
+    start = searchsortedfirst(
+        stored, first(rows), first(range), last(range), Base.Order.Forward)
+    stop = start + length(rows) - 1
+    if !(stop <= last(range) && stored[start] == first(rows) && stored[stop] == last(rows))
+        throw(ArgumentError("the entries ($rows, $column) are not all in the pattern of the stored Jacobian"))
+    end
+    return start
+end
+
 # add partial k of the dual number `value` to the entry (row, columns[k]) of J, for every k
 # in the order of `columns`
 @inline function _add_partials!(J::SparseMatrixCSC, row::Integer, columns::Vector{Int}, value)

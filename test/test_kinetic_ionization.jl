@@ -155,6 +155,16 @@ end
                 @test maximum(abs, Vector(J[:, column]) - difference) <=
                       1e-6 * maximum(abs, difference) + 1e-13 * size_of_rhs / h
             end
+            # a pattern without one ion row of a cell column is refused: the first, a middle
+            # and the last row of the ion densities at the radius
+            ion_rows = unknown_range(layout, 1, 2)
+            for missing_row in (first(ion_rows), ion_rows[5], last(ion_rows))
+                kept = [entry != (missing_row, cells[40]) for entry in entries]
+                partial = sparse(first.(entries[kept]), last.(entries[kept]),
+                    zeros(count(kept)), n, n)
+                @test_throws ArgumentError Runes2P.add_jacobian!(
+                    partial, kinetic, u, layout, 1, 0.0)
+            end
         end
 
         @testset "split at the threshold" begin

@@ -1,10 +1,11 @@
 # The kinetic terms with the ion charge states from the unknowns: the columns of the charge
 # states in the Fokker-Planck term and in the energy loss of the electrons against central
-# differences, the lag of the ion group (no columns, the ions of the start of the step), the
-# target of the e-e collisions of a two-grid system with the population closure, and the
-# Newton iterations of a stiff ionization step with the ion group implicit and lagged.
+# differences, a stored pattern without an entry of the plasma columns refused, the lag of
+# the ion group (no columns, the ions of the start of the step), the target of the e-e
+# collisions of a two-grid system with the population closure, and the Newton iterations of
+# a stiff ionization step with the ion group implicit and lagged.
 
-using SparseArrays: sparse, nnz
+using SparseArrays: sparse, nnz, findnz
 using Runes2P: plasma_columns
 
 const KINETIC_COMPOSITION = IonComposition(["D" => 1, "Ar" => 18])
@@ -120,6 +121,37 @@ end
         # screened collisions of argon make nonzero
         empty = unknown_range(layout, 1, 2)[2 + 3]
         @test u[empty] == 0 && any(!iszero, J[f_rows, empty])
+    end
+
+    @testset "plasma columns outside the stored pattern are refused" begin
+        # the run of a column is found by one search and checked at its first and last row;
+        # the stored rows increase strictly, so a missing row anywhere fails the check
+        A = sparse([1, 2, 3, 4, 6, 1, 3], [1, 1, 1, 1, 1, 2, 2], ones(7), 6, 3)
+        @test Runes2P._run_start(A, 2:4, 1) == 2
+        @test Runes2P._run_start(A, 1:1, 2) == 6
+        @test_throws ArgumentError Runes2P._run_start(A, 3:5, 1)
+        @test_throws ArgumentError Runes2P._run_start(A, 4:6, 1)
+        @test_throws ArgumentError Runes2P._run_start(A, 1:3, 2)
+        @test_throws ArgumentError Runes2P._run_start(A, 3:4, 2)
+        @test_throws ArgumentError Runes2P._run_start(A, 1:1, 3)
+        @test_throws ArgumentError Runes2P._run_start(A, 2:1, 1)
+        # the Fokker-Planck term on a pattern without one entry of its plasma columns: the first,
+        # a middle and the last row of f at a radius
+        layout, fp, u = _kinetic_ion_case()
+        equations = [Equation(:ion_densities, TimeDerivative()),
+            population_equations(KINETIC_COMPOSITION)...,
+            _hold(:cold_electron_temperature, [5.0, 3.0]), Equation(:f, TimeDerivative(), fp)]
+        system = EquationSystem(layout, equations; initial_state = u)
+        row = unknown_id(layout, :f)
+        rows, columns, _ = findnz(jacobian_prototype(system))
+        f_rows = unknown_range(layout, row, 2)
+        column = plasma_columns(fp.plasma, layout, 2)[2]
+        for missing_row in (first(f_rows), f_rows[30], last(f_rows))
+            kept = [!(r == missing_row && c == column) for (r, c) in zip(rows, columns)]
+            J = sparse(rows[kept], columns[kept], zeros(count(kept)), length(u), length(u))
+            @test_throws ArgumentError Runes2P.add_plasma_columns!(
+                J, fp, u, layout, row, 0.0)
+        end
     end
 
     @testset "Fokker-Planck columns with the friction tied to the ionization" begin
