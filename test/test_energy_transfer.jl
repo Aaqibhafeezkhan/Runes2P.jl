@@ -5,6 +5,7 @@
 # (KineticEnergyLossTerm) with a lagged source, and the energy carried through p_max and
 # through the interface, with its column of the field when the interface reads the field,
 # and the particles through the interface in a radial row (InterfaceParticleFluxTerm).
+using ForwardDiff: ForwardDiff
 using Random: Xoshiro
 using SparseArrays: findnz, sparse
 
@@ -220,10 +221,10 @@ using SparseArrays: findnz, sparse
             initial_state = w)
     end
 
-    @testset "the field column of the energy through the interface ($mapping)" for mapping in (
+    @testset "the field column of the flux through the interface ($mapping)" for mapping in (
         :overlap, :dream)
-        # the lower Fokker-Planck term takes the field as an unknown, so the interface flux
-        # and the energy it carries depend on it
+        # the lower Fokker-Planck term takes the field as an unknown, so the interface flux,
+        # the energy it carries and the particles it brings to a radial row depend on it
         driven = PlasmaState(; cold_electron_temperature = [T0],
             ions = [IonSpecies("D", 1, 1, [n])], electric_field = [0.0],
             magnetic_field = [0.0])
@@ -238,12 +239,15 @@ using SparseArrays: findnz, sparse
         interface = MomentumInterfaceTerm(:f, :runaway, lower_term, upper_op;
             pitch_mapping = mapping)
         term = InterfaceEnergyFluxTerm(interface)
+        particles = InterfaceParticleFluxTerm(interface)
         @test :electric_field in Runes2P.dependencies(term)
+        @test :electric_field in Runes2P.dependencies(particles)
         two = UnknownLayout(rad,
             [KineticUnknown(:f, hot; scale = 1e16),
                 KineticUnknown(:runaway, upper; scale = 1e16),
                 RadialUnknown(:electric_field; scale = 10.0),
-                RadialUnknown(:cold_electron_temperature)])
+                RadialUnknown(:cold_electron_temperature),
+                RadialUnknown(:runaway_density; scale = 1e10)])
         w = zeros(length(two))
         kinetic_array(w, two, 1) .= [exp(-p) * (1 + 0.2xi)
                                      for p in momentum_grid(hot).p_centers,
@@ -256,11 +260,13 @@ using SparseArrays: findnz, sparse
                 Equation(:electric_field, Algebraic(), PrescribedValueTerm([50.0]),
                     LinearTerm(:electric_field; coefficient = -1)),
                 Equation(:cold_electron_temperature, Algebraic(), term,
-                    LinearTerm(:cold_electron_temperature; coefficient = -1e3))];
+                    LinearTerm(:cold_electron_temperature; coefficient = -1e3)),
+                Equation(:runaway_density, TimeDerivative(), particles)];
             initial_state = w)
         J = jacobian_prototype(system)
         jacobian!(J, system, w, 0.0)
         T_row = first(Runes2P.unknown_range(two, 4, 1))
+        n_row = first(Runes2P.unknown_range(two, 5, 1))
         column = first(Runes2P.unknown_range(two, 3, 1))
         # a relative step of 1e-6 of the field: the difference is 3e-11 of the column with
         # both mappings
@@ -271,9 +277,20 @@ using SparseArrays: findnz, sparse
         F_up, F_down = zeros(length(w)), zeros(length(w))
         rhs!(F_up, up, system, 0.0)
         rhs!(F_down, down, system, 0.0)
-        difference = (F_up[T_row] - F_down[T_row]) / (2h)
-        @test difference != 0
-        @test J[T_row, column] ≈ difference rtol = 1e-8
+        for row in (T_row, n_row)
+            difference = (F_up[row] - F_down[row]) / (2h)
+            @test difference != 0
+            @test J[row, column] ≈ difference rtol = 1e-8
+        end
+        # the two rows assemble their entries themselves: the cells at the face and the
+        # field against the AD of the residual
+        @test jacobian_assembly(term) === jacobian_assembly(particles) === :direct
+        dense = ForwardDiff.jacobian(v -> rhs!(similar(v), v, system, 0.0), w)
+        for row in (T_row, n_row)
+            @test any(!iszero, dense[row, Runes2P.unknown_range(two, 1, 1)])
+            @test any(!iszero, dense[row, Runes2P.unknown_range(two, 2, 1)])
+            @test Vector(J[row, :]) ≈ dense[row, :] rtol = 1e-12
+        end
     end
     @testset "the particle flux into a radial row ($mapping)" for mapping in (:overlap, :dream)
         # DREAM's n_re takes the flux through the interface (PXiExternalKineticKinetic,
@@ -282,7 +299,11 @@ using SparseArrays: findnz, sparse
         radii = RadialGrid(uniform_r_faces(2, 0.5))
         lower_grid = cylindrical_grid(
             MomentumGrid(biuniform_p_faces(9, 4, 0.0, 0.4, 2.5), uniform_xi_faces(9)), radii)
-        upper_grid = runaway_grid(lower_grid, uniform_p_faces(5, 2.5, 12.0)[2:end])
+        # 30 upper pitch cells: the row has 39 columns, more than one evaluation of its
+        # entries seeds (Runes2P.INTERFACE_COLUMN_CHUNK)
+        upper_grid = runaway_grid(
+            lower_grid, uniform_p_faces(5, 2.5, 12.0)[2:end], uniform_xi_faces(30))
+        @test 9 + 30 > Runes2P.INTERFACE_COLUMN_CHUNK
         lower_op = AdvectionDiffusion(lower_grid; scheme = :central, p_upper_boundary = :interface)
         for A in (lower_op.advection_p, lower_op.advection_xi, lower_op.advection_r)
             A .= randn(rng, size(A))
@@ -331,6 +352,11 @@ using SparseArrays: findnz, sparse
         J = jacobian_prototype(system)
         jacobian!(J, system, u, 0.0)
         @test J * u ≈ du rtol = 1e-12
+        # the row assembles its entries itself, against the AD of the residual, and leaves
+        # the coloring: in it, each of the 39 cells of the row would take a color of its own
+        @test jacobian_assembly(particles) === :direct
+        @test Matrix(J) ≈ ForwardDiff.jacobian(v -> rhs!(similar(v), v, system, 0.0), u) rtol = 1e-12
+        @test jacobian_colors(system) < 9
         context = Runes2P.DescriptionContext()
         record = describe(particles, context)
         interface_record = describe(interface, context)

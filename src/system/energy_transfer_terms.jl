@@ -483,7 +483,8 @@ the temperature it is the energy that leaves the total energy of the electrons o
 hot-tail grid for the runaway grid ([`total_energy_equation`](@ref)), so the electrons that
 cross take their energy with them and do not heat the cold ones. When the flux follows the
 plasma unknowns of the Fokker-Planck term of the interface, the row has their columns
-([`has_plasma_columns`](@ref)).
+([`has_plasma_columns`](@ref)). The term assembles its row itself
+([`jacobian_assembly`](@ref)), as [`InterfaceParticleFluxTerm`](@ref) does.
 """
 struct InterfaceEnergyFluxTerm{I <: MomentumInterfaceTerm} <: EquationTerm
     interface::I
@@ -502,7 +503,9 @@ radial row. With the default `coefficient = 1` in the row of the runaway density
 influx of DREAM's `n_re` from the hot-tail grid (`src/Settings/Equations/n_re.cpp:125-128`,
 `PXiExternalKineticKinetic` with `TYPE_DENSITY`, DREAM v26.5). When the flux follows the
 plasma unknowns of the Fokker-Planck term of the interface, the row has their columns
-([`has_plasma_columns`](@ref)).
+([`has_plasma_columns`](@ref)). The row reads the cells of both grids at the face, so the
+term assembles it itself ([`jacobian_assembly`](@ref)) and the coloring of the automatic
+Jacobian does not see it.
 """
 struct InterfaceParticleFluxTerm{I <: MomentumInterfaceTerm} <: EquationTerm
     interface::I
@@ -542,6 +545,88 @@ function rhs!(out, term::InterfaceFluxTerm, u, layout, row, t)
         out[first(unknown_range(layout, row, ir))] += _crossing_weight(term, ir) * flux
     end
     return out
+end
+
+jacobian_assembly(::InterfaceFluxTerm) = :direct
+
+# the columns of the row that one evaluation of the flux in dual numbers seeds: the cells at
+# the face of 15 + 15 pitch cells and the field in one evaluation, and one compiled copy of
+# the code for all grids. The entries do not depend on it
+const INTERFACE_COLUMN_CHUNK = 32
+
+# the columns of the cells at the face and of the field, by the flux of dual numbers seeded
+# on them, a chunk of columns at a time in the order of sparsity!: the lower cells, the upper
+# cells, the field. The other cells of the distributions are not read, and the columns of
+# the plasma unknowns come from add_plasma_columns!
+function add_jacobian!(J, term::InterfaceFluxTerm, u, layout, row, t)
+    interface = term.interface
+    op = _operator_at(interface.lower_term, u, layout, t)
+    lower = unknown_id(layout, interface.lower)
+    upper = unknown_id(layout, interface.upper)
+    field_name = _electric_field_of(interface)
+    field_values = _field_values(field_name, u, layout)
+    nr = radial_cell_count(layout)
+    D = ForwardDiff.Dual{LocalColumnTag, Float64, INTERFACE_COLUMN_CHUNK}
+    lower_values = zeros(D, maximum(ir -> layout.shapes[lower, ir][2], 1:nr))
+    upper_values = zeros(D, maximum(ir -> layout.shapes[upper, ir][2], 1:nr))
+    field = field_name === nothing ? nothing : zeros(D, nr)
+    for ir in 1:nr
+        r = first(unknown_range(layout, row, ir))
+        f_lower = kinetic_view(u, layout, lower, ir)
+        f_upper = kinetic_view(u, layout, upper, ir)
+        lower_cells, lower_pitch_cells = layout.shapes[lower, ir]
+        upper_cells, upper_pitch_cells = layout.shapes[upper, ir]
+        face_lower = FaceCells(
+            view(lower_values, 1:lower_pitch_cells), lower_cells, lower_cells)
+        face_upper = FaceCells(view(upper_values, 1:upper_pitch_cells), 1, upper_cells)
+        column_count = lower_pitch_cells + upper_pitch_cells
+        if field !== nothing
+            column_count += 1
+        end
+        for start in 1:INTERFACE_COLUMN_CHUNK:column_count
+            # column k of the row carries partial k - start + 1, a column outside the chunk none
+            for j in 1:lower_pitch_cells
+                lower_values[j] = _seeded_dual(D, f_lower[lower_cells, j], j - start + 1)
+            end
+            for k in 1:upper_pitch_cells
+                partial = lower_pitch_cells + k - start + 1
+                upper_values[k] = _seeded_dual(D, f_upper[1, k], partial)
+            end
+            if field !== nothing
+                field[ir] = _seeded_dual(D, field_values[ir], column_count - start + 1)
+            end
+            flux = _interface_flux_of_cells(
+                interface, op, face_lower, face_upper, field, ir)
+            rate = _crossing_weight(term, ir) * flux
+            stop = min(start + INTERFACE_COLUMN_CHUNK - 1, column_count)
+            for k in start:stop
+                column = _interface_column(
+                    layout, lower, upper, field_name, ir, k, lower_pitch_cells)
+                _add_entry!(J, r, column, ForwardDiff.partials(rate, k - start + 1))
+            end
+        end
+    end
+    return J
+end
+
+# the dual number of type D with value x and partial `partial` equal to one; none when
+# `partial` lies outside the partials of D
+function _seeded_dual(::Type{ForwardDiff.Dual{T, V, N}}, x, partial) where {T, V, N}
+    seed = ntuple(q -> q == partial ? one(V) : zero(V), Val(N))
+    return ForwardDiff.Dual{T, V, N}(x, ForwardDiff.Partials(seed))
+end
+
+# column k of the row at radius ir in the order of sparsity!: the last momentum cells of the
+# lower grid, the first of the upper grid, the field
+function _interface_column(layout, lower, upper, field_name, ir, k, lower_pitch_cells)
+    if k <= lower_pitch_cells
+        return _kinetic_index(layout, lower, ir, layout.shapes[lower, ir][1], k)
+    end
+    pitch_cell = k - lower_pitch_cells
+    if pitch_cell <= layout.shapes[upper, ir][2]
+        return _kinetic_index(layout, upper, ir, 1, pitch_cell)
+    end
+    return first(unknown_range(layout, unknown_id(layout, field_name), ir))
 end
 
 function plasma_column_sparsity!(entries, term::InterfaceFluxTerm, layout, row)

@@ -442,12 +442,39 @@ function _interface_flux(term::MomentumInterfaceTerm, op, u, layout, ir)
     f_lower, f_upper = kinetic_view(u, layout, lower, ir),
     kinetic_view(u, layout, upper, ir)
     field = _field_values(_electric_field_of(term), u, layout)
+    return _interface_flux_of_cells(term, op, f_lower, f_upper, field, ir)
+end
+
+# the same from the distributions of the radius as (p cells, ξ cells) matrices, `f_lower` of
+# the lower grid and `f_upper` of the upper one, and the field `field` (nothing without one),
+# read at index ir
+function _interface_flux_of_cells(
+        term::MomentumInterfaceTerm, op, f_lower, f_upper, field, ir)
     distance, weight_left = _interface_distance(term, ir)
     m = momentum_grid(term.lower_grid, ir)
-    total = zero(promote_type(eltype(u), eltype(op.advection_p)))
+    total = zero(promote_type(eltype(f_lower), eltype(f_upper), eltype(op.advection_p)))
     for j in 1:pitch_cell_count(m)
         total += m.xi_widths[j] * _lower_cell_flux(
             term, op, f_lower, f_upper, j, ir, distance, weight_left, field)
     end
     return total / term.lower_grid.radial_grid.spatial_jacobian[ir]
+end
+
+# The values of a kinetic unknown at one momentum cell of every pitch cell of a radius, read
+# as the (p cells, ξ cells) matrix of the distribution at that radius. The flux through the
+# interface reads the last momentum cells of the lower grid and the first of the upper grid
+# alone, so its Jacobian seeds dual numbers on these cells and not on the whole distribution.
+# Another cell of the matrix is not held, and reading it throws.
+struct FaceCells{T, V <: AbstractVector{T}} <: AbstractMatrix{T}
+    values::V              # per pitch cell
+    momentum_cell::Int     # the momentum cell of the values
+    momentum_cells::Int    # the momentum cells of the grid at the radius
+end
+
+Base.size(cells::FaceCells) = (cells.momentum_cells, length(cells.values))
+Base.@propagate_inbounds function Base.getindex(cells::FaceCells, i::Int, j::Int)
+    if i != cells.momentum_cell
+        throw(ArgumentError("momentum cell $i is not held, only cell $(cells.momentum_cell)"))
+    end
+    return cells.values[j]
 end
