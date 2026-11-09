@@ -427,10 +427,10 @@ end
         J = jacobian_prototype(full)
         jacobian!(J, full, u, 0.0)
         at_u = copy(J.nzval)
-        count = term.dual_rebuilds[]
+        rebuilds = term.dual_rebuilds[]
         # the same state: no rebuild, and the same Jacobian bit for bit
         jacobian!(J, full, u, 0.0)
-        @test term.dual_rebuilds[] == count
+        @test term.dual_rebuilds[] == rebuilds
         @test isequal(J.nzval, at_u)
         # each plasma value of the key changed alone: one rebuild for the three bindings,
         # and one more back at u, whose Jacobian is the same as before
@@ -439,32 +439,49 @@ end
         unknown_values(denser, layout, unknown_id(layout, :cold_electron_density))[1] *= 1.1
         for x in (hotter, denser)
             jacobian!(J, full, x, 0.0)
-            @test term.dual_rebuilds[] == count + 1
+            @test term.dual_rebuilds[] == rebuilds + 1
             @test !isequal(J.nzval, at_u)
             jacobian!(J, full, u, 0.0)
-            @test term.dual_rebuilds[] == count + 2
+            @test term.dual_rebuilds[] == rebuilds + 2
             @test isequal(J.nzval, at_u)
-            count = term.dual_rebuilds[]
+            rebuilds = term.dual_rebuilds[]
         end
         # a rebuild forced at the same state gives the same Jacobian
         Runes2P.reset_key!(term.dual_plasma_key)
         jacobian!(J, full, u, 0.0)
-        @test term.dual_rebuilds[] == count + 1
+        @test term.dual_rebuilds[] == rebuilds + 1
         @test isequal(J.nzval, at_u)
-        count = term.dual_rebuilds[]
+        rebuilds = term.dual_rebuilds[]
+        # a rebuild that fails empties the key, so that the next call at the same state
+        # rebuilds: here a rebuild at u forced on an operator of dual coefficients on three
+        # radii, which the plasma of two radii refuses
+        op = term.dual_operator[]
+        wide = cylindrical_grid(
+            MomentumGrid(uniform_p_faces(30, 0.0, 0.2), uniform_xi_faces(4)),
+            RadialGrid(uniform_r_faces(3, 1.0)))
+        term.dual_operator[] = Runes2P.similar_coefficients(AdvectionDiffusion(wide), eltype(op.advection_p))
+        Runes2P.reset_key!(term.dual_plasma_key)
+        @test_throws DimensionMismatch jacobian!(J, full, u, 0.0)
+        @test isempty(term.dual_plasma_key.values)
+        @test term.dual_rebuilds[] == rebuilds
+        term.dual_operator[] = op
+        jacobian!(J, full, u, 0.0)
+        @test term.dual_rebuilds[] == rebuilds + 1
+        @test isequal(J.nzval, at_u)
+        rebuilds = term.dual_rebuilds[]
         # the time of the prescribed part: its magnetic field rises, so a new time rebuilds
         jacobian!(J, full, u, 1e-6)
-        @test term.dual_rebuilds[] == count + 1
+        @test term.dual_rebuilds[] == rebuilds + 1
         jacobian!(J, full, u, 1e-6)
-        @test term.dual_rebuilds[] == count + 1
+        @test term.dual_rebuilds[] == rebuilds + 1
         # a prescribed part whose values the key holds do not change in time (the
         # temperature and the density are the unknowns): a new time rebuilds nothing
         steady, steady_term = with_fluxes(_cold_base)
         J = jacobian_prototype(steady)
         jacobian!(J, steady, u, 0.0)
-        count = steady_term.dual_rebuilds[]
+        rebuilds = steady_term.dual_rebuilds[]
         jacobian!(J, steady, u, 1e-6)
-        @test steady_term.dual_rebuilds[] == count
+        @test steady_term.dual_rebuilds[] == rebuilds
     end
 
     @testset "the boundary flux follows the plasma unknowns" begin

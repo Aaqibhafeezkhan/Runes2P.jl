@@ -198,6 +198,8 @@ The derivatives with respect to the plasma unknowns enter the stored Jacobian as
 The coefficients at a radius depend only on the plasma of that radius, so one evaluation gives the derivatives at every radius.
 [`Runes2P.plasma_columns`](@ref) maps the partials to entries of the state, and [`plasma_column_sparsity!`](@ref) lists them in the pattern.
 [`add_plasma_columns!`](@ref) applies the dual coefficients to ``f`` with the scheme's own face weights, so the plasma columns are exact also when the stored block in ``f`` is approximate.
+The dual coefficients are cached under a [`PlasmaKey`](@ref) of their own and rebuilt only when the plasma values of some radius change.
+The term and the terms that read its coefficients (the boundary flux, the interface, the flux through it) share that one rebuild per state.
 
 ### Lagged parts
 

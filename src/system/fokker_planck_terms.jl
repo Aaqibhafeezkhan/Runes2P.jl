@@ -360,7 +360,9 @@ end
 # is rebuilt when the plasma values differ from those of its last rebuild, compared as for
 # the coefficients of the residual and with the same state of the ions. The plasma values
 # decide alone: the settings and the partials the coefficients hold (the density, the
-# charge states) are fixed for the term.
+# charge states) are fixed for the term. The bindings of one Jacobian read the operator one
+# after the other, the first rebuilding it: an assembly of the bindings in parallel needs
+# the rebuild before it.
 function _dual_coefficients!(term::FokkerPlanckTerm, u, layout, t)
     with_ions = ion_dependency(term.plasma) !== nothing && !_lags_ions(term)
     field = term.electric_field === nothing
@@ -370,17 +372,18 @@ function _dual_coefficients!(term::FokkerPlanckTerm, u, layout, t)
     if plasma === nothing
         return term.dual_operator[]::AdvectionDiffusion, with_ions
     end
-    try
+    op = try
         dual = dual_plasma(plasma, term.plasma.density !== nothing, with_ions)
-        op = _dual_operator!(term, eltype(dual.cold_electron_temperature))
+        rebuilt = _dual_operator!(term, eltype(dual.cold_electron_temperature))
         _rebuild_fokker_planck_coefficients!(
-            op, dual, term.settings, term.synchrotron, field)
-        term.dual_rebuilds[] += 1
-        return op, with_ions
+            rebuilt, dual, term.settings, term.synchrotron, field)
+        rebuilt
     catch
         reset_key!(term.dual_plasma_key)
         rethrow()
     end
+    term.dual_rebuilds[] += 1
+    return op, with_ions
 end
 
 # the operator of dual coefficients of a term, made at the first use

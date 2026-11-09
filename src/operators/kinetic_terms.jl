@@ -266,7 +266,8 @@ end
 # The rebuild of `set_fokker_planck_coefficients!` for an operator whose coefficient arrays
 # no other function writes, such as the operator of dual coefficients of a Fokker-Planck
 # term: it zeroes only the arrays that its own `add_*!` calls write and those of the
-# rebuild before it (`_zero_rebuilt_coefficients!`), which gives the same coefficients
+# rebuild before it (`_zero_rebuilt_coefficients!`), which gives the same coefficients as
+# `set_fokker_planck_coefficients!`.
 function _rebuild_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaState,
         settings::CollisionSettings, synchrotron::Bool, field_in_coefficients::Bool)
     radial_cell_count(plasma) == radial_cell_count(op.grid) ||
@@ -276,15 +277,17 @@ function _rebuild_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::Pl
         op, plasma, settings, synchrotron, field_in_coefficients)
 end
 
-# The arrays that the `add_*!` calls of `set_fokker_planck_coefficients!` write under the
-# given flags. The slowing down writes `advection_p` and `advection_p_times_p2_at_zero`
-# and the pitch scattering `diffusion_xi_xi` under any flags; the field and the synchrotron
-# loss write `advection_xi`, and the energy diffusion of `mode = :full` `diffusion_p_p`. No
-# call writes the radial and the cross coefficients.
-function _writes_pitch_advection(synchrotron, field_in_coefficients)
-    synchrotron || field_in_coefficients
+# Whether the `add_*!` calls of `set_fokker_planck_coefficients!` write `advection_xi` (the
+# pitch advection, written by the field and the synchrotron loss) and `diffusion_p_p` (the
+# energy diffusion of `mode = :full`) under the given flags. The slowing down writes
+# `advection_p` and `advection_p_times_p2_at_zero` and the pitch scattering
+# `diffusion_xi_xi` under any flags. No call writes the radial and the cross coefficients.
+function _writes_pitch_advection(synchrotron::Bool, field_in_coefficients::Bool)
+    return synchrotron || field_in_coefficients
 end
-_writes_energy_diffusion(settings::CollisionSettings) = settings.mode === :full
+function _writes_energy_diffusion(settings::CollisionSettings)
+    return settings.mode === :full
+end
 
 # Zero the coefficient arrays that the rebuild with these flags writes, and those that the
 # rebuild recorded in `op.coefficient_source` wrote. The other arrays hold zeros already when
@@ -295,10 +298,7 @@ function _zero_rebuilt_coefficients!(
         op::AdvectionDiffusion, settings::CollisionSettings, synchrotron::Bool,
         field_in_coefficients::Bool)
     previous = op.coefficient_source[]
-    recorded = previous isa NamedTuple &&
-               all(name -> haskey(previous, name), (
-        :settings, :synchrotron, :electric_field))
-    if !recorded
+    if !(previous isa NamedTuple)
         return zero_coefficients!(op)
     end
     pitch_advection = _writes_pitch_advection(synchrotron, field_in_coefficients) ||
@@ -333,7 +333,8 @@ function _add_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::Plasma
     if synchrotron
         add_synchrotron!(op, plasma)
     end
-    # the key :electric_field is read by the settings record and the checks of the terms
+    # the key :electric_field is read by the settings record and the checks of the terms, and
+    # the keys :settings, :synchrotron and :electric_field by `_zero_rebuilt_coefficients!`
     op.coefficient_source[] = (;
         plasma, settings, synchrotron, electric_field = field_in_coefficients)
     return op
