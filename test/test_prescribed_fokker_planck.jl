@@ -104,13 +104,14 @@ end
         @test_throws ArgumentError Runes2P.validate(term, wrong_layout, 1)
     end
 
-    # The rebuild writes the friction and the energy diffusion in one sweep that evaluates ν_s
-    # once per face. The reference writes every coefficient from the public frequency
-    # functions face by face, in the order of the terms; all arrays agree bit for bit. The
-    # plasma holds partially ionized argon and the bremsstrahlung stopping, so that the
-    # collisional part of ν_s differs from the whole. The values and the partials of the dual
-    # coefficients are compared on their own.
-    @testset "one sweep of ν_s and ν_∥ against the frequencies face by face" begin
+    # The rebuild writes the friction and the energy diffusion in one sweep that
+    # evaluates ν_s once per face. The reference writes each term with its own public
+    # function, these two with `add_slowing_down!` and `add_energy_diffusion!`, in the order
+    # of the builder's terms; all arrays agree bit for bit. The plasma holds partially
+    # ionized argon and the bremsstrahlung stopping, so that the collisional part of ν_s
+    # differs from the whole. The values and the partials of the dual coefficients are
+    # compared on their own.
+    @testset "one sweep of ν_s and ν_∥ against the separate terms" begin
         nr = 2
         argon = zeros(19, nr)
         argon[1, :] = [1e18, 2e17]
@@ -131,34 +132,12 @@ end
         function reference!(op, plasma, settings)
             zero_coefficients!(op)
             g = op.grid
-            np, nxi, nr = size(g)
-            faces = [momentum_grid(g, ir).p_faces for ir in 1:nr]
+            faces = [momentum_grid(g, ir).p_faces for ir in 1:radial_cell_count(g)]
             model = CollisionModel(plasma, settings; faces)
             add_electric_field!(op, plasma)
-            for ir in 1:nr
-                m = momentum_grid(g, ir)
-                for k in 1:(np + 1), j in 1:nxi
-
-                    p = m.p_faces[k]
-                    op.advection_p[k, j, ir] += -p * slowing_down_frequency(model, ir, p)
-                end
-                if m.p_faces[1] == 0
-                    op.advection_p_times_p2_at_zero[:, ir] .-= p3_slowing_down_frequency_at_zero(
-                        model, ir)
-                end
-                for i in 1:np, k in 1:(nxi + 1)
-
-                    nu = deflection_frequency(model, ir, m.p_centers[i])
-                    op.diffusion_xi_xi[i, k, ir] += nu * (1 - m.xi_faces[k]^2) / 2
-                end
-                if settings.mode === :full
-                    for k in 1:(np + 1), j in 1:nxi
-
-                        op.diffusion_p_p[k, j, ir] += parallel_diffusion_frequency(
-                            model, ir, m.p_faces[k])
-                    end
-                end
-            end
+            add_slowing_down!(op, model)
+            add_pitch_scattering!(op, model)
+            add_energy_diffusion!(op, model)
             add_synchrotron!(op, plasma)
             return op
         end

@@ -297,8 +297,8 @@ end
 
 # The rebuild of `set_fokker_planck_coefficients!` for an operator whose coefficient arrays
 # no other function writes, such as the operator of dual coefficients of a Fokker-Planck
-# term: it zeroes only the arrays that its own `add_*!` calls write and those of the
-# rebuild before it (`_zero_rebuilt_coefficients!`), which gives the same coefficients as
+# term: it zeroes only the arrays that its terms write and those of the rebuild before it
+# (`_zero_rebuilt_coefficients!`), which gives the same coefficients as
 # `set_fokker_planck_coefficients!`.
 function _rebuild_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaState,
         settings::CollisionSettings, synchrotron::Bool, field_in_coefficients::Bool)

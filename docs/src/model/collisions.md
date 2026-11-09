@@ -30,6 +30,9 @@ Each physical process adds to the coefficients:
 | energy diffusion | ``D^{pp} = ν_\parallel(p)`` | [`add_energy_diffusion!`](@ref) |
 | synchrotron loss | ``A^p = -C B^2 p γ (1 - ξ^2)``, ``A^ξ = C B^2 \frac{ξ (1 - ξ^2)}{γ}`` | [`add_synchrotron!`](@ref) |
 
+[`fokker_planck_operator`](@ref) and [`set_fokker_planck_coefficients!`](@ref) write the slowing down and the energy diffusion in one sweep over the p faces.
+Their coefficients are those of [`add_slowing_down!`](@ref) and [`add_energy_diffusion!`](@ref) bit for bit.
+
 The collision frequencies ``ν_s``, ``ν_D`` and ``ν_\parallel`` come from a [`CollisionModel`](@ref) of the plasma and the [`CollisionSettings`](@ref).
 The flux through ``p = 0`` follows from ``\lim_{p \to 0} p^3 ν_s`` ([`p3_slowing_down_frequency_at_zero`](@ref)).
 `p_zero_boundary = :zero_flux` of [`fokker_planck_operator`](@ref) takes no flux there, as DREAM's runaway grid.
