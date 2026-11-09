@@ -106,10 +106,17 @@ Its reason is the status of the [`NewtonResult`](@ref), and the stepper retries 
 | Solver | Method | Implicit matrix-free terms |
 |---|---|---|
 | [`SparseLU`](@ref) | sparse LU (UMFPACK) of the whole matrix, the symbolic analysis reused | low-rank ones only, by a Woodbury update |
+| [`MKLPardiso`](@ref) | sparse LU (Intel MKL PARDISO) of the whole matrix, the ordering and the matching reused, threaded | low-rank ones only, by a Woodbury update |
 | [`GMRES`](@ref) | restarted GMRES (Krylov.jl), right preconditioned | all, through their products |
 
 [`SparseLU`](@ref) is the default.
 It takes the field-particle term ([`low_rank_jacobian`](@ref)) exactly and refuses a system with other implicit matrix-free terms, such as the implicit knock-on term.
+
+[`MKLPardiso`](@ref) takes the same systems.
+It needs the package Pardiso.jl: `using Pardiso` in the script loads it, and MKL comes with Pardiso.jl as an artifact.
+Then `NewtonSolver(linear_solver = MKLPardiso())` solves with PARDISO on one thread, and `MKLPardiso(threads = 8)` on eight.
+Its pivot order differs from UMFPACK's, so its converged states differ from those of [`SparseLU`](@ref) within the Newton tolerance.
+On the disruption case with the runaway grid at full size it factorizes and solves in 72 ms at one thread and 17 ms at eight, where UMFPACK takes 108 ms ([Choices of this package](../choices.md)).
 
 [`GMRES`](@ref) solves with the operator ``W (M/h - J) S`` in which ``J`` holds the stored Jacobian and the matrix-free terms.
 With right preconditioning the residual it minimizes is the true residual of the scaled system.
@@ -256,8 +263,10 @@ After each accepted step the loop does, in order:
 A checkpoint writes the output of the segment first and the checkpoint file after it, each by [`write_atomically`](@ref).
 It holds the state, the states of the updates, the record of the stepper and a summary of the run ([`StoredState`](@ref)).
 `resume` continues from a stored state ([`read_checkpoint`](@ref), [`read_state`](@ref)), and `resume = true` lets one script serve every segment.
-On the same layout and with a direct solver a resumed run repeats the uninterrupted one bit for bit.
-With `GMRES(preconditioner_refresh = :on_demand)` the preconditioner factors are not stored, so the Krylov solves after a resume differ within the Newton tolerance, and so may the step lengths of a [`StepController`](@ref).
+On the same layout and with [`SparseLU`](@ref) a resumed run repeats the uninterrupted one bit for bit.
+With [`MKLPardiso`](@ref) the resumed run computes the ordering and the matching of PARDISO from its own first matrix, so its states differ from those of the uninterrupted run within round-off.
+With `GMRES(preconditioner_refresh = :on_demand)` the preconditioner factors are not stored, so the Krylov solves after a resume differ within the Newton tolerance.
+After either, the step lengths of a [`StepController`](@ref) may differ.
 A run resumed onto another layout starts the step controller with a doubling, and fills only the unknowns with `initial_value = :from_equation` that the stored state does not have ([`fill_initial_values!`](@ref)).
 
 [`run_status`](@ref) and [`exit_status`](@ref) tell a batch script whether another segment follows.

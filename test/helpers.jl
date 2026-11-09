@@ -17,7 +17,8 @@ export write_adf11, SquareRootDecayTerm, ArctangentTerm, ConstantSourceTerm, Exc
        manufactured_errors, manufactured_step, iter_plasma_operator, _conservation_residual,
        max_rel_diff,
        BoundedGrowthTerm, _growth_step, DREAM_REFERENCE_SETS, REFERENCE_FILES,
-       reference_set, reference_file
+       reference_set, reference_file,
+       FIELD_PARTICLE_SETTINGS, _field_particle_grid, _maxwellian_on
 
 # The reference data of the comparisons, one lazy artifact per set (`Artifacts.toml`): the
 # output of DREAM written by the cases of reference/dream/cases/, and GSL's bicubic
@@ -469,6 +470,25 @@ function write_adf11(
         println(io, "C synthetic table of the tests of Runes2P")
     end
     return path
+end
+
+# from test_field_particle.jl: the collision settings of its field-particle term, the grid of
+# its cases (a momentum grid to 7 thermal momenta at the temperature `T` in eV) and the
+# Maxwellian at `T` on a grid, of peak 1
+const FIELD_PARTICLE_SETTINGS = CollisionSettings(
+    mode = :full, screening = :complete, coulomb_logarithm = :thermal)
+
+function _field_particle_grid(;
+        np_ = 80, nxi = 4, T = 10.0, nr_ = 1, xi_faces = uniform_xi_faces(nxi))
+    theta = T / Constants.ELECTRON_REST_ENERGY
+    mom = MomentumGrid(uniform_p_faces(np_, 0.0, 7 * sqrt(2theta)), xi_faces)
+    return cylindrical_grid(mom, RadialGrid(uniform_r_faces(nr_, 1.0)))
+end
+
+function _maxwellian_on(g, T)
+    [exp(-(sqrt(1 + p^2) - 1) / (T / Constants.ELECTRON_REST_ENERGY))
+     for p in momentum_grid(g).p_centers, _ in 1:pitch_cell_count(g),
+    _ in 1:radial_cell_count(g)]
 end
 
 end

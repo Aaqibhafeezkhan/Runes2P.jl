@@ -7,10 +7,11 @@
 using Documenter
 using Runes2P
 # the extensions load with their trigger packages, and their docstrings are part of the API
-using HDF5, Interpolations, SciMLBase
+using HDF5, Interpolations, Pardiso, SciMLBase
 
-const EXTENSIONS = [Base.get_extension(Runes2P, name)
-                    for name in (:Runes2PHDF5Ext, :Runes2PInterpolationsExt, :Runes2PSciMLBaseExt)]
+const EXTENSION_NAMES = (:Runes2PHDF5Ext, :Runes2PInterpolationsExt, :Runes2PMKLPardisoExt,
+    :Runes2PSciMLBaseExt)
+const EXTENSIONS = [Base.get_extension(Runes2P, name) for name in EXTENSION_NAMES]
 any(isnothing, EXTENSIONS) && error("an extension of Runes2P did not load")
 
 # checkdocs = :public only checks that the existing docstrings appear on a page: a public
