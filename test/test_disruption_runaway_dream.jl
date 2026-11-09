@@ -19,7 +19,10 @@
 # blocks of these terms and of the friction term, which keep buffers and weights between calls,
 # are checked bit for bit at the state and at a changed state: against the block of the public
 # add_local_jacobian!, built with fresh buffers, for the local Jacobians, and against the block of
-# a new term for the friction term. Needs the ADF11 cache.
+# a new term for the friction term. The moments of the density and the current keep the positions
+# and weights of their rows for the pattern of J: their blocks on one matrix, at the state, at a
+# changed state and at the state again, and on a new matrix are checked bit for bit against those
+# of a new term, and the allocation of their Jacobians is bounded. Needs the ADF11 cache.
 using HDF5
 include(joinpath(@__DIR__, "example_disruption.jl"))
 
@@ -69,6 +72,10 @@ const PLASMA_COLUMNS_ALLOCATION = 1.6e5     # 7.8e4 (largest), 6.5e4 (f_re of th
 # allocate nothing at -O2, a margin of 1e3 bytes
 const LOCAL_JACOBIAN_ALLOCATION = 1.6e4     # 7.8e3 (IonEnergyExchangeTerm), 5.1e2 (ConductivityTerm)
 const ION_RESIDUAL_ALLOCATION = 1e3         # 0 (IonRateTerm, RadiatedPowerTerm)
+# the bytes of the Jacobian of a moment of the density or the current with the positions and
+# weights it keeps, a margin of 1e3 bytes: the moments over the hot region allocate the limits of
+# the region at the radii, the others nothing
+const MOMENT_JACOBIAN_ALLOCATION = 1e3      # 1.6e2 (hot region), 0 (the others)
 
 # the bytes of the call `f(args...)` after a first call, inside a function, so that the
 # arguments have their concrete types and the bytes are those of the call alone
@@ -97,6 +104,28 @@ function fresh_block(system, b, u, t)
             system, (term = new_term, row = b.row), u, t, Runes2P.add_jacobian!)
     end
     return term_block(system, b, u, t, Runes2P.add_local_jacobian!)
+end
+
+# a new moment term of the density or the current with the arguments of `term`
+function new_moment(term::DensityMomentTerm, layout)
+    if term.envelopes === nothing
+        return DensityMomentTerm(term.kinetic; coefficient = term.coefficient)
+    end
+    grid = kinetic_grid(layout, unknown_id(layout, term.kinetic))
+    return DensityMomentTerm(term.kinetic, grid; coefficient = term.coefficient,
+        region = term.envelopes.region)
+end
+function new_moment(term::CurrentMomentTerm, layout)
+    region = term.envelopes === nothing ? nothing : term.envelopes.region
+    return CurrentMomentTerm(term.kinetic, term.grid; coefficient = term.coefficient,
+        pitch_rule = term.pitch_rule, region)
+end
+
+# the block of the bound term `b` at the state u, added to the matrix J after its values are zeroed
+function kept_block(J, system, b, u, t)
+    fill!(J.nzval, 0.0)
+    Runes2P.add_jacobian!(J, b.term, u, system.layout, b.row, t)
+    return copy(J.nzval)
 end
 
 # the largest relative residual of the algebraic rows `names` at the state `u` of `case`
@@ -203,6 +232,33 @@ end
                 Runes2P.add_jacobian!, J, b.term, u0, case.layout, b.row, times[1])
             @info "the disruption case with a runaway grid against DREAM: local Jacobian of the $(nameof(typeof(b.term))) of $(case.layout.unknowns[b.row].name) $allocated B"
             @test allocated < LOCAL_JACOBIAN_ALLOCATION skip = !OPTIMIZED
+        end
+        # the moments of the density and the current find the positions of their rows once
+        # per pattern of J; the hot-region moments follow the temperature, which differs at the
+        # changed state
+        moment_terms = [b
+                        for b in system.direct_terms
+                        if b.term isa Union{DensityMomentTerm, CurrentMomentTerm}]
+        @test sort!([string(nameof(typeof(b.term))) for b in moment_terms]) ==
+              ["CurrentMomentTerm", "CurrentMomentTerm",
+            "CurrentMomentTerm", "DensityMomentTerm"]
+        @test count(b -> b.term.envelopes !== nothing, moment_terms) == 2
+        kept = jacobian_prototype(system)
+        for b in moment_terms
+            fresh = (term = new_moment(b.term, case.layout), row = b.row)
+            first_block = kept_block(kept, system, b, u0, times[1])
+            @test isequal(term_block(system, fresh, u0, times[1], Runes2P.add_jacobian!), first_block)
+            other_block = kept_block(kept, system, b, other, times[1])
+            @test isequal(other_block, first_block) == (b.term.envelopes === nothing)
+            @test isequal(term_block(system, fresh, other, times[1], Runes2P.add_jacobian!), other_block)
+            @test isequal(kept_block(kept, system, b, u0, times[1]), first_block)
+            # on a new matrix of the pattern, then on the kept one again
+            @test isequal(term_block(system, b, other, times[1], Runes2P.add_jacobian!), other_block)
+            @test isequal(kept_block(kept, system, b, u0, times[1]), first_block)
+            allocated = call_allocation(
+                Runes2P.add_jacobian!, kept, b.term, u0, case.layout, b.row, times[1])
+            @info "the disruption case with a runaway grid against DREAM: moment Jacobian of the $(nameof(typeof(b.term))) of $(case.layout.unknowns[b.row].name) $allocated B"
+            @test allocated < MOMENT_JACOBIAN_ALLOCATION skip = !OPTIMIZED
         end
         ion_terms = [b
                      for b in system.sparse_terms

@@ -1069,7 +1069,7 @@ function _describe_region!(record, envelopes, context)
 end
 
 function settings_fields(::Type{<:DensityMomentTerm})
-    (described = (:kinetic, :coefficient, :envelopes), derived = ())
+    (described = (:kinetic, :coefficient, :envelopes), derived = (:row_cache,))
 end
 
 function describe(term::DensityMomentTerm, context::DescriptionContext)
@@ -1088,7 +1088,7 @@ end
 
 function settings_fields(::Type{<:CurrentMomentTerm})
     (described = (:kinetic, :grid, :coefficient, :pitch_rule, :envelopes),
-        derived = (:pitch_weights,))
+        derived = (:pitch_weights, :row_cache))
 end
 
 function describe(term::CurrentMomentTerm, context::DescriptionContext)

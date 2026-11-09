@@ -170,13 +170,19 @@ function add_jacobian! end
 
 # add `value` to the stored entry (row, column) of J
 @inline function _add_entry!(J::SparseMatrixCSC, row::Integer, column::Integer, value)
+    nonzeros(J)[_pattern_position(J, row, column)] += value
+    return J
+end
+
+# the position in the stored values of J of the entry (row, column), an `ArgumentError` when
+# the entry is not in the pattern
+@inline function _pattern_position(J::SparseMatrixCSC, row::Integer, column::Integer)
     range = nzrange(J, column)
     rows = rowvals(J)
     k = searchsortedfirst(rows, row, first(range), last(range), Base.Order.Forward)
     (k <= last(range) && rows[k] == row) ||
         throw(ArgumentError("the entry ($row, $column) is not in the pattern of the stored Jacobian"))
-    nonzeros(J)[k] += value
-    return J
+    return k
 end
 
 # the position in the stored values of J of the entry (first(rows), column), where the rows

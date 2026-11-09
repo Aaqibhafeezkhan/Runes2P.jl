@@ -3,6 +3,7 @@
 # against central differences of the coefficients, in the full and superthermal modes and
 # in the three screening models.
 using ForwardDiff: ForwardDiff
+using SparseArrays: findnz, nnz, nonzeros, sparse
 
 @testset "plasma columns" begin
     @testset "dual coefficients against central differences" begin
@@ -195,6 +196,27 @@ using ForwardDiff: ForwardDiff
                 else
                     @test Vector(J[rows, column]) ≈
                           column_difference(system, u, column, 0.0)[rows] rtol = 1e-6
+                end
+            end
+            # the moments keep the positions of their rows for the pattern of J: on a pattern
+            # with an entry more in the first row of every column, which moves the positions of
+            # the kinetic columns, and on the pattern of the system again, they add the same
+            # values as new terms
+            n = length(u)
+            entries, columns, _ = findnz(J)
+            wider = sparse(
+                [entries; ones(Int, n)], [columns; 1:n], zeros(length(entries) + n), n, n)
+            @test nnz(wider) > nnz(J)
+            fresh_terms = (
+                DensityMomentTerm(:f, g; region), CurrentMomentTerm(:f, g; region))
+            for (term, fresh, row) in zip((density_term, current_term), fresh_terms, (3, 4))
+                fill!(nonzeros(J), 0.0)
+                Runes2P.add_jacobian!(J, fresh, u, layout, row, 0.0)
+                expected = Matrix(J)
+                for matrix in (J, wider, J)
+                    fill!(nonzeros(matrix), 0.0)
+                    Runes2P.add_jacobian!(matrix, term, u, layout, row, 0.0)
+                    @test isequal(Matrix(matrix), expected)
                 end
             end
         end
