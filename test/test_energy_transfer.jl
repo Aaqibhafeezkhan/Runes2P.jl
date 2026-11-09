@@ -1,10 +1,11 @@
 # The energy that the runaway grid and the electrons leaving the hot-tail grid exchange with
 # the total energy of the electrons: the collisional transfer of a
 # runaway population against the friction power of superthermal electrons, its Jacobian
-# with the plasma columns and with the plasma lagged, the Jacobian of the energy loss of f
-# (KineticEnergyLossTerm) with a lagged source, and the energy carried through p_max and
-# through the interface, with its column of the field when the interface reads the field,
-# and the particles through the interface in a radial row (InterfaceParticleFluxTerm).
+# with the plasma columns and with the plasma lagged (no plasma columns, in a term and in a
+# step of the system), the Jacobian of the energy loss of f (KineticEnergyLossTerm) with a
+# lagged source, and the energy carried through p_max and through the interface, with its
+# column of the field when the interface reads the field, and the particles through the
+# interface in a radial row (InterfaceParticleFluxTerm).
 using Random: Xoshiro
 using SparseArrays: findnz, sparse
 
@@ -103,11 +104,13 @@ using SparseArrays: findnz, sparse
         # of the scale of f leaves round-off alone, at most 1e-10 of the column. The first cell
         # has a zero column, so the cells start at the second.
         T_row = first(Runes2P.unknown_range(layout, 2, 1))
+        T_column, n_column = first(Runes2P.unknown_range(layout, 2, 1)),
+        first(Runes2P.unknown_range(layout, 3, 1))
         for part in (:free_electrons, :sinks)
-            loss = KineticEnergyLossTerm(fp(:all); part)
+            part_loss = KineticEnergyLossTerm(fp(:all); part)
             implicit_loss = KineticEnergyLossTerm(fp(:ions); part)
-            Runes2P.prepare_step!(loss, hotter, layout, 2, 0.0)
-            loss_rhs(x) = Runes2P.rhs!(zeros(length(x)), loss, x, layout, 2, 0.0)[T_row]
+            Runes2P.prepare_step!(part_loss, hotter, layout, 2, 0.0)
+            loss_rhs(x) = Runes2P.rhs!(zeros(length(x)), part_loss, x, layout, 2, 0.0)[T_row]
             @test loss_rhs(u) ≈ Runes2P.rhs!(zeros(length(u)), implicit_loss, hotter,
                 layout, 2, 0.0)[T_row] rtol = 1e-14
             # the sinks hardly depend on the temperature (7e-15 between T0 and 2T0), so only
@@ -116,13 +119,13 @@ using SparseArrays: findnz, sparse
                 @test loss_rhs(u) != Runes2P.rhs!(zeros(length(u)), implicit_loss, u,
                     layout, 2, 0.0)[T_row]
             end
-            entries = Runes2P.sparsity!(Tuple{Int, Int}[], loss, layout, 2)
+            # the pattern holds the columns of f alone: no column of the temperature or the
+            # density, which the implicit loss has
+            entries = Runes2P.sparsity!(Tuple{Int, Int}[], part_loss, layout, 2)
+            @test all(in(Runes2P.unknown_range(layout, 1, 1)), last.(entries))
             JL = sparse(first.(entries), last.(entries), zeros(length(entries)),
                 length(u), length(u))
-            Runes2P.add_jacobian!(JL, loss, u, layout, 2, 0.0)
-            # no columns of the temperature and the density
-            @test all(iszero, JL[:, first(Runes2P.unknown_range(layout, 2, 1))])
-            @test all(iszero, JL[:, first(Runes2P.unknown_range(layout, 3, 1))])
+            Runes2P.add_jacobian!(JL, part_loss, u, layout, 2, 0.0)
             for (i, j) in ((2, 1), (60, 2), (120, 2), (150, 4), (300, 3))
                 column = Runes2P._kinetic_index(layout, 1, 1, i, j)
                 h = 1e-6 * 1e16
@@ -133,6 +136,45 @@ using SparseArrays: findnz, sparse
                 @test difference != 0
                 @test abs(JL[T_row, column] - difference) <= 1e-8 * abs(difference)
             end
+        end
+        # lagged in a step: the Newton residual prepares the terms at the start of the step
+        # u_old, and the loss row holds the columns of f alone. u_old is hotter than the
+        # iterate, so that the columns of f tell the plasma of u_old from that of the iterate.
+        collisions = fp(:all)
+        lagged = system(:all, collisions)
+        loss = free_electron_energy_transfer_term(collisions)
+        u_old, dt = copy(hotter), 1e-6
+        residual!(zeros(length(u)), u, u_old, lagged, 0.0, dt)
+        J = jacobian_prototype(lagged)
+        jacobian!(J, lagged, u, 0.0)
+        # the row in the system: the temperature column is that of the linear term alone
+        @test J[T_row, T_column] == -1e3 && J[T_row, n_column] == 0
+        # The loss is linear in f with the plasma held, so the central difference of the
+        # residual is exact up to round-off: a step of 1e-6 of the scale of f, and the
+        # tolerance of the implicit columns above (the difference is within 1e-11).
+        # The row is algebraic, so its residual is minus the right-hand side.
+        function residual_row(x)
+            F = zeros(length(x))
+            residual!(F, x, u_old, lagged, 0.0, dt)
+            return F[T_row]
+        end
+        for column in (Runes2P._kinetic_index(layout, 1, 1, 120, 2),
+            Runes2P._kinetic_index(layout, 1, 1, 150, 4))
+            h = 1e-6 * 1e16
+            up, down = copy(u), copy(u)
+            up[column] += h
+            down[column] -= h
+            @test J[T_row, column] ≈ -(residual_row(up) - residual_row(down)) / 2h rtol = 1e-6
+        end
+        # the loss reads the plasma of u_old, held as numbers, so a step in the temperature
+        # or the density of the iterate leaves it unchanged exactly, not to round-off
+        Runes2P.prepare_step!(loss, u_old, layout, 2, 0.0)
+        loss_row(x) = Runes2P.rhs!(zeros(length(x)), loss, x, layout, 2, 0.0)[T_row]
+        for (column, h) in ((T_column, 1e-6 * 100.0), (n_column, 1e-6 * 1e19))
+            up, down = copy(u), copy(u)
+            up[column] += h
+            down[column] -= h
+            @test loss_row(up) - loss_row(down) == 0
         end
     end
 
@@ -238,7 +280,7 @@ using SparseArrays: findnz, sparse
         interface = MomentumInterfaceTerm(:f, :runaway, lower_term, upper_op;
             pitch_mapping = mapping)
         term = InterfaceEnergyFluxTerm(interface)
-        @test :electric_field in Runes2P.dependencies(term)
+        @test :electric_field in Runes2P.dependencies(term) && !is_linear(term)
         two = UnknownLayout(rad,
             [KineticUnknown(:f, hot; scale = 1e16),
                 KineticUnknown(:runaway, upper; scale = 1e16),
@@ -262,6 +304,7 @@ using SparseArrays: findnz, sparse
         jacobian!(J, system, w, 0.0)
         T_row = first(Runes2P.unknown_range(two, 4, 1))
         column = first(Runes2P.unknown_range(two, 3, 1))
+        @test (T_row, column) in zip(findnz(J)[1:2]...)
         # a relative step of 1e-6 of the field: the difference is 3e-11 of the column with
         # both mappings
         h = 1e-6 * w[column]
