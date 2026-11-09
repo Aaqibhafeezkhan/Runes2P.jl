@@ -2,8 +2,10 @@
 # fits against the ADAS coefficients at low density, the conservation of each species, the
 # Jacobian of the term against central differences, a stored pattern without an ion row of a
 # cell column refused, and the split of the ionization at the hot threshold: a Maxwellian f
-# ionizes at the ADAS rate for every threshold, and DREAM's pairing counts the tail above
-# the threshold twice. Needs the ADF11 cache (scripts/fetch_adas.py).
+# ionizes at the ADAS rate for every threshold, DREAM's pairing counts the tail above the
+# threshold twice, and the Jacobians of the term and of the fluid terms with the split hold
+# at both radii and at the cells of the interpolated threshold.
+# Needs the ADF11 cache (scripts/fetch_adas.py).
 using SparseArrays: sparse
 using ForwardDiff
 using QuadGK: quadgk
@@ -166,6 +168,47 @@ end
                 @test_throws ArgumentError Runes2P.add_jacobian!(
                     partial, kinetic, u, layout, 1, 0.0)
             end
+            # the cells of f that hold the interpolated threshold, at both radii: the threshold
+            # cell i and the cell above, whose envelope interpolates the part above the
+            # threshold. At 20 and 10 eV the threshold lies in different cells, 0.5 and 0.64
+            # of a width above the lower face, so the step of the temperature column below
+            # (1e-6 T moves it by 2e-5 widths) crosses no face, where the envelope has a kink.
+            # The residual is linear in f, so the central difference is exact to round-off and
+            # checks that the Jacobian takes the envelope of the residual; the temperature
+            # column of radius 1 joins that of radius 2 above. The steps and the tolerance are
+            # those above; a column scaled by 1 + 1e-3 fails it by a factor of 1000.
+            threshold_cells = Int[]
+            for ir in 1:2
+                m = momentum_grid(kinetic.grid, ir)
+                T = unknown_values(u, layout, 3)[ir]
+                p0 = kinetic.envelopes.region.limit.factor *
+                     sqrt(2T / Constants.ELECTRON_REST_ENERGY)
+                i = searchsortedlast(m.p_faces, p0)
+                @test 0.1 < (p0 - m.p_faces[i]) / m.p_widths[i] < 0.9
+                envelope = momentum_envelope!(zeros(length(m.p_centers)), kinetic.envelopes.region, m, p0)
+                @test 0 < envelope[i] < 1 < envelope[i + 1]
+                push!(threshold_cells, i)
+                columns = [Runes2P._kinetic_index(layout, 4, ir, i, 1),
+                    Runes2P._kinetic_index(layout, 4, ir, i, 3),
+                    Runes2P._kinetic_index(layout, 4, ir, i + 1, 2)]
+                if ir == 1
+                    push!(columns, first(unknown_range(layout, 3, 1)))
+                end
+                for column in columns
+                    h = if column in unknown_range(layout, 3, ir)
+                        1e-6 * u[column]
+                    else
+                        1e-3 * max(abs(u[column]), 1e-3 * scales[column])
+                    end
+                    up, down = copy(u), copy(u)
+                    up[column] += h
+                    down[column] -= h
+                    difference = (term_rhs(up) - term_rhs(down)) / 2h
+                    @test maximum(abs, Vector(J[:, column]) - difference) <=
+                          1e-6 * maximum(abs, difference) + 1e-13 * size_of_rhs / h
+                end
+            end
+            @test threshold_cells[1] != threshold_cells[2]
         end
 
         @testset "split at the threshold" begin
@@ -316,23 +359,42 @@ end
             rhs!(zeros(length(u)), u, system, 0.0)
             jacobian!(J, system, u, 0.0)
             rhs_all(x) = (out = zeros(length(x)); rhs!(out, x, system, 0.0); out)
+            # the temperature and the cold density at both radii and the charge states of
+            # radius 2, compared on the rows of both radii, so that a column that reached the
+            # other radius would show. At the threshold of the case, 5 thermal momenta, the
+            # split moves these columns by about 1e-10 of their size, below the tolerance:
+            # they check the ADAS rates and the densities, and the split is checked on its
+            # own below (threshold_split). A step of 1e-6 T keeps the threshold away from
+            # the faces (the testset of the term above).
+            # Its truncation error, (h/T)² = 1e-12 times T³ r'''/(6 r') of the rates r, is
+            # measured at 3e-9 of the column, far below the tolerance of 1e-5. The charge
+            # states enter linearly, so their central difference is exact to round-off.
+            # A column scaled by 1 + 1e-3 fails the tolerance by a factor of 100.
+            ion_rows = [unknown_range(layout, 1, 1); unknown_range(layout, 1, 2)]
             scales = unknown_scales(layout)
-            # the columns of the temperature and the density at both radii: the difference is
-            # at most 3e-9 of the column at a relative step of 1e-6
-            for ir in 1:2
-                ion_rows = unknown_range(layout, 1, ir)
-                for column in (first(unknown_range(layout, 3, ir)), first(unknown_range(layout, 2, ir)))
-                    h = 1e-6 * u[column]
-                    up, down = copy(u), copy(u)
-                    up[column] += h
-                    down[column] -= h
-                    difference = (rhs_all(up) - rhs_all(down))[ion_rows] / 2h
-                    @test Vector(J[ion_rows, column])≈difference rtol=1e-5 atol=1e-6*maximum(abs, difference)
+            charge_states = unknown_range(layout, 1, 2)
+            columns = [
+                first(unknown_range(layout, 3, 1)), first(unknown_range(layout, 2, 1)),
+                first(unknown_range(layout, 3, 2)), first(unknown_range(layout, 2, 2)),
+                charge_states...]
+            for column in columns
+                h = if column in charge_states
+                    1e-3 * max(abs(u[column]), 1e-3 * scales[column])
+                else
+                    1e-6 * u[column]
                 end
+                up, down = copy(u), copy(u)
+                up[column] += h
+                down[column] -= h
+                difference = (rhs_all(up) - rhs_all(down))[ion_rows] / 2h
+                @test Vector(J[ion_rows, column])≈difference rtol=1e-5 atol=1e-6*maximum(abs, difference)
+            end
+            for ir in 1:2
                 # the cells of f that hold the threshold, where the envelope lies strictly
-                # between 0 and 1. The rows are linear in f, so the step is a tenth of the
-                # scale of f, which keeps the round-off of the fluid rates small: 1.5e-10 of
-                # the column (7.5e-4 at a step of 1e-3 of the value of the cell)
+                # between 0 and 1, on the rows of both radii. The rows are linear in f, so the
+                # step is a tenth of the scale of f, which keeps the round-off of the fluid
+                # rates small: 1.5e-10 of the column (7.5e-4 at a step of 1e-3 of the value of
+                # the cell)
                 T = unknown_values(u, layout, 3)[ir]
                 envelope = Runes2P._envelope_at_temperature(kinetic, ir, T)
                 i = only(findall(e -> 0 < e < 1, envelope))
@@ -369,8 +431,9 @@ end
                 x -> Runes2P.rhs!(
                     zeros(eltype(x), n), term, x, layout, 3, 0.0), u)
             @test Matrix(J)≈reference rtol=1e-10 atol=1e-12*maximum(abs, reference)
-            # and the temperature column of each radius against a central difference, which
-            # it meets to 3e-9 (2.6e-9 at radius 1, 3.0e-10 at radius 2)
+            # and the temperature columns of both radii against central differences, with
+            # the step of the fluid rate above, which they meet to 3e-9 (2.6e-9 at radius 1,
+            # 3.0e-10 at radius 2); the split moves them by about 1e-10, as there
             for ir in 1:2
                 column = first(unknown_range(layout, 3, ir))
                 h = 1e-6 * u[column]
@@ -380,6 +443,34 @@ end
                 difference = (Runes2P.rhs!(zeros(n), term, up, layout, 3, 0.0) -
                               Runes2P.rhs!(zeros(n), term, down, layout, 3, 0.0)) / 2h
                 @test Vector(J[:, column])≈difference rtol=1e-5 atol=1e-8*maximum(abs, difference)
+            end
+            # the split itself, which the Jacobians of the fluid rate and the radiated power
+            # differentiate in the temperature by forward mode: the derivative of the part of
+            # the Maxwellian above the threshold and of the fluid coefficients against a
+            # central difference, at both radii. The moving threshold carries most of it:
+            # holding it changes the derivative of the part above by a factor of 15 to 100.
+            # The error, round-off amplified by the cancellation in the part above, stays below
+            # 2e-5 of each component for steps from 1e-7 T to 1e-5 T; components below 1e-6
+            # of the largest coefficient are left out.
+            for ir in 1:2
+                column = first(unknown_range(layout, 3, ir))
+                function split_values(temperature)
+                    x = convert(Vector{typeof(temperature)}, u)
+                    x[column] = temperature
+                    split = Runes2P.threshold_split(kinetic, ir, x, layout, 0.0)
+                    return [split.fraction; split.coefficients]
+                end
+                temperature = u[column]
+                derivative = ForwardDiff.derivative(split_values, temperature)
+                h = 1e-6 * temperature
+                difference = (split_values(temperature + h) -
+                              split_values(temperature - h)) / 2h
+                floor = 1e-6 * maximum(abs, derivative[2:end])
+                checked = [1;
+                           [i for i in 2:length(derivative) if abs(derivative[i]) > floor]]
+                @test derivative[1] != 0
+                @test all(abs.(derivative[checked] - difference[checked]) .<=
+                          1e-4 .* abs.(derivative[checked]))
             end
         end
         @testset "secondaries and the energy of the kinetic ionization" begin
