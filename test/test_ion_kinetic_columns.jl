@@ -64,6 +64,32 @@ end
         @test_throws ArgumentError Runes2P.validate(late, layout, row, 0.0)
     end
 
+    @testset "one rebuild of the dual coefficients per charge state" begin
+        # the charge states are partials of the coefficients: a change of one rebuilds them
+        layout, fp, u = _kinetic_ion_case()
+        row = unknown_id(layout, :f)
+        argon = first(unknown_range(layout, unknown_id(layout, :ion_densities), 2)) + 3
+        ionized = copy(u)
+        ionized[argon] *= 1.01
+        Runes2P._dual_coefficients!(fp, u, layout, 0.0)
+        @test fp.dual_rebuilds[] == 1
+        Runes2P._dual_coefficients!(fp, u, layout, 0.0)
+        @test fp.dual_rebuilds[] == 1
+        Runes2P._dual_coefficients!(fp, ionized, layout, 0.0)
+        @test fp.dual_rebuilds[] == 2
+        # lagged, the coefficients take the charge states of the start of the step: those of
+        # the iterate rebuild nothing, a new start of the step rebuilds them
+        layout, lagged, u = _kinetic_ion_case(; lagged = :ions)
+        Runes2P.prepare_step!(lagged, u, layout, row, 0.0)
+        Runes2P._dual_coefficients!(lagged, u, layout, 0.0)
+        @test lagged.dual_rebuilds[] == 1
+        Runes2P._dual_coefficients!(lagged, ionized, layout, 0.0)
+        @test lagged.dual_rebuilds[] == 1
+        Runes2P.prepare_step!(lagged, ionized, layout, row, 0.0)
+        Runes2P._dual_coefficients!(lagged, ionized, layout, 0.0)
+        @test lagged.dual_rebuilds[] == 2
+    end
+
     @testset "Fokker-Planck columns of the charge states" begin
         layout, fp, u = _kinetic_ion_case()
         equations = [Equation(:ion_densities, TimeDerivative()),
