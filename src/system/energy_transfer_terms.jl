@@ -483,8 +483,9 @@ the temperature it is the energy that leaves the total energy of the electrons o
 hot-tail grid for the runaway grid ([`total_energy_equation`](@ref)), so the electrons that
 cross take their energy with them and do not heat the cold ones. When the flux follows the
 plasma unknowns of the Fokker-Planck term of the interface, the row has their columns
-([`has_plasma_columns`](@ref)). The term assembles its row itself
-([`jacobian_assembly`](@ref)), as [`InterfaceParticleFluxTerm`](@ref) does.
+([`has_plasma_columns`](@ref)). The row reads the cells of both grids at the face, so the
+term assembles it itself ([`jacobian_assembly`](@ref)) and the coloring of the automatic
+Jacobian does not see it.
 """
 struct InterfaceEnergyFluxTerm{I <: MomentumInterfaceTerm} <: EquationTerm
     interface::I
@@ -549,9 +550,11 @@ end
 
 jacobian_assembly(::InterfaceFluxTerm) = :direct
 
-# the columns of the row that one evaluation of the flux in dual numbers seeds: the cells at
-# the face of 15 + 15 pitch cells and the field in one evaluation, and one compiled copy of
-# the code for all grids. The entries do not depend on it
+# the columns of the row that one evaluation of the flux in dual numbers seeds: wide enough
+# for the face cells of two grids of 15 pitch cells and the field in one evaluation, with one
+# compiled copy of the code for all grids. The default runaway grid has 20 pitch cells
+# (runaway_grid), so next to a hot-tail grid of 15 it takes two evaluations per radius. The
+# entries do not depend on it
 const INTERFACE_COLUMN_CHUNK = 32
 
 # the columns of the cells at the face and of the field, by the flux of dual numbers seeded
@@ -607,13 +610,6 @@ function add_jacobian!(J, term::InterfaceFluxTerm, u, layout, row, t)
         end
     end
     return J
-end
-
-# the dual number of type D with value x and partial `partial` equal to one; none when
-# `partial` lies outside the partials of D
-function _seeded_dual(::Type{ForwardDiff.Dual{T, V, N}}, x, partial) where {T, V, N}
-    seed = ntuple(q -> q == partial ? one(V) : zero(V), Val(N))
-    return ForwardDiff.Dual{T, V, N}(x, ForwardDiff.Partials(seed))
 end
 
 # column k of the row at radius ir in the order of sparsity!: the last momentum cells of the

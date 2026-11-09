@@ -27,6 +27,10 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Changed
 
+- `InterfaceParticleFluxTerm` and `InterfaceEnergyFluxTerm` assemble their row of the Jacobian directly, from the flux in dual numbers seeded on the cells at the face and the field ([#239](https://github.com/osrep/Runes2P.jl/pull/239)).
+  The stored pattern and the partials of the term are unchanged.
+  An entry that the term shares with two or more other terms is summed in another order and changes at round-off, and the results with it.
+  Such an entry is the column of the field in a row of the total energy that also holds the work of the field (`ProductTerm`).
 - The stencil of an `AdvectionDiffusion` holds the radial neighbours only when the operator declares radial transport, and the corners of the 3×3 block in p and ξ only when it declares cross diffusion ([#228](https://github.com/osrep/Runes2P.jl/pull/228)).
   The keywords `radial_transport` and `cross_diffusion` declare them, both `true` for an operator built by hand.
   `fokker_planck_operator` declares neither, and a `FokkerPlanckTerm` with a plasma source clears both, since the rebuild of its coefficients writes neither.

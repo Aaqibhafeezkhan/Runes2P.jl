@@ -229,7 +229,11 @@ using SparseArrays: findnz, sparse
             ions = [IonSpecies("D", 1, 1, [n])], electric_field = [0.0],
             magnetic_field = [0.0])
         hot = cylindrical_grid(MomentumGrid(uniform_p_faces(60, 0.0, 2.0), uniform_xi_faces(4)), rad)
-        upper = runaway_grid(hot, uniform_p_faces(40, 2.0, 30.0)[2:end])
+        # 30 upper pitch cells: the row has 4 + 30 + 1 columns, more than one evaluation of
+        # its entries seeds (Runes2P.INTERFACE_COLUMN_CHUNK), so the field is seeded in the
+        # second evaluation
+        upper = runaway_grid(hot, uniform_p_faces(40, 2.0, 30.0)[2:end], uniform_xi_faces(30))
+        @test 4 + 30 + 1 > Runes2P.INTERFACE_COLUMN_CHUNK
         lower_op = fokker_planck_operator(hot, driven, settings;
             p_upper_boundary = :interface, field_in_coefficients = false)
         upper_op = fokker_planck_operator(upper, driven, settings;
@@ -268,8 +272,8 @@ using SparseArrays: findnz, sparse
         T_row = first(Runes2P.unknown_range(two, 4, 1))
         n_row = first(Runes2P.unknown_range(two, 5, 1))
         column = first(Runes2P.unknown_range(two, 3, 1))
-        # a relative step of 1e-6 of the field: the difference is 3e-11 of the column with
-        # both mappings
+        # a relative step of 1e-6 of the field: the difference is at most 1e-10 of the entry
+        # in both rows with both mappings
         h = 1e-6 * w[column]
         up, down = copy(w), copy(w)
         up[column] += h
@@ -357,6 +361,11 @@ using SparseArrays: findnz, sparse
         @test jacobian_assembly(particles) === :direct
         @test Matrix(J) ≈ ForwardDiff.jacobian(v -> rhs!(similar(v), v, system, 0.0), u) rtol = 1e-12
         @test jacobian_colors(system) < 9
+        # the cells at the face hold one momentum cell, and reading another one throws
+        cells = Runes2P.FaceCells([1.0, 2.0, 3.0], 4, 4)
+        @test size(cells) == (4, 3)
+        @test cells[4, 2] == 2.0
+        @test_throws ArgumentError cells[3, 1]
         context = Runes2P.DescriptionContext()
         record = describe(particles, context)
         interface_record = describe(interface, context)
