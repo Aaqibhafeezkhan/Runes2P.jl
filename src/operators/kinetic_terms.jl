@@ -85,7 +85,9 @@ end
 """
     add_pitch_scattering!(op, collisions)
 
-Pitch-angle scattering `Dᵠᵠ = ν_D(p)(1 - ξ²)/2` on the ξ faces.
+Pitch-angle scattering `Dᵠᵠ = ν_D(p)(1 - ξ²)/2` on the ξ faces. A model with the faces of
+the grid of `op` ([`CollisionModel`](@ref)`(plasma, settings; faces)`) gives `ν_D` from its
+tables at the cell centres, the values of [`deflection_frequency`](@ref).
 """
 function add_pitch_scattering!(op::AdvectionDiffusion, collisions::CollisionModel)
     g = op.grid
@@ -94,7 +96,9 @@ function add_pitch_scattering!(op::AdvectionDiffusion, collisions::CollisionMode
     for ir in 1:nr, i in 1:np
 
         m = momentum_grid(g, ir)
-        nu = deflection_frequency(collisions, ir, m.p_centers[i])
+        p = m.p_centers[i]
+        entry = _center_entry(collisions, ir, i, p)
+        nu = _deflection_frequency(collisions, ir, p, entry)
         for k in 1:(nxi + 1)
             op.diffusion_xi_xi[i, k, ir] += nu * (1 - m.xi_faces[k]^2) / 2
         end
@@ -124,8 +128,9 @@ end
 
 # The friction of `add_slowing_down!` and the energy diffusion of `add_energy_diffusion!` in
 # one sweep over the p faces, which evaluates ν_s once per face for both
-# (`_slowing_down_and_parallel_diffusion`). It writes the same coefficients bit for bit; the
-# energy diffusion only with `mode = :full`, as `add_energy_diffusion!`.
+# (`_slowing_down_and_parallel_diffusion`), from the tables of the model at the faces of the
+# grid (`_face_entry`). It writes the same coefficients bit for bit; the energy diffusion only
+# with `mode = :full`, as `add_energy_diffusion!`.
 function _add_slowing_down_and_energy_diffusion!(
         op::AdvectionDiffusion, collisions::CollisionModel)
     g = op.grid
@@ -135,7 +140,8 @@ function _add_slowing_down_and_energy_diffusion!(
         m = momentum_grid(g, ir)
         for k in 1:(np + 1)
             p = m.p_faces[k]
-            nu_s, nu_parallel = _slowing_down_and_parallel_diffusion(collisions, ir, p)
+            entry = _face_entry(collisions, ir, k, p)
+            nu_s, nu_parallel = _slowing_down_and_parallel_diffusion(collisions, ir, p, entry)
             A = -p * nu_s
             for j in 1:nxi
                 op.advection_p[k, j, ir] += A
