@@ -176,10 +176,84 @@ function with_state_ions(plasma::PlasmaState, u::AbstractVector, layout, name::S
         T.(plasma.electric_field), T.(plasma.magnetic_field), plasma.cold_density_given)
 end
 
-# the plasma of a term with the ion densities of the state when it reads them
-_term_plasma(plasma::PlasmaState, ::Nothing, u, layout) = plasma
-function _term_plasma(plasma::PlasmaState, ions::Symbol, u, layout)
-    with_state_ions(plasma, u, layout, ions)
+# the plasma of a term with the ion densities of the state when it reads them, in a plasma
+# state of `buffers` (`_with_state_ions!`)
+_term_plasma(plasma::PlasmaState, ::Nothing, u, layout, buffers::Vector{Any}) = plasma
+function _term_plasma(plasma::PlasmaState, ions::Symbol, u, layout, buffers::Vector{Any})
+    _with_state_ions!(buffers, plasma, u, layout, ions)
+end
+
+# a plasma state of `with_state_ions` that a term keeps for one layout and number type, with
+# the ion composition checked against that layout when the state was made
+struct StateIonsBuffer{T <: Real}
+    layout::UnknownLayout
+    composition::IonComposition
+    plasma::PlasmaState{T}
+end
+
+# the most plasma states a term keeps: those of the residual and of the local Jacobian for
+# the layouts of two systems
+const STATE_IONS_BUFFERS = 4
+
+# `with_state_ions(plasma, u, layout, name)` in a state of `buffers` (a list of
+# StateIonsBuffer) made for this layout and the number type of `u`, refilled with the same
+# values: the composition is checked against a layout once, as in `_ions_from_unknowns`, since
+# the species of a plasma do not change in time. The state is overwritten at the next
+# evaluation of the term, so the term reads it before it evaluates again.
+function _with_state_ions!(
+        buffers::Vector{Any}, plasma::PlasmaState, u::AbstractVector, layout, name::Symbol)
+    T = promote_type(eltype(plasma.cold_electron_temperature), eltype(u))
+    for buffer in buffers
+        if buffer isa StateIonsBuffer{T} && buffer.layout === layout &&
+           _same_plasma_shape(buffer.plasma, plasma)
+            return _fill_state_ions!(buffer, plasma, u, layout, name)
+        end
+    end
+    state = with_state_ions(plasma, u, layout, name)
+    if length(buffers) >= STATE_IONS_BUFFERS
+        empty!(buffers)
+    end
+    push!(buffers, StateIonsBuffer{T}(layout, IonComposition(plasma.ions), state))
+    return state
+end
+
+# whether the plasma state `state` holds the radii, the species and the flag of `plasma`
+function _same_plasma_shape(state::PlasmaState, plasma::PlasmaState)
+    length(state.cold_electron_temperature) == length(plasma.cold_electron_temperature) ||
+        return false
+    length(state.cold_electron_density) == length(plasma.cold_electron_density) ||
+        return false
+    length(state.electric_field) == length(plasma.electric_field) || return false
+    length(state.magnetic_field) == length(plasma.magnetic_field) || return false
+    state.cold_density_given == plasma.cold_density_given || return false
+    length(state.ions) == length(plasma.ions) || return false
+    for (kept, species) in zip(state.ions, plasma.ions)
+        if !(kept.name == species.name && kept.nuclear_charge == species.nuclear_charge)
+            return false
+        end
+    end
+    return true
+end
+
+# the values of `with_state_ions(plasma, u, layout, name)` written into the state of `buffer`
+function _fill_state_ions!(
+        buffer::StateIonsBuffer{T}, plasma::PlasmaState, u, layout, name::Symbol) where {T}
+    state = buffer.plasma
+    copyto!(state.cold_electron_temperature, plasma.cold_electron_temperature)
+    copyto!(state.cold_electron_density, plasma.cold_electron_density)
+    copyto!(state.electric_field, plasma.electric_field)
+    copyto!(state.magnetic_field, plasma.magnetic_field)
+    id = unknown_id(layout, name)
+    for (s, species) in enumerate(state.ions)
+        densities = species.charge_state_densities
+        for ir in 1:radial_cell_count(layout)
+            values = radial_view(u, layout, id, ir)
+            for (j, c) in enumerate(species_components(buffer.composition, s))
+                densities[j, ir] = values[c]
+            end
+        end
+    end
+    return state
 end
 
 # the ion species of `ions` with the charge-state densities of the unknown `name` of the

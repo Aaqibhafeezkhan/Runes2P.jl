@@ -82,6 +82,7 @@ struct IonEnergyExchangeTerm{S <: PrescribedPlasma} <: EquationTerm
     ion_coulomb_logarithm::Symbol
     masses::Vector{Float64}
     ions::Union{Nothing, Symbol}
+    buffers::LocalTermBuffers
 end
 
 function IonEnergyExchangeTerm(
@@ -113,7 +114,7 @@ function IonEnergyExchangeTerm(
     end
     return IonEnergyExchangeTerm(
         source, side, ion_energy, temperature, density, ion_ion, ion_coulomb_logarithm,
-        mass_values, ions)
+        mass_values, ions, LocalTermBuffers())
 end
 
 function dependencies(term::IonEnergyExchangeTerm)
@@ -124,7 +125,7 @@ function jacobian_assembly(term::IonEnergyExchangeTerm)
     term.ions === nothing ? :automatic : :direct
 end
 function add_jacobian!(J, term::IonEnergyExchangeTerm, u, layout, row, t)
-    add_local_jacobian!(J, term, u, layout, row, t)
+    _add_buffered_local_jacobian!(J, term, u, layout, row, t, term.buffers)
 end
 
 function validate(term::IonEnergyExchangeTerm, layout, row, t)
@@ -215,6 +216,9 @@ function _ion_moments(term::IonEnergyExchangeTerm, species, W, s, ir)
     return (density, charge_square_density, W[s], term.masses[s], charge_density)
 end
 
+# the entries (N, nZ², W, m) of the species x = (N, nZ², W, m, nZ) that `_energy_exchange` takes
+_exchange_entries(x) = (x[1], x[2], x[3], x[4])
+
 # the power each ion species receives at radius ir, and the power the electrons lose
 function _ion_exchange(term::IonEnergyExchangeTerm, plasma::PlasmaState, W, n_e, T_e, ir)
     e = Constants.ELEMENTARY_CHARGE
@@ -237,7 +241,7 @@ function _ion_exchange(term::IonEnergyExchangeTerm, plasma::PlasmaState, W, n_e,
     end
     for (s, ion) in enumerate(ions)
         _plain_value(ion[1]) > 0 || continue
-        Q = _energy_exchange(lnL, ion[1:4], electrons)
+        Q = _energy_exchange(lnL, _exchange_entries(ion), electrons)
         received[s] += Q
         lost += Q
         term.ion_ion || continue
@@ -250,14 +254,16 @@ function _ion_exchange(term::IonEnergyExchangeTerm, plasma::PlasmaState, W, n_e,
             else
                 lnL_dream
             end
-            received[s] += _energy_exchange(lnL_ions, ion[1:4], other[1:4])
+            received[s] += _energy_exchange(
+                lnL_ions, _exchange_entries(ion), _exchange_entries(other))
         end
     end
     return received, lost
 end
 
 function rhs!(out, term::IonEnergyExchangeTerm, u, layout, row, t)
-    plasma = _term_plasma(plasma_values(term.plasma, u, layout, t), term.ions, u, layout)
+    plasma = _term_plasma(
+        plasma_values(term.plasma, u, layout, t), term.ions, u, layout, term.buffers.plasmas)
     id = unknown_id(layout, term.ion_energy)
     T = unknown_values(u, layout, unknown_id(layout, term.temperature))
     n = unknown_values(u, layout, unknown_id(layout, term.density))

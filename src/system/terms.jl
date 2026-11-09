@@ -336,13 +336,33 @@ radial unknowns on the same radial grid ([`local_layout`](@ref)), so that its co
 grow with the kinetic unknowns of the system.
 """
 function add_local_jacobian!(J, term::EquationTerm, u, layout, row, t)
-    ids = [unknown_id(layout, name) for name in dependencies(term)]
-    all(id -> layout.kinds[id] === :radial, ids) ||
-        throw(ArgumentError("the local Jacobian of a $(nameof(typeof(term))) needs radial unknowns alone"))
-    layout.kinds[row] === :radial ||
-        throw(ArgumentError("the local Jacobian of a $(nameof(typeof(term))) adds to a radial unknown"))
-    count = sum(id -> layout.sizes[id, 1], ids)
-    return _add_local_jacobian!(J, term, u, layout, row, t, ids, Val(count))
+    buffers = _local_jacobian_buffers(term, layout, row)
+    return _add_local_jacobian!(J, term, u, layout, t, buffers)
+end
+
+# the buffers that a term keeps between its evaluations on the state of the system: those of
+# add_local_jacobian! and the plasma states of `_with_state_ions!`. The Jacobian buffers are
+# those of one layout and row, so a term evaluated in turn on two rows or two systems makes
+# them again at each call; the results are the same. The public add_local_jacobian! makes a
+# local layout per call, so on a term that reads the ion densities of the state each of its
+# calls adds a plasma state, and the list, emptied when full, drops the states of the residual
+# and of the kept Jacobian buffers with it.
+struct LocalTermBuffers
+    jacobian::Base.RefValue{Any}   # the LocalJacobianBuffers of the last layout and row
+    plasmas::Vector{Any}           # the StateIonsBuffer per layout and number type
+end
+LocalTermBuffers() = LocalTermBuffers(Ref{Any}(nothing), Any[])
+
+# add_local_jacobian! with the buffers of `buffers`, made again when the layout or the row
+# differ from those of the last call
+function _add_buffered_local_jacobian!(J, term::EquationTerm, u, layout, row, t,
+        buffers::LocalTermBuffers)
+    kept = buffers.jacobian[]
+    if !(kept isa LocalJacobianBuffers && kept.layout === layout && kept.row == row)
+        kept = _local_jacobian_buffers(term, layout, row)
+        buffers.jacobian[] = kept
+    end
+    return _add_local_jacobian!(J, term, u, layout, t, kept)
 end
 
 """
@@ -365,37 +385,76 @@ function _local_unknown(u::RadialUnknown)
     return RadialUnknown(u.name; components = u.components, scale = u.scale, groups)
 end
 
-function _add_local_jacobian!(J, term, u, layout, row, t, ids, ::Val{K}) where {K}
+# the state of the dependencies and the row of a term in the local layout, with the partials
+# seeded, for the layout `layout` of the system and the row `row`
+struct LocalJacobianBuffers{D <: ForwardDiff.Dual, L <: UnknownLayout}
+    layout::UnknownLayout    # the layout of the system
+    row::Int
+    ids::Vector{Int}         # the dependencies, whose components the partials take in order
+    reduced::L               # the layout of the dependencies and the row (local_layout)
+    local_row::Int           # the row in `reduced`
+    sources::Vector{Int}     # per entry of the local state: its index in the state of the system
+    seeded::Vector{D}        # the local state, its partials seeded
+    out::Vector{D}           # the output of the evaluation
+end
+
+# the buffers of the local Jacobian of `term` for the layout and the row
+function _local_jacobian_buffers(term::EquationTerm, layout, row)
+    ids = [unknown_id(layout, name) for name in dependencies(term)]
+    all(id -> layout.kinds[id] === :radial, ids) ||
+        throw(ArgumentError("the local Jacobian of a $(nameof(typeof(term))) needs radial unknowns alone"))
+    layout.kinds[row] === :radial ||
+        throw(ArgumentError("the local Jacobian of a $(nameof(typeof(term))) adds to a radial unknown"))
+    count = sum(id -> layout.sizes[id, 1], ids)
+    return _local_jacobian_buffers(layout, row, ids, Val(count))
+end
+
+function _local_jacobian_buffers(layout, row, ids, ::Val{K}) where {K}
     D = ForwardDiff.Dual{LocalColumnTag, Float64, K}
     local_ids = row in ids ? ids : [ids; row]
     reduced = local_layout(layout, local_ids)
+    local_row = findfirst(==(row), local_ids)::Int
+    sources = zeros(Int, length(reduced))
     seeded = zeros(D, length(reduced))
     for ir in 1:radial_cell_count(layout)
         k = 0
         for (m, id) in enumerate(local_ids)
             target = unknown_range(reduced, m, ir)
             for (a, i) in enumerate(unknown_range(layout, id, ir))
+                sources[target[a]] = i
                 if m <= length(ids)
                     k += 1
-                    seeded[target[a]] = _seeded_dual(D, u[i], k)
-                else
-                    seeded[target[a]] = D(u[i])
+                    seeded[target[a]] = _seeded_dual(D, 0.0, k)
                 end
             end
         end
     end
-    out = zeros(D, length(reduced))
-    local_row = findfirst(==(row), local_ids)
-    rhs!(out, term, seeded, reduced, local_row, t)
+    return LocalJacobianBuffers(
+        layout, row, ids, reduced, local_row, sources, seeded, zeros(D, length(reduced)))
+end
+
+function _add_local_jacobian!(
+        J, term, u, layout, t, buffers::LocalJacobianBuffers{D}) where {D}
+    seeded = buffers.seeded
+    # the values of the state, the seeded partials kept
+    for (j, i) in enumerate(buffers.sources)
+        seeded[j] = D(u[i], ForwardDiff.partials(seeded[j]))
+    end
+    out = buffers.out
+    fill!(out, zero(D))
+    rhs!(out, term, seeded, buffers.reduced, buffers.local_row, t)
     for ir in 1:radial_cell_count(layout)
-        columns = Int[]
-        for id in ids
-            append!(columns, unknown_range(layout, id, ir))
-        end
-        for (r, r_local) in zip(unknown_range(layout, row, ir), unknown_range(reduced, local_row, ir))
+        rows = unknown_range(layout, buffers.row, ir)
+        local_rows = unknown_range(buffers.reduced, buffers.local_row, ir)
+        for (r, r_local) in zip(rows, local_rows)
             partials = ForwardDiff.partials(out[r_local])
-            for k in 1:K
-                _add_entry!(J, r, columns[k], partials[k])
+            # partial k is the k-th component of the dependencies at the radius
+            k = 0
+            for id in buffers.ids
+                for c in unknown_range(layout, id, ir)
+                    k += 1
+                    _add_entry!(J, r, c, partials[k])
+                end
             end
         end
     end

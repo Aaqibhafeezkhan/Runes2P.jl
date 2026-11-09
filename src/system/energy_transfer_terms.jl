@@ -337,7 +337,9 @@ also through `p = 0` where the friction of the superthermal frequencies carries 
 under `p_zero_boundary = :outflow` (compare [`KineticEnergyLossTerm`](@ref), the energy
 change of the electron-electron operator itself). The term is linear in `f`. With a plasma
 of unknowns its Jacobian holds the columns of the temperature, the density and, when the
-plasma reads them, the ion charge states, as DREAM's.
+plasma reads them, the ion charge states, as DREAM's. The weights of the moment are kept
+until the plasma values change. A [`PlasmaState`](@ref) given as `plasma` is read once, so a
+change made to it in place afterwards is not seen.
 """
 struct FrictionEnergyTransferTerm{S} <: EquationTerm
     kinetic::Symbol
@@ -345,6 +347,11 @@ struct FrictionEnergyTransferTerm{S} <: EquationTerm
     source::S
     settings::CollisionSettings
     coefficient::Float64
+    plasma_key::PlasmaKey                # the plasma values of `weights`
+    weights::Vector{Matrix{Float64}}     # per radius: the weights of the plasma of `plasma_key`
+    shapes::Vector{Int}                  # per radius: the shape of its cells (`_friction_shapes`)
+    products::Vector{Matrix{Float64}}    # per shape: the weights times f of a radius
+    dual_scratch::Base.RefValue{Any}     # (weights, products) per shape in dual numbers of the plasma columns
 end
 
 """
@@ -362,8 +369,54 @@ const FRICTION_TRANSFER_SETTINGS = CollisionSettings(; mode = :superthermal,
 
 function FrictionEnergyTransferTerm(kinetic::Symbol, grid::KineticGrid, plasma;
         settings::CollisionSettings = FRICTION_TRANSFER_SETTINGS, coefficient::Real = 1.0)
+    weights = _friction_buffers(Float64, grid)
+    shapes = _friction_shapes(grid)
+    products = _friction_scratch(Float64, grid, shapes)
     return FrictionEnergyTransferTerm(
-        kinetic, grid, plasma_source(plasma), settings, Float64(coefficient))
+        kinetic, grid, plasma_source(plasma), settings, Float64(coefficient), PlasmaKey(),
+        weights, shapes, products, Ref{Any}(nothing))
+end
+
+# a matrix of the momentum and pitch cells of every radius of `grid`, of the number type T
+function _friction_buffers(::Type{T}, grid::KineticGrid) where {T}
+    buffers = Matrix{T}[]
+    for ir in 1:radial_cell_count(grid)
+        m = momentum_grid(grid, ir)
+        push!(buffers, zeros(T, momentum_cell_count(m), pitch_cell_count(m)))
+    end
+    return buffers
+end
+
+# per radius of `grid`, the index of the shape of its cells (the momentum and pitch cell
+# counts) among the shapes of the grid, numbered in the order of their first radius. A
+# scratch matrix of one radius serves every radius of its shape: one of another size, or a
+# view into a larger one, would sum the products in another order.
+function _friction_shapes(grid::KineticGrid)
+    sizes = Tuple{Int, Int}[]
+    shapes = zeros(Int, radial_cell_count(grid))
+    for ir in 1:radial_cell_count(grid)
+        m = momentum_grid(grid, ir)
+        shape = (momentum_cell_count(m), pitch_cell_count(m))
+        index = findfirst(==(shape), sizes)
+        if index === nothing
+            push!(sizes, shape)
+            index = length(sizes)
+        end
+        shapes[ir] = index
+    end
+    return shapes
+end
+
+# a matrix of the number type T for each shape of `shapes` (`_friction_shapes`)
+function _friction_scratch(::Type{T}, grid::KineticGrid, shapes::Vector{Int}) where {T}
+    scratch = Matrix{T}[]
+    for ir in 1:radial_cell_count(grid)
+        if shapes[ir] > length(scratch)
+            m = momentum_grid(grid, ir)
+            push!(scratch, zeros(T, momentum_cell_count(m), pitch_cell_count(m)))
+        end
+    end
+    return scratch
 end
 
 function dependencies(term::FrictionEnergyTransferTerm)
@@ -391,9 +444,15 @@ end
 # mₑc v p ν_s 𝒱' Δp Δξ / V' of every cell of radius ir, in the number type of the plasma
 function _friction_weights(term::FrictionEnergyTransferTerm, model, ir)
     m = momentum_grid(term.grid, ir)
-    V = phase_space_jacobian(term.grid, ir)
     T = eltype(model.free_electron_density)
     weights = zeros(T, momentum_cell_count(m), pitch_cell_count(m))
+    return _friction_weights!(weights, term, model, ir)
+end
+
+# the weights of `_friction_weights` written into `weights`, every entry
+function _friction_weights!(weights, term::FrictionEnergyTransferTerm, model, ir)
+    m = momentum_grid(term.grid, ir)
+    V = phase_space_jacobian(term.grid, ir)
     for i in 1:momentum_cell_count(m)
         p = m.p_centers[i]
         v = Constants.SPEED_OF_LIGHT * p / sqrt(1 + p^2)
@@ -407,12 +466,42 @@ function _friction_weights(term::FrictionEnergyTransferTerm, model, ir)
     return weights
 end
 
+# The weights of the plasma at the state u and the time t, rebuilt when the plasma values
+# differ from those of the last rebuild (`changed_plasma!`); the slowing-down frequency does
+# not read the electric field.
+function _current_friction_weights!(term::FrictionEnergyTransferTerm, u, layout, t)
+    plasma = changed_plasma!(
+        term.plasma_key, term.source, u, layout, t; electric_field = false)
+    plasma === nothing && return term.weights
+    try
+        model = CollisionModel(plasma, term.settings)
+        for ir in 1:radial_cell_count(layout)
+            _friction_weights!(term.weights[ir], term, model, ir)
+        end
+    catch
+        reset_key!(term.plasma_key)
+        rethrow()
+    end
+    return term.weights
+end
+
 function rhs!(out, term::FrictionEnergyTransferTerm, u, layout, row, t)
     id = unknown_id(layout, term.kinetic)
-    model = CollisionModel(plasma_values(term.source, u, layout, t), term.settings)
+    # a state in dual numbers takes weights of its own evaluation, kept nowhere
+    if !(u isa AbstractVector{Float64})
+        model = CollisionModel(plasma_values(term.source, u, layout, t), term.settings)
+        for ir in 1:radial_cell_count(layout)
+            weights = _friction_weights(term, model, ir)
+            power = sum(weights .* kinetic_view(u, layout, id, ir))
+            out[first(unknown_range(layout, row, ir))] += term.coefficient * power
+        end
+        return out
+    end
+    weights = _current_friction_weights!(term, u, layout, t)
     for ir in 1:radial_cell_count(layout)
-        weights = _friction_weights(term, model, ir)
-        power = sum(weights .* kinetic_view(u, layout, id, ir))
+        products = term.products[term.shapes[ir]]
+        products .= weights[ir] .* kinetic_view(u, layout, id, ir)
+        power = sum(products)
         out[first(unknown_range(layout, row, ir))] += term.coefficient * power
     end
     return out
@@ -420,20 +509,20 @@ end
 
 function add_jacobian!(J, term::FrictionEnergyTransferTerm, u, layout, row, t)
     id = unknown_id(layout, term.kinetic)
-    plasma = plasma_values(term.source, u, layout, t)
-    model = CollisionModel(plasma, term.settings)
+    weights = _current_friction_weights!(term, u, layout, t)
     for ir in 1:radial_cell_count(layout)
         r = first(unknown_range(layout, row, ir))
-        weights = _friction_weights(term, model, ir)
-        for j in axes(weights, 2), i in axes(weights, 1)
+        radius_weights = weights[ir]
+        for j in axes(radius_weights, 2), i in axes(radius_weights, 1)
 
             _add_entry!(J, r, _kinetic_index(layout, id, ir, i, j),
-                term.coefficient * weights[i, j])
+                term.coefficient * radius_weights[i, j])
         end
     end
     # the columns of the plasma unknowns: the weights of a plasma with derivative parts
     if is_state_dependent(term.source)
         with_ions = ion_dependency(term.source) !== nothing
+        plasma = plasma_values(term.source, u, layout, t)
         dual = CollisionModel(
             dual_plasma(plasma, term.source.density !== nothing, with_ions), term.settings)
         _add_friction_plasma_columns!(J, term, dual, with_ions, u, layout, row)
@@ -441,14 +530,32 @@ function add_jacobian!(J, term::FrictionEnergyTransferTerm, u, layout, row, t)
     return J
 end
 
+# the scratch matrices of the weights and the products in the dual numbers D, one per shape
+# of the cells, made at the first use of D and kept in the term
+function _dual_friction_scratch(term::FrictionEnergyTransferTerm, ::Type{D}) where {D}
+    kept = term.dual_scratch[]
+    if kept isa Tuple{Vector{Matrix{D}}, Vector{Matrix{D}}}
+        return kept
+    end
+    scratch = (_friction_scratch(D, term.grid, term.shapes),
+        _friction_scratch(D, term.grid, term.shapes))
+    term.dual_scratch[] = scratch
+    return scratch
+end
+
 # the radial rows with the collision model of a plasma in dual numbers `dual`; the number of
 # partials is picked at run time, so the loop runs behind this barrier on the concrete type
 function _add_friction_plasma_columns!(
         J, term::FrictionEnergyTransferTerm, dual::CollisionModel, with_ions, u, layout, row)
     id = unknown_id(layout, term.kinetic)
+    D = eltype(dual.free_electron_density)
+    weights, products = _dual_friction_scratch(term, D)
     for ir in 1:radial_cell_count(layout)
-        weights = _friction_weights(term, dual, ir)
-        power = term.coefficient * sum(weights .* kinetic_view(u, layout, id, ir))
+        shape = term.shapes[ir]
+        radius_weights = _friction_weights!(weights[shape], term, dual, ir)
+        radius_products = products[shape]
+        radius_products .= radius_weights .* kinetic_view(u, layout, id, ir)
+        power = term.coefficient * sum(radius_products)
         columns = plasma_columns(term.source, layout, ir; with_ions)::Vector{Int}
         _add_partials!(J, first(unknown_range(layout, row, ir)), columns, power)
     end
