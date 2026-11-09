@@ -5,8 +5,9 @@
 # resume that repeat the uninterrupted run within round-off, and the window of
 # test_disruption_runaway_dream.jl against SparseLU within the Newton tolerance and against
 # DREAM within the tolerances of that file, with the relative residual of the solves below the
-# floor_linear_tolerance of NewtonSolver. The tests that need MKL are skipped when Pardiso.jl
-# cannot load it; the window needs the ADF11 cache.
+# floor_linear_tolerance of NewtonSolver; and the texts of the errors of MKL that the
+# extension reads from the exceptions of Pardiso.jl. The tests that need MKL are skipped when
+# Pardiso.jl cannot load it; the window needs the ADF11 cache.
 using Pardiso
 using HDF5
 using LinearAlgebra: norm
@@ -57,11 +58,14 @@ end
         @test refusal isa ArgumentError
         @test occursin("using Pardiso", refusal.msg)
         @test_throws ArgumentError MKLPardiso(threads = 0)
-        @test_throws ArgumentError MKLPardiso(refinement = -1)
+        @test_throws ArgumentError MKLPardiso(refinement_steps = -1)
+        default_record = Dict{String, Any}(
+            "type" => "MKLPardiso", "threads" => 1, "refinement_steps" => 0)
         @test describe(NewtonSolver(linear_solver = MKLPardiso()))["linear_solver"] ==
-              Dict{String, Any}("type" => "MKLPardiso", "threads" => 1, "refinement" => 0)
-        @test describe(MKLPardiso(threads = 8, refinement = 10)) ==
-              Dict{String, Any}("type" => "MKLPardiso", "threads" => 8, "refinement" => 10)
+              default_record
+        threaded_record = Dict{String, Any}(
+            "type" => "MKLPardiso", "threads" => 8, "refinement_steps" => 10)
+        @test describe(MKLPardiso(threads = 8, refinement_steps = 10)) == threaded_record
         @test Base.get_extension(Runes2P, :Runes2PMKLPardisoExt) !== nothing
     end
 
@@ -117,14 +121,38 @@ end
             # as exact (a bound of 0 on the relative residual)
             sigma_threads, _ = conductivity(MKLPardiso(threads = 2))
             @test sigma_threads ≈ sigma_lu rtol = 1e-8
-            sigma_refined, _ = conductivity(MKLPardiso(refinement = 10))
+            sigma_refined, _ = conductivity(MKLPardiso(refinement_steps = 10))
             @test sigma_refined ≈ sigma_lu rtol = 1e-8
             refined = NewtonWorkspace(case.system,
-                NewtonSolver(linear_solver = MKLPardiso(refinement = 10)))
+                NewtonSolver(linear_solver = MKLPardiso(refinement_steps = 10)))
             u = copy(case.u0)
             @test newton_solve!(u, case.u0, refined, 1e-6, 1e-6).status === :converged
             @test Runes2P.linear_tolerance(refined.cache) == 0
             @test Pardiso.get_iparm(refined.cache.pardiso, 8) == 10
+            # PARDISO's output iparm(7): the refinement steps of the last solve
+            performed_steps = Pardiso.get_iparm(refined.cache.pardiso, 7)
+            @info "MKL PARDISO, field-particle case: $(performed_steps) refinement steps in the last solve"
+            @test 0 < performed_steps <= 10
+        end
+
+        @testset "the errors of MKL that the extension tells apart" begin
+            # the extension reads a singular matrix from the exceptions of Pardiso.jl, which
+            # do not carry MKL's error number: -4 and -7 alone mean a singular matrix
+            pardiso = Pardiso.MKLPardisoSolver()
+            for code in -1:-1:-12
+                err = try
+                    Pardiso.check_error(pardiso, code)
+                catch caught
+                    caught
+                end
+                if code == -4
+                    @test err isa Pardiso.PardisoPosDefException
+                else
+                    @test err isa Pardiso.PardisoException
+                    @test occursin("singular", err.info) == (code == -7)
+                    @test occursin("32-bit integer overflow", err.info) == (code == -8)
+                end
+            end
         end
 
         @testset "a resumed run repeats the uninterrupted one" begin
@@ -141,9 +169,9 @@ end
                 save_times = first_saves, updates = (case.update(),), checkpoint)
             @test first_segment.states == whole.states[:, 1:length(first_saves)]
             stored = read_checkpoint(checkpoint)
-            @test stored.settings["solver"]["linear_solver"] ==
-                  Dict{String, Any}("type" => "MKLPardiso", "threads" => 1, "refinement" =>
-                0)
+            expected = Dict{String, Any}(
+                "type" => "MKLPardiso", "threads" => 1, "refinement_steps" => 0)
+            @test stored.settings["solver"]["linear_solver"] == expected
             case = _checkpoint_case()
             second_segment = @test_logs (:warn, r"changed settings") integrate(
                 case.system, case.u0, case.times; solver, save_times = case.save_times,

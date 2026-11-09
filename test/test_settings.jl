@@ -214,8 +214,10 @@ _is_plain(x) = false
         @test describe(NewtonSolver())["linear_solver"] ==
               Dict{String, Any}("type" => "SparseLU")
         # the record of MKLPardiso needs no Pardiso.jl
+        pardiso_record = Dict{String, Any}(
+            "type" => "MKLPardiso", "threads" => 4, "refinement_steps" => 0)
         @test describe(NewtonSolver(linear_solver = MKLPardiso(threads = 4)))["linear_solver"] ==
-              Dict{String, Any}("type" => "MKLPardiso", "threads" => 4, "refinement" => 0)
+              pardiso_record
         @test _is_plain(record)
     end
 

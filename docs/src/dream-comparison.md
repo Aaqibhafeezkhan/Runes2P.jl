@@ -283,7 +283,7 @@ From `f_re` zero its test checks the budgets of its closures alone.
 - Preconditioners of [`GMRES`](@ref) for systems coupled through the fluid unknowns: [`FluidSchurLU`](@ref), [`RadiusBlockLU`](@ref), [`RadiusBlockILU`](@ref).
 - Exact Jacobians by automatic differentiation, the columns of the plasma unknowns included ([`jacobian!`](@ref), [`jacobian_correction_product!`](@ref)).
 - A schedule of legs with prescribed steps or a controller ([`Leg`](@ref), [`time_points`](@ref)).
-- Checkpoints and segments of a run; with a direct solver a resumed run repeats the uninterrupted one bit for bit ([`CheckpointSettings`](@ref), [`read_output`](@ref)).
+- Checkpoints and segments of a run; with [`SparseLU`](@ref) a resumed run repeats the uninterrupted one bit for bit ([`CheckpointSettings`](@ref), [`read_output`](@ref)).
 - The system as an ODE function of SciML ([`ode_function`](@ref)).
 
 ## Departures from DREAM

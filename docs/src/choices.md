@@ -129,7 +129,7 @@ DREAM's documentation gives an upper bound for `pCutAvalanche`, the critical mom
 |---|---|
 | restart length of [`GMRES`](@ref) | `restart_length = 50` |
 | linear solver of [`NewtonSolver`](@ref) | `linear_solver = SparseLU()`, UMFPACK ([`SparseLU`](@ref)) |
-| refinement steps of [`MKLPardiso`](@ref) | `refinement = 0` |
+| refinement steps of [`MKLPardiso`](@ref) | `refinement_steps = 0` |
 
 When a step needs more Krylov iterations than the restart length, restarted GMRES can stagnate, and the step ends with `:linear_solve_failed`.
 The Krylov basis holds `restart_length` vectors.
@@ -140,7 +140,7 @@ MKL PARDISO ([`MKLPardiso`](@ref)) takes 72 ms at one thread and 17 ms at eight;
 These are medians of five factorizations and five solves on one idle machine, with MKL 2025.2 through Pardiso.jl 1.1.2.
 Ten refinement steps of PARDISO take 80 to 90 ms per solve on that matrix, more than the factorization.
 Without them its relative residual is 1.0e-9, below the `floor_linear_tolerance` of 1e-8 of [`NewtonSolver`](@ref).
-DREAM's default solver is PETSc's own LU (`LINEAR_SOLVER_LU`), and its MKL PARDISO solver allows 10 refinement steps (`fvm/Solvers/MIMKL.cpp`): `MKLPardiso(refinement = 10)` reproduces that.
+DREAM's default solver is PETSc's own LU (`LINEAR_SOLVER_LU`), and its MKL PARDISO solver allows 10 refinement steps (`fvm/Solvers/MIMKL.cpp`): `MKLPardiso(refinement_steps = 10)` reproduces that.
 
 ## Time stepping
 

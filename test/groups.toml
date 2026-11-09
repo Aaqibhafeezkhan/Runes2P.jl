@@ -199,7 +199,7 @@ files = ["test_disruption_runaway_dream.jl"]
 [[group]]
 name = "full-14"
 tier = "full"
-# 1.9 minutes at -O0, mostly the compilation of the disruption case with a runaway grid:
-# MKLPardiso against SparseLU on its window, the field-particle term and a checkpoint; loads
-# Pardiso.jl, whose MKL comes as an artifact
+# 12.0 minutes, mostly the compilation of the disruption case with a runaway grid (1.9 minutes
+# at -O0): MKLPardiso against SparseLU on its window, the field-particle term and a checkpoint;
+# loads Pardiso.jl, whose MKL comes as an artifact
 files = ["test_mkl_pardiso.jl"]

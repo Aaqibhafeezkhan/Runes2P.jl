@@ -38,16 +38,18 @@ function Runes2P.linear_solver_cache(
         throw(ArgumentError("MKLPardiso solves a matrix of Float64, not of $(eltype(matrix))"))
     Pardiso.mkl_is_available() ||
         throw(ArgumentError("MKLPardiso needs MKL, which Pardiso.jl did not load: Pardiso.mkl_is_available() is false"))
-    # PARDISO's integer type: 32 bits, or 64 with Julia's BLAS from an MKL of 64-bit integers
+    # PARDISO's integer type: Pardiso.jl takes 64 bits only when Julia's BLAS vendor is MKL,
+    # and the vendor of current Julia is libblastrampoline, so it is 32 bits. The last column
+    # pointer is the count of nonzeros plus one.
     index_type = Pardiso.MklInt
-    length(nonzeros(matrix)) <= typemax(index_type) ||
+    length(nonzeros(matrix)) < typemax(index_type) ||
         throw(ArgumentError("the matrix has more nonzeros than the integers of PARDISO hold"))
     pardiso = Pardiso.MKLPardisoSolver()
     Pardiso.set_matrixtype!(pardiso, Pardiso.REAL_NONSYM)
     Pardiso.pardisoinit(pardiso)
     # solve the transposed system of the matrix PARDISO reads, the transpose of `matrix`
     Pardiso.set_iparm!(pardiso, 12, 2)
-    Pardiso.set_iparm!(pardiso, 8, solver.refinement)
+    Pardiso.set_iparm!(pardiso, 8, solver.refinement_steps)
     column_pointers = Vector{index_type}(getcolptr(matrix))
     row_indices = Vector{index_type}(rowvals(matrix))
     return MKLPardisoCache(
@@ -70,9 +72,12 @@ const PHASE_NAMES = Dict(Pardiso.ANALYSIS => "the analysis (phase 11)",
     Pardiso.NUM_FACT => "the numeric factorization (phase 22)",
     Pardiso.SOLVE_ITERATIVE_REFINE => "the solve (phase 33)")
 
-# One call of PARDISO in `phase`: `:ok`, or `:singular_matrix` for a zero pivot or a singular
-# diagonal (MKL's errors -4 and -7). Other errors of MKL throw with the meaning that
-# Pardiso.jl gives them; Pardiso.jl does not pass on the number of the error.
+# One call of PARDISO in `phase`: `:ok`, or `:singular_matrix` for MKL's errors -4 and -7.
+# Pardiso.jl does not pass on the number of an error but throws an exception for it: -4 (a
+# zero pivot, or a failed numeric factorization or iterative refinement) comes as a
+# `PardisoPosDefException`, -7 as a `PardisoException` with the text "Diagonal matrix is
+# singular"; no other error of MKL has a text with "singular" in Pardiso.jl. Other errors of
+# MKL throw with the meaning that Pardiso.jl gives them, -8 with the limit it stands for.
 function _pardiso!(cache::MKLPardisoCache, phase, x, transposed, b)
     Pardiso.set_phase!(cache.pardiso, phase)
     try
@@ -83,6 +88,10 @@ function _pardiso!(cache::MKLPardisoCache, phase, x, transposed, b)
         end
         if err isa Pardiso.PardisoException && occursin("singular", err.info)
             return :singular_matrix
+        end
+        if err isa Pardiso.PardisoException && occursin("32-bit integer overflow", err.info)
+            throw(ErrorException("MKL PARDISO failed in $(PHASE_NAMES[phase]): $(err.info) " *
+                                 "PARDISO's 32-bit integers hold at most 2^31 - 1 nonzeros of the factors"))
         end
         if err isa Pardiso.PardisoException
             throw(ErrorException("MKL PARDISO failed in $(PHASE_NAMES[phase]): $(err.info)"))
@@ -125,13 +134,14 @@ function Runes2P.solve!(
     transposed = SparseMatrixCSC(
         n, n, cache.column_pointers, cache.row_indices, nonzeros(matrix))
     if !(cache.factorized && cache.matrix_unchanged)
+        # the analysis counts in the factorization time of the solve
+        started = time_ns()
         # the ordering and the matching once per pattern, from the values of the first matrix
         if !cache.analyzed
             status = _pardiso!(cache, Pardiso.ANALYSIS, x, transposed, b)
             status === :ok || return status
             cache.analyzed = true
         end
-        started = time_ns()
         status = _pardiso!(cache, Pardiso.NUM_FACT, x, transposed, b)
         cache.factorization_seconds = (time_ns() - started) / 1e9
         cache.factorizations += 1
@@ -144,7 +154,7 @@ function Runes2P.solve!(
     end
     status = _pardiso!(cache, Pardiso.SOLVE_ITERATIVE_REFINE, x, transposed, b)
     status === :ok || return status
-    if cache.settings.refinement == 0
+    if cache.settings.refinement_steps == 0
         residual = cache.residual
         mul!(residual, matrix, x)
         @. residual = b - residual
