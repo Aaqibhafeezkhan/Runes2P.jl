@@ -16,6 +16,15 @@ function _cold_base(t)
         magnetic_field = [5.0, 5.0])
 end
 
+# the plasma of `_cold_base` with a magnetic field that rises in time
+function _cold_rising_field(t)
+    plasma = _cold_base(t)
+    field = [5.0, 5.0] .* (1 + t / 1e-4)
+    return PlasmaState(; cold_electron_temperature = plasma.cold_electron_temperature,
+        cold_electron_density = plasma.cold_electron_density, ions = plasma.ions,
+        electric_field = plasma.electric_field, magnetic_field = field)
+end
+
 function _cold_grid()
     mom = MomentumGrid(uniform_p_faces(30, 0.0, 0.2), uniform_xi_faces(4))
     return cylindrical_grid(mom, RadialGrid(uniform_r_faces(2, 1.0)))
@@ -393,6 +402,69 @@ end
         @test_throws ArgumentError ConductivityModel(
             PlasmaFromUnknowns(_cold_base); kinetic = :discrete_operator,
             operator = AdvectionDiffusion(g))
+    end
+
+    @testset "one rebuild of the dual coefficients per plasma" begin
+        # the term in the row of f and two boundary fluxes read the coefficients in dual
+        # numbers of the one term: a new plasma rebuilds them once, the same plasma not at all
+        function with_fluxes(base)
+            system, term = _cold_system(g, u0; field = true, base)
+            layout = UnknownLayout(g.radial_grid,
+                [system.layout.unknowns; RadialUnknown(:runaway_density; scale = 1e15);
+                 RadialUnknown(:lost_energy; scale = 1.0)])
+            equations = [system.equations...;
+                         Equation(:runaway_density, TimeDerivative(), MomentumBoundaryFluxTerm(:f, term));
+                         Equation(:lost_energy, TimeDerivative(),
+                             MomentumBoundaryFluxTerm(:f, term; weight = :energy))]
+            full = EquationSystem(layout, equations; time_scale = 1e-6, initial_state = u0(layout))
+            return full, term
+        end
+        full, term = with_fluxes(_cold_rising_field)
+        layout = full.layout
+        @test length(full.column_terms) == 3
+        @test all(bound -> Runes2P.has_plasma_columns(bound.term), full.column_terms)
+        u = u0(layout)
+        J = jacobian_prototype(full)
+        jacobian!(J, full, u, 0.0)
+        at_u = copy(J.nzval)
+        count = term.dual_rebuilds[]
+        # the same state: no rebuild, and the same Jacobian bit for bit
+        jacobian!(J, full, u, 0.0)
+        @test term.dual_rebuilds[] == count
+        @test isequal(J.nzval, at_u)
+        # each plasma value of the key changed alone: one rebuild for the three bindings,
+        # and one more back at u, whose Jacobian is the same as before
+        hotter, denser = copy(u), copy(u)
+        unknown_values(hotter, layout, unknown_id(layout, :cold_electron_temperature))[2] *= 1.1
+        unknown_values(denser, layout, unknown_id(layout, :cold_electron_density))[1] *= 1.1
+        for x in (hotter, denser)
+            jacobian!(J, full, x, 0.0)
+            @test term.dual_rebuilds[] == count + 1
+            @test !isequal(J.nzval, at_u)
+            jacobian!(J, full, u, 0.0)
+            @test term.dual_rebuilds[] == count + 2
+            @test isequal(J.nzval, at_u)
+            count = term.dual_rebuilds[]
+        end
+        # a rebuild forced at the same state gives the same Jacobian
+        Runes2P.reset_key!(term.dual_plasma_key)
+        jacobian!(J, full, u, 0.0)
+        @test term.dual_rebuilds[] == count + 1
+        @test isequal(J.nzval, at_u)
+        count = term.dual_rebuilds[]
+        # the time of the prescribed part: its magnetic field rises, so a new time rebuilds
+        jacobian!(J, full, u, 1e-6)
+        @test term.dual_rebuilds[] == count + 1
+        jacobian!(J, full, u, 1e-6)
+        @test term.dual_rebuilds[] == count + 1
+        # a prescribed part whose values the key holds do not change in time (the
+        # temperature and the density are the unknowns): a new time rebuilds nothing
+        steady, steady_term = with_fluxes(_cold_base)
+        J = jacobian_prototype(steady)
+        jacobian!(J, steady, u, 0.0)
+        count = steady_term.dual_rebuilds[]
+        jacobian!(J, steady, u, 1e-6)
+        @test steady_term.dual_rebuilds[] == count
     end
 
     @testset "the boundary flux follows the plasma unknowns" begin

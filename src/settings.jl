@@ -531,7 +531,8 @@ function settings_fields(::Type{<:FokkerPlanckTerm})
             :lagged),
         derived = (:stored_operator, :values, :correction, :dual_input,
             :dual_output, :field_values, :dual_field,
-            :plasma_key, :rebuilds, :dual_operator, :dual_columns, :ion_state))
+            :plasma_key, :rebuilds, :dual_operator, :dual_columns,
+            :dual_plasma_key, :dual_rebuilds, :ion_state))
 end
 
 function describe(term::FokkerPlanckTerm, context::DescriptionContext)

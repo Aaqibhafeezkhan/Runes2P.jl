@@ -94,6 +94,46 @@ end
         @test !Runes2P.has_plasma_source(FokkerPlanckTerm(:f, AdvectionDiffusion(g)))
     end
 
+    @testset "a rebuild of dual coefficients zeroes the arrays it writes" begin
+        # the rebuild of the operator of dual coefficients of a term zeroes the arrays that
+        # its flags and those of the rebuild before write: twice with other flags, in both
+        # orders, it gives the coefficients of one rebuild with the second flags bit for bit
+        g = _source_grid()
+        op = fokker_planck_operator(g, _source_plasma(10.0), SOURCE_SETTINGS)
+        dual = Runes2P.dual_plasma(_source_plasma(8.0; E = 2.0), true)
+        D = eltype(dual.cold_electron_temperature)
+        superthermal = CollisionSettings(
+            mode = :superthermal, screening = :complete, coulomb_logarithm = :thermal)
+        names = (:advection_p, :diffusion_p_p, :diffusion_p_xi, :advection_xi,
+            :diffusion_xi_xi, :diffusion_xi_p, :advection_r, :diffusion_r_r,
+            :advection_p_times_p2_at_zero)
+        bits(A) = reinterpret(Float64, vec(A))
+        same(a, b) = all(name -> isequal(bits(getfield(a, name)), bits(getfield(b, name))), names)
+        flags = [(SOURCE_SETTINGS, true, true), (superthermal, false, false)]
+        for (before, after) in (flags, reverse(flags))
+            rebuilt = Runes2P.similar_coefficients(op, D)
+            Runes2P._rebuild_fokker_planck_coefficients!(rebuilt, dual, before...)
+            Runes2P._rebuild_fokker_planck_coefficients!(rebuilt, dual, after...)
+            settings, synchrotron, field = after
+            fresh = Runes2P.similar_coefficients(op, D)
+            set_fokker_planck_coefficients!(
+                fresh, dual, settings; synchrotron, field_in_coefficients = field)
+            @test same(rebuilt, fresh)
+            @test rebuilt.coefficient_source[].settings === settings
+            # the flags select the energy diffusion and the pitch advection
+            @test any(!iszero, bits(fresh.diffusion_p_p)) == (settings.mode === :full)
+            @test any(!iszero, bits(fresh.advection_xi)) == (synchrotron || field)
+            # an array that no rebuild writes is left as it is, and without the record of
+            # the rebuild before every array is zeroed
+            rebuilt.advection_r .= one(D)
+            Runes2P._rebuild_fokker_planck_coefficients!(rebuilt, dual, after...)
+            @test all(isone, rebuilt.advection_r)
+            rebuilt.coefficient_source[] = nothing
+            Runes2P._rebuild_fokker_planck_coefficients!(rebuilt, dual, after...)
+            @test same(rebuilt, fresh)
+        end
+    end
+
     @testset "caches of the source shape, the region and the conductivity" begin
         g = _source_grid(; nr = 3)
         # a temperature constant in time: the shape is built once

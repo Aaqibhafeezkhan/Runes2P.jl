@@ -105,6 +105,8 @@ struct FokkerPlanckTerm{T, P} <: EquationTerm
     lag_all::Bool                            # the whole plasma at the start of the step (lagged = :all)
     dual_operator::Base.RefValue{Any}        # the coefficients in dual numbers, for the plasma columns
     dual_columns::Base.RefValue{Any}         # the term in dual numbers, for the plasma columns
+    dual_plasma_key::PlasmaKey               # the plasma values of the last rebuild of `dual_operator`
+    dual_rebuilds::Base.RefValue{Int}        # the number of rebuilds of `dual_operator`
     lagged::Tuple{Vararg{Symbol}}            # the groups of plasma scalars taken at the start of the step
     ion_state::Vector{Float64}               # the state at the start of the step, for lagged ions
 end
@@ -179,7 +181,8 @@ function FokkerPlanckTerm(
         unknown, operator, jacobian, electric_field, stored, zeros(T, dims),
         zeros(T, dims), zeros(D, dims), zeros(D, dims), zeros(T, radii),
         zeros(D, radii), plasma_from, settings, synchrotron, PlasmaKey(), Ref(0),
-        lag_all, Ref{Any}(nothing), Ref{Any}(nothing), lagged, Float64[])
+        lag_all, Ref{Any}(nothing), Ref{Any}(nothing), PlasmaKey(), Ref(0), lagged,
+        Float64[])
 end
 
 lags_in_ode_form(term::FokkerPlanckTerm) = _is_lagged(term) || _lags_ions(term)
@@ -319,6 +322,10 @@ dual numbers in the temperature and the density of every radius ([`dual_plasma`]
 applies them to `f`: the partials are the derivatives of the residual through the scheme's
 own face weights, the Péclet number of exponential fitting included. The scheme is the
 operator's own, as is the residual, whatever `jacobian` selects for the block in `f`.
+The coefficients in dual numbers are rebuilt when the plasma values of any radius differ
+from those of their last rebuild, as the coefficients of the residual
+([`refresh_coefficients!`](@ref)), so the terms that read them share one rebuild per
+state.
 """
 function add_plasma_columns!(J, term::FokkerPlanckTerm, u, layout, row, t)
     op, with_ions = _dual_coefficients!(term, u, layout, t)
@@ -349,16 +356,31 @@ end
 
 # The coefficients of a term in dual numbers of its plasma columns at the state u and the
 # time t: its operator of dual coefficients, and whether the partials hold the charge states.
-# The boundary flux of the term reads them as well.
+# The boundary flux, the interface and the flux through it read them as well. The operator
+# is rebuilt when the plasma values differ from those of its last rebuild, compared as for
+# the coefficients of the residual and with the same state of the ions. The plasma values
+# decide alone: the settings and the partials the coefficients hold (the density, the
+# charge states) are fixed for the term.
 function _dual_coefficients!(term::FokkerPlanckTerm, u, layout, t)
-    plasma = _fokker_planck_plasma(term, u, layout, t)
     with_ions = ion_dependency(term.plasma) !== nothing && !_lags_ions(term)
-    dual = dual_plasma(plasma, term.plasma.density !== nothing, with_ions)
-    op = _dual_operator!(term, eltype(dual.cold_electron_temperature))
-    set_fokker_planck_coefficients!(
-        op, dual, term.settings; synchrotron = term.synchrotron,
-        field_in_coefficients = term.electric_field === nothing)
-    return op, with_ions
+    field = term.electric_field === nothing
+    plasma = changed_plasma!(
+        term.dual_plasma_key, term.plasma, u, layout, t; electric_field = field,
+        ion_state = _ion_state(term, u))
+    if plasma === nothing
+        return term.dual_operator[]::AdvectionDiffusion, with_ions
+    end
+    try
+        dual = dual_plasma(plasma, term.plasma.density !== nothing, with_ions)
+        op = _dual_operator!(term, eltype(dual.cold_electron_temperature))
+        _rebuild_fokker_planck_coefficients!(
+            op, dual, term.settings, term.synchrotron, field)
+        term.dual_rebuilds[] += 1
+        return op, with_ions
+    catch
+        reset_key!(term.dual_plasma_key)
+        rethrow()
+    end
 end
 
 # the operator of dual coefficients of a term, made at the first use

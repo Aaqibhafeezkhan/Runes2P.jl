@@ -259,6 +259,69 @@ function set_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaS
     radial_cell_count(plasma) == radial_cell_count(op.grid) ||
         throw(DimensionMismatch("plasma and grid radii differ"))
     zero_coefficients!(op)
+    return _add_fokker_planck_coefficients!(
+        op, plasma, settings, synchrotron, field_in_coefficients)
+end
+
+# The rebuild of `set_fokker_planck_coefficients!` for an operator whose coefficient arrays
+# no other function writes, such as the operator of dual coefficients of a Fokker-Planck
+# term: it zeroes only the arrays that its own `add_*!` calls write and those of the
+# rebuild before it (`_zero_rebuilt_coefficients!`), which gives the same coefficients
+function _rebuild_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaState,
+        settings::CollisionSettings, synchrotron::Bool, field_in_coefficients::Bool)
+    radial_cell_count(plasma) == radial_cell_count(op.grid) ||
+        throw(DimensionMismatch("plasma and grid radii differ"))
+    _zero_rebuilt_coefficients!(op, settings, synchrotron, field_in_coefficients)
+    return _add_fokker_planck_coefficients!(
+        op, plasma, settings, synchrotron, field_in_coefficients)
+end
+
+# The arrays that the `add_*!` calls of `set_fokker_planck_coefficients!` write under the
+# given flags. The slowing down writes `advection_p` and `advection_p_times_p2_at_zero`
+# and the pitch scattering `diffusion_xi_xi` under any flags; the field and the synchrotron
+# loss write `advection_xi`, and the energy diffusion of `mode = :full` `diffusion_p_p`. No
+# call writes the radial and the cross coefficients.
+function _writes_pitch_advection(synchrotron, field_in_coefficients)
+    synchrotron || field_in_coefficients
+end
+_writes_energy_diffusion(settings::CollisionSettings) = settings.mode === :full
+
+# Zero the coefficient arrays that the rebuild with these flags writes, and those that the
+# rebuild recorded in `op.coefficient_source` wrote. The other arrays hold zeros already when
+# only these rebuilds write `op`: they were zero before the first rebuild, which zeroes all
+# arrays, and no rebuild since wrote them. Without a record of the rebuild before (a new
+# operator, or a rebuild that failed after the zeroing) all arrays are zeroed.
+function _zero_rebuilt_coefficients!(
+        op::AdvectionDiffusion, settings::CollisionSettings, synchrotron::Bool,
+        field_in_coefficients::Bool)
+    previous = op.coefficient_source[]
+    recorded = previous isa NamedTuple &&
+               all(name -> haskey(previous, name), (
+        :settings, :synchrotron, :electric_field))
+    if !recorded
+        return zero_coefficients!(op)
+    end
+    pitch_advection = _writes_pitch_advection(synchrotron, field_in_coefficients) ||
+                      _writes_pitch_advection(previous.synchrotron, previous.electric_field)
+    energy_diffusion = _writes_energy_diffusion(settings) ||
+                       _writes_energy_diffusion(previous.settings)
+    for A in (op.advection_p, op.diffusion_xi_xi, op.advection_p_times_p2_at_zero)
+        fill!(A, zero(eltype(A)))
+    end
+    if pitch_advection
+        fill!(op.advection_xi, zero(eltype(op.advection_xi)))
+    end
+    if energy_diffusion
+        fill!(op.diffusion_p_p, zero(eltype(op.diffusion_p_p)))
+    end
+    op.coefficient_source[] = nothing
+    return op
+end
+
+# the `add_*!` calls of `set_fokker_planck_coefficients!` into zeroed arrays, and the record
+# of the coefficients
+function _add_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaState,
+        settings::CollisionSettings, synchrotron::Bool, field_in_coefficients::Bool)
     collisions = CollisionModel(plasma, settings;
         faces = [momentum_grid(op.grid, ir).p_faces for ir in 1:radial_cell_count(op.grid)])
     if field_in_coefficients
