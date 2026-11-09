@@ -227,11 +227,12 @@ factorizations until `GC.gc()`.
   the solve without them reaches a relative residual of about ``10^{-9}``. With 0, PARDISO
   still refines twice after a perturbed pivot. DREAM sets 10 (`fvm/Solvers/MIMKL.cpp`).
 
-Without refinement every solve measures its relative residual ``\\|b - A x\\|/\\|b\\|``
-with one product by the matrix, before the Woodbury update. That residual is the bound
-that the residual-floor rule of the [`NewtonSolver`](@ref) compares with its
-`floor_linear_tolerance`: a perturbed pivot that spoils the solve then turns both waivers of
-the residual test off. With refinement the bound is 0, as for [`SparseLU`](@ref).
+Every solve measures its relative residual ``\\|b - A x\\|/\\|b\\|`` with one product by
+the matrix, before the Woodbury update, with refinement too, since the refinement stops at
+its cap and promises no residual. That residual is the bound that the residual-floor rule
+of the [`NewtonSolver`](@ref) compares with its `floor_linear_tolerance`: a perturbed pivot
+that spoils the solve then turns both waivers of the residual test off, where
+[`SparseLU`](@ref) reports 0.
 """
 struct MKLPardiso <: LinearSolver
     threads::Int

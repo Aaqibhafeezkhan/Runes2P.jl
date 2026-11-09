@@ -127,7 +127,7 @@ end
                 NewtonSolver(linear_solver = MKLPardiso(refinement_steps = 10)))
             u = copy(case.u0)
             @test newton_solve!(u, case.u0, refined, 1e-6, 1e-6).status === :converged
-            @test Runes2P.linear_tolerance(refined.cache) == 0
+            @test 0 < Runes2P.linear_tolerance(refined.cache) <= FLOOR_LINEAR_TOLERANCE
             @test Pardiso.get_iparm(refined.cache.pardiso, 8) == 10
             # PARDISO's output iparm(7): the refinement steps of the last solve
             performed_steps = Pardiso.get_iparm(refined.cache.pardiso, 7)

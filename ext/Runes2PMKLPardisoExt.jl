@@ -154,17 +154,17 @@ function Runes2P.solve!(
     end
     status = _pardiso!(cache, Pardiso.SOLVE_ITERATIVE_REFINE, x, transposed, b)
     status === :ok || return status
-    if cache.settings.refinement_steps == 0
-        residual = cache.residual
-        mul!(residual, matrix, x)
-        @. residual = b - residual
-        right_hand_side_norm = norm(b)
-        residual_norm = norm(residual)
-        cache.relative_residual = if iszero(right_hand_side_norm)
-            residual_norm
-        else
-            residual_norm / right_hand_side_norm
-        end
+    # the relative residual of every solve, with refinement too: the refinement stops at its
+    # cap and promises no residual
+    residual = cache.residual
+    mul!(residual, matrix, x)
+    @. residual = b - residual
+    right_hand_side_norm = norm(b)
+    residual_norm = norm(residual)
+    cache.relative_residual = if iszero(right_hand_side_norm)
+        residual_norm
+    else
+        residual_norm / right_hand_side_norm
     end
     if cache.low_rank !== nothing
         _apply_low_rank_correction!(x, cache.low_rank)
