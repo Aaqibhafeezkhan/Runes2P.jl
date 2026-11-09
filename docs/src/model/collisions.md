@@ -32,6 +32,11 @@ Each physical process adds to the coefficients:
 
 [`fokker_planck_operator`](@ref) and [`set_fokker_planck_coefficients!`](@ref) write the slowing down and the energy diffusion in one sweep over the p faces.
 Their coefficients are those of [`add_slowing_down!`](@ref) and [`add_energy_diffusion!`](@ref) bit for bit.
+They build their [`CollisionModel`](@ref) from the faces of the grid.
+With such a model, they and [`add_pitch_scattering!`](@ref) read the factors that depend on the momentum and the charge state alone from tables built once per momentum grid.
+A model built without the faces evaluates these factors directly.
+These factors are the bremsstrahlung cross section and the bound-electron terms ``w_j h_j`` and ``w_j g_j`` below.
+A tabulated factor is the number of the direct evaluation, so the coefficients do not change.
 
 The collision frequencies ``ν_s``, ``ν_D`` and ``ν_\parallel`` come from a [`CollisionModel`](@ref) of the plasma and the [`CollisionSettings`](@ref).
 The flux through ``p = 0`` follows from ``\lim_{p \to 0} p^3 ν_s`` ([`p3_slowing_down_frequency_at_zero`](@ref)).
