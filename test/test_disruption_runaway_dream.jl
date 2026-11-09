@@ -17,7 +17,9 @@
 # of the plasma columns of each term that adds them, of the local Jacobians of the terms that read
 # every charge state of a radius and of the residuals of the ion rates and the radiated power. The
 # blocks of these terms and of the friction term, which keep buffers and weights between calls,
-# are checked bit for bit against blocks built again. Needs the ADF11 cache.
+# are checked bit for bit at the state and at a changed state: against the block of the public
+# add_local_jacobian!, built with fresh buffers, for the local Jacobians, and against the block of
+# a new term for the friction term. Needs the ADF11 cache.
 using HDF5
 include(joinpath(@__DIR__, "example_disruption.jl"))
 
@@ -59,7 +61,7 @@ const OPTIMIZED = Base.JLOptions().opt_level >= 2
 # picked at run time boxes every entry: it exceeds the bound of jacobian! and those of the
 # Fokker-Planck terms several times over, but on this small window the interface terms box
 # fewer entries than the margin of their bound.
-const JACOBIAN_ALLOCATION = 2.5e6           # 1.19e6
+const JACOBIAN_ALLOCATION = 2.5e6           # 1.8e5 with the kept buffers of the local Jacobians, 1.19e6 before
 const PLASMA_COLUMNS_ALLOCATION = 1.6e5     # 7.8e4 (largest), 6.5e4 (f_re of the Fokker-Planck term)
 # the bytes of the Jacobian of each term that assembles it from one evaluation in dual numbers
 # on the charge states of a radius (add_local_jacobian!) with the buffers it keeps, about twice
@@ -81,6 +83,20 @@ function term_block(system, b, u, t, add!)
     fill!(J.nzval, 0.0)
     add!(J, b.term, u, system.layout, b.row, t)
     return J.nzval
+end
+
+# the block of the bound term `b` of `system` at the state u built afresh: for a friction term
+# by a new term with its arguments, for a term with a local Jacobian by the public
+# add_local_jacobian!, whose buffers are made at each call
+function fresh_block(system, b, u, t)
+    if b.term isa FrictionEnergyTransferTerm
+        term = b.term
+        new_term = FrictionEnergyTransferTerm(term.kinetic, term.grid, term.source;
+            settings = term.settings, coefficient = term.coefficient)
+        return term_block(
+            system, (term = new_term, row = b.row), u, t, Runes2P.add_jacobian!)
+    end
+    return term_block(system, b, u, t, Runes2P.add_local_jacobian!)
 end
 
 # the largest relative residual of the algebraic rows `names` at the state `u` of `case`
@@ -153,15 +169,19 @@ end
             @test allocated < PLASMA_COLUMNS_ALLOCATION skip = !OPTIMIZED
         end
         # the terms with a local Jacobian keep its buffers, and the friction term its weights:
-        # their blocks at the state are the same bit for bit when kept, when built again after
-        # another state, and, for the local Jacobians, with the buffers of add_local_jacobian!
+        # their kept blocks at the state and at another state are the same bit for bit as
+        # those built afresh, with the fresh buffers of the public add_local_jacobian! for the
+        # local Jacobians and by a new term for the friction term, and the kept blocks at the
+        # state are the same again after the other state; RunawayFluidEnergyTransferTerm, the
+        # fourth term with kept buffers, is in the cases without a runaway grid only
         other = copy(u0)
         for name in (:cold_electron_temperature, :cold_electron_density, :ion_densities)
             for i in unknown_range(case.layout, unknown_id(case.layout, name), 1)
                 other[i] *= 1.01
             end
         end
-        local_types = Union{ConductivityTerm, RadiatedPowerTerm, IonEnergyExchangeTerm}
+        local_types = Union{ConductivityTerm, RadiatedPowerTerm, IonEnergyExchangeTerm,
+            RunawayFluidEnergyTransferTerm}
         local_terms = [b for b in system.direct_terms if b.term isa local_types]
         @test sort!(unique([string(nameof(typeof(b.term))) for b in local_terms])) ==
               ["ConductivityTerm", "IonEnergyExchangeTerm", "RadiatedPowerTerm"]
@@ -171,14 +191,12 @@ end
         @test !isempty(friction_terms)
         for b in [local_terms; friction_terms]
             first_block = term_block(system, b, u0, times[1], Runes2P.add_jacobian!)
-            term_block(system, b, other, times[1], Runes2P.add_jacobian!)
+            @test isequal(fresh_block(system, b, u0, times[1]), first_block)
+            other_block = term_block(system, b, other, times[1], Runes2P.add_jacobian!)
+            @test !isequal(other_block, first_block)
+            @test isequal(fresh_block(system, b, other, times[1]), other_block)
             @test isequal(term_block(system, b, u0, times[1], Runes2P.add_jacobian!), first_block)
             @test isequal(term_block(system, b, u0, times[1], Runes2P.add_jacobian!), first_block)
-            if b.term isa local_types
-                @test isequal(
-                    term_block(system, b, u0, times[1], Runes2P.add_local_jacobian!),
-                    first_block)
-            end
         end
         for b in local_terms
             allocated = call_allocation(

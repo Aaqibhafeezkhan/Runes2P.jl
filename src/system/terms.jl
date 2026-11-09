@@ -341,7 +341,12 @@ function add_local_jacobian!(J, term::EquationTerm, u, layout, row, t)
 end
 
 # the buffers that a term keeps between its evaluations on the state of the system: those of
-# add_local_jacobian! and the plasma states of `_with_state_ions!`
+# add_local_jacobian! and the plasma states of `_with_state_ions!`. The Jacobian buffers are
+# those of one layout and row, so a term evaluated in turn on two rows or two systems makes
+# them again at each call; the results are the same. The public add_local_jacobian! makes a
+# local layout per call, so on a term that reads the ion densities of the state each of its
+# calls adds a plasma state, and the list, emptied when full, drops the states of the residual
+# and of the kept Jacobian buffers with it.
 struct LocalTermBuffers
     jacobian::Base.RefValue{Any}   # the LocalJacobianBuffers of the last layout and row
     plasmas::Vector{Any}           # the StateIonsBuffer per layout and number type

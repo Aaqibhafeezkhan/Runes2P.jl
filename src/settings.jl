@@ -990,7 +990,7 @@ end
 
 function settings_fields(::Type{<:FrictionEnergyTransferTerm})
     (described = (:kinetic, :grid, :source, :settings, :coefficient),
-        derived = (:plasma_key, :weights, :products, :dual_plasma_key, :dual_weights))
+        derived = (:plasma_key, :weights, :shapes, :products, :dual_scratch))
 end
 
 function describe(term::FrictionEnergyTransferTerm, context::DescriptionContext)

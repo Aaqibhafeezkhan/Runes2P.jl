@@ -183,7 +183,6 @@ function RadiatedPowerTerm(plasma; radiation::Symbol = :recombination,
             throw(ArgumentError("the ion species $element is not an element with ADF11 tables " *
                                 "($(join(sort!(collect(keys(ADAS_FILES))), ", ")))"))
         end
-        ionization_energy(element, 0)
         element_tables = read_adas(element; directory)
         if element_tables.plt.nuclear_charge != species.nuclear_charge
             throw(ArgumentError("the species $element has nuclear charge $(species.nuclear_charge), its ADF11 " *
