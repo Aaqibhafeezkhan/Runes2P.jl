@@ -1,3 +1,4 @@
+using ForwardDiff
 using Random
 
 @testset "advection-diffusion" begin
@@ -163,4 +164,141 @@ using Random
         @test AdvectionDiffusion(g; p_lower_boundary = :zero_flux).p_lower_boundary ===
               :zero_flux
     end
+end
+
+# apply! with every face flux evaluated from both of its cells, the reference of the loop
+# of the operator, which evaluates each p face of a pitch row once
+function _apply_from_both_sides!(df, op, f; scale = true, limiter_state = nothing,
+        electric_field = nothing)
+    mode = Runes2P._radial_flux_mode(op)
+    rg = op.grid.radial_grid
+    for ir in 1:radial_cell_count(op.grid)
+        m = op.momentum_grids[ir]
+        for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
+
+            V = op.jacobian_centers[i, j, ir]
+            V == 0 && continue
+            divergence = (Runes2P._p_flux(
+                             op, f, i + 1, j, ir, limiter_state, electric_field) -
+                          Runes2P._p_flux(op, f, i, j, ir, limiter_state, electric_field)) /
+                         m.p_widths[i] +
+                         (Runes2P._xi_flux(
+                             op, f, i, j + 1, ir, limiter_state, electric_field) -
+                          Runes2P._xi_flux(
+                             op, f, i, j, ir, limiter_state, electric_field)) /
+                         m.xi_widths[j] +
+                         (Runes2P._r_flux(op, f, i, j, ir, ir + 1, limiter_state, mode) -
+                          Runes2P._r_flux(op, f, i, j, ir, ir, limiter_state, mode)) /
+                         rg.r_widths[ir]
+            df[i, j, ir] -= scale * divergence / V
+        end
+    end
+    return df
+end
+
+const BOTH_SIDES_COEFFICIENTS = (
+    :advection_p, :diffusion_p_p, :diffusion_p_xi, :advection_xi, :diffusion_xi_xi,
+    :diffusion_xi_p, :advection_r, :diffusion_r_r, :unit_field_advection_p,
+    :unit_field_advection_xi, :p_flux_at_lower_boundary, :advection_p_times_p2_at_zero)
+
+# apply! from `df` against the reference, bit for bit; `label` goes into `failures` when
+# they differ
+function _check_both_sides!(failures, label, df, op, f; keywords...)
+    carried = apply!(copy(df), op, f; keywords...)
+    reference = _apply_from_both_sides!(copy(df), op, f; keywords...)
+    if !isequal(carried, reference)
+        push!(failures, label)
+    end
+    return failures
+end
+
+@testset "each p face once: the fluxes evaluated from both cells, bit for bit" begin
+    rng = Xoshiro(7)
+    rad = RadialGrid(uniform_r_faces(3, 1.0))
+    from_zero = MomentumGrid(uniform_p_faces(6, 0.0, 2.0), uniform_xi_faces(4))
+    shifted = vcat(-1.0, uniform_xi_faces(4)[2:(end - 1)] .+ 0.1, 1.0)
+    configurations = [
+        (cylindrical_grid(from_zero, rad), (; p_zero_boundary = :outflow)),
+        (cylindrical_grid(from_zero, rad),
+            (; p_zero_boundary = :zero_flux, r_scheme = :quick, r_boundary = :absorbing)),
+        (
+            cylindrical_grid(MomentumGrid(uniform_p_faces(6, 0.5, 2.0), uniform_xi_faces(4)), rad),
+            (; p_lower_boundary = :prescribed, r_boundary = :absorbing_dream)),
+        (
+            cylindrical_grid(
+                [MomentumGrid(uniform_p_faces(6, 0.0, 2.0), faces)
+                 for faces in (uniform_xi_faces(4), shifted, uniform_xi_faces(4))], rad),
+            (;))]
+    schemes = (
+        :upwind, :central, :exponential_fitting, :quick, :upwind_second_order, :tcdf,
+        :muscl, :smart, :ospre, :van_albada)
+    upper_boundaries = (:outflow, :f_zero, :constant_flux, :extrapolated_flux,
+        :extrapolated_flux_consistent, :interface)
+    K = 4
+    P = 25
+    failures = String[]
+    for (grid, options) in configurations, scheme in schemes, upper in upper_boundaries
+        scheme === :exponential_fitting && upper === :extrapolated_flux && continue
+        op = AdvectionDiffusion(grid; scheme, p_upper_boundary = upper, options...)
+        for name in BOTH_SIDES_COEFFICIENTS
+            coefficients = getfield(op, name)
+            coefficients .= randn(rng, size(coefficients))
+        end
+        for D in (op.diffusion_p_p, op.diffusion_xi_xi, op.diffusion_r_r)
+            D .= rand(rng, size(D))
+        end
+        # cells and a p face with no phase-space volume, at both ends of a pitch row and
+        # inside one: the flux carried past such a cell is read by the next
+        op.jacobian_centers[1, 2, 1] = 0
+        op.jacobian_centers[6, 3, 2] = 0
+        op.jacobian_centers[3, 1, 3] = 0
+        op.jacobian_p_faces[4, 2, 2] = 0
+        f = 0.1 .+ rand(rng, size(grid)...)
+        state = 0.1 .+ rand(rng, size(grid)...)
+        field = randn(rng, radial_cell_count(grid))
+        df = randn(rng, size(grid)...)
+        label = "$scheme, p_max $upper, $options"
+        _check_both_sides!(failures, "Float64, $label", df, op, f)
+        _check_both_sides!(failures, "Float64 scaled, frozen, field, $label", df, op, f;
+            scale = -0.7, limiter_state = state, electric_field = field)
+        # a dual state and a dual field (the colored Jacobian, the field response)
+        dual_f = [ForwardDiff.Dual{Nothing}(x, ntuple(_ -> randn(rng), K)...) for x in f]
+        dual_field = [ForwardDiff.Dual{Nothing}(x, ntuple(_ -> randn(rng), K)...)
+                      for x in field]
+        dual_df = zeros(eltype(dual_f), size(grid))
+        _check_both_sides!(failures, "dual f, $label", dual_df, op, dual_f)
+        _check_both_sides!(failures, "dual f scaled, frozen, dual field, $label", dual_df,
+            op, dual_f; scale = 2.5, limiter_state = state, electric_field = dual_field)
+        # dual coefficients on a Float64 state (the plasma columns)
+        C = ForwardDiff.Dual{Nothing, Float64, P}
+        dual_op = Runes2P.similar_coefficients(op, C)
+        for name in BOTH_SIDES_COEFFICIENTS
+            dual_coefficients = getfield(dual_op, name)
+            for (k, x) in pairs(getfield(op, name))
+                dual_coefficients[k] = C(x, ForwardDiff.Partials(ntuple(_ -> randn(rng), P)))
+            end
+        end
+        coefficient_df = zeros(C, size(grid))
+        _check_both_sides!(
+            failures, "dual coefficients, $label", coefficient_df, dual_op, f)
+        _check_both_sides!(failures, "dual coefficients frozen, field, $label",
+            coefficient_df, dual_op, f; limiter_state = state, electric_field = field)
+    end
+    @test isempty(failures)
+end
+
+@testset "each p face once: allocation free for Float64 and dual states" begin
+    rng = Xoshiro(8)
+    grid = cylindrical_grid(
+        MomentumGrid(uniform_p_faces(6, 0.0, 2.0), uniform_xi_faces(4)),
+        RadialGrid(uniform_r_faces(3, 1.0)))
+    op = AdvectionDiffusion(grid; scheme = :tcdf, p_upper_boundary = :extrapolated_flux)
+    f = 0.1 .+ rand(rng, size(grid)...)
+    df = zeros(size(grid))
+    apply!(df, op, f; limiter_state = f)
+    @test (@allocated apply!(df, op, f; limiter_state = f)) == 0
+    dual_f = [ForwardDiff.Dual{Nothing}(x, ntuple(_ -> randn(rng), 4)...) for x in f]
+    dual_df = zeros(eltype(dual_f), size(grid))
+    apply!(dual_df, op, dual_f)
+    @test (@allocated apply!(dual_df, op, dual_f)) == 0
 end

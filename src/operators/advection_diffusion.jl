@@ -831,6 +831,12 @@ Operator contribution to all momentum cells at radius index `ir`. Writes only to
 `df[:, :, ir]`, so different radii can be processed concurrently. `radial_mode` is the
 computation of the radial fluxes (`_radial_flux_mode`), a function barrier: the
 loop over the cells is compiled for it.
+
+Each p face of a pitch row is evaluated once: the flux through the face above a cell is
+carried to the next cell as the flux through its face below, also past a cell with no
+phase-space volume. The ξ faces are evaluated from both of their cells, and the r faces once
+per radius on each side, since a buffer of either would need storage per call or in the
+operator.
 """
 @inline function apply_radius!(
         df, op::AdvectionDiffusion, f, ir, scale, state = nothing, field = nothing,
@@ -838,19 +844,23 @@ loop over the cells is compiled for it.
     m = op.momentum_grids[ir]
     rg = op.grid.radial_grid
     np, nxi = momentum_cell_count(m), pitch_cell_count(m)
-    @inbounds for j in 1:nxi, i in 1:np
-
-        V = op.jacobian_centers[i, j, ir]
-        V == 0 && continue
-        divergence = (_p_flux(op, f, i + 1, j, ir, state, field) -
-                      _p_flux(op, f, i, j, ir, state, field)) /
-                     m.p_widths[i] +
-                     (_xi_flux(op, f, i, j + 1, ir, state, field) -
-                      _xi_flux(op, f, i, j, ir, state, field)) /
-                     m.xi_widths[j] +
-                     (_r_flux(op, f, i, j, ir, ir + 1, state, radial_mode) -
-                      _r_flux(op, f, i, j, ir, ir, state, radial_mode)) / rg.r_widths[ir]
-        df[i, j, ir] -= scale * divergence / V
+    @inbounds for j in 1:nxi
+        p_flux_lower = _p_flux(op, f, 1, j, ir, state, field)
+        for i in 1:np
+            p_flux_upper = _p_flux(op, f, i + 1, j, ir, state, field)
+            V = op.jacobian_centers[i, j, ir]
+            if V != 0
+                divergence = (p_flux_upper - p_flux_lower) / m.p_widths[i] +
+                             (_xi_flux(op, f, i, j + 1, ir, state, field) -
+                              _xi_flux(op, f, i, j, ir, state, field)) /
+                             m.xi_widths[j] +
+                             (_r_flux(op, f, i, j, ir, ir + 1, state, radial_mode) -
+                              _r_flux(op, f, i, j, ir, ir, state, radial_mode)) /
+                             rg.r_widths[ir]
+                df[i, j, ir] -= scale * divergence / V
+            end
+            p_flux_lower = p_flux_upper
+        end
     end
     return df
 end
