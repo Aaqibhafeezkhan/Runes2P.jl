@@ -1,9 +1,11 @@
 # The collision coefficients built from a plasma in dual numbers, the source
 # of the Jacobian columns of the cold-electron temperature and density: their partials
 # against central differences of the coefficients, in the full and superthermal modes and
-# in the three screening models.
+# in the three screening models. The density and current moments over the hot region add the
+# same values as new terms on the pattern of J, on a wider pattern, on J again and on a
+# pattern changed in place.
 using ForwardDiff: ForwardDiff
-using SparseArrays: findnz, nnz, nonzeros, sparse
+using SparseArrays: findnz, nnz, nonzeros, nzrange, rowvals, sparse
 
 @testset "plasma columns" begin
     @testset "dual coefficients against central differences" begin
@@ -218,6 +220,16 @@ using SparseArrays: findnz, nnz, nonzeros, sparse
                     Runes2P.add_jacobian!(matrix, term, u, layout, row, 0.0)
                     @test isequal(Matrix(matrix), expected)
                 end
+                # a pattern changed in place keeps its arrays: an entry inserted in the first
+                # column moves the positions of the kinetic columns
+                changed = copy(J)
+                Runes2P.add_jacobian!(changed, term, u, layout, row, 0.0)
+                inserted = findfirst(!in(rowvals(changed)[nzrange(changed, 1)]), 1:n)
+                changed[inserted, 1] = 1.0
+                @test nnz(changed) == nnz(J) + 1
+                fill!(nonzeros(changed), 0.0)
+                Runes2P.add_jacobian!(changed, term, u, layout, row, 0.0)
+                @test isequal(Matrix(changed), expected)
             end
         end
         @test_throws ArgumentError momentum_envelope(region, g, 1, 0.0)

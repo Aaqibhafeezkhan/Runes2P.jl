@@ -87,28 +87,51 @@ end
 # the dual numbers of the envelope of a region in the column of the temperature
 const MomentEnvelopeDual = ForwardDiff.Dual{PlasmaColumnTag, Float64, 1}
 
+# the threshold momentum of a limit that follows the temperature, in dual numbers of the
+# column of the temperature `T` of one radius
+function _dual_threshold(limit, T)
+    temperature = MomentEnvelopeDual(T, ForwardDiff.Partials((1.0,)))
+    return limit.factor * sqrt(2 * temperature / Constants.ELECTRON_REST_ENERGY)
+end
+
 # The rows of a moment term in the stored Jacobian, kept between its Jacobians: per radius
 # the position in the stored values of J of the entry of each cell, in the order of the loop
 # over the cells (pitch outer, momentum inner), and the weight of each cell, the product of the
 # moment with the envelope of the region set to 1; with a region that follows the temperature,
 # the position of the entry of the temperature of the radius and the envelope in dual numbers
 # of its column. The positions belong to the pattern of J, the layout and the row of the last
-# Jacobian, the pattern compared by the identity of its arrays, and are found again when one
-# of them differs. The cache assumes a serial assembly, one Jacobian of the term at a time, as
-# the terms of a system add their Jacobians one after the other.
+# Jacobian, the pattern compared by the identity of its arrays and by its number of stored
+# entries, and are found again when one of them differs. A term filled into two matrices in
+# turn (the matrix of an integrator and the copy of a Jacobian-vector product) finds its
+# positions again at each switch, into the vectors it already holds. The cache is not safe to
+# use concurrently: the terms of a system add their Jacobians one after the other.
 mutable struct MomentRowCache
-    layout::Any    # the layout of the positions; nothing before the first Jacobian
+    # the layout of the positions; nothing before the first Jacobian
+    layout::Union{Nothing, UnknownLayout}
     row::Int
-    colptr::Any    # the arrays of the pattern of J of the positions
-    rowval::Any
+    colptr::Vector{Int}    # the arrays of the pattern of J of the positions
+    rowval::Vector{Int}
+    entry_count::Int       # the number of stored entries of that pattern
     const positions::Vector{Vector{Int}}
     const weights::Vector{Vector{Float64}}
     const temperature_positions::Vector{Int}
     const dual_envelopes::Vector{Vector{MomentEnvelopeDual}}
 end
+# the empty arrays of the pattern are never those of a J
 function MomentRowCache()
-    MomentRowCache(nothing, 0, nothing, nothing, Vector{Int}[], Vector{Float64}[], Int[],
+    MomentRowCache(nothing, 0, Int[], Int[], 0, Vector{Int}[], Vector{Float64}[], Int[],
         Vector{MomentEnvelopeDual}[])
+end
+
+# the vector at `ir` of `vectors` with `entries` entries: the one already there resized, or
+# a new one
+function _reused_vector!(vectors::Vector{Vector{E}}, ir, entries) where {E}
+    if isassigned(vectors, ir)
+        return resize!(vectors[ir], entries)
+    end
+    vector = Vector{E}(undef, entries)
+    vectors[ir] = vector
+    return vector
 end
 
 """
@@ -125,6 +148,9 @@ the time of the evaluation counts, and `grid` is the grid of the unknown. A pres
 makes the term linear in the distribution. A limit that follows the temperature unknown
 ([`ThermalMomentum`](@ref) with the unknown's name) makes it nonlinear, and its Jacobian holds
 the column of the temperature through the threshold.
+
+The term keeps the positions of its row in the stored Jacobian between calls, so its
+[`add_jacobian!`](@ref) is not safe to call concurrently.
 """
 struct DensityMomentTerm{E} <: EquationTerm
     kinetic::Symbol
@@ -251,7 +277,7 @@ end
 # J, the layout or the row differ from those of the last Jacobian
 function _moment_rows!(cache::MomentRowCache, J::SparseMatrixCSC, term, layout, row)
     if cache.layout === layout && cache.row == row && cache.colptr === J.colptr &&
-       cache.rowval === J.rowval
+       cache.rowval === J.rowval && cache.entry_count == last(J.colptr) - 1
         return cache
     end
     # no key until the positions are complete, so that a missing entry throws at every call
@@ -259,18 +285,16 @@ function _moment_rows!(cache::MomentRowCache, J::SparseMatrixCSC, term, layout, 
     id = unknown_id(layout, term.kinetic)
     grid = kinetic_grid(layout, id)
     radii = radial_cell_count(layout)
-    empty!(cache.positions)
-    empty!(cache.weights)
-    empty!(cache.temperature_positions)
-    empty!(cache.dual_envelopes)
+    resize!(cache.positions, radii)
+    resize!(cache.weights, radii)
     for ir in 1:radii
         m = momentum_grid(grid, ir)
         jacobian = phase_space_jacobian(grid, ir)
         factor = _moment_factor(term, grid, ir)
         r = first(unknown_range(layout, row, ir))
         cells = momentum_cell_count(m) * pitch_cell_count(m)
-        positions = Vector{Int}(undef, cells)
-        weights = Vector{Float64}(undef, cells)
+        positions = _reused_vector!(cache.positions, ir, cells)
+        weights = _reused_vector!(cache.weights, ir, cells)
         k = 0
         for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
 
@@ -279,23 +303,26 @@ function _moment_rows!(cache::MomentRowCache, J::SparseMatrixCSC, term, layout, 
             # factor * true is factor: the weight is the entry at a full envelope
             weights[k] = _moment_weight(term, m, jacobian, factor, ir, i, j, true)
         end
-        push!(cache.positions, positions)
-        push!(cache.weights, weights)
     end
     temperature = _region_unknowns(term.envelopes)
+    temperature_radii = isempty(temperature) ? 0 : radii
+    resize!(cache.temperature_positions, temperature_radii)
+    resize!(cache.dual_envelopes, temperature_radii)
     if !isempty(temperature)
         T_id = unknown_id(layout, only(temperature))
         for ir in 1:radii
             r = first(unknown_range(layout, row, ir))
             column = first(unknown_range(layout, T_id, ir))
-            push!(cache.temperature_positions, _pattern_position(J, r, column))
-            push!(cache.dual_envelopes, zeros(MomentEnvelopeDual, momentum_cell_count(grid, ir)))
+            cache.temperature_positions[ir] = _pattern_position(J, r, column)
+            # every value is written by momentum_envelope! before it is read
+            _reused_vector!(cache.dual_envelopes, ir, momentum_cell_count(grid, ir))
         end
     end
     cache.layout = layout
     cache.row = row
     cache.colptr = J.colptr
     cache.rowval = J.rowval
+    cache.entry_count = last(J.colptr) - 1
     return cache
 end
 
@@ -356,9 +383,7 @@ function _add_threshold_column!(
     limit = envelopes.region.limit
     for ir in 1:radial_cell_count(layout)
         m = momentum_grid(grid, ir)
-        p0 = limit.factor *
-             sqrt(2 * MomentEnvelopeDual(T[ir], ForwardDiff.Partials((1.0,))) /
-                  Constants.ELECTRON_REST_ENERGY)
+        p0 = _dual_threshold(limit, T[ir])
         envelope = momentum_envelope!(cache.dual_envelopes[ir], envelopes.region, m, p0)
         f = kinetic_view(u, layout, id, ir)
         weights = cache.weights[ir]
@@ -382,14 +407,13 @@ function _add_threshold_column!(weight, J, envelopes, grid, u, layout, row, id)
     temperature = region_temperature(envelopes.region)
     isempty(temperature) && return J
     T_id = unknown_id(layout, only(temperature))
-    D = ForwardDiff.Dual{PlasmaColumnTag, Float64, 1}
     T = unknown_values(u, layout, T_id)
     limit = envelopes.region.limit
     for ir in 1:radial_cell_count(layout)
         m = momentum_grid(grid, ir)
-        p0 = limit.factor * sqrt(2 * D(T[ir], ForwardDiff.Partials((1.0,))) /
-                  Constants.ELECTRON_REST_ENERGY)
-        envelope = momentum_envelope!(zeros(D, momentum_cell_count(m)), envelopes.region, m, p0)
+        p0 = _dual_threshold(limit, T[ir])
+        envelope = momentum_envelope!(
+            zeros(MomentEnvelopeDual, momentum_cell_count(m)), envelopes.region, m, p0)
         f = kinetic_view(u, layout, id, ir)
         value = 0.0
         for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
@@ -416,6 +440,9 @@ so different momentum grids at different radii work; `grid` must be the unknown'
 With `region`, a [`MomentumRegion`](@ref), the moment covers that part of the momentum
 grid, with the limit of the region at the time of the evaluation: the
 current of the hot electrons above the threshold of the hot region.
+
+The term keeps the positions of its row in the stored Jacobian between calls, so its
+[`add_jacobian!`](@ref) is not safe to call concurrently.
 """
 struct CurrentMomentTerm{G <: KineticGrid, E} <: EquationTerm
     kinetic::Symbol
