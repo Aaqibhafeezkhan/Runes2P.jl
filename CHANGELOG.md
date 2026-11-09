@@ -8,6 +8,11 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Added
 
+- `MKLPardiso` solves the Newton systems with Intel MKL PARDISO, loaded with `using Pardiso` through the extension `Runes2PMKLPardisoExt` ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+  It takes the systems of `SparseLU`, the field-particle term by the same Woodbury update, and runs threaded with `threads`; `refinement` sets PARDISO's refinement steps.
+  `SparseLU` stays the default.
+  Its settings record is new in the format 0.0.4.
+
 - `InterfaceParticleFluxTerm` puts the particle flux through the interface into a radial row, the influx of DREAM's `n_re` from the hot-tail grid.
   Its settings record is new in the format 0.0.4 ([#214](https://github.com/osrep/Runes2P.jl/pull/214)).
 - `p_zero_boundary` of `AdvectionDiffusion`, `fokker_planck_operator` and `electron_electron_operator` sets the flux through `p = 0` on a grid from `p = 0`.

@@ -5,7 +5,7 @@
 using Test
 using Runes2P
 # the packages of the extensions, so that their methods are checked as well
-using HDF5, Interpolations, SciMLBase
+using HDF5, Interpolations, Pardiso, SciMLBase
 
 ascii_name(name) = all(isascii, String(name))
 

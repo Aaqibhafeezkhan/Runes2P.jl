@@ -1,0 +1,165 @@
+"""
+Intel MKL PARDISO as the linear solver [`MKLPardiso`](@ref) of the Newton iterations,
+through Pardiso.jl.
+"""
+module Runes2PMKLPardisoExt
+
+using Runes2P
+using Runes2P: MKLPardiso, LowRankCorrection, _low_rank_blocks, _scaled_low_rank,
+               _low_rank_correction, _apply_low_rank_correction!
+using Pardiso: Pardiso
+using SparseArrays: SparseMatrixCSC, getcolptr, rowvals, nonzeros
+using LinearAlgebra: mul!, norm
+
+# The state of PARDISO for one pattern. PARDISO gets the column pointers and row indices of
+# the pattern, in its own integer type, as the row pointers and column indices of the
+# transposed matrix, with the values of the matrix of each solve.
+mutable struct MKLPardisoCache{I <: Integer, S, W}
+    settings::MKLPardiso
+    pardiso::Pardiso.MKLPardisoSolver
+    column_pointers::Vector{I}
+    row_indices::Vector{I}
+    system::S
+    row_weights::W
+    scales::W
+    low_rank::Union{Nothing, LowRankCorrection}   # Woodbury update of the factorization
+    residual::Vector{Float64}       # work vector of the relative residual
+    relative_residual::Float64      # of the last solve, before the Woodbury update
+    analyzed::Bool                  # the ordering and the matching of the pattern exist
+    factorization_seconds::Float64
+    factorized::Bool          # the factorization is that of the matrix of the last solve
+    matrix_unchanged::Bool    # the matrix of the next solve is that of the last one
+    factorizations::Int       # numerical factorizations since the cache was made
+end
+
+function Runes2P.linear_solver_cache(
+        solver::MKLPardiso, matrix::SparseMatrixCSC, system, row_weights, scales)
+    eltype(matrix) === Float64 ||
+        throw(ArgumentError("MKLPardiso solves a matrix of Float64, not of $(eltype(matrix))"))
+    Pardiso.mkl_is_available() ||
+        throw(ArgumentError("MKLPardiso needs MKL, which Pardiso.jl did not load: Pardiso.mkl_is_available() is false"))
+    # PARDISO's integer type: 32 bits, or 64 with Julia's BLAS from an MKL of 64-bit integers
+    index_type = Pardiso.MklInt
+    length(nonzeros(matrix)) <= typemax(index_type) ||
+        throw(ArgumentError("the matrix has more nonzeros than the integers of PARDISO hold"))
+    pardiso = Pardiso.MKLPardisoSolver()
+    Pardiso.set_matrixtype!(pardiso, Pardiso.REAL_NONSYM)
+    Pardiso.pardisoinit(pardiso)
+    # solve the transposed system of the matrix PARDISO reads, the transpose of `matrix`
+    Pardiso.set_iparm!(pardiso, 12, 2)
+    Pardiso.set_iparm!(pardiso, 8, solver.refinement)
+    column_pointers = Vector{index_type}(getcolptr(matrix))
+    row_indices = Vector{index_type}(rowvals(matrix))
+    return MKLPardisoCache(
+        solver, pardiso, column_pointers, row_indices, system, row_weights,
+        scales, nothing, zeros(size(matrix, 1)), 0.0, false, 0.0, false, false, 0)
+end
+
+function Runes2P.matrix_unchanged!(cache::MKLPardisoCache, unchanged::Bool)
+    cache.matrix_unchanged = unchanged
+    return nothing
+end
+
+Runes2P.krylov_iterations(::MKLPardisoCache) = 0
+Runes2P.preconditioner_updates(::MKLPardisoCache) = 0
+Runes2P.factorization_time(cache::MKLPardisoCache) = cache.factorization_seconds
+Runes2P.linear_tolerance(cache::MKLPardisoCache) = cache.relative_residual
+Runes2P.newton_operator_exact(::MKLPardisoCache) = false
+
+const PHASE_NAMES = Dict(Pardiso.ANALYSIS => "the analysis (phase 11)",
+    Pardiso.NUM_FACT => "the numeric factorization (phase 22)",
+    Pardiso.SOLVE_ITERATIVE_REFINE => "the solve (phase 33)")
+
+# One call of PARDISO in `phase`: `:ok`, or `:singular_matrix` for a zero pivot or a singular
+# diagonal (MKL's errors -4 and -7). Other errors of MKL throw with the meaning that
+# Pardiso.jl gives them; Pardiso.jl does not pass on the number of the error.
+function _pardiso!(cache::MKLPardisoCache, phase, x, transposed, b)
+    Pardiso.set_phase!(cache.pardiso, phase)
+    try
+        Pardiso.pardiso(cache.pardiso, x, transposed, b)
+    catch err
+        if err isa Pardiso.PardisoPosDefException
+            return :singular_matrix
+        end
+        if err isa Pardiso.PardisoException && occursin("singular", err.info)
+            return :singular_matrix
+        end
+        if err isa Pardiso.PardisoException
+            throw(ErrorException("MKL PARDISO failed in $(PHASE_NAMES[phase]): $(err.info)"))
+        end
+        rethrow()
+    end
+    return :ok
+end
+
+# the Woodbury update of the whole matrix for the low-rank matrix-free terms at (u, t), as
+# that of SparseLU, with the solves of PARDISO; false when a solve or the update fails
+function _update_low_rank!(cache::MKLPardisoCache, transposed, u, t)
+    cache.low_rank = nothing
+    system = cache.system
+    isempty(system.matrix_free_terms) && return true
+    blocks = _low_rank_blocks(system, u, t)
+    scaled = _scaled_low_rank(
+        blocks, 1:length(u), cache.row_weights, cache.scales, eltype(cache.scales))
+    scaled === nothing && return true
+    all_solved = Ref(true)
+    function solve_with_factors!(y, x)
+        status = _pardiso!(cache, Pardiso.SOLVE_ITERATIVE_REFINE, y, transposed, x)
+        if status !== :ok
+            all_solved[] = false
+        end
+        return y
+    end
+    cache.low_rank = _low_rank_correction(scaled..., solve_with_factors!)
+    return all_solved[] && cache.low_rank !== nothing
+end
+
+function Runes2P.solve!(
+        x::AbstractVector, cache::MKLPardisoCache, matrix::SparseMatrixCSC, b::AbstractVector,
+        u, t, dt, iteration)
+    length(nonzeros(matrix)) == length(cache.row_indices) ||
+        throw(DimensionMismatch("the matrix has another pattern than that of the cache of MKLPardiso"))
+    cache.factorization_seconds = 0.0
+    Pardiso.set_nprocs!(cache.pardiso, cache.settings.threads)
+    n = size(matrix, 1)
+    transposed = SparseMatrixCSC(
+        n, n, cache.column_pointers, cache.row_indices, nonzeros(matrix))
+    if !(cache.factorized && cache.matrix_unchanged)
+        # the ordering and the matching once per pattern, from the values of the first matrix
+        if !cache.analyzed
+            status = _pardiso!(cache, Pardiso.ANALYSIS, x, transposed, b)
+            status === :ok || return status
+            cache.analyzed = true
+        end
+        started = time_ns()
+        status = _pardiso!(cache, Pardiso.NUM_FACT, x, transposed, b)
+        cache.factorization_seconds = (time_ns() - started) / 1e9
+        cache.factorizations += 1
+        cache.factorized = if status === :ok
+            _update_low_rank!(cache, transposed, u, t)
+        else
+            false
+        end
+        cache.factorized || return :singular_matrix
+    end
+    status = _pardiso!(cache, Pardiso.SOLVE_ITERATIVE_REFINE, x, transposed, b)
+    status === :ok || return status
+    if cache.settings.refinement == 0
+        residual = cache.residual
+        mul!(residual, matrix, x)
+        @. residual = b - residual
+        right_hand_side_norm = norm(b)
+        residual_norm = norm(residual)
+        cache.relative_residual = if iszero(right_hand_side_norm)
+            residual_norm
+        else
+            residual_norm / right_hand_side_norm
+        end
+    end
+    if cache.low_rank !== nothing
+        _apply_low_rank_correction!(x, cache.low_rank)
+    end
+    return :ok
+end
+
+end

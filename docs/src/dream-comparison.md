@@ -199,7 +199,7 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 | tolerances per unknown | `ToleranceSettings` | ✅ implemented: [`Tolerance`](@ref) |
 | residual check | `setCheckResidual` | ✅ implemented as a convergence criterion, except for the linear steps that `linear_acceptance` of [`NewtonSolver`](@ref) accepts on the update and the steps at the round-off floor of the residual |
 | damped Newton step | `MaximalPhysicalStepLength` | ✅ implemented: [`LowerLimit`](@ref), `max_reduction` |
-| direct linear solvers | `LINEAR_SOLVER_LU`, `MUMPS`, `MKL`, `SUPERLU` | 🚧 partial: UMFPACK, [`SparseLU`](@ref) |
+| direct linear solvers | `LINEAR_SOLVER_LU`, `MUMPS`, `MKL`, `SUPERLU` | 🚧 partial: UMFPACK, [`SparseLU`](@ref); MKL PARDISO, [`MKLPardiso`](@ref) with `using Pardiso` |
 | GMRES | `LINEAR_SOLVER_GMRES` | ✅ implemented: [`GMRES`](@ref) |
 | backup solver | `setBackupSolver` | ➖ not implemented |
 | scaling of the unknowns | `Preconditioner` | ✅ implemented: [`unknown_scales`](@ref) |

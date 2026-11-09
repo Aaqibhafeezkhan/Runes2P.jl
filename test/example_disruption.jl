@@ -1004,6 +1004,43 @@ function phase_differences(case, solution, dream; per_radius = ("n_re", "j_re"),
     return errors
 end
 
+# the largest relative difference of each quantity over the window of
+# test_disruption_runaway_dream.jl, also used by test_mkl_pardiso.jl: about ten times the larger
+# of the two measured at -O0 and at the default optimisation level (in the comment), so that a
+# change of the method shows while a change of the rounding does not
+#! format: off
+const WINDOW_TOLERANCES = Dict("f_hot" => 5e-8,      # 4.9e-9
+                               "f_re" => 2e-8,       # 1.1e-9
+                               "j_re" => 2e-8,       # 1.2e-9
+                               "n_re" => 2e-8,       # 1.1e-9
+                               "n_hot" => 6e-8,      # 5.9e-9
+                               "E_field" => 5e-8,    # 4.8e-9
+                               "j_hot" => 1e-9,      # 8.1e-11
+                               "n_i" => 3e-7,        # 2.2e-8
+                               "j_ohm" => 4e-8,      # 3.8e-9
+                               "n_cold" => 5e-8,     # 4.5e-9
+                               "T_cold" => 1e-8,     # 9.8e-10
+                               "W_cold" => 5e-8,     # 4.6e-9
+                               "W_i" => 1e-8,        # 9.1e-10
+                               "I_p" => 3e-11,       # 2.8e-12
+                               "j_tot" => 4e-11,     # 3.5e-12
+                               "psi_p" => 2e-11,     # 1.4e-12
+                               "n_tot" => 1e-14)     # 2.5e-16, round-off of the quasi-neutral sum
+#! format: on
+
+# the window of DREAM's states `start` (a window of `read_dream_state`) from its first state, at
+# `compat`, on DREAM's times with the Newton solver `solver`; used by
+# test_disruption_runaway_dream.jl and test_mkl_pardiso.jl
+function run_window(start, compat; solver = NewtonSolver())
+    case = build(start; compat)
+    u0 = initial_state(case, start)
+    times = collect(start["t"])
+    system = EquationSystem(case.layout, case.equations;
+        time_scale = times[2] - times[1], initial_state = u0)
+    solution = integrate(system, u0, times; stepper = FixedSteps(), solver)
+    return case, system, u0, solution
+end
+
 # the terms of the equations of `case` prepared for a step from its start `u_old` to the time
 # `t`, as the system prepares them before each residual (`Runes2P.prepare_step!`)
 function prepare_terms!(case, u_old, t)

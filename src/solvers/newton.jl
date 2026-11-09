@@ -123,7 +123,9 @@ Settings of the Newton iteration of a backward-Euler step.
   with DREAM*).
 
 The linear systems are solved in scaled form: rows weighted as the residual above,
-columns multiplied by the unknowns' scales.
+columns multiplied by the unknowns' scales. The default `linear_solver = SparseLU()`
+(UMFPACK, [`SparseLU`](@ref)) is a choice of this package (see the docs page *Choices of
+this package*); [`MKLPardiso`](@ref) and [`GMRES`](@ref) are the others.
 """
 Base.@kwdef struct NewtonSolver{L <: LinearSolver}
     linear_solver::L = SparseLU()

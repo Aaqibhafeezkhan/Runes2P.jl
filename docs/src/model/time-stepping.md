@@ -106,10 +106,17 @@ Its reason is the status of the [`NewtonResult`](@ref), and the stepper retries 
 | Solver | Method | Implicit matrix-free terms |
 |---|---|---|
 | [`SparseLU`](@ref) | sparse LU (UMFPACK) of the whole matrix, the symbolic analysis reused | low-rank ones only, by a Woodbury update |
+| [`MKLPardiso`](@ref) | sparse LU (Intel MKL PARDISO) of the whole matrix, the ordering and the matching reused, threaded | low-rank ones only, by a Woodbury update |
 | [`GMRES`](@ref) | restarted GMRES (Krylov.jl), right preconditioned | all, through their products |
 
 [`SparseLU`](@ref) is the default.
 It takes the field-particle term ([`low_rank_jacobian`](@ref)) exactly and refuses a system with other implicit matrix-free terms, such as the implicit knock-on term.
+
+[`MKLPardiso`](@ref) takes the same systems.
+It needs the package Pardiso.jl: `using Pardiso` in the script loads it, and MKL comes with Pardiso.jl as an artifact.
+Then `NewtonSolver(linear_solver = MKLPardiso())` solves with PARDISO on one thread, and `MKLPardiso(threads = 8)` on eight.
+Its pivot order differs from UMFPACK's, so its converged states differ from those of [`SparseLU`](@ref) within the Newton tolerance.
+On the disruption case with the runaway grid at full size it factorizes and solves in 72 ms at one thread and 17 ms at eight, where UMFPACK takes 108 ms ([Choices of this package](../choices.md)).
 
 [`GMRES`](@ref) solves with the operator ``W (M/h - J) S`` in which ``J`` holds the stored Jacobian and the matrix-free terms.
 With right preconditioning the residual it minimizes is the true residual of the scaled system.
