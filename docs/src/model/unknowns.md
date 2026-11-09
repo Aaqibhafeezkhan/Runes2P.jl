@@ -111,6 +111,7 @@ A few properties decide how a term enters the system and its Jacobian:
 
 A row that holds every cell of a radius, such as a density moment, would take one color per cell in the colored AD.
 Such terms assemble their block directly, and the coloring sees the other terms alone.
+The flux through the momentum interface ([`InterfaceParticleFluxTerm`](@ref), [`InterfaceEnergyFluxTerm`](@ref)) reads the cells at the face of both grids and the field in one row, and assembles that row directly for the same reason.
 A term whose rows read all charge states of a radius builds its block by one dual-number pass over a reduced layout ([`Runes2P.add_local_jacobian!`](@ref), [`Runes2P.local_layout`](@ref)).
 The knock-on term with an implicit primary ([`KnockOnTerm`](@ref)) is matrix-free, since its block is dense per radius; with a lagged primary it assembles a sparse block directly.
 

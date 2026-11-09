@@ -162,7 +162,9 @@ prepare_step!(::EquationTerm, u_old, layout, row, t) = nothing
 
 Add the entries `∂ rhs_term / ∂u` of a term with [`jacobian_assembly`](@ref)`(term) ===
 :direct` to the stored matrix `J` at the state `u` and the time `t`. The entries lie in
-the pattern of `sparsity!`. Allocation free.
+the pattern of `sparsity!`. A method may allocate work arrays per call, such as the dual
+numbers of [`ParticleSourceTerm`](@ref), [`InterfaceParticleFluxTerm`](@ref) and
+[`InterfaceEnergyFluxTerm`](@ref) or the row of [`KineticEnergyLossTerm`](@ref).
 """
 function add_jacobian! end
 
@@ -310,6 +312,13 @@ struct JacobianCorrectionTag end
 # tag of the dual numbers of the local columns of a term
 struct LocalColumnTag end
 
+# the dual number of type D with value x and partial `partial` equal to one; none when
+# `partial` lies outside the partials of D
+function _seeded_dual(::Type{ForwardDiff.Dual{T, V, N}}, x, partial) where {T, V, N}
+    seed = ntuple(q -> q == partial ? one(V) : zero(V), Val(N))
+    return ForwardDiff.Dual{T, V, N}(x, ForwardDiff.Partials(seed))
+end
+
 """
     add_local_jacobian!(J, term, u, layout, row, t)
 
@@ -368,9 +377,7 @@ function _add_local_jacobian!(J, term, u, layout, row, t, ids, ::Val{K}) where {
             for (a, i) in enumerate(unknown_range(layout, id, ir))
                 if m <= length(ids)
                     k += 1
-                    #! format: off
-                    seeded[target[a]] = D(u[i], ForwardDiff.Partials(ntuple(q -> Float64(q == k), Val(K))))
-                    #! format: on
+                    seeded[target[a]] = _seeded_dual(D, u[i], k)
                 else
                     seeded[target[a]] = D(u[i])
                 end
