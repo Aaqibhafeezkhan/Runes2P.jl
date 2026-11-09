@@ -1,8 +1,9 @@
 # The ionization of the ions by the electrons of a distribution: the cross sections of DREAM's
 # fits against the ADAS coefficients at low density, the conservation of each species, the
-# Jacobian of the term against central differences, and the split of the ionization at the hot
-# threshold: a Maxwellian f ionizes at the ADAS rate for every threshold, and DREAM's pairing
-# counts the tail above the threshold twice. Needs the ADF11 cache (scripts/fetch_adas.py).
+# Jacobian of the term against central differences, a stored pattern without an ion row of a
+# cell column refused, and the split of the ionization at the hot threshold: a Maxwellian f
+# ionizes at the ADAS rate for every threshold, and DREAM's pairing counts the tail above
+# the threshold twice. Needs the ADF11 cache (scripts/fetch_adas.py).
 using SparseArrays: sparse
 using ForwardDiff
 using QuadGK: quadgk

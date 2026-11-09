@@ -1,5 +1,5 @@
 using Random: Xoshiro
-using SparseArrays: findnz, nnz
+using SparseArrays: findnz, nnz, sparse
 using Runes2P: is_local
 
 @testset "sparse Jacobian" begin
@@ -28,6 +28,20 @@ using Runes2P: is_local
     f2 = rand(rng, size(g)...)
     jacobian!(J, sj, f2)
     @test J ≈ M + Diagonal(2 .* vec(f2))
+end
+
+@testset "the start of a run of stored rows of a column" begin
+    # the run of a column is found by one search and checked at its first and last row; the
+    # stored rows increase strictly, so a missing row anywhere fails the check
+    A = sparse([1, 2, 3, 4, 6, 1, 3], [1, 1, 1, 1, 1, 2, 2], ones(7), 6, 3)
+    @test Runes2P._run_start(A, 2:4, 1) == 2
+    @test Runes2P._run_start(A, 1:1, 2) == 6
+    @test_throws ArgumentError Runes2P._run_start(A, 3:5, 1)
+    @test_throws ArgumentError Runes2P._run_start(A, 4:6, 1)
+    @test_throws ArgumentError Runes2P._run_start(A, 1:3, 2)
+    @test_throws ArgumentError Runes2P._run_start(A, 3:4, 2)
+    @test_throws ArgumentError Runes2P._run_start(A, 1:1, 3)
+    @test_throws ArgumentError Runes2P._run_start(A, 2:1, 1)
 end
 
 @testset "stencil pattern covers traced pattern" begin

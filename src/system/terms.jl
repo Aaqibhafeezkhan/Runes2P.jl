@@ -177,11 +177,11 @@ function add_jacobian! end
     return J
 end
 
-# The position in the stored values of J of the entry (first(rows), column), where the rows
+# the position in the stored values of J of the entry (first(rows), column), where the rows
 # `rows` of the column are stored one after the other: the entry of row r is at the position
-# plus r - first(rows). The stored rows of a column increase strictly, so the run holds every
-# row of `rows` when its first and last positions hold the first and last rows; otherwise an
-# entry is not in the pattern, an `ArgumentError` as in `_add_entry!`.
+# plus r - first(rows); the stored rows of a column increase strictly, so the run holds every
+# row of `rows` when its first and last positions hold the first and last rows, and otherwise
+# an entry is not in the pattern, an `ArgumentError` as in `_add_entry!`
 function _run_start(J::SparseMatrixCSC, rows::UnitRange{Int}, column::Integer)
     isempty(rows) && throw(ArgumentError("an empty run of rows in column $column"))
     range = nzrange(J, column)

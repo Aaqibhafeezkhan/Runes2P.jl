@@ -164,7 +164,6 @@ function add_jacobian!(J, term::KineticIonizationTerm, u, layout, row, t)
     for ir in 1:radial_cell_count(layout)
         m = momentum_grid(term.grid, ir)
         rows = unknown_range(layout, row, ir)
-        isempty(rows) && continue
         n = radial_view(u, layout, row, ir)
         K = kinetic_ionization_rates(term, u, layout, t, ir)
         envelope = _envelope_at(term.envelopes, term.grid, ir, u, layout, t)
@@ -207,7 +206,7 @@ function add_jacobian!(J, term::KineticIonizationTerm, u, layout, row, t)
             for s in 1:length(c), k in species_components(c, s)[1:(end - 1)]
 
                 value = n[k] * _envelope_value(envelope, i) * rates[i, k] * w[i, j]
-                values[offset + rows[k]] += -value
+                values[offset + rows[k]] -= value
                 values[offset + rows[k + 1]] += value
             end
         end
