@@ -150,9 +150,12 @@ struct RadiatedPowerTerm{
     radiation::Symbol
     extrapolation::Symbol
     bremsstrahlung_corrections::Symbol
-    tables::Dict{String, NamedTuple}
+    species_names::Vector{String}  # the ion species of the plasma, in its order
+    tables::Vector{ADF11Tables}    # per species: the ADF11 tables of its element
+    ionization_energies::Vector{Vector{Float64}}  # per species: I(Z0) [eV] for Z0 = 0, …, Z − 1
     ions::Union{Nothing, Symbol}
     kinetic_ionization::K         # nothing, or the KineticIonizationTerm of the split of the ionization
+    buffers::LocalTermBuffers
 end
 
 function RadiatedPowerTerm(plasma; radiation::Symbol = :recombination,
@@ -171,10 +174,11 @@ function RadiatedPowerTerm(plasma; radiation::Symbol = :recombination,
                             "and the ion densities from unknowns of its own: give it the prescribed part and " *
                             "the keywords temperature, density and ions"))
     source = plasma isa PrescribedPlasma ? plasma : PrescribedPlasma(plasma)
-    tables = Dict{String, NamedTuple}()
+    species_names = String[]
+    tables = ADF11Tables[]
+    ionization_energies = Vector{Float64}[]
     for species in plasma_values(source, nothing, nothing, initial_time).ions
         element = species.name
-        haskey(tables, element) && continue
         if !haskey(ADAS_FILES, atomic_element(element))
             throw(ArgumentError("the ion species $element is not an element with ADF11 tables " *
                                 "($(join(sort!(collect(keys(ADAS_FILES))), ", ")))"))
@@ -185,7 +189,10 @@ function RadiatedPowerTerm(plasma; radiation::Symbol = :recombination,
             throw(ArgumentError("the species $element has nuclear charge $(species.nuclear_charge), its ADF11 " *
                                 "tables $(element_tables.plt.nuclear_charge)"))
         end
-        tables[element] = element_tables
+        push!(species_names, element)
+        push!(tables, element_tables)
+        push!(ionization_energies,
+            [ionization_energy(element, Z0) for Z0 in 0:(species.nuclear_charge - 1)])
     end
     if !(kinetic_ionization === nothing || kinetic_ionization isa KineticIonizationTerm)
         throw(ArgumentError("kinetic_ionization must be a KineticIonizationTerm or nothing"))
@@ -194,8 +201,8 @@ function RadiatedPowerTerm(plasma; radiation::Symbol = :recombination,
         _check_split_threshold(kinetic_ionization, "a RadiatedPowerTerm")
     end
     return RadiatedPowerTerm(source, temperature, density, radiation,
-        extrapolation, bremsstrahlung_corrections, tables,
-        ions, kinetic_ionization)
+        extrapolation, bremsstrahlung_corrections, species_names, tables,
+        ionization_energies, ions, kinetic_ionization, LocalTermBuffers())
 end
 
 function dependencies(term::RadiatedPowerTerm)
@@ -213,7 +220,20 @@ function _species_of(term::RadiatedPowerTerm, name)
 end
 jacobian_assembly(term::RadiatedPowerTerm) = term.ions === nothing ? :automatic : :direct
 function add_jacobian!(J, term::RadiatedPowerTerm, u, layout, row, t)
-    add_local_jacobian!(J, term, u, layout, row, t)
+    _add_buffered_local_jacobian!(J, term, u, layout, row, t, term.buffers)
+end
+
+# the index of the ion species `name`, the `s`-th species of the plasma of an evaluation, in
+# the species of the term: `s` when the plasma lists them in the order of the construction
+function _species_tables_index(term::RadiatedPowerTerm, name::AbstractString, s)
+    if s <= length(term.species_names) && term.species_names[s] == name
+        return s
+    end
+    index = findfirst(==(name), term.species_names)
+    if index === nothing
+        throw(KeyError(name))
+    end
+    return index
 end
 
 function validate(term::RadiatedPowerTerm, layout, row, t)
@@ -239,8 +259,10 @@ function _radiated_power(
     binding = zero(n_e * T)
     recombination = term.radiation === :recombination
     ion_sum = zero(eltype(first(plasma.ions).charge_state_densities))    # Σ n Z₀²
-    for species in plasma.ions
-        tables = term.tables[species.name]
+    for (s, species) in enumerate(plasma.ions)
+        index = _species_tables_index(term, species.name, s)
+        tables = term.tables[index]
+        energies = term.ionization_energies[index]
         Z = species.nuclear_charge
         coefficient(table, Z0) = adas_coefficient(
             table, Z0, n_e, T; extrapolation = term.extrapolation)
@@ -259,11 +281,12 @@ function _radiated_power(
                     ionization = _fluid_ionization(split, _species_of(term, species.name), Z0, ionization)
                 end
                 energy += Constants.ELEMENTARY_CHARGE *
-                          ionization_energy(species.name, Z0) * ionization
+                          energies[Z0 + 1] * ionization
             end
             if recombination && Z0 > 0
+                # the energy of the state Z0 − 1, I(Z0 − 1) = energies[Z0]
                 energy -= Constants.ELEMENTARY_CHARGE *
-                          ionization_energy(species.name, Z0 - 1) *
+                          energies[Z0] *
                           coefficient(tables.acd, Z0)
             end
             radiation += density * line
@@ -287,7 +310,8 @@ function _radiated_power(
 end
 
 function rhs!(out, term::RadiatedPowerTerm, u, layout, row, t)
-    plasma = _term_plasma(plasma_values(term.plasma, u, layout, t), term.ions, u, layout)
+    plasma = _term_plasma(
+        plasma_values(term.plasma, u, layout, t), term.ions, u, layout, term.buffers.plasmas)
     radial_cell_count(plasma) == radial_cell_count(layout) ||
         throw(DimensionMismatch("the plasma of the radiated power and the layout have different radii"))
     T = unknown_values(u, layout, unknown_id(layout, term.temperature))
@@ -324,7 +348,8 @@ bremsstrahlung), and `binding`, the binding energy that the ions take on ionizat
 what recombination returns, which stays in the plasma.
 """
 function radiated_power(term::RadiatedPowerTerm, u, layout, t)
-    plasma = _term_plasma(plasma_values(term.plasma, u, layout, t), term.ions, u, layout)
+    plasma = _term_plasma(
+        plasma_values(term.plasma, u, layout, t), term.ions, u, layout, term.buffers.plasmas)
     T = unknown_values(u, layout, unknown_id(layout, term.temperature))
     n = unknown_values(u, layout, unknown_id(layout, term.density))
     function split_at(ir)

@@ -37,6 +37,9 @@ end
 
 const ADF11_CLASSES = (:acd, :scd, :ccd, :plt, :prb)
 
+# the five tables of an element as `read_adas` returns them, by class
+const ADF11Tables = NamedTuple{ADF11_CLASSES, NTuple{5, ADF11Table}}
+
 """
     read_adf11(path; class=nothing)
 
@@ -328,7 +331,7 @@ fetches it.
 """
 function read_adas(element::AbstractString; directory::AbstractString = adas_cache_directory())
     tables = map(class -> _read_adas_class(element, class, directory), ADF11_CLASSES)
-    return NamedTuple{ADF11_CLASSES}(tables)
+    return ADF11Tables(tables)
 end
 
 # the ADF11 table of one class of `element` from the cache `directory`

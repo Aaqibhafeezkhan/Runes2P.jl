@@ -315,10 +315,11 @@ struct ConductivityTerm{M <: ConductivityModel} <: EquationTerm
     values::Vector{Float64}
     plasma_key::PlasmaKey                   # the plasma values of `values`
     operator_rebuilds::Base.RefValue{Int}   # the rebuilds of the operator of the model at `values`
+    buffers::LocalTermBuffers
 end
 function ConductivityTerm(electric_field::Symbol, model::ConductivityModel; coefficient::Real = 1.0)
-    ConductivityTerm(
-        electric_field, model, Float64(coefficient), Float64[], PlasmaKey(), Ref(-1))
+    ConductivityTerm(electric_field, model, Float64(coefficient), Float64[], PlasmaKey(),
+        Ref(-1), LocalTermBuffers())
 end
 
 # the operator of a model of the discrete operator is read by the term: a bare operator
@@ -346,7 +347,7 @@ function jacobian_assembly(term::ConductivityTerm)
     ion_dependency(term.model.plasma) === nothing ? :automatic : :direct
 end
 function add_jacobian!(J, term::ConductivityTerm, u, layout, row, t)
-    add_local_jacobian!(J, term, u, layout, row, t)
+    _add_buffered_local_jacobian!(J, term, u, layout, row, t, term.buffers)
 end
 
 function dependencies(term::ConductivityTerm)
@@ -424,7 +425,8 @@ end
 # gives the column of the temperature
 function _add_state_conductivity!(out, term::ConductivityTerm, u, layout, row, t)
     model = term.model
-    base = _term_plasma(plasma_values(model.plasma.prescribed, u, layout, t), model.plasma.ions, u, layout)
+    base = _term_plasma(plasma_values(model.plasma.prescribed, u, layout, t),
+        model.plasma.ions, u, layout, term.buffers.plasmas)
     temperature = unknown_values(u, layout, unknown_id(layout, model.plasma.temperature))
     field = unknown_values(u, layout, unknown_id(layout, term.electric_field))
     for ir in 1:radial_cell_count(layout)

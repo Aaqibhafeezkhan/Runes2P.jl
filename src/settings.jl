@@ -633,7 +633,7 @@ function settings_fields(::Type{<:RadiatedPowerTerm})
     (
         described = (:plasma, :temperature, :density, :radiation, :extrapolation,
             :bremsstrahlung_corrections, :ions, :kinetic_ionization),
-        derived = (:tables,))
+        derived = (:species_names, :tables, :ionization_energies, :buffers))
 end
 
 function describe(term::RadiatedPowerTerm, context::DescriptionContext)
@@ -651,7 +651,7 @@ function describe(term::RadiatedPowerTerm, context::DescriptionContext)
     end
     # the ADF11 files of each element, by name: the cache itself is not part of the record
     files = SettingsRecord()
-    for (element, tables) in term.tables
+    for (element, tables) in zip(term.species_names, term.tables)
         files[element] = _adf11_file_names(tables, ADF11_CLASSES)
     end
     record["adf11_files"] = files
@@ -937,7 +937,7 @@ function settings_fields(::Type{<:IonEnergyExchangeTerm})
     (
         described = (:plasma, :side, :ion_energy, :temperature, :density,
             :ion_ion, :ion_coulomb_logarithm, :masses, :ions),
-        derived = ())
+        derived = (:buffers,))
 end
 
 function describe(term::IonEnergyExchangeTerm, context::DescriptionContext)
@@ -953,6 +953,13 @@ function describe(term::IonEnergyExchangeTerm, context::DescriptionContext)
         record["ions"] = String(term.ions)
     end
     return _describe_plasma_source!(record, term.plasma, context)
+end
+
+function settings_fields(::Type{<:RunawayFluidEnergyTransferTerm})
+    (
+        described = (:plasma, :runaway_density, :temperature, :density,
+            :coulomb_logarithm, :ions),
+        derived = (:buffers,))
 end
 
 function describe(term::RunawayFluidEnergyTransferTerm, context::DescriptionContext)
@@ -982,7 +989,8 @@ function describe(term::KineticEnergyLossTerm, context::DescriptionContext)
 end
 
 function settings_fields(::Type{<:FrictionEnergyTransferTerm})
-    (described = (:kinetic, :grid, :source, :settings, :coefficient), derived = ())
+    (described = (:kinetic, :grid, :source, :settings, :coefficient),
+        derived = (:plasma_key, :weights, :products, :dual_plasma_key, :dual_weights))
 end
 
 function describe(term::FrictionEnergyTransferTerm, context::DescriptionContext)
@@ -1127,7 +1135,7 @@ end
 
 function settings_fields(::Type{<:ConductivityTerm})
     (described = (:electric_field, :model, :coefficient),
-        derived = (:values, :plasma_key, :operator_rebuilds))
+        derived = (:values, :plasma_key, :operator_rebuilds, :buffers))
 end
 
 """
