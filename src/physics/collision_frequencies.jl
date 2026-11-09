@@ -313,10 +313,11 @@ struct CoefficientTables
     scattering::Matrix{Float64}    # per centre and charge state
 end
 
-# a face or a cell centre of the coefficient tables of one radius, where an evaluation reads
-# them in place of the direct computation
+# the index of a face or a cell centre in the coefficient tables of one radius, where an
+# evaluation reads them in place of the direct computation. It holds the index alone, so that
+# it is a bits type: a value of `Union{Nothing, TableEntry}` passes to a call without a box.
+# The evaluation takes the tables from the model at the radius.
 struct TableEntry
-    tables::CoefficientTables
     index::Int
 end
 
@@ -395,7 +396,8 @@ and the charge state alone are tabulated once per momentum grid, at its faces an
 centres: the bremsstrahlung cross section, and the Bethe stopping and the bound-electron
 scattering with their screening weights. The coefficient builders read them by the index of a
 face or a centre. A tabulated value is the number that the direct evaluation gives, so the
-coefficients are the same; the functions of a momentum evaluate directly.
+coefficients are the same; the functions of a momentum evaluate directly. A `faces` list whose
+length differs from the number of radii throws a `DimensionMismatch`.
 """
 struct CollisionModel{T, P <: PlasmaState}
     plasma::P
@@ -508,7 +510,7 @@ function _face_entry(model::CollisionModel, ir, k, p)
     tables = model.coefficient_tables[ir]
     tables === nothing && return nothing
     if checkbounds(Bool, tables.faces, k) && isequal(tables.faces[k], p)
-        return TableEntry(tables, k)
+        return TableEntry(k)
     end
     return nothing
 end
@@ -518,7 +520,7 @@ function _center_entry(model::CollisionModel, ir, i, p)
     tables = model.coefficient_tables[ir]
     tables === nothing && return nothing
     if checkbounds(Bool, tables.centers, i) && isequal(tables.centers[i], p)
-        return TableEntry(tables, i)
+        return TableEntry(i)
     end
     return nothing
 end
@@ -717,7 +719,8 @@ function _bound_slowing_down(
     bethe = if entry === nothing
         _weighted_bound_stopping(model.settings, state, p)
     else
-        entry.tables.stopping[entry.index, index]
+        tables = model.coefficient_tables[ir]::CoefficientTables
+        tables.stopping[entry.index, index]
     end
     # one number type on both branches: the ionization part carries the partials of the plasma,
     # the Bethe term does not
@@ -750,8 +753,9 @@ function _ionization_part(
         model::CollisionModel, index, state::ChargeState, ir, p, ::Nothing)
     return _ionization_part(model, index, state, ir, p)
 end
-# at the entry of a face: the ionization table of the radius has the faces of the coefficient
-# tables, so the row of the face is that of the entry
+# at the entry of a face: `CollisionModel` builds the ionization table and the coefficient
+# tables of a radius in the same call from the same faces vector `faces[ir]`, so the row of the
+# face in the ionization table is the index of the entry
 function _ionization_part(
         model::CollisionModel, index, state::ChargeState, ir, p, entry::TableEntry)
     table = model.ionization_tables[ir]
@@ -814,7 +818,8 @@ function _radiative_slowing_down(model::CollisionModel, ir, p, entry = nothing)
     radiative = if entry === nothing
         _radiative_factor(model.settings, p)
     else
-        entry.tables.radiative[entry.index]
+        tables = model.coefficient_tables[ir]::CoefficientTables
+        tables.radiative[entry.index]
     end
     for state in model.charge_states
         nu += radiative * state.nuclear_charge^2 * _charge_state_density(model, state, ir)
@@ -829,12 +834,12 @@ Pitch-angle scattering (deflection) frequency `ν_D` [s⁻¹]; the collisional p
 `Dᵠᵠ = ν_D (1 - ξ²)/2`.
 """
 function deflection_frequency(model::CollisionModel, ir, p)
-    return _deflection_frequency(model, ir, p, nothing)
+    return _deflection_frequency(model, ir, p)
 end
 
 # ν_D, with the bound-electron scattering from the tables at the entry of a cell centre
 # (`_center_entry`)
-function _deflection_frequency(model::CollisionModel, ir, p, entry)
+function _deflection_frequency(model::CollisionModel, ir, p, entry = nothing)
     p == 0 && return zero(p * model.scaled_bessel_k0[ir])
     mode = model.settings.mode
     prefactor = if mode === :ultra_relativistic
@@ -856,7 +861,8 @@ function _deflection_frequency(model::CollisionModel, ir, p, entry)
             scattering = if entry === nothing
                 _weighted_bound_scattering(model.settings, state, p)
             else
-                entry.tables.scattering[entry.index, index]
+                tables = model.coefficient_tables[ir]::CoefficientTables
+                tables.scattering[entry.index, index]
             end
             nu += scattering * _charge_state_density(model, state, ir)
         end

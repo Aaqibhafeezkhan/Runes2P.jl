@@ -3,8 +3,13 @@
 # centre, give ν_s, ν_∥ and ν_D bit for bit as the direct evaluation, in Float64 and with
 # dual numbers, at every face and centre of two grids; the key of the tables holds every
 # setting and every parameter of the charge states that the values read; and a model with
-# different faces per radius builds one table per distinct faces vector.
+# different faces per radius builds one table per distinct faces vector. The sweep over the
+# faces and the pitch scattering read the tables without an allocation per face or centre.
 using ForwardDiff
+
+# an assertion on allocations holds for optimised code alone: it is skipped, and reported
+# as broken, in a development run at -O0 or -O1
+const OPTIMIZED = Base.JLOptions().opt_level >= 2
 
 # three radii from a cold to a hot bulk, with deuterium and argon spread over its charge states
 function _table_plasma()
@@ -39,7 +44,9 @@ function _table_differences(tabulated, direct, faces)
     for ir in 1:length(direct.free_electron_density)
         for (k, p) in enumerate(faces)
             entry = Runes2P._face_entry(tabulated, ir, k, p)
-            entry === nothing && error("no table entry at face $k")
+            if entry === nothing
+                error("no table entry at face $k")
+            end
             nu_s, nu_parallel = Runes2P._slowing_down_and_parallel_diffusion(tabulated, ir, p, entry)
             differences += !_same_number(nu_s, slowing_down_frequency(direct, ir, p))
             differences += !_same_number(nu_parallel, parallel_diffusion_frequency(direct, ir, p))
@@ -47,7 +54,9 @@ function _table_differences(tabulated, direct, faces)
         end
         for (i, p) in enumerate(centers)
             entry = Runes2P._center_entry(tabulated, ir, i, p)
-            entry === nothing && error("no table entry at centre $i")
+            if entry === nothing
+                error("no table entry at centre $i")
+            end
             differences += !_same_number(
                 Runes2P._deflection_frequency(tabulated, ir, p, entry),
                 deflection_frequency(direct, ir, p))
@@ -55,6 +64,16 @@ function _table_differences(tabulated, direct, faces)
         end
     end
     return differences, compared
+end
+
+# the bytes that the sweep of ν_s and ν_∥ over the faces and the pitch scattering at the
+# centres allocate in a call after a first one
+function _rebuild_bytes(op, model)
+    Runes2P._add_slowing_down_and_energy_diffusion!(op, model)
+    sweep = @allocated Runes2P._add_slowing_down_and_energy_diffusion!(op, model)
+    add_pitch_scattering!(op, model)
+    scattering = @allocated add_pitch_scattering!(op, model)
+    return sweep, scattering
 end
 
 @testset "coefficient tables of the collision frequencies" begin
@@ -156,6 +175,27 @@ end
         @test Runes2P._face_entry(tabulated, 1, 2, faces[2]) isa Runes2P.TableEntry
     end
 
+    @testset "no allocation per face or centre" begin
+        # a grid above the quadrature band of the bremsstrahlung integral, where the direct
+        # evaluation allocates nothing in Float64; an entry boxed per face or centre would
+        # allocate there, in Float64 and with a dual plasma alike
+        faces = collect(range(0.8, 20.0; length = 31))
+        m = MomentumGrid(faces, uniform_xi_faces(4))
+        grid = cylindrical_grid(m, RadialGrid(uniform_r_faces(nr, 1.0)))
+        settings = CollisionSettings()
+        for state in (plasma, dual)
+            number = eltype(state.cold_electron_temperature)
+            op = Runes2P.similar_coefficients(AdvectionDiffusion(grid), number)
+            direct = _rebuild_bytes(op, CollisionModel(state, settings))
+            tabulated = _rebuild_bytes(
+                op, CollisionModel(state, settings; faces = [m.p_faces for _ in 1:nr]))
+            @test tabulated == direct skip = !OPTIMIZED
+            if number === Float64
+                @test tabulated == (0, 0) skip = !OPTIMIZED
+            end
+        end
+    end
+
     @testset "the key of the tables" begin
         faces = last(grids[1])
         face_vectors = [faces for _ in 1:nr]
@@ -179,6 +219,17 @@ end
         @test keys(key) ==
               (:mode, :screening_window, :screening_window_start, :screening_window_end,
             :ion_size_table, :bremsstrahlung_constant, :charge_states)
+        # every field of the settings is in the key or named here as one the tabulated factors
+        # do not read: a new field fails this test until it is placed on one side
+        unread_settings = (
+            :screening, :coulomb_logarithm, :screened_diffusion, :bremsstrahlung,
+            :bremsstrahlung_diffusion, :bound_friction, :ionization_threshold,
+            :ionization_threshold_width, :secondary_widths, :secondary_spectrum,
+            :ionization_cross_section_form)
+        settings_in_key = filter(!=(:charge_states), keys(key))
+        @test isempty(intersect(settings_in_key, unread_settings))
+        @test Set(union(settings_in_key, unread_settings)) ==
+              Set(fieldnames(CollisionSettings))
         # a setting the tables do not read shares them
         @test table(CollisionSettings(; coulomb_logarithm = :energy_dependent)) ===
               reference
@@ -197,13 +248,27 @@ end
             return Runes2P.ChargeState(fields...)
         end
         argon = findfirst(s -> s.nuclear_charge == 18 && s.charge == 2, states)
-        for (name, value) in ((:element, "Ne"), (:nuclear_charge, 10), (:charge, 3),
+        state_changes = ((:element, "Ne"), (:nuclear_charge, 10), (:charge, 3),
             (:mean_excitation_energy, 2 * states[argon].mean_excitation_energy),
             (:effective_size, 2 * states[argon].effective_size))
+        for (name, value) in state_changes
             other = copy(states)
             other[argon] = changed_state(states[argon], name, value)
             @test !isequal(Runes2P._coefficient_table_key(base, other), key)
         end
+        # the fields of a charge state that the tabulated factors do not read leave the key
+        # alone; with those in the key they are every field, so a new field fails this test
+        # until it is placed on one side
+        unread_state_changes = ((:species_index, 7), (:ionization_energy, 15.0),
+            (:secondary_width, 3.0))
+        for (name, value) in unread_state_changes
+            other = copy(states)
+            other[argon] = changed_state(states[argon], name, value)
+            @test isequal(Runes2P._coefficient_table_key(base, other), key)
+        end
+        state_fields = union(first.(state_changes), first.(unread_state_changes))
+        @test length(state_fields) == fieldcount(Runes2P.ChargeState)
+        @test Set(state_fields) == Set(fieldnames(Runes2P.ChargeState))
     end
 
     @testset "one table per distinct faces vector of per-radius grids" begin
