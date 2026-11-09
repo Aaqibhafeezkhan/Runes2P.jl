@@ -122,6 +122,37 @@ function add_energy_diffusion!(op::AdvectionDiffusion, collisions::CollisionMode
     return op
 end
 
+# The friction of `add_slowing_down!` and the energy diffusion of `add_energy_diffusion!` in
+# one sweep over the p faces, which evaluates ν_s once per face for both
+# (`_slowing_down_and_parallel_diffusion`). It writes the same coefficients bit for bit; the
+# energy diffusion only with `mode = :full`, as `add_energy_diffusion!`.
+function _add_slowing_down_and_energy_diffusion!(
+        op::AdvectionDiffusion, collisions::CollisionModel)
+    g = op.grid
+    np, nxi, nr = size(g)
+    energy_diffusion = collisions.settings.mode === :full
+    for ir in 1:nr
+        m = momentum_grid(g, ir)
+        for k in 1:(np + 1)
+            p = m.p_faces[k]
+            nu_s, nu_parallel = _slowing_down_and_parallel_diffusion(collisions, ir, p)
+            A = -p * nu_s
+            for j in 1:nxi
+                op.advection_p[k, j, ir] += A
+            end
+            if energy_diffusion
+                for j in 1:nxi
+                    op.diffusion_p_p[k, j, ir] += nu_parallel
+                end
+            end
+        end
+        if m.p_faces[1] == 0
+            op.advection_p_times_p2_at_zero[:, ir] .-= p3_slowing_down_frequency_at_zero(collisions, ir)
+        end
+    end
+    return op
+end
+
 """
     add_synchrotron!(op, plasma)
 
@@ -245,8 +276,9 @@ end
                                     field_in_coefficients=true)
 
 Rebuild `op`'s coefficients in place from `plasma` and `settings`
-([`zero_coefficients!`](@ref) then the same `add_*!` calls as
-[`fokker_planck_operator`](@ref)), for a Fokker-Planck term whose plasma state changes
+([`zero_coefficients!`](@ref) then the terms of [`fokker_planck_operator`](@ref), with the
+coefficients of [`add_slowing_down!`](@ref) and [`add_energy_diffusion!`](@ref) written in
+one sweep over the p faces), for a Fokker-Planck term whose plasma state changes
 with time ([`prescribed_fokker_planck_term`](@ref)). `op`'s scheme, boundary conditions and
 declarations ([`AdvectionDiffusion`](@ref)) are unchanged; the rebuild writes no radial
 transport and no cross diffusion. `field_in_coefficients = false` leaves the field of the
@@ -265,8 +297,8 @@ end
 
 # The rebuild of `set_fokker_planck_coefficients!` for an operator whose coefficient arrays
 # no other function writes, such as the operator of dual coefficients of a Fokker-Planck
-# term: it zeroes only the arrays that its own `add_*!` calls write and those of the
-# rebuild before it (`_zero_rebuilt_coefficients!`), which gives the same coefficients as
+# term: it zeroes only the arrays that its terms write and those of the rebuild before it
+# (`_zero_rebuilt_coefficients!`), which gives the same coefficients as
 # `set_fokker_planck_coefficients!`.
 function _rebuild_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaState,
         settings::CollisionSettings, synchrotron::Bool, field_in_coefficients::Bool)
@@ -277,7 +309,7 @@ function _rebuild_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::Pl
         op, plasma, settings, synchrotron, field_in_coefficients)
 end
 
-# Whether the `add_*!` calls of `set_fokker_planck_coefficients!` write `advection_xi` (the
+# Whether the terms of `set_fokker_planck_coefficients!` write `advection_xi` (the
 # pitch advection, written by the field and the synchrotron loss) and `diffusion_p_p` (the
 # energy diffusion of `mode = :full`) under the given flags. The slowing down writes
 # `advection_p` and `advection_p_times_p2_at_zero` and the pitch scattering
@@ -318,8 +350,9 @@ function _zero_rebuilt_coefficients!(
     return op
 end
 
-# the `add_*!` calls of `set_fokker_planck_coefficients!` into zeroed arrays, and the record
-# of the coefficients
+# the terms of `set_fokker_planck_coefficients!` into zeroed arrays, and the record of the
+# coefficients; the slowing down and the energy diffusion in one sweep, which evaluates ν_s
+# once per face
 function _add_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaState,
         settings::CollisionSettings, synchrotron::Bool, field_in_coefficients::Bool)
     collisions = CollisionModel(plasma, settings;
@@ -327,9 +360,8 @@ function _add_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::Plasma
     if field_in_coefficients
         add_electric_field!(op, plasma)
     end
-    add_slowing_down!(op, collisions)
+    _add_slowing_down_and_energy_diffusion!(op, collisions)
     add_pitch_scattering!(op, collisions)
-    add_energy_diffusion!(op, collisions)
     if synchrotron
         add_synchrotron!(op, plasma)
     end

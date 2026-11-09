@@ -717,6 +717,26 @@ function parallel_diffusion_frequency(model::CollisionModel, ir, p)
     return theta * sqrt(1 + p^2) * nu_s
 end
 
+# ν_s and ν_∥ at one face with ν_s evaluated once, for the coefficient builder: the values of
+# `slowing_down_frequency` and `parallel_diffusion_frequency` bit for bit, since ν_∥ takes
+# the ν_s of the face, or its collisional part, as `parallel_diffusion_frequency` selects it
+# and multiplies it in the same order. With `screened_diffusion = :zero`, ν_∥ shares no part
+# with ν_s and is evaluated on its own.
+function _slowing_down_and_parallel_diffusion(model::CollisionModel, ir, p)
+    collisional = _collisional_slowing_down(model, ir, p)
+    nu_s = collisional + _radiative_slowing_down(model, ir, p)
+    settings = model.settings
+    if !(settings.mode === :full && p != 0)
+        return (nu_s, zero(p * model.scaled_bessel_k0[ir]))
+    end
+    if settings.screened_diffusion !== :maxwellian
+        return (nu_s, parallel_diffusion_frequency(model, ir, p))
+    end
+    theta = _normalized_temperature(model, ir)
+    diffused = settings.bremsstrahlung_diffusion === :dream ? nu_s : collisional
+    return (nu_s, theta * sqrt(1 + p^2) * diffused)
+end
+
 """
     p3_slowing_down_frequency_at_zero(model, ir)
 
