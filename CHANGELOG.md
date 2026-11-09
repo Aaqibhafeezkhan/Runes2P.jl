@@ -8,7 +8,7 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Added
 
-- `MKLPardiso` solves the Newton systems with Intel MKL PARDISO, loaded with `using Pardiso` through the extension `Runes2PMKLPardisoExt` ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+- `MKLPardiso` solves the Newton systems with Intel MKL PARDISO, loaded with `using Pardiso` through the extension `Runes2PMKLPardisoExt` ([#243](https://github.com/osrep/Runes2P.jl/pull/243)).
   It takes the systems of `SparseLU`, the field-particle term by the same Woodbury update, and runs threaded with `threads`; `refinement` sets PARDISO's refinement steps.
   `SparseLU` stays the default.
   Its settings record is new in the format 0.0.4.
