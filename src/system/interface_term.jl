@@ -384,15 +384,24 @@ end
 function add_plasma_columns!(J, term::MomentumInterfaceTerm, u, layout, row, t)
     source = term.lower_term
     op, with_ions = _dual_coefficients!(source, u, layout, t)
-    lower, upper = unknown_id(layout, term.lower), unknown_id(layout, term.upper)
     field = _field_values(_electric_field_of(term), u, layout)
+    return _add_face_plasma_columns!(J, term, op, field, with_ions, u, layout, row)
+end
+
+# the rows of the face cells with the operator of dual coefficients `op`; the number of
+# partials is picked at run time, so the loop runs behind this barrier on the concrete type
+function _add_face_plasma_columns!(
+        J, term::MomentumInterfaceTerm, op::AdvectionDiffusion,
+        field, with_ions, u, layout, row)
+    source = term.lower_term
+    lower, upper = unknown_id(layout, term.lower), unknown_id(layout, term.upper)
     on_lower = row == lower
     grid = on_lower ? term.lower_grid : term.upper_grid
     for ir in 1:radial_cell_count(layout)
         f_lower, f_upper = kinetic_view(u, layout, lower, ir),
         kinetic_view(u, layout, upper, ir)
         distance, weight_left = _interface_distance(term, ir)
-        columns = plasma_columns(source.plasma, layout, ir; with_ions)
+        columns = plasma_columns(source.plasma, layout, ir; with_ions)::Vector{Int}
         m = momentum_grid(grid, ir)
         jacobian = phase_space_jacobian(grid, ir)
         i = on_lower ? momentum_cell_count(m) : 1
@@ -405,11 +414,8 @@ function add_plasma_columns!(J, term::MomentumInterfaceTerm, u, layout, row, t)
                 _upper_cell_flux(
                     term, op, f_lower, f_upper, k, ir, distance, weight_left, field)
             end
-            partials = ForwardDiff.partials(rate / (jacobian[i, k] * m.p_widths[i]))
             r = _kinetic_index(layout, row, ir, i, k)
-            for n in eachindex(columns)
-                _add_entry!(J, r, columns[n], partials[n])
-            end
+            _add_partials!(J, r, columns, rate / (jacobian[i, k] * m.p_widths[i]))
         end
     end
     return J
