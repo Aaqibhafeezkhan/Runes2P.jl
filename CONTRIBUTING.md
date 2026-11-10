@@ -83,7 +83,7 @@ The header of `docs/make.jl` gives the command of a live local preview.
 - A value or default that neither DREAM's examples nor a cited reference fixes is marked "a choice of this package" where it is set.
   It gets a row on the docs page [Choices of this package](docs/src/choices.md).
 - Performance and accuracy are weighed together: a change that affects either one states what it costs and what it gains, from a measurement.
-  A change that makes a run significantly slower gives its reason and is optimized in the same pull request, or opens an issue with suggestions where that is too large.
+  A change that makes a run significantly slower gives its reason and is optimized in the same pull request as far as it can be; an issue takes the rest, with suggestions.
   The docs page [Performance and accuracy](docs/src/performance.md) has the guidelines and the details of the hot paths.
 - Every public name (exported or declared `public`) has a docstring of its own.
   A docstring is a string literal: a LaTeX backslash is written twice (`\\partial`), formulas go into math (```` ```math ```` blocks, ``` ``…`` ``` inline), and `@ref` links point to documented names only.
