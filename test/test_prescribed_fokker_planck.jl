@@ -103,4 +103,83 @@ end
         wrong_layout = UnknownLayout(g.radial_grid, [ScalarUnknown(:f)])
         @test_throws ArgumentError Runes2P.validate(term, wrong_layout, 1)
     end
+
+    # The rebuild writes the friction and the energy diffusion in one sweep that
+    # evaluates ν_s once per face. The reference writes each term with its own public
+    # function, these two with `add_slowing_down!` and `add_energy_diffusion!`, in the order
+    # of the builder's terms; all arrays agree bit for bit. The plasma holds partially
+    # ionized argon and the bremsstrahlung stopping, so that the collisional part of ν_s
+    # differs from the whole. The values and the partials of the dual coefficients are
+    # compared on their own.
+    @testset "one sweep of ν_s and ν_∥ against the separate terms" begin
+        nr = 2
+        argon = zeros(19, nr)
+        argon[1, :] = [1e18, 2e17]
+        argon[2, :] = [3e18, 1e18]
+        argon[4, :] = [5e17, 4e18]
+        deuterium = [1e19 2e18; 9e19 1e20]
+        plasma = PlasmaState(cold_electron_temperature = [50.0, 5.0],
+            cold_electron_density = [1e20, 1.2e20],
+            ions = [IonSpecies("D", 1, deuterium), IonSpecies("Ar", 18, argon)],
+            electric_field = [2.0, 30.0], magnetic_field = [5.0, 5.0])
+        xi = uniform_xi_faces(4)
+        radii = RadialGrid(uniform_r_faces(nr, 1.0))
+        grids = (cylindrical_grid(MomentumGrid(uniform_p_faces(12, 0.0, 2.0), xi), radii),
+            cylindrical_grid(MomentumGrid(uniform_p_faces(8, 2.0, 20.0), xi), radii))
+        arrays = (:advection_p, :diffusion_p_p, :diffusion_p_xi, :advection_xi,
+            :diffusion_xi_xi, :diffusion_xi_p, :advection_r, :diffusion_r_r,
+            :advection_p_times_p2_at_zero)
+        function reference!(op, plasma, settings)
+            zero_coefficients!(op)
+            g = op.grid
+            faces = [momentum_grid(g, ir).p_faces for ir in 1:radial_cell_count(g)]
+            model = CollisionModel(plasma, settings; faces)
+            add_electric_field!(op, plasma)
+            add_slowing_down!(op, model)
+            add_pitch_scattering!(op, model)
+            add_energy_diffusion!(op, model)
+            add_synchrotron!(op, plasma)
+            return op
+        end
+        value_parts(A) = ForwardDiff.value.(A)
+        partial_parts(A) = [ForwardDiff.partials(x).values for x in A]
+        dual = Runes2P.dual_plasma(plasma, true, true)
+        D = eltype(dual.cold_electron_temperature)
+        for mode in (:full, :superthermal), bremsstrahlung_diffusion in (:dream, :none),
+            screened_diffusion in (:maxwellian, :zero), g in grids
+            settings = CollisionSettings(;
+                mode, screening = :partial, bremsstrahlung = :stopping_power,
+                bremsstrahlung_diffusion, screened_diffusion)
+            built = set_fokker_planck_coefficients!(AdvectionDiffusion(g), plasma, settings)
+            expected = reference!(AdvectionDiffusion(g), plasma, settings)
+            for name in arrays
+                @test isequal(getfield(built, name), getfield(expected, name))
+            end
+            dual_built = set_fokker_planck_coefficients!(
+                Runes2P.similar_coefficients(AdvectionDiffusion(g), D), dual, settings)
+            dual_expected = reference!(
+                Runes2P.similar_coefficients(AdvectionDiffusion(g), D), dual, settings)
+            for name in arrays
+                @test isequal(value_parts(getfield(dual_built, name)),
+                    value_parts(getfield(dual_expected, name)))
+                @test isequal(partial_parts(getfield(dual_built, name)),
+                    partial_parts(getfield(dual_expected, name)))
+            end
+        end
+
+        # the settings reach the branches they name: the energy diffusion takes the
+        # radiative part of ν_s with :dream only, and the flux through p = 0 is written (it
+        # vanishes in :full mode, whose thermal factor is zero at p = 0)
+        g = grids[1]
+        diffusion(bremsstrahlung_diffusion) = set_fokker_planck_coefficients!(
+            AdvectionDiffusion(g), plasma,
+            CollisionSettings(; bremsstrahlung_diffusion)).diffusion_p_p
+        @test diffusion(:dream) != diffusion(:none)
+        @test !iszero(set_fokker_planck_coefficients!(AdvectionDiffusion(g), plasma,
+            CollisionSettings(mode = :superthermal)).advection_p_times_p2_at_zero)
+        @test any(x -> any(!iszero, x),
+            partial_parts(set_fokker_planck_coefficients!(
+                Runes2P.similar_coefficients(AdvectionDiffusion(g), D), dual,
+                CollisionSettings()).diffusion_p_p))
+    end
 end

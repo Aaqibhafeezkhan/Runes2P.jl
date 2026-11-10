@@ -1,8 +1,11 @@
 # The collision coefficients built from a plasma in dual numbers, the source
 # of the Jacobian columns of the cold-electron temperature and density: their partials
 # against central differences of the coefficients, in the full and superthermal modes and
-# in the three screening models.
+# in the three screening models. The density and current moments over the hot region add the
+# same values as new terms on the pattern of J, on a wider pattern, on J again and on a
+# pattern changed in place.
 using ForwardDiff: ForwardDiff
+using SparseArrays: findnz, nnz, nonzeros, nzrange, rowvals, sparse
 
 @testset "plasma columns" begin
     @testset "dual coefficients against central differences" begin
@@ -104,6 +107,45 @@ using ForwardDiff: ForwardDiff
         end
     end
 
+    @testset "particle source in the lowest cell with the temperature as an unknown" begin
+        # the shape fills the first momentum cell of every pitch cell and does not depend on
+        # the temperature: the stored Jacobian holds those cells in the column of the
+        # magnitude and no column of the temperature
+        layout = UnknownLayout(g.radial_grid,
+            [KineticUnknown(:f, g; scale = 1e19),
+                RadialUnknown(:particle_source; scale = 1e22),
+                RadialUnknown(:cold_electron_temperature; scale = 10.0)])
+        term = ParticleSourceTerm(:particle_source, g, :cold_electron_temperature; shape = :lowest_cell)
+        @test !is_linear(term) &&
+              Set(dependencies(term)) == Set([:particle_source, :cold_electron_temperature])
+        equations = [Equation(:f, TimeDerivative(), term),
+            Equation(:particle_source, Algebraic(),
+                PrescribedValueTerm([1e22, 2e22]), minus(:particle_source)),
+            Equation(:cold_electron_temperature, Algebraic(),
+                PrescribedValueTerm([1.0, 1.5]), minus(:cold_electron_temperature))]
+        u = zeros(length(layout))
+        for ir in 1:2
+            kinetic_view(u, layout, 1, ir) .= maxwellian([1.0, 1.5][ir])
+        end
+        unknown_values(u, layout, 2) .= [1e22, 2e22]
+        unknown_values(u, layout, 3) .= [1.0, 1.5]
+        system = EquationSystem(layout, equations; initial_state = u)
+        J = jacobian_prototype(system)
+        jacobian!(J, system, u, 0.0)
+        @test Matrix(J) ≈ ForwardDiff.jacobian(v -> rhs!(similar(v), v, system, 0.0), u) rtol = 1e-14
+        pattern = jacobian_sparsity(system)
+        np = momentum_cell_count(g)
+        for ir in 1:2
+            rows = Runes2P.unknown_range(layout, 1, ir)
+            source = first(Runes2P.unknown_range(layout, 2, ir))
+            temperature = first(Runes2P.unknown_range(layout, 3, ir))
+            @test findall(pattern[rows, source]) == 1:np:length(rows)
+            @test !any(pattern[rows, temperature])
+            @test Vector(J[rows, source])[1:np:end] ==
+                  source_shape(term, ir, u, layout, 0.0)[1, :]
+        end
+    end
+
     @testset "hot threshold with the temperature as an unknown" begin
         layout = UnknownLayout(g.radial_grid,
             [KineticUnknown(:f, g; scale = 1e19),
@@ -157,6 +199,37 @@ using ForwardDiff: ForwardDiff
                     @test Vector(J[rows, column]) ≈
                           column_difference(system, u, column, 0.0)[rows] rtol = 1e-6
                 end
+            end
+            # the moments keep the positions of their rows for the pattern of J: on a pattern
+            # with an entry more in the first row of every column, which moves the positions of
+            # the kinetic columns, and on the pattern of the system again, they add the same
+            # values as new terms
+            n = length(u)
+            entries, columns, _ = findnz(J)
+            wider = sparse(
+                [entries; ones(Int, n)], [columns; 1:n], zeros(length(entries) + n), n, n)
+            @test nnz(wider) > nnz(J)
+            fresh_terms = (
+                DensityMomentTerm(:f, g; region), CurrentMomentTerm(:f, g; region))
+            for (term, fresh, row) in zip((density_term, current_term), fresh_terms, (3, 4))
+                fill!(nonzeros(J), 0.0)
+                Runes2P.add_jacobian!(J, fresh, u, layout, row, 0.0)
+                expected = Matrix(J)
+                for matrix in (J, wider, J)
+                    fill!(nonzeros(matrix), 0.0)
+                    Runes2P.add_jacobian!(matrix, term, u, layout, row, 0.0)
+                    @test isequal(Matrix(matrix), expected)
+                end
+                # a pattern changed in place keeps its arrays: an entry inserted in the first
+                # column moves the positions of the kinetic columns
+                changed = copy(J)
+                Runes2P.add_jacobian!(changed, term, u, layout, row, 0.0)
+                inserted = findfirst(!in(rowvals(changed)[nzrange(changed, 1)]), 1:n)
+                changed[inserted, 1] = 1.0
+                @test nnz(changed) == nnz(J) + 1
+                fill!(nonzeros(changed), 0.0)
+                Runes2P.add_jacobian!(changed, term, u, layout, row, 0.0)
+                @test isequal(Matrix(changed), expected)
             end
         end
         @test_throws ArgumentError momentum_envelope(region, g, 1, 0.0)

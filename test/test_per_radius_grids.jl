@@ -1,6 +1,9 @@
 # Kinetic grids with a momentum grid per radius: shared detection, accessors, operators
-# that need the same cell counts refusing others, and the knock-on operator on different
-# momentum grids at different radii.
+# that need the same cell counts refusing others, the knock-on operator on different
+# momentum grids at different radii, and the buffers that the friction term and the moments
+# over a region that follows the temperature keep, on grids of two shapes.
+using Random: Xoshiro
+using SparseArrays: nonzeros, sparse
 
 # an assertion on allocations holds for optimised code alone: it is skipped, and reported
 # as broken, in a development run at -O0 or -O1
@@ -106,5 +109,159 @@ const OPTIMIZED = Base.JLOptions().opt_level >= 2
             apply_at_radius!(df1, op, f1, 1e20, 1)
             @test (@allocated apply_at_radius!(df1, op, f1, 1e20, 1)) == 0 skip = !OPTIMIZED
         end
+    end
+end
+
+# the column `column` of the Jacobian of `residual!(out, state)` at `state` by central
+# differences
+function central_difference_column(residual!, state, column)
+    h = 1e-6 * max(abs(state[column]), 1.0)
+    plus = copy(state)
+    minus = copy(state)
+    plus[column] += h
+    minus[column] -= h
+    upper = residual!(zeros(length(state)), plus)
+    lower = residual!(zeros(length(state)), minus)
+    return (upper .- lower) ./ (2h)
+end
+
+# the largest difference between the entries of J at `rows` and `columns` and the central
+# differences of `residual!` at `state`, relative to the larger of the two at each entry,
+# with a floor of 1e-8 of the largest entry of the column, so that an entry near zero by
+# cancellation does not compare round-off with round-off
+function worst_central_difference(J, residual!, state, rows, columns)
+    worst = 0.0
+    for column in columns
+        difference = central_difference_column(residual!, state, column)
+        largest = max(maximum(abs, difference[rows]), maximum(abs, J[rows, column]))
+        smallest_scale = 1e-8 * largest
+        for r in rows
+            scale = max(abs(difference[r]), abs(J[r, column]), smallest_scale)
+            if scale > 0
+                worst = max(worst, abs(J[r, column] - difference[r]) / scale)
+            end
+        end
+    end
+    return worst
+end
+
+@testset "kept buffers on grids of two shapes" begin
+    # two radii with different momentum and pitch cell counts: the friction term keeps a
+    # scratch per shape of the cells, and the moments over a region that follows the
+    # temperature keep positions and weights per radius; the kept terms against terms built
+    # afresh, bit for bit, and their Jacobians against central differences
+    radial = RadialGrid([0.0, 0.25, 0.5])
+    nr = 2
+    m1 = MomentumGrid(collect(range(0, 0.8; length = 21)), collect(range(-1, 1; length = 5)))
+    m2 = MomentumGrid(collect(range(0, 0.8; length = 15)), collect(range(-1, 1; length = 7)))
+    ragged = cylindrical_grid([m1, m2], radial)
+    temperature = [300.0, 800.0]
+    density = [3e19, 8e19]
+    argon = IonSpecies("Ar", 18, zeros(19, nr))
+    argon.charge_state_densities[2, :] .= [1e19, 2e19]
+    deuterium = IonSpecies("D", 1, [zeros(1, nr); fill(5e19, 1, nr)])
+    prescribed = PlasmaState(; cold_electron_temperature = temperature,
+        cold_electron_density = density, ions = [deuterium, argon],
+        electric_field = zeros(nr), magnetic_field = fill(2.5, nr))
+    composition = IonComposition(["D" => 1, "Ar" => 18])
+    unknowns() = [RadialUnknown(:cold_electron_temperature; scale = 10.0),
+        RadialUnknown(:cold_electron_density; scale = 1e19),
+        ion_densities_unknown(composition), RadialUnknown(:heating; scale = 1e6),
+        KineticUnknown(:f, ragged; scale = 1e17)]
+    layout = UnknownLayout(radial, unknowns())
+    # a second layout, equal in value
+    same_layout = UnknownLayout(radial, unknowns())
+    n = length(layout)
+    T_id = unknown_id(layout, :cold_electron_temperature)
+    n_id = unknown_id(layout, :cold_electron_density)
+    ion_id = unknown_id(layout, :ion_densities)
+    f_id = unknown_id(layout, :f)
+    row = unknown_id(layout, :heating)
+    u0 = zeros(n)
+    unknown_values(u0, layout, T_id) .= temperature
+    unknown_values(u0, layout, n_id) .= density
+    for ir in 1:nr
+        radial_view(u0, layout, ion_id, ir) .= vcat(
+            deuterium.charge_state_densities[:, ir], argon.charge_state_densities[:, ir])
+    end
+    rng = Xoshiro(7)
+    for ir in 1:nr
+        m = momentum_grid(ragged, ir)
+        kinetic_view(u0, layout, f_id, ir) .= [1e17 * exp(-3p) * (1 + 0.2 * rand(rng))
+                                               for p in m.p_centers, _ in m.xi_centers]
+    end
+    u1 = copy(u0)
+    unknown_values(u1, layout, T_id) .*= 1.3
+    unknown_values(u1, layout, n_id) .*= 0.9
+    rows = [first(unknown_range(layout, row, ir)) for ir in 1:nr]
+    # a matrix with the pattern of `entries` and zero values
+    pattern(entries) = sparse(first.(entries), last.(entries), 0.0, n, n)
+
+    @testset "the friction term" begin
+        plasma = PlasmaFromUnknowns(prescribed; ions = :ion_densities)
+        new_friction() = FrictionEnergyTransferTerm(:f, ragged, plasma; coefficient = -2.0)
+        term = new_friction()
+        Runes2P.validate(term, layout, row)
+        @test length(term.products) == 2
+        @test term.shapes == [1, 2]
+        entries = Runes2P.sparsity!(Tuple{Int, Int}[], term, layout, row)
+        J = pattern(entries)
+        for state in (u0, u1, u0, u1)
+            fresh = new_friction()
+            kept_residual = rhs!(zeros(n), term, state, layout, row, 0.0)
+            fresh_residual = rhs!(zeros(n), fresh, state, layout, row, 0.0)
+            @test isequal(kept_residual, fresh_residual)
+            fill!(nonzeros(J), 0.0)
+            Runes2P.add_jacobian!(J, term, state, layout, row, 0.0)
+            J_fresh = pattern(entries)
+            Runes2P.add_jacobian!(J_fresh, fresh, state, layout, row, 0.0)
+            @test isequal(nonzeros(J), nonzeros(J_fresh))
+        end
+        # the columns of the plasma and of f at both radii, at u1
+        fill!(nonzeros(J), 0.0)
+        Runes2P.add_jacobian!(J, term, u1, layout, row, 0.0)
+        columns = vcat(collect(unknown_range(layout, T_id, 1)),
+            collect(unknown_range(layout, T_id, 2)), collect(unknown_range(layout, n_id, 2)),
+            collect(unknown_range(layout, ion_id, 1))[[2, 4]],
+            collect(unknown_range(layout, ion_id, 2))[[2, 4]],
+            collect(unknown_range(layout, f_id, 1))[[1, 33, 80]],
+            collect(unknown_range(layout, f_id, 2))[[1, 50, 84]])
+        function friction_residual!(out, state)
+            rhs!(out, new_friction(), state, layout, row, 0.0)
+            return out
+        end
+        worst = worst_central_difference(J, friction_residual!, u1, rows, columns)
+        @test worst < 1e-5
+    end
+
+    @testset "the moments over a region that follows the temperature ($name)" for (name, new_moment) in (
+        ("DensityMomentTerm", region -> DensityMomentTerm(:f, ragged; region)),
+        ("CurrentMomentTerm", region -> CurrentMomentTerm(:f, ragged; region)))
+        region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor = 5))
+        term = new_moment(region)
+        entries = Runes2P.sparsity!(Tuple{Int, Int}[], term, layout, row)
+        J = pattern(entries)
+        # a second matrix of the pattern with other arrays, so that the kept positions move
+        # between the two, and the layout equal in value
+        other_J = pattern(entries)
+        for (state, matrix, on_layout) in ((u0, J, layout), (u1, J, layout),
+            (u1, other_J, layout), (u0, J, layout), (u1, J, same_layout), (u0, J, layout))
+            fill!(nonzeros(matrix), 0.0)
+            Runes2P.add_jacobian!(matrix, term, state, on_layout, row, 0.0)
+            reference = pattern(entries)
+            Runes2P.add_jacobian!(reference, new_moment(region), state, on_layout, row, 0.0)
+            @test isequal(nonzeros(matrix), nonzeros(reference))
+        end
+        fill!(nonzeros(J), 0.0)
+        Runes2P.add_jacobian!(J, term, u1, layout, row, 0.0)
+        columns = vcat(collect(unknown_range(layout, T_id, 1)),
+            collect(unknown_range(layout, T_id, 2)), collect(unknown_range(layout, f_id, 1)),
+            collect(unknown_range(layout, f_id, 2)))
+        function moment_residual!(out, state)
+            rhs!(out, new_moment(region), state, layout, row, 0.0)
+            return out
+        end
+        worst = worst_central_difference(J, moment_residual!, u1, rows, columns)
+        @test worst < 1e-4
     end
 end

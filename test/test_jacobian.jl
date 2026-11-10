@@ -1,5 +1,5 @@
 using Random: Xoshiro
-using SparseArrays: findnz, nnz
+using SparseArrays: findnz, nnz, sparse
 using Runes2P: is_local
 
 @testset "sparse Jacobian" begin
@@ -28,6 +28,20 @@ using Runes2P: is_local
     f2 = rand(rng, size(g)...)
     jacobian!(J, sj, f2)
     @test J ≈ M + Diagonal(2 .* vec(f2))
+end
+
+@testset "the start of a run of stored rows of a column" begin
+    # the run of a column is found by one search and checked at its first and last row; the
+    # stored rows increase strictly, so a missing row anywhere fails the check
+    A = sparse([1, 2, 3, 4, 6, 1, 3], [1, 1, 1, 1, 1, 2, 2], ones(7), 6, 3)
+    @test Runes2P._run_start(A, 2:4, 1) == 2
+    @test Runes2P._run_start(A, 1:1, 2) == 6
+    @test_throws ArgumentError Runes2P._run_start(A, 3:5, 1)
+    @test_throws ArgumentError Runes2P._run_start(A, 4:6, 1)
+    @test_throws ArgumentError Runes2P._run_start(A, 1:3, 2)
+    @test_throws ArgumentError Runes2P._run_start(A, 3:4, 2)
+    @test_throws ArgumentError Runes2P._run_start(A, 1:1, 3)
+    @test_throws ArgumentError Runes2P._run_start(A, 2:1, 1)
 end
 
 @testset "stencil pattern covers traced pattern" begin
@@ -100,6 +114,110 @@ end
         @test Set(entries) == Set(zip(rows, columns))
         @test check_stencil_pattern(op)
     end
+end
+
+@testset "stencil of the declared coefficients" begin
+    # a Fokker-Planck operator declares no radial transport and no cross diffusion: its
+    # pattern couples neither the radii nor p and ξ off the axes, and it covers the traced one
+    mom = MomentumGrid(uniform_p_faces(6, 0.2, 2.0), uniform_xi_faces(5))
+    g = cylindrical_grid(mom, RadialGrid(uniform_r_faces(4, 1.0)))
+    layout = UnknownLayout(g.radial_grid, [KineticUnknown(:f, g)])
+    cells = CartesianIndices(size(g))
+    plasma = PlasmaState(cold_electron_temperature = [100.0, 200.0, 300.0, 400.0],
+        ions = [IonSpecies("D", 1, 1, fill(1e20, 4))],
+        electric_field = fill(5.0, 4), magnetic_field = fill(5.0, 4))
+    # the entries of a pattern that couple two radii, and those off the axes in p and ξ
+    function couplings(pattern)
+        rows, columns, _ = findnz(pattern)
+        radial = count(k -> cells[rows[k]][3] != cells[columns[k]][3], eachindex(rows))
+        off_axes = count(eachindex(rows)) do k
+            a, b = cells[rows[k]], cells[columns[k]]
+            a[1] != b[1] && a[2] != b[2]
+        end
+        return (; radial, off_axes)
+    end
+    for scheme in (:central, :quick, :exponential_fitting, :upwind_second_order, :van_albada),
+        p_lower_boundary in (:zero_flux, :interface),
+        p_upper_boundary in (:f_zero, :constant_flux, :extrapolated_flux,
+            :extrapolated_flux_consistent, :interface)
+
+        # the extrapolated flux has no form with exponential fitting; its consistent form has
+        if scheme === :exponential_fitting && p_upper_boundary === :extrapolated_flux
+            continue
+        end
+        op = fokker_planck_operator(g, plasma; scheme, p_lower_boundary, p_upper_boundary)
+        @test !op.radial_transport[] && !op.cross_diffusion[]
+        @test couplings(stencil_pattern(op)) == (radial = 0, off_axes = 0)
+        @test check_stencil_pattern(op)
+        entries = Runes2P.sparsity!(Tuple{Int, Int}[], FokkerPlanckTerm(:f, op), layout, 1)
+        rows, columns, _ = findnz(stencil_pattern(op))
+        @test Set(entries) == Set(zip(rows, columns))
+    end
+    # an operator built by hand declares both, and a term with a plasma source clears them
+    op = AdvectionDiffusion(g; scheme = :central, r_boundary = :absorbing)
+    @test op.radial_transport[] && op.cross_diffusion[]
+    full = couplings(stencil_pattern(op))
+    @test full.radial > 0 && full.off_axes > 0
+    @test couplings(stencil_pattern(op.grid)) == full
+    term = prescribed_fokker_planck_term(:f, op, t -> plasma)
+    @test !op.radial_transport[] && !op.cross_diffusion[]
+    entries = Runes2P.sparsity!(Tuple{Int, Int}[], term, layout, 1)
+    @test Set(entries) == Set(zip(findnz(stencil_pattern(op))[1:2]...))
+    @test couplings(stencil_pattern(op)) == (radial = 0, off_axes = 0)
+    @test describe(op; coefficients = false)["radial_transport"] == false
+    # a linear Jacobian mode stores the pattern of its own scheme, with the declarations it
+    # shares with the operator
+    op = AdvectionDiffusion(g; scheme = :central, r_boundary = :absorbing)
+    term = prescribed_fokker_planck_term(:f, op, t -> plasma; jacobian = :upwind)
+    stored = term.stored_operator
+    @test stored.p_scheme === :upwind && !stored.radial_transport[] &&
+          !stored.cross_diffusion[]
+    entries = Runes2P.sparsity!(Tuple{Int, Int}[], term, layout, 1)
+    @test Set(entries) == Set(zip(findnz(stencil_pattern(stored))[1:2]...))
+    @test couplings(stencil_pattern(stored)) == (radial = 0, off_axes = 0)
+    # a term that is refused leaves the declarations of its operator as they were
+    op = AdvectionDiffusion(g; scheme = :central, r_boundary = :absorbing)
+    @test_throws "jacobian must be" prescribed_fokker_planck_term(:f, op, t -> plasma; jacobian = :none)
+    @test op.radial_transport[] && op.cross_diffusion[]
+    # each declaration alone, and the keyword form on a bare grid
+    radial_only = couplings(stencil_pattern(AdvectionDiffusion(g; cross_diffusion = false)))
+    @test radial_only.radial == full.radial && radial_only.off_axes == 0
+    @test couplings(stencil_pattern(g; radial_transport = false)) ==
+          (radial = 0, off_axes = full.off_axes)
+end
+
+@testset "undeclared coefficients are refused" begin
+    rng = Xoshiro(7)
+    mom = MomentumGrid(uniform_p_faces(6, 0.2, 2.0), uniform_xi_faces(5))
+    g = cylindrical_grid(mom, RadialGrid(uniform_r_faces(3, 1.0)))
+    layout = UnknownLayout(g.radial_grid, [KineticUnknown(:f, g)])
+    system_of(op) = EquationSystem(layout, [Equation(:f, TimeDerivative(), FokkerPlanckTerm(:f, op))])
+    # cross diffusion in an operator that declares none would fold onto declared entries
+    op = AdvectionDiffusion(g; scheme = :central, cross_diffusion = false)
+    op.diffusion_p_p .= rand(rng, size(op.diffusion_p_p))
+    @test system_of(op) isa EquationSystem
+    op.diffusion_xi_p .= rand(rng, size(op.diffusion_xi_p))
+    @test_throws "FokkerPlanckTerm of f holds diffusion_xi_p" system_of(op)
+    @test_throws "cross_diffusion = false" operator_matrix(op)
+    @test !check_stencil_pattern(op)
+    # radial transport: the writers require the declaration, the system refuses a coefficient
+    # written by hand
+    local_op = AdvectionDiffusion(g; scheme = :central, r_boundary = :absorbing, radial_transport = false)
+    @test_throws "declares no radial transport" add_rechester_rosenbluth_diffusion!(
+        local_op, 1e-3; major_radius = 1.0)
+    @test_throws "declares no radial transport" RechesterRosenbluthUpdate(
+        local_op, t -> 1e-3; major_radius = 1.0)
+    local_op.diffusion_r_r .= 1.0
+    @test_throws "holds diffusion_r_r" system_of(local_op)
+    @test_throws "radial_transport = false" operator_matrix(local_op)
+    # the conductivity refuses radial transport on its own, so only cross diffusion reaches
+    # the check of the declarations
+    plasma = PlasmaState(cold_electron_temperature = fill(100.0, 3),
+        ions = [IonSpecies("D", 1, 1, fill(1e20, 3))], electric_field = zeros(3),
+        magnetic_field = fill(5.0, 3))
+    collisions = fokker_planck_operator(g, plasma; field_in_coefficients = false)
+    collisions.diffusion_p_xi .= 1.0
+    @test_throws "holds diffusion_p_xi" kinetic_conductivity(collisions)
 end
 
 @testset "non-local operators are refused" begin

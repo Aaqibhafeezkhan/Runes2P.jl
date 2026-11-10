@@ -1,8 +1,9 @@
 # Runaway grid above the hot-tail grid and the flux handover between them: the grid, the
 # interface term against a single grid cut in two, conservation across different pitch
-# grids, DREAM's pitch interpolation, the Jacobian.
+# grids, DREAM's pitch interpolation, the Jacobian with the plasma columns, the settings
+# record. The flux through the interface in a radial row is in test_energy_transfer.jl.
 using Random: Xoshiro
-using SparseArrays: findnz
+using SparseArrays: findnz, nnz
 
 # Σ 𝒱' Δp Δξ Δr of a kinetic unknown in a state or a rate
 function kinetic_content(layout, name, values)
@@ -301,8 +302,20 @@ end
                     MomentumInterfaceTerm(:hot_tail_distribution, :runaway_distribution, prescribed, upper)),
                 Equation(:runaway_distribution, TimeDerivative(),
                     FokkerPlanckTerm(:runaway_distribution, upper))])
-        update = RechesterRosenbluthUpdate(prescribed.operator, t -> 1e-3; major_radius = 1.0)
-        @test_throws "rebuild clears it" Runes2P.check_update(update, behind)
+        # the term declares no radial transport for its operator, so an update refuses it; an
+        # update made before the term is refused by the system
+        @test_throws "declares no radial transport" RechesterRosenbluthUpdate(
+            prescribed.operator, t -> 1e-3; major_radius = 1.0)
+        shared = AdvectionDiffusion(hot; p_upper_boundary = :interface)
+        update = RechesterRosenbluthUpdate(shared, t -> 1e-3; major_radius = 1.0)
+        later = prescribed_fokker_planck_term(:hot_tail_distribution, shared, t -> plasma; settings)
+        behind_later = EquationSystem(layout,
+            [
+                Equation(:hot_tail_distribution, TimeDerivative(),
+                    MomentumInterfaceTerm(:hot_tail_distribution, :runaway_distribution, later, upper)),
+                Equation(:runaway_distribution, TimeDerivative(),
+                    FokkerPlanckTerm(:runaway_distribution, upper))])
+        @test_throws "rebuild clears it" Runes2P.check_update(update, behind_later)
     end
 
     @testset "diffusion across the interface" begin
@@ -421,6 +434,119 @@ end
         rhs!(du_overlap, u, case_overlap.system, 0.0)
         rhs!(du_dream, u, case_dream.system, 0.0)
         @test du_overlap ≈ du_dream rtol = 1e-13
+    end
+
+    @testset "the plasma columns of the interface ($scheme, $mapping, lagged = $lagged)" for (
+            scheme, mapping) in ((:exponential_fitting, :overlap), (:upwind, :dream)),
+        lagged in ((), :ions)
+        # an implicit hot-tail term whose plasma reads the temperature, the density and the
+        # charge states, with the field as an unknown (DREAM's disruption case): the columns
+        # of the face cells of both grids and of the radial rows of the flux against central
+        # differences of the residual. With lagged = :ions the charge states are those of the
+        # start of the step, and the rows have no ion columns.
+        lower_grid = cylindrical_grid(
+            MomentumGrid(uniform_p_faces(24, 0.0, 0.05), uniform_xi_faces(3)), rad)
+        upper_grid = runaway_grid(lower_grid, uniform_p_faces(6, 0.05, 0.2)[2:end])
+        argon = zeros(19, 2)
+        argon[1, :] .= [2e17, 4e17]
+        argon[2, :] .= [5e17, 3e17]
+        ions = [IonSpecies("D", 1, [1e18 2e18; 5e19 4e19]), IonSpecies("Ar", 18, argon)]
+        temperatures = [5.0, 3.0]
+        prescribed = PlasmaState(; cold_electron_temperature = temperatures, ions,
+            electric_field = zeros(2), magnetic_field = fill(5.0, 2))
+        layout = UnknownLayout(rad,
+            [ion_densities_unknown(IonComposition(["D" => 1, "Ar" => 18])),
+                RadialUnknown(:cold_electron_density; scale = 1e19),
+                RadialUnknown(:cold_electron_temperature; scale = 10.0),
+                KineticUnknown(:hot_tail_distribution, lower_grid; scale = 1e19),
+                KineticUnknown(:runaway_distribution, upper_grid; scale = 1e19),
+                RadialUnknown(:runaway_density; scale = 1e10),
+                RadialUnknown(:lost_energy),
+                RadialUnknown(:electric_field; scale = 10.0)])
+        lower_term = FokkerPlanckTerm(:hot_tail_distribution,
+            AdvectionDiffusion(lower_grid; scheme, p_upper_boundary = :interface);
+            plasma = PlasmaFromUnknowns(prescribed; ions = :ion_densities),
+            settings = CollisionSettings(; mode = :full, screening = :partial),
+            electric_field = :electric_field, lagged)
+        upper_op = random_coefficients!(
+            AdvectionDiffusion(upper_grid; p_lower_boundary = :interface), rng)
+        upper_op.advection_p[end, :, :] .= 0
+        interface = MomentumInterfaceTerm(:hot_tail_distribution, :runaway_distribution,
+            lower_term, upper_op; pitch_mapping = mapping)
+        @test Runes2P.has_plasma_columns(interface) && !is_linear(interface)
+        @test issubset(
+            [:cold_electron_temperature, :cold_electron_density, :electric_field],
+            dependencies(interface))
+        @test (:ion_densities in dependencies(interface)) == (lagged == ())
+        density = InterfaceParticleFluxTerm(interface)
+        energy = InterfaceEnergyFluxTerm(interface)
+        @test Runes2P.has_plasma_columns(density) && Runes2P.has_plasma_columns(energy)
+        hold(name, value) = Equation(name, Algebraic(), PrescribedValueTerm(value),
+            LinearTerm(name; coefficient = -1))
+        u = zeros(length(layout))
+        set_ion_densities!(u, layout, ions)
+        unknown_values(u, layout, 2) .= [free_electron_density(ions, ir) for ir in 1:2]
+        unknown_values(u, layout, 3) .= temperatures
+        unknown_values(u, layout, 8) .= [20.0, 30.0]
+        theta = temperatures ./ Constants.ELECTRON_REST_ENERGY
+        for ir in 1:2
+            m = momentum_grid(lower_grid, ir)
+            # a Maxwellian with a tail that reaches the interface
+            kinetic_view(u, layout, 4, ir) .= [1e19 * exp(-p^2 / (2theta[ir])) *
+                                               (1 + 0.1xi) +
+                                               1e15 * exp(-((p - 0.045) / 0.01)^2)
+                                               for p in m.p_centers, xi in m.xi_centers]
+            kinetic_view(u, layout, 5, ir) .= 1e14 .* rand(rng, size(upper_grid)[1:2]...)
+        end
+        system = EquationSystem(layout,
+            [Equation(:ion_densities, TimeDerivative()),
+                hold(:cold_electron_density, unknown_values(u, layout, 2)),
+                hold(:cold_electron_temperature, temperatures),
+                Equation(:hot_tail_distribution, TimeDerivative(), lower_term, interface),
+                Equation(:runaway_distribution, TimeDerivative(),
+                    FokkerPlanckTerm(:runaway_distribution, upper_op), interface),
+                Equation(:runaway_density, TimeDerivative(), density),
+                Equation(:lost_energy, TimeDerivative(), energy),
+                hold(:electric_field, [20.0, 30.0])];
+            initial_state = u)
+        # the system prepares the lagged ions of the step
+        lagged == :ions && Runes2P.prepare_step!(lower_term, u, layout, 4, 0.0)
+        J = jacobian_prototype(system)
+        jacobian!(J, system, u, 0.0)
+        rhs_of(x) = (out = zeros(length(x)); rhs!(out, x, system, 0.0); out)
+        base = rhs_of(u)
+        row_groups = (
+            lower = [Runes2P._kinetic_index(layout, 4, ir, 24, j) for ir in 1:2
+                     for j in 1:3],
+            upper = [Runes2P._kinetic_index(layout, 5, ir, 1, J) for ir in 1:2
+                     for J in 1:20],
+            radial = [first(unknown_range(layout, id, ir)) for id in (6, 7) for ir in 1:2])
+        ion_columns = [column for ir in 1:2 for column in unknown_range(layout, 1, ir)]
+        if lagged == :ions
+            for rows in row_groups
+                @test nnz(J[rows, ion_columns]) == 0
+            end
+        end
+        for ir in 1:2,
+            column in [(lagged == () ? collect(unknown_range(layout, 1, ir)) : Int[]);
+                       first(unknown_range(layout, 2, ir));
+                       first(unknown_range(layout, 3, ir));
+                       first(unknown_range(layout, 8, ir))]
+
+            h = column in unknown_range(layout, 1, ir) ? 1e-6 * 1e19 : 1e-6 * u[column]
+            up, down = copy(u), copy(u)
+            up[column] += h
+            down[column] -= h
+            change = (rhs_of(up) - rhs_of(down)) / 2h
+            for rows in row_groups
+                size_of_rows = maximum(abs, base[rows])
+                @test maximum(abs, Vector(J[rows, column]) - change[rows]) <=
+                      1e-5 * maximum(abs, change[rows]) + 1e-12 * size_of_rows / h
+            end
+        end
+        # the flux follows the temperature in every row it enters
+        T_column = first(unknown_range(layout, 3, 1))
+        @test all(rows -> any(!iszero, J[rows, T_column]), row_groups)
     end
 
     @testset "settings record" begin

@@ -92,13 +92,13 @@ _is_plain(x) = false
             IonRateTerm, KineticIonizationTerm, IonDiffusionTerm, SecondaryHeatingTerm,
             EnergyMomentTerm, HeatTransportTerm, IonEnergyExchangeTerm,
             RunawayFluidEnergyTransferTerm, KineticEnergyLossTerm, FrictionEnergyTransferTerm,
-            InterfaceEnergyFluxTerm, KnockOnTerm, LinearTerm, DensityMomentTerm,
+            InterfaceEnergyFluxTerm, InterfaceParticleFluxTerm, KnockOnTerm, LinearTerm, DensityMomentTerm,
             CurrentMomentTerm, MaxwellianSourceTerm, MomentumInterfaceTerm, RadialEdgeLossTerm, LossRateTerm,
             PrescribedValueTerm, ParticleSourceTerm, MomentumBoundaryFluxTerm, PoloidalFluxDiffusionTerm,
             CrossSectionIntegralTerm, ConductivityTerm, RadiatedPowerTerm,
             RosenbluthPutvinskiSourceTerm, ExternalAvalancheTerm,
             FieldParticleTerm, FieldParticleOperator, EquationSystem, Tolerance, CollisionSettings,
-            IonSpecies, PlasmaState, NewtonSolver, GMRES, SparseLU,
+            IonSpecies, PlasmaState, NewtonSolver, GMRES, SparseLU, MKLPardiso,
             RadiusBlockLU, RadiusBlockILU, FluidSchurLU]
         for T in types
             fields = settings_fields(T)
@@ -213,6 +213,11 @@ _is_plain(x) = false
               Dict{String, Any}("type" => "RadiusBlockILU", "drop_tolerance" => 1e-3)
         @test describe(NewtonSolver())["linear_solver"] ==
               Dict{String, Any}("type" => "SparseLU")
+        # the record of MKLPardiso needs no Pardiso.jl
+        pardiso_record = Dict{String, Any}(
+            "type" => "MKLPardiso", "threads" => 4, "refinement_steps" => 0)
+        @test describe(NewtonSolver(linear_solver = MKLPardiso(threads = 4)))["linear_solver"] ==
+              pardiso_record
         @test _is_plain(record)
     end
 
@@ -222,6 +227,7 @@ _is_plain(x) = false
         @test record["r_boundary"] == "absorbing"
         @test record["p_scheme"] == "central"
         @test record["p_upper_boundary"] == "outflow"
+        @test record["p_zero_boundary"] == "outflow"
         @test collect(keys(record["coefficients"])) == ["diffusion_r_r"]
         @test record["coefficients"]["diffusion_r_r"] == case.radial.diffusion_r_r
         @test "advection_p" in record["zero_coefficients"]
@@ -509,8 +515,8 @@ _is_plain(x) = false
         @test environment["cpu_threads"] == Sys.CPU_THREADS
         @test occursin(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4}$", environment["start_time"])
         @test _is_plain(environment)
-        @test OUTPUT_FORMAT_VERSION == v"0.0.3"
-        @test Runes2P.output_format_version() == "0.0.3"
+        @test OUTPUT_FORMAT_VERSION == v"0.0.4"
+        @test Runes2P.output_format_version() == "0.0.4"
     end
 
     @testset "output file" begin
@@ -522,7 +528,7 @@ _is_plain(x) = false
         write_output(file, solution)
         h5open(file) do h5
             @test sort(collect(keys(attributes(h5)))) == DOCUMENTED_ROOT_ATTRIBUTES
-            @test read(attributes(h5)["format_version"]) == "0.0.3"
+            @test read(attributes(h5)["format_version"]) == "0.0.4"
             @test VersionNumber(read(attributes(h5)["format_version"])) ==
                   OUTPUT_FORMAT_VERSION
             @test read(attributes(h5)["runes2p_commit"]) == code_version()["commit"]
@@ -566,7 +572,7 @@ _is_plain(x) = false
         write_output(file, by_hand)
         h5open(file) do h5
             @test !haskey(h5, "settings")
-            @test read(attributes(h5)["format_version"]) == "0.0.3"
+            @test read(attributes(h5)["format_version"]) == "0.0.4"
             @test read(attributes(h5)["runes2p_commit"]) == code_version()["commit"]
         end
         @test isempty(read_settings(file))

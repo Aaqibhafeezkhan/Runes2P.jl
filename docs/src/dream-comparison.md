@@ -102,7 +102,7 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 | prescribed cold temperature | `ColdElectronTemperature.TYPE_PRESCRIBED` | ✅ implemented: [`PrescribedPlasma`](@ref) |
 | self-consistent cold temperature | `TYPE_SELFCONSISTENT` | ✅ implemented: [`thermal_energy_equation`](@ref), [`PlasmaFromUnknowns`](@ref) |
 | ohmic heating | `Tcold_ohmic` | ✅ implemented: [`ohmic_heating_term`](@ref) |
-| collisional heating by ``f_\mathrm{hot}`` and ``f_\mathrm{re}`` | `Tcold_fhot_coll`, `Tcold_fre_coll` | ✅ implemented: [`FrictionEnergyTransferTerm`](@ref), DREAM's moment, for the hot tail; for the runaway grid Runes2P's default is [`free_electron_energy_transfer_term`](@ref), the energy change of the electron-electron operator ([`KineticEnergyLossTerm`](@ref)), and DREAM's moment is the option ([Defaults that differ](#Defaults-that-differ)); the moment is compared with DREAM's saved heating of both grids (`test_collisional_heating_dream.jl`) |
+| collisional heating by ``f_\mathrm{hot}`` and ``f_\mathrm{re}`` | `Tcold_fhot_coll`, `Tcold_fre_coll` | ✅ implemented: [`FrictionEnergyTransferTerm`](@ref), DREAM's moment, for the hot tail; for the runaway grid Runes2P's default is [`free_electron_energy_transfer_term`](@ref), the energy change of the electron-electron operator ([`KineticEnergyLossTerm`](@ref)), and DREAM's moment is the option ([Defaults that differ](#Defaults-that-differ)); the moment is compared with DREAM's saved heating of both grids (`test_collisional_heating_dream.jl`), and in a run of the runaway grid with the cold temperature self-consistent against DREAM's run (`test_runaway_heating_dream.jl`) |
 | collisional heating by fluid runaways | `CollisionalEnergyTransferREFluidTerm` | ✅ implemented: [`RunawayFluidEnergyTransferTerm`](@ref) |
 | line radiation, ionization energy, Gould's bremsstrahlung | `RECOMBINATION_RADIATION_NEGLECTED` | ✅ implemented: `radiation = :dream` of [`RadiatedPowerTerm`](@ref), with `bremsstrahlung_corrections = :dream` |
 | recombination radiation | `RECOMBINATION_RADIATION_INCLUDED` | ✅ implemented: `radiation = :recombination` of [`RadiatedPowerTerm`](@ref), with the energy of the recombined state at every radius |
@@ -135,7 +135,7 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 
 | Feature | DREAM | Runes2P |
 |---|---|---|
-| fluid runaway density | unknown `n_re` | 🚧 partial: a radial unknown above a hot-tail grid without a runaway grid, fed by [`ExternalAvalancheTerm`](@ref) and the flux through ``p_\mathrm{max}`` ([`MomentumBoundaryFluxTerm`](@ref)) |
+| fluid runaway density | unknown `n_re` | 🚧 partial: a radial unknown above a hot-tail grid without a runaway grid, fed by [`ExternalAvalancheTerm`](@ref) and the flux through ``p_\mathrm{max}`` ([`MomentumBoundaryFluxTerm`](@ref)); with a runaway grid, fed by the particle flux through the interface ([`InterfaceParticleFluxTerm`](@ref)) |
 | Connor–Hastie Dreicer rate | `DREICER_RATE_CONNOR_HASTIE`, `_NOCORR` | 🚧 partial: [`connor_hastie_rate`](@ref), no source term |
 | Dreicer rate of the neural network | `DREICER_RATE_NEURAL_NETWORK` | ➖ not implemented |
 | extrapolation of the Dreicer rate | `setExtrapolateDreicer` | ➖ not implemented |
@@ -177,6 +177,7 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 | a scheme per direction | `ad_int_r`, `ad_int_p1`, `ad_int_p2` | ✅ implemented: `r_scheme`, `p_scheme`, `xi_scheme` |
 | Jacobian of a flux limiter | `AD_INTERP_JACOBIAN_LINEAR`, `FULL`, `UPWIND` | ✅ implemented: `jacobian` of [`FokkerPlanckTerm`](@ref) |
 | boundary at ``p_\mathrm{max}`` | `BC_F_0`, `BC_PHI_CONST`, `BC_DPHI_CONST` | ✅ implemented: `p_upper_boundary` of [`AdvectionDiffusion`](@ref) |
+| boundary at ``p = 0`` | `AD_BC_MIRRORED` with the internal boundary condition of ``f_\mathrm{hot}``, `AD_BC_DIRICHLET` on ``f_\mathrm{re}`` | ✅ implemented: `p_zero_boundary` of [`AdvectionDiffusion`](@ref), `:outflow` and `:zero_flux` |
 | threshold of the hot region | `HOT_REGION_P_MODE_THERMAL`, `THERMAL_SMOOTH`, `MC` | ✅ implemented: [`ThermalMomentum`](@ref), [`MomentumRegion`](@ref) |
 | particle source | `PARTICLE_SOURCE_ZERO`, `IMPLICIT`, `EXPLICIT` | 🚧 partial: zero and implicit, [`ParticleSourceTerm`](@ref) with a [`Constraint`](@ref) |
 | shape of the particle source | `PARTICLE_SOURCE_SHAPE_MAXWELLIAN`, `DELTA` | ✅ implemented: `shape` of [`ParticleSourceTerm`](@ref) |
@@ -198,7 +199,7 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 | tolerances per unknown | `ToleranceSettings` | ✅ implemented: [`Tolerance`](@ref) |
 | residual check | `setCheckResidual` | ✅ implemented as a convergence criterion, except for the linear steps that `linear_acceptance` of [`NewtonSolver`](@ref) accepts on the update and the steps at the round-off floor of the residual |
 | damped Newton step | `MaximalPhysicalStepLength` | ✅ implemented: [`LowerLimit`](@ref), `max_reduction` |
-| direct linear solvers | `LINEAR_SOLVER_LU`, `MUMPS`, `MKL`, `SUPERLU` | 🚧 partial: UMFPACK, [`SparseLU`](@ref) |
+| direct linear solvers | `LINEAR_SOLVER_LU`, `MUMPS`, `MKL`, `SUPERLU` | 🚧 partial: UMFPACK, [`SparseLU`](@ref); MKL PARDISO, [`MKLPardiso`](@ref) with `using Pardiso` |
 | GMRES | `LINEAR_SOLVER_GMRES` | ✅ implemented: [`GMRES`](@ref) |
 | backup solver | `setBackupSolver` | ➖ not implemented |
 | scaling of the unknowns | `Preconditioner` | ✅ implemented: [`unknown_scales`](@ref) |
@@ -228,6 +229,8 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 The coupled reference case is DREAM's disruption of `examples/Disruptions/generate.py`, scenario 1, in a cylinder, at the size of a test, fully kinetic and in the superthermal mode.
 Its case script is `reference/dream/cases/disruption_kinetic.py` ([Reference data](reference-data.md)).
 Each part of the case is compared with DREAM's output at every saved step after its start; the chain end to end compares its two phases, and the initialization has its own test.
+The quench with a runaway grid is compared in a window of 10 steps from DREAM's state, where `f_re` carries part of the current.
+From `f_re` zero its test checks the budgets of its closures alone.
 
 | Part | DREAM | Runes2P | Test |
 |---|---|---|---|
@@ -236,6 +239,8 @@ Each part of the case is compared with DREAM's output at every saved step after 
 | thermal and current quench | run 4 | started from DREAM's state at the start of the phase | `test_disruption_dream.jl` |
 | the chain end to end | runs 0 to 4 | the initialization, then each phase from Runes2P's own end state of the run before it | `test_disruption_chain_dream.jl` |
 | the chain end to end in the superthermal mode | runs 0 to 4 of `generate.py --superthermal` | the same with `mode = :superthermal` of the builder of the case, and each phase from DREAM's state at its start | `test_disruption_superthermal_dream.jl` |
+| thermal and current quench with a runaway grid | the case script's `--runaway-grid` ([Choices](choices.md#Reference-cases)): runs 1 to 4 with the runaway grid to step 170 of the quench, and a window of 10 steps after it (run 5) | `runaway = true` of the builder of the case: the flux through `p_max` of `f_hot` enters `f_re` and `n_re` ([`MomentumInterfaceTerm`](@ref), [`InterfaceParticleFluxTerm`](@ref)), the avalanche above that `p_max` is kinetic on `f_re` and fluid in `n_re`, and `f_re` carries the runaway current, ionizes the ions and heats the cold electrons; the window started from DREAM's state at its start, with the budgets of its closures at both `compat` values | `test_disruption_runaway_dream.jl` |
+| the same from `f_re` zero | not compared with DREAM: the quench of run 4 without the runaway grid | the start of the quench with `f_re` zero, the budgets of its closures at both `compat` values | `test_disruption_runaway.jl` |
 
 - The initialization agrees with DREAM to 8e-10 in the field, the currents, the poloidal flux and the plasma current.
 - It agrees to 3e-11 in `f_hot` and the hot-electron density; DREAM's Newton tolerance of these runs is 1e-7.
@@ -243,8 +248,12 @@ Each part of the case is compared with DREAM's output at every saved step after 
 - End to end, the phases agree with DREAM as closely as when they start from DREAM's state in `f_hot` (4e-5) and the field (4e-7).
 - The poloidal flux, the plasma current and the runaway density carry the differences of the initialization: 3e-10, 1e-11 and 4e-11.
 - From DREAM's state they differ by 7e-13, 1e-12 and 6e-12 (`test_disruption_dream.jl`; the runaway density at the first radius).
-- With Runes2P's defaults the chain runs end to end as well, and the budgets of its closures hold within the bounds of the phases started from DREAM's state.
+- With Runes2P's defaults, the synchrotron loss off as in DREAM's case, the chain runs end to end as well.
+  The budgets of its closures hold within the bounds of the phases started from DREAM's state.
 - In the superthermal mode the initialization agrees with DREAM to 2e-9 and the phases to 4e-6, the largest in the ion densities and the cold electrons.
+- With the runaway grid, the window agrees with DREAM to 1.2e-9 in `f_re`, `n_re` and `j_re`, and to 2.2e-8 in every other quantity, the largest in the ion densities.
+- In it the runaway current is 5.9 % of the plasma current at the start.
+  DREAM's `j_re` equals the moment of its `f_re` on Runes2P's grid to 1e-15.
 
 ## What Runes2P has that DREAM does not
 
@@ -274,7 +283,7 @@ Each part of the case is compared with DREAM's output at every saved step after 
 - Preconditioners of [`GMRES`](@ref) for systems coupled through the fluid unknowns: [`FluidSchurLU`](@ref), [`RadiusBlockLU`](@ref), [`RadiusBlockILU`](@ref).
 - Exact Jacobians by automatic differentiation, the columns of the plasma unknowns included ([`jacobian!`](@ref), [`jacobian_correction_product!`](@ref)).
 - A schedule of legs with prescribed steps or a controller ([`Leg`](@ref), [`time_points`](@ref)).
-- Checkpoints and segments of a run; with a direct solver a resumed run repeats the uninterrupted one bit for bit ([`CheckpointSettings`](@ref), [`read_output`](@ref)).
+- Checkpoints and segments of a run; with [`SparseLU`](@ref) a resumed run repeats the uninterrupted one bit for bit ([`CheckpointSettings`](@ref), [`read_output`](@ref)).
 - The system as an ODE function of SciML ([`ode_function`](@ref)).
 
 ## Departures from DREAM
@@ -297,8 +306,9 @@ The reasons of the defaults that are choices of this package are on [Choices of 
 | knock-on pitch | integrated over the cell pair, primary averaged over its cell | both at the cell centres, `dream_compatible = true` of [`KnockOnOperator`](@ref) |
 | current of a distribution | ``f`` linear across a pitch cell | ``f`` constant over a pitch cell, `pitch_rule = :cell_center` |
 | flux between the two grids | by the overlap cells of the pitch grids | interpolated in pitch, `pitch_mapping = :dream` |
+| flux through ``p = 0`` on a runaway grid from ``p = 0`` | the friction carries electrons out by ``\lim_{p \to 0} p^3 ν_s`` ([`p3_slowing_down_frequency_at_zero`](@ref)), as on DREAM's hot-tail grid, `p_zero_boundary = :outflow` of [`fokker_planck_operator`](@ref); in the case `heating` of `reference/dream/cases/initial_state.py` the first step loses 1.55e-4 of the density of ``f_\mathrm{re}``, where DREAM's stays constant to round-off | none, `p_zero_boundary = :zero_flux`: DREAM's ``f_\mathrm{re}`` has no internal boundary condition (`src/Settings/Equations/f_re.cpp:87`) and keeps the Dirichlet lower boundary of its advection in ``p`` (`fvm/Equation/AdvectionTerm.cpp:36`), while ``f_\mathrm{hot}`` has one (`src/Settings/Equations/f_hot.cpp:96`), which mirrors it (`src/Settings/Equations/distribution.cpp:234-237`); `compat = dream` of `runaway_heating_example` (`test_runaway_heating_dream.jl`) |
 | Rechester–Rosenbluth coefficient ``D = \pi q R_0 v_\parallel (\delta B/B)^2`` | safety factor and major radius as inputs | ``q = 1`` and ``R_0 = 1`` m in a cylinder, `safety_factor = 1`, `major_radius = 1` |
-| heating of the cold electrons by a runaway grid | the energy change of the electron-electron operator of the grid, [`free_electron_energy_transfer_term`](@ref), with a linear scheme of the operator | the moment ``m_e c\, v p\, \nu_s f`` at the cell centres, which also counts the energy that the friction carries out of the grid through its lower boundary, [`FrictionEnergyTransferTerm`](@ref) |
+| heating of the cold electrons by a runaway grid | the energy change of the electron-electron operator of the grid, [`free_electron_energy_transfer_term`](@ref), with a linear scheme of the operator | the moment ``m_e c\, v p\, \nu_s f`` at the cell centres, [`FrictionEnergyTransferTerm`](@ref), which also counts the energy that the friction carries out of the grid through ``p = 0`` where that flux is applied (`p_zero_boundary = :outflow`); `compat = dream` of the test case `runaway_heating_example` (`test/example_cases.jl`), compared with DREAM's run in `test_runaway_heating_dream.jl` |
 | radiated power of the ions | line and recombination radiation, the binding energy of ionization and recombination | line radiation, the ionization loss and Gould's bremsstrahlung, `radiation = :dream` of [`RadiatedPowerTerm`](@ref) (with `bremsstrahlung_corrections = :dream` for DREAM's corrections) |
 | relativistic corrections of Gould's bremsstrahlung, the coefficients of ``T/m_ec^2`` | electron-ion ``11/24`` of the erratum ([`GOULD_ION_CORRECTION`](@ref)), electron-electron ``5(44 - 3\pi^2)/(24\sqrt{2})``, the ratio of eqs. (22) and (18) ([`GOULD_ELECTRON_CORRECTION`](@ref)), of R. J. Gould, Astrophys. J. 238, 1026 (1980), [doi:10.1086/158068](https://doi.org/10.1086/158068), erratum Astrophys. J. 243, 677 (1981), [doi:10.1086/158634](https://doi.org/10.1086/158634) | ``19/24`` and ``5(44 - 3\pi^2)/(8\sqrt{2})``, `bremsstrahlung_corrections = :dream` |
 | cross sections of the kinetic ionization | CHIANTI's for H, D, T, Ne and Ar, DREAM's for the other elements | DREAM's fits, `form = :dream` |
@@ -308,6 +318,7 @@ The reasons of the defaults that are choices of this package are on [Choices of 
 | charge states in the collisions of ``f`` | those of the start of the step, `lagged = :ions` | those of the iterate with their Jacobian columns, `lagged = ()` |
 | Newton matrix of a linear system | assembled and factorized once per step | every iteration, `reuse_linear_matrix = false` of [`NewtonSolver`](@ref) |
 | negative entries of a kinetic unknown at convergence | one more Newton iteration for the schemes of [`POLISHED_SCHEMES`](@ref) | none, `polish_negatives = false` of [`NewtonSolver`](@ref) |
+| iterative refinement of MKL PARDISO | none, `refinement_steps = 0` of [`MKLPardiso`](@ref) | up to 10 steps per solve (`fvm/Solvers/MIMKL.cpp`), `MKLPardiso(refinement_steps = 10)` |
 | floor of a temperature unknown | [`DEFAULT_TEMPERATURE_FLOOR`](@ref) ([`fluid_temperature_floors`](@ref)) | damped towards zero, a lower floor of [`PlasmaFromUnknowns`](@ref) or a [`LowerLimit`](@ref) |
 
 ### Behaviour without an option for DREAM's

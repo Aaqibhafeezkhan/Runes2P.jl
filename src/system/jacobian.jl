@@ -96,30 +96,34 @@ function sparse_ad_backend(;
 end
 
 """
-    stencil_pattern(grid; p_width=1, xi_width=1, r_width=1)
+    stencil_pattern(grid; p_width=1, xi_width=1, r_width=1, p_upper_boundary=:f_zero,
+                    radial_transport=true, cross_diffusion=true)
     stencil_pattern(op::AdvectionDiffusion)
 
-Sparsity pattern of the local transport operators: the 3×3 `(p, ξ)` neighbourhood
-(including the p-ξ cross terms), the cells up to `p_width` away in p and `xi_width` away
-in ξ along the axes (2 for the four-point schemes), the cells up to `r_width` radii away,
-and the radial neighbours of each
-cell (the cell of the same pitch at the two neighbouring radii, or with different pitch
-grids the cells that overlap it). For an operator, the widths follow its schemes; with `p_upper_boundary =
-:extrapolated_flux` or `:extrapolated_flux_consistent` the last momentum row is
-additionally coupled up to 3 cells away in p along `j` (the extrapolated flux uses the
-last two interior faces), and, for `:extrapolated_flux_consistent` only,
-diagonally to `(np - 2, j ± 1)` through its second term's p-ξ cross contribution
-(`:extrapolated_flux`'s second term has none).
+Sparsity pattern of the local transport operators: the 3×3 `(p, ξ)` neighbourhood, the
+cells up to `p_width` away in p and `xi_width` away in ξ along the axes (2 for the
+four-point schemes), and with `radial_transport` the radial neighbours of each cell (the
+cell of the same pitch at the two neighbouring radii, or with different pitch grids the
+cells that overlap it) and the cells up to `r_width` radii away. The corners of the 3×3
+block, which only the p-ξ cross diffusion couples, are part of it with `cross_diffusion`.
+With `p_upper_boundary = :extrapolated_flux` or `:extrapolated_flux_consistent` the last
+momentum row is additionally coupled up to 3 cells away in p along `j` (the extrapolated
+flux uses the last two interior faces), and, for `:extrapolated_flux_consistent` with
+`cross_diffusion`, diagonally to `(np - 2, j ± 1)` through its second term's p-ξ cross
+contribution (`:extrapolated_flux`'s second term has none).
+
+For an operator, the widths follow its schemes, and the boundary at `p_max` and the
+declarations of radial transport and cross diffusion are its own
+([`AdvectionDiffusion`](@ref)).
 """
 function stencil_pattern(op::AdvectionDiffusion)
-    stencil_pattern(op.grid; p_width = stencil_half_width(op.p_scheme),
-        xi_width = stencil_half_width(op.xi_scheme),
-        r_width = stencil_half_width(op.r_scheme), p_upper_boundary = op.p_upper_boundary)
+    stencil_pattern(op.grid; _stencil_options(op)...)
 end
 
 function stencil_pattern(grid::KineticGrid; p_width::Integer = 1,
         xi_width::Integer = 1, r_width::Integer = 1,
-        p_upper_boundary::Symbol = :f_zero)
+        p_upper_boundary::Symbol = :f_zero, radial_transport::Bool = true,
+        cross_diffusion::Bool = true)
     np, nxi, nr = size(grid)
     index = LinearIndices((np, nxi, nr))
     rows = Int[]
@@ -128,30 +132,43 @@ function stencil_pattern(grid::KineticGrid; p_width::Integer = 1,
     sizehint!(columns, 11 * np * nxi * nr)
     for ir in 1:nr, j in 1:nxi, i in 1:np
         row = index[i, j, ir]
-        _visit_stencil(
-            grid, i, j, ir; p_width, xi_width, r_width, p_upper_boundary) do i2, j2, ir2
+        _visit_stencil(grid, i, j, ir; p_width, xi_width, r_width, p_upper_boundary,
+            radial_transport, cross_diffusion) do i2, j2, ir2
             push!(rows, row)
             push!(columns, index[i2, j2, ir2])
         end
     end
-    # the extrapolated flux repeats cells of the 3 × 3 block
+    # the extrapolated flux repeats cells of the 3×3 block
     return sparse(rows, columns, trues(length(rows)), np * nxi * nr, np * nxi * nr, |)
 end
 
+# the keywords of `_visit_stencil` for an operator: the widths of its schemes, its boundary
+# at p_max and its declarations
+function _stencil_options(op::AdvectionDiffusion)
+    return (p_width = stencil_half_width(op.p_scheme),
+        xi_width = stencil_half_width(op.xi_scheme),
+        r_width = stencil_half_width(op.r_scheme), p_upper_boundary = op.p_upper_boundary,
+        radial_transport = op.radial_transport[], cross_diffusion = op.cross_diffusion[])
+end
+
 # Calls `visit(i2, j2, ir2)` for every cell that the flux divergence of cell (i, j, ir)
-# reads: the 3 × 3 block in p and ξ, the second neighbours of the four-point schemes along
-# the axes, the radial neighbours (the cells of the neighbouring radii that overlap pitch
-# cell j), the second radial neighbours of the four-point schemes, and for the extrapolated
-# flux at p_max the last row up to 3 cells in p (with the p-ξ cross term of
-# `:extrapolated_flux_consistent`). A cell may be visited twice.
+# reads: the 3×3 block in p and ξ (its corners with cross diffusion), the second
+# neighbours of the four-point schemes along the axes, with radial transport the radial
+# neighbours (the cells of the neighbouring radii that overlap pitch cell j) and the second
+# radial neighbours of the four-point schemes, and for the extrapolated flux at p_max the
+# last row up to 3 cells in p (with the p-ξ cross term of `:extrapolated_flux_consistent`
+# when there is cross diffusion). A cell may be visited twice.
 # Shared by `stencil_pattern` and the sparsity of `FokkerPlanckTerm`.
 function _visit_stencil(visit, grid::KineticGrid, i, j, ir; p_width::Integer,
         xi_width::Integer, r_width::Integer,
-        p_upper_boundary::Symbol)
+        p_upper_boundary::Symbol, radial_transport::Bool, cross_diffusion::Bool)
     np, nxi, nr = size(grid)
     for dj in -1:1, di in -1:1
 
         (1 <= i + di <= np && 1 <= j + dj <= nxi) || continue
+        # a corner of the block is coupled by the cross diffusion alone
+        is_corner = di != 0 && dj != 0
+        (is_corner && !cross_diffusion) && continue
         visit(i + di, j + dj, ir)
     end
     for d in 2:p_width, s in (-d, d)
@@ -166,15 +183,17 @@ function _visit_stencil(visit, grid::KineticGrid, i, j, ir; p_width::Integer,
             visit(i, j + s, ir)
         end
     end
-    for dr in (-1, 1), neighbour in radial_neighbour_pitch_cells(grid, ir, j, dr)
+    if radial_transport
+        for dr in (-1, 1), neighbour in radial_neighbour_pitch_cells(grid, ir, j, dr)
 
-        visit(i, neighbour, ir + dr)
-    end
-    # the second radial neighbours of the four-point schemes, which need one pitch grid
-    for d in 2:r_width, s in (-d, d)
+            visit(i, neighbour, ir + dr)
+        end
+        # the second radial neighbours of the four-point schemes, which need one pitch grid
+        for d in 2:r_width, s in (-d, d)
 
-        if 1 <= ir + s <= nr
-            visit(i, j, ir + s)
+            if 1 <= ir + s <= nr
+                visit(i, j, ir + s)
+            end
         end
     end
     if i == np && p_upper_boundary in (:extrapolated_flux, :extrapolated_flux_consistent)
@@ -183,7 +202,7 @@ function _visit_stencil(visit, grid::KineticGrid, i, j, ir; p_width::Integer,
                 visit(np - d, j, ir)
             end
         end
-        if p_upper_boundary === :extrapolated_flux_consistent
+        if p_upper_boundary === :extrapolated_flux_consistent && cross_diffusion
             for s in (-1, 1)
                 if np >= 2 && 1 <= j + s <= nxi
                     visit(np - 2, j + s, ir)
@@ -258,10 +277,13 @@ is_local(::AdvectionDiffusion) = true
 """
     check_stencil_pattern(op)
 
-Return `true` if every entry of the Jacobian of `op` lies inside `stencil_pattern(op)`.
-A linear operator is traced on its grid; one with a scheme that is nonlinear in f gets its
-dense Jacobian by ForwardDiff at a random positive state (tracing cannot follow the
-branches of a limiter). Slow; intended for tests of local operators on small grids.
+Return `true` if every entry of the Jacobian of `op` lies inside `stencil_pattern(op)`,
+which holds the radial neighbours and the corners of the 3×3 block only when `op` declares
+radial transport and cross diffusion: an operator that holds a coefficient it does not
+declare gives `false`. A linear operator is traced on its grid; one with a scheme that is
+nonlinear in f gets its dense Jacobian by ForwardDiff at a random positive state (tracing
+cannot follow the branches of a limiter). Slow; intended for tests of local operators on
+small grids.
 """
 function check_stencil_pattern(op)
     pattern = stencil_pattern(op)
@@ -301,9 +323,11 @@ end
 
 Sparse matrix `M` with `vec(apply(op, f)) = M * vec(f) + c` for an operator `op` that is
 linear in `f` up to a constant source `c`. The default pattern follows the operator's
-schemes and boundary conditions ([`stencil_pattern`](@ref)). `check_local = true` refuses
-operators that are not local ([`is_local`](@ref)); pass `false` only with a backend that
-detects the pattern itself.
+schemes, boundary conditions and declarations ([`stencil_pattern`](@ref)), and an operator
+that holds a coefficient it does not declare is refused with it
+([`AdvectionDiffusion`](@ref)).
+`check_local = true` refuses operators that are not local ([`is_local`](@ref)); pass `false`
+only with a backend that detects the pattern itself.
 """
 function operator_matrix(op; backend = nothing, check_local::Bool = true)
     if check_local && !is_local(op)
@@ -314,7 +338,12 @@ function operator_matrix(op; backend = nothing, check_local::Bool = true)
     op isa AdvectionDiffusion && !is_linear(op) &&
         throw(ArgumentError("the operator uses a flux limiter and is nonlinear in f; it has no matrix " *
                             "(its Jacobian depends on f: use jacobian! of an EquationSystem)"))
-    backend = something(backend, sparse_ad_backend(pattern = stencil_pattern(op)))
+    if backend === nothing
+        if op isa AdvectionDiffusion
+            _check_declared_coefficients(op, "the operator")
+        end
+        backend = sparse_ad_backend(pattern = stencil_pattern(op))
+    end
     residual! = function (df, f)
         fill!(df, zero(eltype(df)))
         return apply!(df, op, f)

@@ -17,7 +17,8 @@ export write_adf11, SquareRootDecayTerm, ArctangentTerm, ConstantSourceTerm, Exc
        manufactured_errors, manufactured_step, iter_plasma_operator, _conservation_residual,
        max_rel_diff,
        BoundedGrowthTerm, _growth_step, DREAM_REFERENCE_SETS, REFERENCE_FILES,
-       reference_set, reference_file
+       reference_set, reference_file,
+       FIELD_PARTICLE_SETTINGS, _field_particle_grid, _maxwellian_on
 
 # The reference data of the comparisons, one lazy artifact per set (`Artifacts.toml`): the
 # output of DREAM written by the cases of reference/dream/cases/, and GSL's bicubic
@@ -26,8 +27,8 @@ export write_adf11, SquareRootDecayTerm, ArctangentTerm, ConstantSourceTerm, Exc
 # the factor that turns the stored `hottail/S_ava` into the source: DREAM v26.5 stores the
 # source with the sign of the operator, the branch boltzmann-eqterm flips it to the sign of
 # the source (src/OtherQuantityHandler.cpp), and `build`, the folder of reference/dream/ with the
-# DREAM checkout that made it (dream-v26.5-disruption and dream-v26.5-initial-state share that of
-# dream-v26.5).
+# DREAM checkout that made it (dream-v26.5-disruption, dream-v26.5-initial-state and
+# dream-v26.5-runaway-grid share that of dream-v26.5).
 const DREAM_REFERENCE_SETS = Dict(
     "dream-v26.5" =>
         (branch = "v26.5", commit = "ecdd5e146537c77602c9d7cc76b36100200e4b9a",
@@ -36,6 +37,9 @@ const DREAM_REFERENCE_SETS = Dict(
         (branch = "v26.5", commit = "ecdd5e146537c77602c9d7cc76b36100200e4b9a",
             S_ava_sign = -1, build = "dream-v26.5"),
     "dream-v26.5-initial-state" =>
+        (branch = "v26.5", commit = "ecdd5e146537c77602c9d7cc76b36100200e4b9a",
+            S_ava_sign = -1, build = "dream-v26.5"),
+    "dream-v26.5-runaway-grid" =>
         (branch = "v26.5", commit = "ecdd5e146537c77602c9d7cc76b36100200e4b9a",
             S_ava_sign = -1, build = "dream-v26.5"),
     "dream-boltzmann-eqterm-93d27e17" => (branch = "boltzmann-eqterm",
@@ -61,6 +65,8 @@ const REFERENCE_FILES = Dict(
         (set = "dream-v26.5-initial-state", example_commit = nothing),
     "dream_disruption_superthermal_channels_small.h5" =>
         (set = "dream-v26.5-initial-state", example_commit = nothing),
+    "dream_disruption_runaway_small.h5" =>
+        (set = "dream-v26.5-runaway-grid", example_commit = nothing),
     "dream_dreicer_kinetic.h5" => (set = "dream-v26.5", example_commit = nothing),
     "dream_example_runaway.h5" =>
         (set = "dream-v26.5", example_commit = "6b5708b85ea7f7bf506f2c381ebb285d1dac527f"),
@@ -464,6 +470,25 @@ function write_adf11(
         println(io, "C synthetic table of the tests of Runes2P")
     end
     return path
+end
+
+# from test_field_particle.jl: the collision settings of its field-particle term, the grid of
+# its cases (a momentum grid to 7 thermal momenta at the temperature `T` in eV) and the
+# Maxwellian at `T` on a grid, of peak 1
+const FIELD_PARTICLE_SETTINGS = CollisionSettings(
+    mode = :full, screening = :complete, coulomb_logarithm = :thermal)
+
+function _field_particle_grid(;
+        np_ = 80, nxi = 4, T = 10.0, nr_ = 1, xi_faces = uniform_xi_faces(nxi))
+    theta = T / Constants.ELECTRON_REST_ENERGY
+    mom = MomentumGrid(uniform_p_faces(np_, 0.0, 7 * sqrt(2theta)), xi_faces)
+    return cylindrical_grid(mom, RadialGrid(uniform_r_faces(nr_, 1.0)))
+end
+
+function _maxwellian_on(g, T)
+    [exp(-(sqrt(1 + p^2) - 1) / (T / Constants.ELECTRON_REST_ENERGY))
+     for p in momentum_grid(g).p_centers, _ in 1:pitch_cell_count(g),
+    _ in 1:radial_cell_count(g)]
 end
 
 end

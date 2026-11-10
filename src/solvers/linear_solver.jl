@@ -30,7 +30,9 @@ terms. A solver implements
 - `factorization_time(cache)`: seconds spent factorizing in the last solve (the LU of a
   direct solver, the preconditioner blocks of a Krylov solver);
 - `linear_tolerance(cache)`: bound on the relative residual `‖b - A x‖/‖b‖` of the last
-  solve (0 for direct solvers), used by the residual-floor rule of the Newton iteration;
+  solve, used by the residual-floor rule of the Newton iteration: 0 for [`SparseLU`](@ref),
+  the measured relative residual for [`MKLPardiso`](@ref), its `relative_tolerance` for
+  [`GMRES`](@ref);
 - `newton_operator_exact(cache)`: whether the solver's Newton operator is the exact
   Jacobian when the system has terms with an approximate stored block
   ([`jacobian_kind`](@ref); false for solvers on the stored matrix alone);
@@ -185,4 +187,72 @@ function solve!(
         _apply_low_rank_correction!(x, cache.low_rank)
     end
     return :ok
+end
+
+"""
+    MKLPardiso(; threads=1, refinement_steps=0)
+
+Monolithic sparse direct solve by Intel MKL PARDISO, the solver of DREAM's
+`LINEAR_SOLVER_MKL`, through the package Pardiso.jl. Its solves come with the extension
+`Runes2PMKLPardisoExt`, loaded by `using Pardiso`; without it, a [`NewtonWorkspace`](@ref)
+with this solver is refused with an `ArgumentError`. It takes the systems that
+[`SparseLU`](@ref) takes, the field-particle term ([`low_rank_jacobian`](@ref)) by the same
+Woodbury update. Its factorization has another pivot order than UMFPACK's, so the converged
+states differ from those of [`SparseLU`](@ref) within the Newton tolerance, and the Newton
+iterations of a step can differ.
+
+PARDISO factorizes the real unsymmetric matrix with the defaults of its `pardisoinit`: a
+nested-dissection ordering (METIS), a weighted matching with scaling, and pivots below
+``10^{-13}`` times the infinity norm of the scaled matrix perturbed. The ordering and the
+matching need the values of the matrix: they are computed at the first solve, from its
+matrix, and kept for every later matrix of the same pattern; their time counts in the
+factorization time of that solve ([`SolverStatistics`](@ref)). A run resumed from a
+checkpoint computes them from its own first matrix, so it repeats the uninterrupted run as
+with another pivot order, not bit for bit: within the Newton tolerance, and within round-off
+where the Newton iterations of the steps are the same. The numeric factorization is made in
+every solve, except when the matrix is that of the last solve (a system linear in the state,
+[`NewtonSolver`](@ref)). PARDISO reads the compressed columns of the matrix as the
+compressed rows of its transpose and solves the transposed system, so no matrix is
+converted. Its integers have 32 bits, so the factors hold at most ``2^{31} - 1`` nonzeros; a
+larger factorization ends the run with an error that names the limit. The factors are in
+memory that MKL allocates and Julia's garbage collector does not count: they are released
+when the workspace is collected, so repeated runs in one process can hold several
+factorizations until `GC.gc()`.
+
+- `threads`: the threads of PARDISO, MKL's own; Julia's threads and the BLAS threads do not
+  apply. The count is a setting of MKL for the whole process, set before every solve, so
+  one workspace solves one task at a time, and two workspaces with different counts do not
+  solve at the same time. 1 is DREAM's value (`fvm/Solvers/MIMKL.cpp`), and the results of
+  a run are then reproducible, which MKL does not promise with more threads.
+- `refinement_steps`: the largest number of steps of iterative refinement in each solve
+  (PARDISO's `iparm(8)`). 0 is a choice of this package (see the docs page *Choices of
+  this package*): on the disruption case ten steps take longer than the factorization, and
+  the solve without them reaches a relative residual of about ``10^{-9}``. With 0, PARDISO
+  still refines twice after a perturbed pivot. DREAM sets 10 (`fvm/Solvers/MIMKL.cpp`).
+
+Every solve measures its relative residual ``\\|b - A x\\|/\\|b\\|`` with one product by
+the matrix, before the Woodbury update, with refinement too, since the refinement stops at
+its cap and promises no residual. That residual is the bound that the residual-floor rule
+of the [`NewtonSolver`](@ref) compares with its `floor_linear_tolerance`: a perturbed pivot
+that spoils the solve then turns both waivers of the residual test off, where
+[`SparseLU`](@ref) reports 0.
+"""
+struct MKLPardiso <: LinearSolver
+    threads::Int
+    refinement_steps::Int
+    function MKLPardiso(; threads::Integer = 1, refinement_steps::Integer = 0)
+        threads >= 1 ||
+            throw(ArgumentError("MKLPardiso needs at least one thread, not $threads"))
+        refinement_steps >= 0 ||
+            throw(ArgumentError("the refinement steps of MKLPardiso cannot be negative: $refinement_steps"))
+        return new(threads, refinement_steps)
+    end
+end
+
+requires_stored_jacobian(::MKLPardiso) = true
+
+# the method without Pardiso.jl; the extension Runes2PMKLPardisoExt adds the one for a sparse
+# matrix
+function linear_solver_cache(::MKLPardiso, matrix, system, row_weights, scales)
+    throw(ArgumentError("MKLPardiso needs the package Pardiso.jl: add `using Pardiso` to the script"))
 end

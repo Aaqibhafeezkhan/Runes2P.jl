@@ -666,14 +666,17 @@ The estimate assumes that every term is implicit. An explicit or lagged term con
 factor of order 2.
 
 The state of the controller (the step length, the memory of the filter, the last accepted
-state and its step) is in every checkpoint. With a direct solver a resumed run repeats the
-uninterrupted one bit for bit. With [`GMRES`](@ref)`(preconditioner_refresh = :on_demand)`
-the factors of the preconditioner are not in the checkpoint, so the Krylov solves after a
-resume differ within the Newton tolerance, and the step lengths may differ from those of
-the uninterrupted run. A run resumed onto another layout (an
-unknown added or removed) keeps the step length and starts with a doubling, since the
-stored state of the predictor does not fit; the count of rejections in a row starts at
-zero in every segment.
+state and its step) is in every checkpoint. With [`SparseLU`](@ref) a resumed run repeats
+the uninterrupted one bit for bit. With [`MKLPardiso`](@ref) the ordering and the matching
+of PARDISO come from the first matrix of the resumed run, so its states differ from those
+of the uninterrupted run as with another pivot order: within the Newton tolerance, and
+within round-off where the Newton iterations of the steps are the same. With
+[`GMRES`](@ref)`(preconditioner_refresh = :on_demand)` the factors of the preconditioner
+are not in the checkpoint, so the Krylov solves after a resume differ within the Newton
+tolerance. After either, the step lengths may differ from those of the uninterrupted run.
+A run resumed onto another layout (an unknown added or removed) keeps the step length and
+starts with a doubling, since the stored state of the predictor does not fit; the count of
+rejections in a row starts at zero in every segment.
 """
 struct StepController <: TimeStepper
     initial_step::Float64      # NaN: the first interval of the time points

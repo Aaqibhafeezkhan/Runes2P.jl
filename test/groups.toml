@@ -18,7 +18,7 @@ name = "component"
 tier = "quick"
 packed = false
 # 8.9 minutes
-files = ["test_knockon_kinematics.jl", "test_grids.jl", "test_knockon_implicit.jl", "test_knockon_cutoff.jl", "test_knockon_energy_kernel.jl", "test_pitch_overlap.jl", "test_energy_moment.jl", "test_adas.jl", "test_step_doubling.jl", "test_layout.jl", "test_advection_diffusion.jl", "test_legs.jl", "test_moments.jl", "test_per_radius_grids.jl", "test_energy_transfer.jl", "test_friction_energy_transfer.jl", "test_radiation.jl", "test_momentum_region.jl", "test_knockon_pairings.jl", "test_ion_energy.jl", "test_knockon_pitch_kernel.jl", "test_heat_transport.jl", "test_radial_profiles.jl", "test_discretization.jl", "test_induction.jl", "test_per_radius_pitch_grids.jl", "test_time_stepping.jl", "test_step_controller.jl", "test_jacobian.jl", "test_ion_unknowns.jl", "test_ion_rates.jl", "test_ion_columns.jl", "test_ion_transport.jl", "test_include_order.jl", "test_names.jl", "test_avalanche_rp.jl", "test_data_files.jl", "test_initial_state.jl"]
+files = ["test_knockon_kinematics.jl", "test_grids.jl", "test_knockon_implicit.jl", "test_knockon_cutoff.jl", "test_knockon_energy_kernel.jl", "test_pitch_overlap.jl", "test_energy_moment.jl", "test_adas.jl", "test_step_doubling.jl", "test_layout.jl", "test_advection_diffusion.jl", "test_legs.jl", "test_moments.jl", "test_per_radius_grids.jl", "test_energy_transfer.jl", "test_friction_energy_transfer.jl", "test_radiation.jl", "test_momentum_region.jl", "test_knockon_pairings.jl", "test_ion_energy.jl", "test_knockon_pitch_kernel.jl", "test_heat_transport.jl", "test_radial_profiles.jl", "test_discretization.jl", "test_induction.jl", "test_per_radius_pitch_grids.jl", "test_time_stepping.jl", "test_step_controller.jl", "test_jacobian.jl", "test_ion_unknowns.jl", "test_ion_rates.jl", "test_ion_columns.jl", "test_ion_transport.jl", "test_include_order.jl", "test_names.jl", "test_avalanche_rp.jl", "test_data_files.jl", "test_initial_state.jl", "test_collision_tables.jl"]
 
 [[group]]
 name = "quick-1"
@@ -173,6 +173,33 @@ files = ["test_disruption_chain_dream.jl"]
 [[group]]
 name = "full-11"
 tier = "full"
-# 5.5 minutes: the disruption case in the superthermal mode end to end and its phases from
-# DREAM's state, and the initialization of the fully kinetic case
-files = ["test_disruption_superthermal_dream.jl", "test_disruption_initialization_dream.jl"]
+# 6.7 minutes: the disruption case in the superthermal mode end to end and its phases from
+# DREAM's state, the initialization of the fully kinetic case, and the heating of the cold
+# electrons by a runaway grid
+files = [
+    "test_disruption_superthermal_dream.jl",
+    "test_disruption_initialization_dream.jl",
+    "test_runaway_heating_dream.jl",
+]
+
+[[group]]
+name = "full-12"
+tier = "full"
+# 11.6 minutes, mostly the compilation of its two systems (1.6 minutes at -O0): the disruption case
+# with a runaway grid at both compat values
+files = ["test_disruption_runaway.jl"]
+
+[[group]]
+name = "full-13"
+tier = "full"
+# 11.7 minutes, mostly the compilation of its two systems (1.8 minutes at -O0): the disruption case
+# with a runaway grid against DREAM's window, at both compat values
+files = ["test_disruption_runaway_dream.jl"]
+
+[[group]]
+name = "full-14"
+tier = "full"
+# 12.0 minutes, mostly the compilation of the disruption case with a runaway grid (1.9 minutes
+# at -O0): MKLPardiso against SparseLU on its window, the field-particle term and a checkpoint;
+# loads Pardiso.jl, whose MKL comes as an artifact
+files = ["test_mkl_pardiso.jl"]

@@ -9,7 +9,7 @@ The API reference is generated from the docstrings in `src/` and `ext/`.
 - [Operators](api/operators.md): the advection–diffusion operator, Fokker–Planck coefficients, radial transport, knock-on and field–particle collisions.
 - [Equation system](api/system.md): the unknown layout, equation terms, equations and the system, Jacobians.
 - [Solvers and runs](api/solvers.md): linear solvers, Newton, time stepping, interval updates, checkpoints, the progress log, run settings.
-- [Extensions](extensions.md): HDF5 output and checkpoints, SciML functions, interpolated radial profiles.
+- [Extensions](extensions.md): HDF5 output and checkpoints, SciML functions, interpolated radial profiles, the linear solver of MKL PARDISO.
 
 Each category has an overview page and subpages that group its source files.
 A subpage has one section per source file, with the public names first and the internal ones after them.

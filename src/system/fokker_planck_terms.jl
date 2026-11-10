@@ -7,9 +7,11 @@
 
 Advection-diffusion (Fokker-Planck) operator applied to the kinetic unknown `unknown`,
 added to the equation of the row unknown (normally the same). Stored sparse, with the
-3×3 `(p, ξ)` stencil, the second neighbours of the four-point schemes and the radial
-neighbours: the cell of the same pitch at each neighbouring radius, or with different
-pitch grids the cells that overlap it. Needs the same cell counts and p faces at all radii.
+3×3 `(p, ξ)` stencil and the second neighbours of the four-point schemes. The corners of the
+3×3 block are stored when the operator declares cross diffusion, and the radial neighbours
+when it declares radial transport: the cell of the same pitch at each neighbouring radius,
+or with different pitch grids the cells that overlap it ([`stencil_pattern`](@ref)). Needs
+the same cell counts and p faces at all radii.
 
 `electric_field` names the radial unknown of the electric field [V/m] when the field is an
 unknown of the system. The advection of every face is then that of the operator, which holds
@@ -31,6 +33,9 @@ see the docs page *Choices of this package*). The rebuild happens when the plasm
 of any radius differ from those of the last rebuild ([`update_key!`](@ref)), not at every
 new time, and rebuilds all radii. Without `plasma` the coefficients of `operator` are
 fixed. [`prescribed_fokker_planck_term`](@ref) builds such a term from a function of time.
+The rebuild writes no radial transport and no cross diffusion, so a term with `plasma`
+clears both declarations of `operator` ([`AdvectionDiffusion`](@ref)), and its stored block
+couples neither the radii nor the corners of the 3×3 block.
 
 With a plasma that reads unknowns ([`PlasmaFromUnknowns`](@ref)) the term depends on them
 and is not linear. `lagged` names the part of that plasma taken at the start of the step;
@@ -100,6 +105,8 @@ struct FokkerPlanckTerm{T, P} <: EquationTerm
     lag_all::Bool                            # the whole plasma at the start of the step (lagged = :all)
     dual_operator::Base.RefValue{Any}        # the coefficients in dual numbers, for the plasma columns
     dual_columns::Base.RefValue{Any}         # the term in dual numbers, for the plasma columns
+    dual_plasma_key::PlasmaKey               # the plasma values of the last rebuild of `dual_operator`
+    dual_rebuilds::Base.RefValue{Int}        # the number of rebuilds of `dual_operator`
     lagged::Tuple{Vararg{Symbol}}            # the groups of plasma scalars taken at the start of the step
     ion_state::Vector{Float64}               # the state at the start of the step, for lagged ions
 end
@@ -161,13 +168,21 @@ function FokkerPlanckTerm(
     else
         (0, 0, 0)
     end
+    # the rebuild writes no radial transport and no cross diffusion: the stencil leaves out
+    # the radial neighbours and the corners of the 3×3 block. Cleared after the checks
+    # above, so that a refused term leaves the operator as it was; `stored` shares them
+    if plasma_from !== nothing
+        operator.radial_transport[] = false
+        operator.cross_diffusion[] = false
+    end
     D = ForwardDiff.Dual{JacobianCorrectionTag, T, 1}
     radii = electric_field === nothing ? 0 : radial_cell_count(operator.grid)
     return FokkerPlanckTerm{T, typeof(plasma_from)}(
         unknown, operator, jacobian, electric_field, stored, zeros(T, dims),
         zeros(T, dims), zeros(D, dims), zeros(D, dims), zeros(T, radii),
         zeros(D, radii), plasma_from, settings, synchrotron, PlasmaKey(), Ref(0),
-        lag_all, Ref{Any}(nothing), Ref{Any}(nothing), lagged, Float64[])
+        lag_all, Ref{Any}(nothing), Ref{Any}(nothing), PlasmaKey(), Ref(0), lagged,
+        Float64[])
 end
 
 lags_in_ode_form(term::FokkerPlanckTerm) = _is_lagged(term) || _lags_ions(term)
@@ -175,6 +190,11 @@ lags_in_ode_form(term::FokkerPlanckTerm) = _is_lagged(term) || _lags_ions(term)
 # whether the term takes the ion densities of its plasma from the start of the step
 function _lags_ions(term::FokkerPlanckTerm)
     ion_dependency(term.plasma) !== nothing && ion_dependency(term.plasma) in term.lagged
+end
+# the unknowns of the plasma columns of a Fokker-Planck term: without the charge states it lags
+function _plasma_column_unknowns(term::FokkerPlanckTerm)
+    filter(name -> !(_lags_ions(term) && name === ion_dependency(term.plasma)),
+        collect(Symbol, source_dependencies(term.plasma)))
 end
 # the state of the ion densities of the plasma of a term
 function _ion_state(term::FokkerPlanckTerm, u)
@@ -219,6 +239,7 @@ function _rebuild_coefficients!(term::FokkerPlanckTerm, u, layout, t)
         set_fokker_planck_coefficients!(
             term.operator, plasma, term.settings; synchrotron = term.synchrotron,
             field_in_coefficients = field)
+        _check_declared_coefficients(term.operator, _operator_owner(term))
     catch
         reset_key!(term.plasma_key)
         rethrow()
@@ -267,7 +288,10 @@ of the term with respect to the temperature and the density of each radius, whic
 colored AD of the term does not see, since its coefficients hold numbers. Such a term lists
 them with [`plasma_column_sparsity!`](@ref) and adds them with
 [`add_plasma_columns!`](@ref). True for a [`FokkerPlanckTerm`](@ref) whose plasma reads
-unknowns and whose coefficients are implicit.
+unknowns and whose coefficients are implicit. The terms that read the coefficients of such a
+term ([`MomentumBoundaryFluxTerm`](@ref), [`MomentumInterfaceTerm`](@ref),
+[`InterfaceEnergyFluxTerm`](@ref), [`InterfaceParticleFluxTerm`](@ref)) pass its plasma
+columns on.
 """
 has_plasma_columns(::Any) = false
 function has_plasma_columns(term::FokkerPlanckTerm)
@@ -298,6 +322,10 @@ dual numbers in the temperature and the density of every radius ([`dual_plasma`]
 applies them to `f`: the partials are the derivatives of the residual through the scheme's
 own face weights, the Péclet number of exponential fitting included. The scheme is the
 operator's own, as is the residual, whatever `jacobian` selects for the block in `f`.
+The coefficients in dual numbers are rebuilt when the plasma values of any radius differ
+from those of their last rebuild, as the coefficients of the residual
+([`refresh_coefficients!`](@ref)), so the terms that read them share one rebuild per
+state.
 """
 function add_plasma_columns!(J, term::FokkerPlanckTerm, u, layout, row, t)
     op, with_ions = _dual_coefficients!(term, u, layout, t)
@@ -307,15 +335,36 @@ function add_plasma_columns!(J, term::FokkerPlanckTerm, u, layout, row, t)
     df = term.dual_columns[]::Array{D, 3}
     fill!(df, zero(D))
     apply!(df, op, f; electric_field = _field_values(term.electric_field, u, layout))
+    return _add_kinetic_plasma_columns!(J, term, df, with_ions, layout, row)
+end
+
+# the partials of the term in dual numbers `df` into the rows of the cells; the number of
+# partials is picked at run time, so the loop runs behind this barrier on the concrete type;
+# the rows of the unknown at a radius are contiguous, so the entries of a plasma column in
+# these rows are a run of its stored values: one search per radius and column finds the
+# start of the run, and each cell adds at its offset in the run
+function _add_kinetic_plasma_columns!(J, term::FokkerPlanckTerm,
+        df::Array{<:ForwardDiff.Dual{<:Any, <:Any, N}, 3}, with_ions, layout, row) where {N}
     np, nxi, nr = size(df)
+    values = nonzeros(J)
     for ir in 1:nr
-        columns = plasma_columns(term.plasma, layout, ir; with_ions)
+        columns = plasma_columns(term.plasma, layout, ir; with_ions)::Vector{Int}
+        if length(columns) != N
+            throw(DimensionMismatch("$(length(columns)) plasma columns for $N partials"))
+        end
+        rows = unknown_range(layout, row, ir)
+        # the cells of the row unknown match those of `df`, so the offsets stay inside the
+        # run, which the `@inbounds` below relies on
+        if layout.shapes[row, ir] != (np, nxi)
+            throw(DimensionMismatch("the cells of the row unknown at radius $ir differ from those of the term"))
+        end
+        starts = ntuple(k -> _run_start(J, rows, columns[k]), Val(N))
         for j in 1:nxi, i in 1:np
 
-            r = _kinetic_index(layout, row, ir, i, j)
+            offset = _kinetic_index(layout, row, ir, i, j) - first(rows)
             partials = ForwardDiff.partials(df[i, j, ir])
-            for k in eachindex(columns)
-                _add_entry!(J, r, columns[k], partials[k])
+            @inbounds for k in 1:N
+                values[starts[k] + offset] += partials[k]
             end
         end
     end
@@ -324,15 +373,33 @@ end
 
 # The coefficients of a term in dual numbers of its plasma columns at the state u and the
 # time t: its operator of dual coefficients, and whether the partials hold the charge states.
-# The boundary flux of the term reads them as well.
+# The boundary flux, the interface and the flux through it read them as well. The operator
+# is rebuilt when the plasma values differ from those of its last rebuild, compared as for
+# the coefficients of the residual and with the same state of the ions. The plasma values
+# decide alone: the settings and the partials the coefficients hold (the density, the
+# charge states) are fixed for the term. The bindings of one Jacobian read the operator one
+# after the other, the first rebuilding it: an assembly of the bindings in parallel needs
+# the rebuild before it.
 function _dual_coefficients!(term::FokkerPlanckTerm, u, layout, t)
-    plasma = _fokker_planck_plasma(term, u, layout, t)
     with_ions = ion_dependency(term.plasma) !== nothing && !_lags_ions(term)
-    dual = dual_plasma(plasma, term.plasma.density !== nothing, with_ions)
-    op = _dual_operator!(term, eltype(dual.cold_electron_temperature))
-    set_fokker_planck_coefficients!(
-        op, dual, term.settings; synchrotron = term.synchrotron,
-        field_in_coefficients = term.electric_field === nothing)
+    field = term.electric_field === nothing
+    plasma = changed_plasma!(
+        term.dual_plasma_key, term.plasma, u, layout, t; electric_field = field,
+        ion_state = _ion_state(term, u))
+    if plasma === nothing
+        return term.dual_operator[]::AdvectionDiffusion, with_ions
+    end
+    op = try
+        dual = dual_plasma(plasma, term.plasma.density !== nothing, with_ions)
+        rebuilt = _dual_operator!(term, eltype(dual.cold_electron_temperature))
+        _rebuild_fokker_planck_coefficients!(
+            rebuilt, dual, term.settings, term.synchrotron, field)
+        rebuilt
+    catch
+        reset_key!(term.dual_plasma_key)
+        rethrow()
+    end
+    term.dual_rebuilds[] += 1
     return op, with_ions
 end
 
@@ -384,6 +451,11 @@ end
 
 validate(term::FokkerPlanckTerm, layout, row) = _check_fokker_planck(term, layout, row, 0.0)
 
+# the operator of a term, for the messages of the checks of its coefficients
+function _operator_owner(term::FokkerPlanckTerm)
+    "the operator of the FokkerPlanckTerm of $(term.unknown)"
+end
+
 # the checks of the grid, the field and the plasma unknowns; the composition of the ions is
 # read at the time `t`, the start of the run, where the prescribed part is defined
 function _check_fokker_planck(term::FokkerPlanckTerm, layout, row, t)
@@ -421,6 +493,7 @@ function _check_fokker_planck(term::FokkerPlanckTerm, layout, row, t)
             throw(ArgumentError("the plasma unknown $name of a FokkerPlanckTerm is a radial unknown with one component"))
         end
     end
+    _check_declared_coefficients(term.operator, _operator_owner(term))
     return nothing
 end
 
@@ -503,12 +576,10 @@ function sparsity!(entries, term::FokkerPlanckTerm, layout, row)
     id = unknown_id(layout, term.unknown)
     op = term.stored_operator
     np, nxi, nr = size(op.grid)
-    widths = (p_width = stencil_half_width(op.p_scheme),
-        xi_width = stencil_half_width(op.xi_scheme),
-        r_width = stencil_half_width(op.r_scheme), p_upper_boundary = op.p_upper_boundary)
+    options = _stencil_options(op)
     for ir in 1:nr, j in 1:nxi, i in 1:np
         r = _kinetic_index(layout, row, ir, i, j)
-        _visit_stencil(op.grid, i, j, ir; widths...) do i2, j2, ir2
+        _visit_stencil(op.grid, i, j, ir; options...) do i2, j2, ir2
             push!(entries, (r, _kinetic_index(layout, id, ir2, i2, j2)))
         end
         # the field of the radius acts on every cell of the radius

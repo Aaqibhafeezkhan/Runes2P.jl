@@ -6,10 +6,12 @@ Runes2P loads these parts only together with their trigger packages, so that Run
 |---|---|---|
 | `Runes2PHDF5Ext` | `HDF5` | output files and checkpoints of a run, their readers |
 | `Runes2PInterpolationsExt` | `Interpolations` | interpolators of Interpolations.jl as radial profiles |
+| `Runes2PMKLPardisoExt` | `Pardiso` | the linear solver [`MKLPardiso`](@ref), Intel MKL PARDISO |
 | `Runes2PSciMLBaseExt` | `SciMLBase` | the SciML form of an equation system |
 
 ```@autodocs
 Modules = [Base.get_extension(Runes2P, :Runes2PHDF5Ext),
            Base.get_extension(Runes2P, :Runes2PInterpolationsExt),
+           Base.get_extension(Runes2P, :Runes2PMKLPardisoExt),
            Base.get_extension(Runes2P, :Runes2PSciMLBaseExt)]
 ```

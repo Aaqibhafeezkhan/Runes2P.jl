@@ -75,6 +75,7 @@ function kinetic_conductivity(
     (any(!iszero, operator.advection_r) || any(!iszero, operator.diffusion_r_r)) &&
         throw(ArgumentError("the operator holds radial transport: the linear response is that of the operator in " *
                             "momentum space, radius by radius"))
+    _check_declared_coefficients(operator, "the operator")
     if !any(!iszero, operator.unit_field_advection_p)
         set_unit_field_coefficients!(operator)
     end
@@ -172,9 +173,11 @@ function _with_upper_boundary(op::AdvectionDiffusion{T, C}, boundary::Symbol) wh
         op.diffusion_xi_xi, op.diffusion_xi_p, op.advection_r, op.diffusion_r_r,
         op.unit_field_advection_p, op.unit_field_advection_xi, op.p_flux_at_lower_boundary,
         op.advection_p_times_p2_at_zero, op.p_scheme, op.xi_scheme, op.r_scheme,
-        op.p_lower_boundary, boundary, op.r_boundary, op.momentum_grids, op.radial_overlaps,
+        op.p_lower_boundary, boundary, op.p_zero_boundary, op.r_boundary, op.momentum_grids,
+        op.radial_overlaps,
         op.jacobian_centers, op.jacobian_p_faces, op.jacobian_xi_faces, op.jacobian_r_faces,
-        op.jacobian_over_p2_at_zero, op.coefficient_source)
+        op.jacobian_over_p2_at_zero, op.coefficient_source, op.radial_transport,
+        op.cross_diffusion)
 end
 
 function _scale_to_density!(f, grid::KineticGrid, target)
@@ -312,10 +315,11 @@ struct ConductivityTerm{M <: ConductivityModel} <: EquationTerm
     values::Vector{Float64}
     plasma_key::PlasmaKey                   # the plasma values of `values`
     operator_rebuilds::Base.RefValue{Int}   # the rebuilds of the operator of the model at `values`
+    buffers::LocalTermBuffers
 end
 function ConductivityTerm(electric_field::Symbol, model::ConductivityModel; coefficient::Real = 1.0)
-    ConductivityTerm(
-        electric_field, model, Float64(coefficient), Float64[], PlasmaKey(), Ref(-1))
+    ConductivityTerm(electric_field, model, Float64(coefficient), Float64[], PlasmaKey(),
+        Ref(-1), LocalTermBuffers())
 end
 
 # the operator of a model of the discrete operator is read by the term: a bare operator
@@ -343,7 +347,7 @@ function jacobian_assembly(term::ConductivityTerm)
     ion_dependency(term.model.plasma) === nothing ? :automatic : :direct
 end
 function add_jacobian!(J, term::ConductivityTerm, u, layout, row, t)
-    add_local_jacobian!(J, term, u, layout, row, t)
+    _add_buffered_local_jacobian!(J, term, u, layout, row, t, term.buffers)
 end
 
 function dependencies(term::ConductivityTerm)
@@ -421,7 +425,8 @@ end
 # gives the column of the temperature
 function _add_state_conductivity!(out, term::ConductivityTerm, u, layout, row, t)
     model = term.model
-    base = _term_plasma(plasma_values(model.plasma.prescribed, u, layout, t), model.plasma.ions, u, layout)
+    base = _term_plasma(plasma_values(model.plasma.prescribed, u, layout, t),
+        model.plasma.ions, u, layout, term.buffers.plasmas)
     temperature = unknown_values(u, layout, unknown_id(layout, model.plasma.temperature))
     field = unknown_values(u, layout, unknown_id(layout, term.electric_field))
     for ir in 1:radial_cell_count(layout)

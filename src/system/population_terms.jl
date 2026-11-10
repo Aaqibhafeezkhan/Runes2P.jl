@@ -18,7 +18,11 @@ distribution as electrons run away or the free-electron density changes.
 
 - `:relativistic_maxwellian`: `exp(-(γ − 1)/Θ)` with `Θ = T/mₑc²` (DREAM's default);
 - `:maxwellian`: the non-relativistic `exp(-p²/2Θ)` of [`MaxwellianSourceTerm`](@ref);
-- `:lowest_cell`: the momentum cell at `p = 0` alone (DREAM's delta shape).
+- `:lowest_cell`: the momentum cell at `p = 0` alone (DREAM's delta shape). It does not
+  depend on the temperature, and the stored Jacobian holds the first momentum cell of every
+  pitch cell in the column of the magnitude and no column of the temperature. A temperature
+  that is an unknown stays among the term's [`dependencies`](@ref), and the term is not
+  linear ([`is_linear`](@ref)), although its column of the temperature is zero.
 
 `temperature` is the cold-electron temperature in eV at each radius, or a function of time
 that returns the temperatures or a [`PlasmaState`](@ref). The shape follows it in time and
@@ -195,11 +199,18 @@ function add_jacobian!(J, term::ParticleSourceTerm, u, layout, row, t)
     for ir in 1:radial_cell_count(layout)
         column = first(unknown_range(layout, id, ir))
         shape = shapes[ir]
-        for (k, r) in enumerate(unknown_range(layout, row, ir))
-            _add_entry!(J, r, column, shape[k])
+        if term.shape_kind === :lowest_cell
+            # the shape fills the first momentum cell of every pitch cell alone
+            for j in axes(shape, 2)
+                _add_entry!(J, _kinetic_index(layout, row, ir, 1, j), column, shape[1, j])
+            end
+        else
+            for (k, r) in enumerate(unknown_range(layout, row, ir))
+                _add_entry!(J, r, column, shape[k])
+            end
         end
     end
-    term.temperature isa Symbol || return J
+    _has_temperature_column(term) || return J
     # the column of the temperature: S ∂g/∂T, the normalization included
     D = ForwardDiff.Dual{PlasmaColumnTag, Float64, 1}
     temperature = unknown_values(u, layout, unknown_id(layout, term.temperature))
@@ -217,12 +228,29 @@ function add_jacobian!(J, term::ParticleSourceTerm, u, layout, row, t)
     return J
 end
 
-function sparsity!(entries, term::ParticleSourceTerm, layout, row)
-    for name in (term.source, _temperature_unknown(term)...),
-        ir in 1:radial_cell_count(layout)
+# the shape of the lowest cell does not depend on the temperature, so its column is zero
+function _has_temperature_column(term::ParticleSourceTerm)
+    term.temperature isa Symbol && term.shape_kind !== :lowest_cell
+end
 
-        column = first(unknown_range(layout, unknown_id(layout, name), ir))
-        append!(entries, ((r, column) for r in unknown_range(layout, row, ir)))
+function sparsity!(entries, term::ParticleSourceTerm, layout, row)
+    source_id = unknown_id(layout, term.source)
+    for ir in 1:radial_cell_count(layout)
+        column = first(unknown_range(layout, source_id, ir))
+        if term.shape_kind === :lowest_cell
+            pitch_cells = layout.shapes[row, ir][2]
+            append!(entries,
+                ((_kinetic_index(layout, row, ir, 1, j), column) for j in 1:pitch_cells))
+        else
+            append!(entries, ((r, column) for r in unknown_range(layout, row, ir)))
+        end
+    end
+    if _has_temperature_column(term)
+        temperature_id = unknown_id(layout, term.temperature)
+        for ir in 1:radial_cell_count(layout)
+            column = first(unknown_range(layout, temperature_id, ir))
+            append!(entries, ((r, column) for r in unknown_range(layout, row, ir)))
+        end
     end
     return entries
 end
@@ -299,7 +327,9 @@ function MomentumBoundaryFluxTerm(kinetic::Symbol, source; weight::Symbol = :den
     weight in (:density, :current, :energy) ||
         throw(ArgumentError("weight must be :density, :current or :energy, not $weight"))
     _operator_of(source).p_upper_boundary === :interface &&
-        throw(ArgumentError("the flux through an interface belongs to the MomentumInterfaceTerm"))
+        throw(ArgumentError("the flux through an interface belongs to the MomentumInterfaceTerm " *
+                            "in the rows of the two grids and to " *
+                            "InterfaceParticleFluxTerm in a radial row"))
     return MomentumBoundaryFluxTerm(kinetic, source, weight, Float64(coefficient))
 end
 
@@ -326,11 +356,6 @@ end
 function has_plasma_columns(term::MomentumBoundaryFluxTerm)
     term.source isa FokkerPlanckTerm && has_plasma_columns(term.source)
 end
-# the unknowns of the plasma columns of a Fokker-Planck term: without the charge states it lags
-function _plasma_column_unknowns(term::FokkerPlanckTerm)
-    filter(name -> !(_lags_ions(term) && name === ion_dependency(term.plasma)),
-        collect(Symbol, source_dependencies(term.plasma)))
-end
 
 function plasma_column_sparsity!(entries, term::MomentumBoundaryFluxTerm, layout, row)
     source = term.source
@@ -350,6 +375,15 @@ function add_plasma_columns!(J, term::MomentumBoundaryFluxTerm, u, layout, row, 
     f = kinetic_array(u, layout, unknown_id(layout, term.kinetic))
     name = _electric_field_of(term)
     field = name === nothing ? nothing : _field_values(name, u, layout)
+    return _add_boundary_plasma_columns!(J, term, op, f, field, with_ions, layout, row)
+end
+
+# the radial rows with the operator of dual coefficients `op`; the number of partials is
+# picked at run time, so the loop runs behind this barrier on the concrete type
+function _add_boundary_plasma_columns!(
+        J, term::MomentumBoundaryFluxTerm, op::AdvectionDiffusion, f, field, with_ions,
+        layout, row)
+    source = term.source
     rg = layout.radial_grid
     for ir in 1:radial_cell_count(layout)
         m = op.momentum_grids[ir]
@@ -358,10 +392,8 @@ function add_plasma_columns!(J, term::MomentumBoundaryFluxTerm, u, layout, row, 
                     _p_flux(op, f, face, j, ir, nothing, field)
         for j in 1:pitch_cell_count(m))
         r = first(unknown_range(layout, row, ir))
-        partials = ForwardDiff.partials(total)
-        for (k, column) in enumerate(plasma_columns(source.plasma, layout, ir; with_ions))
-            _add_entry!(J, r, column, partials[k])
-        end
+        columns = plasma_columns(source.plasma, layout, ir; with_ions)::Vector{Int}
+        _add_partials!(J, r, columns, total)
     end
     return J
 end

@@ -128,9 +128,19 @@ DREAM's documentation gives an upper bound for `pCutAvalanche`, the critical mom
 | Choice | Value |
 |---|---|
 | restart length of [`GMRES`](@ref) | `restart_length = 50` |
+| linear solver of [`NewtonSolver`](@ref) | `linear_solver = SparseLU()`, UMFPACK ([`SparseLU`](@ref)) |
+| refinement steps of [`MKLPardiso`](@ref) | `refinement_steps = 0` |
 
 When a step needs more Krylov iterations than the restart length, restarted GMRES can stagnate, and the step ends with `:linear_solve_failed`.
 The Krylov basis holds `restart_length` vectors.
+
+UMFPACK comes with Julia's standard library SparseArrays, so the default needs no MKL.
+On the Newton matrix of the disruption case with the runaway grid at full size (39303 unknowns, 2350635 nonzeros), a factorization and a solve take 108 ms with UMFPACK at one thread.
+MKL PARDISO ([`MKLPardiso`](@ref)) takes 72 ms at one thread and 17 ms at eight; UMFPACK takes 109 ms with eight BLAS threads.
+These are medians of five factorizations and five solves on one idle machine, with MKL 2025.2 through Pardiso.jl 1.1.2.
+Ten refinement steps of PARDISO take 80 to 90 ms per solve on that matrix, more than the factorization.
+Without them its relative residual is 1.0e-9, below the `floor_linear_tolerance` of 1e-8 of [`NewtonSolver`](@ref).
+DREAM's default solver is PETSc's own LU (`LINEAR_SOLVER_LU`), and its MKL PARDISO solver allows 10 refinement steps (`fvm/Solvers/MIMKL.cpp`): `MKLPardiso(refinement_steps = 10)` reproduces that.
 
 ## Time stepping
 
@@ -178,11 +188,44 @@ The reference case `reference/dream/cases/disruption_kinetic.py` runs the disrup
 | scenario of the disruption chain | `--scenario 1`, the full-conversion scenario |
 | elongation of the radial grid | `--elongation 1`, a cylinder without shaping |
 | steps of phase 1 | `--nt-ioniz 500`, steps of 4e-8 s, passed with `--elongation 1` (the default is the 200 of scenario 1) |
+| runaway grid (`--runaway-grid`) | 12 momentum cells of 0.1 from the hot-tail `p_max` 0.8 to 2, 20 geometric cells to `p_max` 20 (the first of them also 0.1 wide, from 2.0 to 2.1), 8 pitch cells biuniform in θ (5 below θ = 0.5) |
+| advection scheme of `f_re` | that of `f_hot` (`--scheme`) in both phases, not DREAM's default centred scheme |
+| absolute tolerance of `f_re` | 1e5 from run 1 on, that of `f_hot` in the phases |
+| window of phase 2 of the test (`--window-start`, `--window-steps`) | `--window-start 170 --window-steps 10`: steps 170 to 180 of the 429 steps of phase 2 on the reduced grid of the tests with the scenario's step (`--nt-quench 429 --t-quench 3e-4`); the default of `--window-steps` is 10 |
 
 The DREAM paper runs scenarios 1 and 4, and `generate.py` runs scenario 0 by default, which `--scenario 0` reproduces.
 The cylinder of Runes2P has no shaping, so the case departs from the elongation of `ASDEXU.py`, linear from 1.0 to 1.15 in the radius, which `--elongation asdexu` reproduces.
 At `--elongation 1` the case is run with `--nt-ioniz 500`, so that each step of phase 1 is 4e-8 s instead of the 1e-7 s of the 200 steps of scenario 1.
 The default of the script stays the scenario's count.
+The example runs no runaway grid; the defaults of `--runaway-grid` serve scenario 1 at the reduced size of the tests.
+A grid to `p_max = 60` held 3e-5 of the density of `f_re` above `p = 20` at 300 µs of the scenario.
+The avalanche source keeps a small population up to the last cell, so a few cells more do not change the result.
+The 8 pitch cells of the runaway grid, fine near `ξ = 1`, differ from the 4 uniform cells of the hot-tail grid, so that a test crosses DREAM's mapping between the two pitch grids.
+The scheme of `f_hot` on `f_re`, with its switch to upwind in phase 2 where `generate.py` makes it, keeps one scheme across the interface.
+DREAM's own default for `f_re` is centred.
+`generate.py` sets no absolute tolerance for `f_re`, and DREAM sets none either (`ToleranceSettings.py`): the case gives it the 1e5 of `f_hot`.
 In DREAM runs with `--linear-solver mkl`, with 200 steps the first step fails: its Newton iteration meets a non-finite value (`brent.c:69: computed function value is infinite or NaN`), also in the retry of the step.
 With 500 steps phase 1 converges, and phase 2 runs its 1500 steps.
 The step of 4e-8 s is also that of the case at the size of a test in `test/test_disruption_dream.jl`.
+
+The window runs on the reduced grid of the tests with the scenario's step, unlike the short phases of `DISRUPTION_ARGS` in `reference/dream/run_all.sh` (`--nt-quench 10 --t-quench 1.4e-6`).
+With `--nt-quench 429 --t-quench 3e-4` a step of phase 2 is 6.527e-7 s.
+This is the step of phase 2 of scenario 1, whose 9.8e-4 s in 1500 steps give 6.533e-7 s (`generate.py`: `t_TQ` 1e-3, `t_ioniz` 2e-5, `nt_TQ` 1500).
+Phase 2 then ends at 300 µs, the end of the benchmark of scenario 1.
+
+The window starts where `f_re` carries part of the current: step 170 is at 131.0 µs of the scenario, where the runaway share of the plasma current is 5.9 %.
+This lies inside the 1 to 10 % and the 130 to 150 µs that the window was chosen to meet.
+Ten steps keep the reference small: the whole chain runs in 10.5 s, and the test data of the window are 95.9 kB.
+
+The case `heating` of the reference case `reference/dream/cases/initial_state.py` runs the runaway grid of DREAM's `examples/init_f_re/generate.py`.
+The test case `runaway_heating_example` (`test/example_cases.jl`) builds it.
+The table holds the choices of that case.
+
+| Choice | Value |
+|---|---|
+| length of the run | 5e-6 s in the 20 steps of the example, in place of its 1e-3 s |
+| start of ``f_\mathrm{re}`` | `INIT_FORWARD` from ``n_\mathrm{re} = 10^{16}`` m⁻³, in place of the analytic avalanche shape of the example |
+| cold temperature | self-consistent from 100 eV, `TYPE_SELFCONSISTENT`, in place of the prescribed temperature of the example |
+
+The run of 5e-6 s keeps ``T_\mathrm{cold}`` near the 100 eV of the example: the ohmic heating raises it to 101.4 eV.
+With the self-consistent temperature DREAM's equation of ``T_\mathrm{cold}`` holds the collisional heating by ``f_\mathrm{re}`` (`src/Settings/Equations/T_cold.cpp:341-354`), which the case saves with the states it is evaluated from.

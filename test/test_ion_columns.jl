@@ -137,6 +137,7 @@ end
                     j = first(unknown_range(layout, row(unknown), ir))
                     h = 1e-4 * u[j]
                     column = _central_column(rhs, u, j, h)
+                    @test maximum(abs, column) > 0
                     @test maximum(abs, Matrix(J)[:, j] - column) <=
                           1e-7 * maximum(abs, column) + 1e-13 * size_of_rhs / h
                 end

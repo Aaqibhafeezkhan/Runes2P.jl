@@ -298,8 +298,90 @@ struct ChargeState
     secondary_width::Float64         # Ē [eV] of the secondary spectrum, NaN unless :ionization_split
 end
 
+# The factors of the collision frequencies that depend on the momentum and the charge state
+# alone, at the faces and the cell centres of one momentum grid: per face the radiative factor
+# of ν_s (`_radiative_factor`) and the Bethe stopping with its screening weight per charge state
+# (`_weighted_bound_stopping`), per centre the bound-electron scattering of ν_D with its
+# screening weight per charge state (`_weighted_bound_scattering`). Each entry is the number
+# that the direct evaluation gives at its momentum. The columns of the fully ionized states and
+# the radiative factor at p = 0, which the frequencies do not read, hold zeros.
+struct CoefficientTables
+    faces::Vector{Float64}
+    centers::Vector{Float64}       # the face midpoints, as the cell centres of MomentumGrid
+    radiative::Vector{Float64}     # per face
+    stopping::Matrix{Float64}      # per face and charge state
+    scattering::Matrix{Float64}    # per centre and charge state
+end
+
+# the index of a face or a cell centre in the coefficient tables of one radius, where an
+# evaluation reads them in place of the direct computation. It holds the index alone, so that
+# it is a bits type: a value of `Union{Nothing, TableEntry}` passes to a call without a box.
+# The evaluation takes the tables from the model at the radius.
+struct TableEntry
+    index::Int
+end
+
+# the coefficient tables per momentum grid: keyed by the vector of its faces, and within it by
+# `_coefficient_table_key`. The weak keys let a table go with its grid.
+const COEFFICIENT_TABLES = WeakKeyDict{Vector{Float64}, Dict{Any, CoefficientTables}}()
+const COEFFICIENT_TABLES_LOCK = ReentrantLock()
+
+# the key of the coefficient tables of one grid: every input of `_radiative_factor`,
+# `_weighted_bound_stopping` and `_weighted_bound_scattering` besides the momentum, so that
+# settings or charge states that change a value never share a table. The ion-size table enters
+# through the effective sizes and is held as well.
+function _coefficient_table_key(settings::CollisionSettings, states::Vector{ChargeState})
+    charge_states = [(s.element, s.nuclear_charge, s.charge,
+                         s.mean_excitation_energy, s.effective_size)
+                     for s in states]
+    return (; mode = settings.mode,
+        screening_window = settings.screening_window,
+        screening_window_start = settings.screening_window_start,
+        screening_window_end = settings.screening_window_end,
+        ion_size_table = settings.ion_size_table,
+        bremsstrahlung_constant = settings.bremsstrahlung_constant,
+        charge_states)
+end
+
+# the coefficient tables at the faces `faces` for the charge states, columns in the order of
+# `states`, from the cache or built once
+function _coefficient_tables(
+        faces::Vector{Float64}, states::Vector{ChargeState}, settings::CollisionSettings, key)
+    lock(COEFFICIENT_TABLES_LOCK) do
+        tables = get!(() -> Dict{Any, CoefficientTables}(), COEFFICIENT_TABLES, faces)
+        get!(tables, key) do
+            _build_coefficient_tables(faces, states, settings)
+        end
+    end
+end
+
+function _build_coefficient_tables(
+        faces::Vector{Float64}, states::Vector{ChargeState}, settings::CollisionSettings)
+    centers = (faces[1:(end - 1)] .+ faces[2:end]) ./ 2
+    radiative = zeros(length(faces))
+    stopping = zeros(length(faces), length(states))
+    scattering = zeros(length(centers), length(states))
+    for (k, p) in enumerate(faces)
+        if p != 0
+            radiative[k] = _radiative_factor(settings, p)
+        end
+    end
+    for (j, state) in enumerate(states)
+        state.charge == state.nuclear_charge && continue
+        for (k, p) in enumerate(faces)
+            stopping[k, j] = _weighted_bound_stopping(settings, state, p)
+        end
+        for (i, p) in enumerate(centers)
+            scattering[i, j] = _weighted_bound_scattering(settings, state, p)
+        end
+    end
+    # a copy of the faces: the cache holds the tables under the faces as a weak key, which the
+    # tables must not keep alive
+    return CoefficientTables(copy(faces), centers, radiative, stopping, scattering)
+end
+
 """
-    CollisionModel(plasma, settings)
+    CollisionModel(plasma, settings; faces=nothing)
 
 Collision frequencies for a background plasma. Radius-dependent quantities (free and
 bound electron densities, Bessel functions, atomic parameters of the charge states) are
@@ -307,6 +389,15 @@ evaluated once; the frequencies are then evaluated at any momentum with
 [`slowing_down_frequency`](@ref), [`deflection_frequency`](@ref) and
 [`parallel_diffusion_frequency`](@ref). The Coulomb logarithm is evaluated in each call,
 since the energy-dependent model depends on the momentum.
+
+With `faces`, one vector of momentum faces per radius as
+[`set_fokker_planck_coefficients!`](@ref) gives them, the factors that depend on the momentum
+and the charge state alone are tabulated once per momentum grid, at its faces and cell
+centres: the bremsstrahlung cross section, and the Bethe stopping and the bound-electron
+scattering with their screening weights. The coefficient builders read them by the index of a
+face or a centre. A tabulated value is the number that the direct evaluation gives, so the
+coefficients are the same; the functions of a momentum evaluate directly. A `faces` list whose
+length differs from the number of radii throws a `DimensionMismatch`.
 """
 struct CollisionModel{T, P <: PlasmaState}
     plasma::P
@@ -320,6 +411,8 @@ struct CollisionModel{T, P <: PlasmaState}
     # per radius: the momentum faces and the ionization part of the slowing down per unit
     # density at each face and charge state (bound_friction = :ionization_split), or nothing
     ionization_tables::Vector{Union{Nothing, Tuple{Vector{Float64}, Matrix{Float64}}}}
+    # per radius: the coefficient tables of the momentum grid of the radius, or nothing
+    coefficient_tables::Vector{Union{Nothing, CoefficientTables}}
 end
 
 # the tables of the ionization part of the slowing down, per momentum grid: keyed
@@ -383,13 +476,21 @@ function CollisionModel(plasma::PlasmaState{T}, settings::CollisionSettings; fac
     k1 = besselkx.(1, 1 ./ theta)
     k2 = besselkx.(2, 1 ./ theta)
     tables = Union{Nothing, Tuple{Vector{Float64}, Matrix{Float64}}}[nothing for _ in 1:nr]
-    if split && faces !== nothing
+    coefficient_tables = Union{Nothing, CoefficientTables}[nothing for _ in 1:nr]
+    if faces !== nothing
         if length(faces) != nr
             throw(DimensionMismatch("the momentum faces and the plasma have different radii"))
         end
+        key = _coefficient_table_key(settings, charge_states)
         for ir in 1:nr
             f = faces[ir]
-            if f isa Vector{Float64}
+            # a faces vector shared with the radius before takes its tables without a lookup
+            if ir > 1 && f === faces[ir - 1]
+                coefficient_tables[ir] = coefficient_tables[ir - 1]
+            elseif f isa Vector{Float64}
+                coefficient_tables[ir] = _coefficient_tables(f, charge_states, settings, key)
+            end
+            if split && f isa Vector{Float64}
                 tables[ir] = (f,
                     _ionization_friction_table(
                         f, charge_states, settings.secondary_spectrum,
@@ -399,7 +500,29 @@ function CollisionModel(plasma::PlasmaState{T}, settings::CollisionSettings; fac
     end
     return CollisionModel{eltype(k0), typeof(plasma)}(
         plasma, settings, charge_states, free,
-        bound, k0, k1, k2, tables)
+        bound, k0, k1, k2, tables, coefficient_tables)
+end
+
+# the entry of face k of the coefficient tables of radius ir when the model has tables there
+# and their face k is the momentum p, nothing otherwise: the evaluation at p then computes
+# the factors directly
+function _face_entry(model::CollisionModel, ir, k, p)
+    tables = model.coefficient_tables[ir]
+    tables === nothing && return nothing
+    if checkbounds(Bool, tables.faces, k) && isequal(tables.faces[k], p)
+        return TableEntry(k)
+    end
+    return nothing
+end
+
+# the entry of cell centre i of the coefficient tables of radius ir, as `_face_entry`
+function _center_entry(model::CollisionModel, ir, i, p)
+    tables = model.coefficient_tables[ir]
+    tables === nothing && return nothing
+    if checkbounds(Bool, tables.centers, i) && isequal(tables.centers[i], p)
+        return TableEntry(i)
+    end
+    return nothing
 end
 
 #! format: off
@@ -493,14 +616,14 @@ end
 
 # Bound-electron stopping power, matched Bethe formula (Hesslow et al. eq. 2.31 with
 # DREAM's modification that keeps it positive).
-function _bound_electron_stopping(model::CollisionModel, state::ChargeState, p)
+function _bound_electron_stopping(settings::CollisionSettings, state::ChargeState, p)
     bound = state.nuclear_charge - state.charge
     bound == 0 && return zero(p)
     p2 = p^2
     gamma = sqrt(1 + p2)
     beta2 = p2 / (1 + p2)
     h = (p2 / sqrt(1 + gamma)) / state.mean_excitation_energy
-    if model.settings.mode === :full
+    if settings.mode === :full
         k = COULOMB_LOGARITHM_INTERPOLATION_EXPONENT
         return bound * log(1 + (h * exp(-beta2))^k) / k
     else
@@ -518,6 +641,27 @@ function _screening_weight(settings::CollisionSettings, state::ChargeState, p)
     upper = settings.screening_window_end * state.mean_excitation_energy
     s = clamp((kinetic_energy - lower) / (upper - lower), zero(p), one(p))
     return s^2 * (3 - 2s)
+end
+
+# the Bethe stopping on the bound electrons of `state` with its screening weight, in units of
+# the prefactor of ν_s per m⁻³ of the charge state
+function _weighted_bound_stopping(settings::CollisionSettings, state::ChargeState, p)
+    return _screening_weight(settings, state, p) *
+           _bound_electron_stopping(settings, state, p)
+end
+
+# the bound-electron scattering of `state` with its screening weight, in units of the
+# prefactor of ν_D per m⁻³ of the charge state
+function _weighted_bound_scattering(settings::CollisionSettings, state::ChargeState, p)
+    return _screening_weight(settings, state, p) * _bound_electron_scattering(state, p)
+end
+
+# the radiative slowing down per m⁻³ of a charge state of nuclear charge 1 at p > 0,
+# α r₀² c φ_rad(p)/β with the constant of `bremsstrahlung_constant`
+function _radiative_factor(settings::CollisionSettings, p)
+    return COLLISION_PREFACTOR * Constants.FINE_STRUCTURE_CONSTANT / (4π) *
+           sqrt(1 + p^2) / p *
+           bremsstrahlung_cross_section(p; constant = settings.bremsstrahlung_constant)
 end
 
 # refuses an element without the data of bound_friction = :ionization_split
@@ -568,18 +712,23 @@ end
 # ir, in units of the prefactor of ν_s: the Bethe term with its screening weight, or with
 # bound_friction = :ionization_split the ionization part above the threshold and the rest,
 # floored at zero. The Bethe path keeps the order of the arithmetic of the port of DREAM's
-# formula, so that its values do not change when the split is added.
+# formula, so that its values do not change when the split is added. At a table entry of a
+# face (`_face_entry`) the factors come from the tables.
 function _bound_slowing_down(
-        model::CollisionModel, index, state::ChargeState, ir, p, prefactor)
-    bethe = _screening_weight(model.settings, state, p) *
-            _bound_electron_stopping(model, state, p)
+        model::CollisionModel, index, state::ChargeState, ir, p, prefactor, entry = nothing)
+    bethe = if entry === nothing
+        _weighted_bound_stopping(model.settings, state, p)
+    else
+        tables = model.coefficient_tables[ir]::CoefficientTables
+        tables.stopping[entry.index, index]
+    end
     # one number type on both branches: the ionization part carries the partials of the plasma,
     # the Bethe term does not
     number_type = promote_type(typeof(bethe), eltype(model.plasma.cold_electron_temperature))
     model.settings.bound_friction === :ionization_split ||
         return convert(number_type, bethe)
     ionization = _ionization_envelope(model, ir, p) *
-                 _ionization_part(model, index, state, ir, p) / prefactor
+                 _ionization_part(model, index, state, ir, p, entry) / prefactor
     return ionization + max(bethe - ionization, zero(ionization))
 end
 
@@ -599,6 +748,21 @@ end
 function _ionization_part(model::CollisionModel, index, state::ChargeState, ir, p)
     _ionization_slowing_down(state, p, model.settings.secondary_spectrum,
         model.settings.ionization_cross_section_form)
+end
+function _ionization_part(
+        model::CollisionModel, index, state::ChargeState, ir, p, ::Nothing)
+    return _ionization_part(model, index, state, ir, p)
+end
+# at the entry of a face: `CollisionModel` builds the ionization table and the coefficient
+# tables of a radius in the same call from the same faces vector `faces[ir]`, so the row of the
+# face in the ionization table is the index of the entry
+function _ionization_part(
+        model::CollisionModel, index, state::ChargeState, ir, p, entry::TableEntry)
+    table = model.ionization_tables[ir]
+    if table !== nothing
+        return last(table)[entry.index, index]
+    end
+    return _ionization_part(model, index, state, ir, p)
 end
 
 # Bound-electron contribution to pitch-angle scattering (Hesslow et al. eq. 2.25).
@@ -623,8 +787,9 @@ function slowing_down_frequency(model::CollisionModel, ir, p)
     _collisional_slowing_down(model, ir, p) + _radiative_slowing_down(model, ir, p)
 end
 
-# the collisional part of ν_s: the free and, with partial screening, the bound electrons
-function _collisional_slowing_down(model::CollisionModel, ir, p)
+# the collisional part of ν_s: the free and, with partial screening, the bound electrons;
+# from the tables at the entry of a face
+function _collisional_slowing_down(model::CollisionModel, ir, p, entry = nothing)
     p == 0 && return zero(p * model.scaled_bessel_k0[ir])
     mode = model.settings.mode
     prefactor = if mode === :ultra_relativistic
@@ -637,7 +802,7 @@ function _collisional_slowing_down(model::CollisionModel, ir, p)
     if model.settings.screening === :partial
         for (index, state) in enumerate(model.charge_states)
             state.charge == state.nuclear_charge && continue
-            nu += _bound_slowing_down(model, index, state, ir, p, prefactor) *
+            nu += _bound_slowing_down(model, index, state, ir, p, prefactor, entry) *
                   _charge_state_density(model, state, ir)
         end
     end
@@ -645,13 +810,17 @@ function _collisional_slowing_down(model::CollisionModel, ir, p)
 end
 
 # the radiative part of ν_s with bremsstrahlung = :stopping_power, on the nuclei of all
-# charge states, ν_s = n Z² α r₀² c φ_rad/β; zero otherwise
-function _radiative_slowing_down(model::CollisionModel, ir, p)
+# charge states, ν_s = n Z² α r₀² c φ_rad/β; zero otherwise. From the tables at the entry of
+# a face.
+function _radiative_slowing_down(model::CollisionModel, ir, p, entry = nothing)
     nu = zero(p * model.scaled_bessel_k0[ir])
     (p == 0 || model.settings.bremsstrahlung !== :stopping_power) && return nu
-    radiative = COLLISION_PREFACTOR * Constants.FINE_STRUCTURE_CONSTANT / (4π) *
-                sqrt(1 + p^2) / p *
-                bremsstrahlung_cross_section(p; constant = model.settings.bremsstrahlung_constant)
+    radiative = if entry === nothing
+        _radiative_factor(model.settings, p)
+    else
+        tables = model.coefficient_tables[ir]::CoefficientTables
+        tables.radiative[entry.index]
+    end
     for state in model.charge_states
         nu += radiative * state.nuclear_charge^2 * _charge_state_density(model, state, ir)
     end
@@ -665,6 +834,12 @@ Pitch-angle scattering (deflection) frequency `ν_D` [s⁻¹]; the collisional p
 `Dᵠᵠ = ν_D (1 - ξ²)/2`.
 """
 function deflection_frequency(model::CollisionModel, ir, p)
+    return _deflection_frequency(model, ir, p)
+end
+
+# ν_D, with the bound-electron scattering from the tables at the entry of a cell centre
+# (`_center_entry`)
+function _deflection_frequency(model::CollisionModel, ir, p, entry = nothing)
     p == 0 && return zero(p * model.scaled_bessel_k0[ir])
     mode = model.settings.mode
     prefactor = if mode === :ultra_relativistic
@@ -681,11 +856,15 @@ function deflection_frequency(model::CollisionModel, ir, p)
         nu += electron_ion * charge_squared * _charge_state_density(model, state, ir)
     end
     if model.settings.screening === :partial
-        for state in model.charge_states
+        for (index, state) in enumerate(model.charge_states)
             state.charge == state.nuclear_charge && continue
-            nu += _screening_weight(model.settings, state, p) *
-                  _bound_electron_scattering(state, p) *
-                  _charge_state_density(model, state, ir)
+            scattering = if entry === nothing
+                _weighted_bound_scattering(model.settings, state, p)
+            else
+                tables = model.coefficient_tables[ir]::CoefficientTables
+                tables.scattering[entry.index, index]
+            end
+            nu += scattering * _charge_state_density(model, state, ir)
         end
     end
     return prefactor * nu
@@ -717,6 +896,27 @@ function parallel_diffusion_frequency(model::CollisionModel, ir, p)
     return theta * sqrt(1 + p^2) * nu_s
 end
 
+# ν_s and ν_∥ at one face with ν_s evaluated once, for the coefficient builder: the values of
+# `slowing_down_frequency` and `parallel_diffusion_frequency` bit for bit, since ν_∥ takes
+# the ν_s of the face, or its collisional part, as `parallel_diffusion_frequency` selects it
+# and multiplies it in the same order. With `screened_diffusion = :zero`, ν_∥ shares no part
+# with ν_s and is evaluated on its own. At the entry of a face (`_face_entry`) ν_s takes the
+# factors of the tables.
+function _slowing_down_and_parallel_diffusion(model::CollisionModel, ir, p, entry = nothing)
+    collisional = _collisional_slowing_down(model, ir, p, entry)
+    nu_s = collisional + _radiative_slowing_down(model, ir, p, entry)
+    settings = model.settings
+    if !(settings.mode === :full && p != 0)
+        return (nu_s, zero(p * model.scaled_bessel_k0[ir]))
+    end
+    if settings.screened_diffusion !== :maxwellian
+        return (nu_s, parallel_diffusion_frequency(model, ir, p))
+    end
+    theta = _normalized_temperature(model, ir)
+    diffused = settings.bremsstrahlung_diffusion === :dream ? nu_s : collisional
+    return (nu_s, theta * sqrt(1 + p^2) * diffused)
+end
+
 """
     p3_slowing_down_frequency_at_zero(model, ir)
 
@@ -724,11 +924,19 @@ end
 `SlowingDownFrequency::GetP3NuSAtZero`, the value uses the prefactor `4π r₀² c` in every
 mode. In `:ultra_relativistic` mode, where `ν_s ∝ 1/p` and the analytic limit is 0, it
 therefore returns the `:superthermal` value. The friction of that mode is the constant
-drift `Aᵖ = -4π r₀² c lnΛ n`, which brings electrons to `p = 0` in a finite time, and
-DREAM's value lets them leave the grid there: the sink through `p = 0` is `1/Δp₁²` times
-the inflow through the first interior face at equal `f`, so the first cell absorbs. With
-the analytic limit the first cell would collect them without bound. DREAM runs the mode
-on a runaway grid from `p = 0` (`examples/init_f_re`).
+drift `Aᵖ = -4π r₀² c lnΛ n`, which brings electrons to `p = 0` in a finite time. With
+DREAM's value, on a grid that applies the flux through `p = 0`, they leave the grid at
+`p = 0`: the sink is `1/Δp₁²` times the inflow through the first interior face at equal
+`f`, so the first cell absorbs. With the analytic limit the first cell would collect them
+without bound.
+
+DREAM's hot-tail grid applies the flux and lets electrons leave at `p = 0`; its runaway
+grid does not (`src/Settings/Equations/f_hot.cpp:96`, `src/Settings/Equations/f_re.cpp:87`,
+`src/Settings/Equations/distribution.cpp:234-237`), so in the ultra-relativistic mode,
+which DREAM runs on a runaway grid from `p = 0` (`examples/init_f_re`), the first cell
+collects the electrons the friction brings there. Runes2P applies the flux through
+`p = 0` by default (`p_zero_boundary = :outflow` of [`AdvectionDiffusion`](@ref)), and
+`p_zero_boundary = :zero_flux` leaves it out, as DREAM's runaway grid.
 """
 function p3_slowing_down_frequency_at_zero(model::CollisionModel, ir)
     z = zero(model.scaled_bessel_k0[ir])
@@ -737,8 +945,7 @@ function p3_slowing_down_frequency_at_zero(model::CollisionModel, ir)
     if model.settings.screening === :partial
         for state in model.charge_states
             state.charge == state.nuclear_charge && continue
-            nu += _screening_weight(model.settings, state, z) *
-                  _bound_electron_stopping(model, state, z) *
+            nu += _weighted_bound_stopping(model.settings, state, z) *
                   _charge_state_density(model, state, ir)
         end
     end

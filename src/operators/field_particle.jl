@@ -2,8 +2,8 @@
 # test-particle operator of kinetic_terms.jl loses the parallel momentum that
 # the electrons give to each other; a model field-particle term returns it to the bulk as
 # a shifted Maxwellian, with heat-flux corrections. The term has rank 1 to 3 per radius, is
-# applied matrix-free and enters the block preconditioners and the direct solver through a
-# Woodbury update (linear_solver.jl, block_preconditioners.jl).
+# applied matrix-free and enters the block preconditioners and the direct solvers through a
+# Woodbury update (linear_solver.jl, block_preconditioners.jl, ext/Runes2PMKLPardisoExt.jl).
 # Included after system/terms.jl, since it defines an EquationTerm and implements the
 # low-rank interface defined there (`LowRankBlock`, `low_rank_jacobian`).
 
@@ -26,23 +26,32 @@ end
 
 """
     electron_electron_operator(grid, plasma, settings; scheme=:exponential_fitting,
-                               p_lower_boundary=:zero_flux, p_upper_boundary=:outflow)
+                               p_lower_boundary=:zero_flux, p_upper_boundary=:outflow,
+                               p_zero_boundary=:outflow)
 
 Test-particle operator of the electron-electron collisions alone: slowing down, pitch-angle
 scattering and, in `settings.mode = :full`, energy diffusion `Θγν_s`, from the free
 electrons of `plasma` with the thermal factors of the mode (`:full` or `:superthermal`).
 Bound electrons and ions are left out. Both ends of the momentum grid have no flux (the
 friction points inwards at `p_max`, and the slowing down vanishes at `p = 0`), so the
-operator conserves particles. The coefficients take the number type of the plasma, so a
-plasma with derivative parts gives the derivatives of the operator.
+operator conserves particles. `p_zero_boundary` sets only the ghost cells of the
+four-point schemes below `p = 0` on a grid from `p = 0`; a grid with `p_min > 0` takes
+`p_lower_boundary` instead ([`AdvectionDiffusion`](@ref)). The coefficients take the
+number type of the plasma, so a plasma with derivative parts gives the derivatives of the
+operator. The operator declares no radial transport and no cross diffusion
+(`radial_transport = false`, `cross_diffusion = false`), as
+[`fokker_planck_operator`](@ref): its stencil couples neither the radii nor the corners of
+the 3×3 block in p and ξ.
 """
 function electron_electron_operator(
         grid::KineticGrid, plasma::PlasmaState, settings::CollisionSettings;
         scheme::Symbol = :exponential_fitting, p_lower_boundary::Symbol = :zero_flux,
-        p_upper_boundary::Symbol = :outflow)
+        p_upper_boundary::Symbol = :outflow, p_zero_boundary::Symbol = :outflow)
     settings.mode in (:full, :superthermal) ||
         throw(ArgumentError("the electron-electron operator takes collision mode :full or :superthermal"))
-    op = AdvectionDiffusion(grid; scheme, p_lower_boundary, p_upper_boundary)
+    op = AdvectionDiffusion(
+        grid; scheme, p_lower_boundary, p_upper_boundary, p_zero_boundary,
+        radial_transport = false, cross_diffusion = false)
     C = eltype(plasma.cold_electron_temperature)
     if C !== Float64
         op = similar_coefficients(op, C)

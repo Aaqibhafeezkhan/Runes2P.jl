@@ -46,7 +46,7 @@ Its grid and time step are a choice of this package.
 Its interpolation scheme is the default of this package, where the example uses TCDF (`scheme=tcdf`).
 Its switch `treatment=` of [`KnockOnTerm`](@ref) is `explicit_primary` (the primary distribution at the previous time level, as in DREAM), `explicit` (the whole term there) or `implicit`.
 `implicit` takes the whole term at the new time level and applies it matrix-free in each Krylov iteration of [`GMRES`](@ref).
-The direct solver does not take it, so with `treatment=implicit` the solver defaults to GMRES.
+The direct solvers do not take it, so with `treatment=implicit` the solver defaults to GMRES.
 
 Every script prints the segment and its status, the solver statistics ([`SolverStatistics`](@ref)), the negative entries of the saved states and the density per radius at every save.
 In a GMRES run the statistics include the Krylov iterations and factorizations.

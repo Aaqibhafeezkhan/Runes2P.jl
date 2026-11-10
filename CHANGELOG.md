@@ -8,6 +8,15 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Added
 
+- `MKLPardiso` solves the Newton systems with Intel MKL PARDISO; its solves come with the extension `Runes2PMKLPardisoExt`, loaded by `using Pardiso` ([#243](https://github.com/osrep/Runes2P.jl/pull/243)).
+  It takes the systems of `SparseLU`, the field-particle term by the same Woodbury update, and runs threaded with `threads`; `refinement_steps` sets PARDISO's refinement steps.
+  `SparseLU` stays the default.
+  Its settings record is new in the format 0.0.4.
+- `InterfaceParticleFluxTerm` puts the particle flux through the interface into a radial row, the influx of DREAM's `n_re` from the hot-tail grid.
+  Its settings record is new in the format 0.0.4 ([#214](https://github.com/osrep/Runes2P.jl/pull/214)).
+- `p_zero_boundary` of `AdvectionDiffusion`, `fokker_planck_operator` and `electron_electron_operator` sets the flux through `p = 0` on a grid from `p = 0`.
+  The default `:outflow` keeps the flux of the friction there, as DREAM's hot-tail grid; `:zero_flux` takes none, as DREAM's runaway grid.
+  The settings record of an operator holds it, and `OUTPUT_FORMAT_VERSION` is 0.0.4 for the new key ([#203](https://github.com/osrep/Runes2P.jl/pull/203)).
 - `fill_coronal_equilibrium!` starts the ions of a run in coronal equilibrium at the free-electron density they give, DREAM's `init_equil`, with the rates of an `IonRateTerm` or of a composition ([#191](https://github.com/osrep/Runes2P.jl/pull/191)).
   Its iterations stop at `MAXIMUM_EQUILIBRIUM_ITERATIONS`.
 - `fill_runaway_distribution!` fills a distribution from a density in DREAM's four shapes of `f_re`, `RUNAWAY_SHAPES` ([#191](https://github.com/osrep/Runes2P.jl/pull/191)).
@@ -22,6 +31,26 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Changed
 
+- `InterfaceParticleFluxTerm` and `InterfaceEnergyFluxTerm` assemble their row of the Jacobian directly, from the flux in dual numbers seeded on the cells at the face and the field ([#239](https://github.com/osrep/Runes2P.jl/pull/239)).
+  The stored pattern and the partials of the term are unchanged.
+  An entry that the term shares with two or more other terms is summed in another order and changes at round-off, and the results with it.
+  Such an entry is the column of the field in a row of the total energy that also holds the work of the field (`ProductTerm`).
+- The stencil of an `AdvectionDiffusion` holds the radial neighbours only when the operator declares radial transport, and the corners of the 3×3 block in p and ξ only when it declares cross diffusion ([#228](https://github.com/osrep/Runes2P.jl/pull/228)).
+  The keywords `radial_transport` and `cross_diffusion` declare them, both `true` for an operator built by hand.
+  `stencil_pattern(grid; ...)` takes the same two keywords.
+  `fokker_planck_operator` and `electron_electron_operator` declare neither, and a `FokkerPlanckTerm` with a plasma source clears both, since the rebuild of its coefficients writes neither.
+  The radii of such an operator are then separate blocks of the direct factorization, unless radial transport acts on the same unknown.
+  The values of the Jacobian are unchanged, and with a direct solver the factorization has another pivot order.
+  The results then change within the Newton tolerance, and at round-off where the Newton iterations of the steps are the same.
+  With `GMRES` the factors of the preconditioner have another pivot order too, so its Krylov iterations and its refreshes on demand can change, and the states within the Newton tolerance.
+  With either solver the step lengths of a `StepController` may differ.
+  A nonzero coefficient that an operator does not declare is refused, and the radial transport writers require `radial_transport`.
+  `ParticleSourceTerm` with `shape = :lowest_cell` stores its first momentum cells alone and no column of the temperature.
+  The settings record of an operator holds both declarations, new in the format 0.0.4.
+  A run resumed from a checkpoint written before this change records the section of the operator as changed and warns of it.
+- `MomentumInterfaceTerm` takes a hot-tail Fokker-Planck term whose coefficients follow the plasma unknowns (`lagged = ()` or `:ions`).
+  Its Jacobian holds the columns of the temperature, the density, and the ion densities unless the lower term lags them, as DREAM's `PXiExternalKineticKinetic`.
+  Until now it asked for `lagged = :all` ([#214](https://github.com/osrep/Runes2P.jl/pull/214)).
 - `NewtonSolver` accepts a stiff step at the round-off floor of its residual at the first iterate that reaches it ([#179](https://github.com/osrep/Runes2P.jl/pull/179)).
   It is accepted when every row above `residual_tolerance` is within its round-off bound `eps Σ_j |(∂F/∂u)_ij u_j|`, computed from the stored Jacobian when that holds every implicit term exactly.
   Until now such a step waited for the residual to stop decreasing, which at the floor wanders for a few iterations; that stall test stays where the bound is not available or a row is above it.

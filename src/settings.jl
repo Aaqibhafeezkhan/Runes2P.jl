@@ -14,7 +14,7 @@ using LinearAlgebra: BLAS
 Version of the output file format, written as the string `"major.minor.patch"` in the
 root attribute `format_version`. It counts up with every change of the file's content.
 """
-const OUTPUT_FORMAT_VERSION = v"0.0.3"
+const OUTPUT_FORMAT_VERSION = v"0.0.4"
 
 "The format version as written to files, `\"major.minor.patch\"`."
 output_format_version() = string(OUTPUT_FORMAT_VERSION)
@@ -414,13 +414,13 @@ const COEFFICIENT_FIELDS = (
     :diffusion_xi_p, :advection_r, :diffusion_r_r, :advection_p_times_p2_at_zero)
 const OPERATOR_OPTION_FIELDS = (
     :p_scheme, :xi_scheme, :r_scheme, :p_lower_boundary, :p_upper_boundary,
-    :r_boundary)
+    :p_zero_boundary, :r_boundary)
 
 function settings_fields(::Type{<:AdvectionDiffusion})
     (
         described = (:grid, COEFFICIENT_FIELDS...,
             :p_flux_at_lower_boundary, OPERATOR_OPTION_FIELDS...,
-            :coefficient_source),
+            :coefficient_source, :radial_transport, :cross_diffusion),
         derived = (:momentum_grids, :radial_overlaps, :jacobian_centers,
             :jacobian_p_faces, :jacobian_xi_faces,
             :jacobian_r_faces, :jacobian_over_p2_at_zero, :unit_field_advection_p, :unit_field_advection_xi))
@@ -429,8 +429,9 @@ end
 """
     describe(op::AdvectionDiffusion, context=DescriptionContext(); coefficients=true)
 
-Record of the operator: its grid, schemes and boundary conditions, the boundary flux at
-`p_min` when it is not zero, and with `coefficients = true` the coefficient arrays. An
+Record of the operator: its grid, schemes and boundary conditions, its declarations of
+radial transport and cross diffusion, the boundary flux at `p_min` when it is not zero, and
+with `coefficients = true` the coefficient arrays. An
 array that is zero everywhere is named in `zero_coefficients` and not stored. When the
 coefficients were built by [`set_fokker_planck_coefficients!`](@ref), the plasma and the
 collision settings they were built from are recorded under `coefficient_source`. The
@@ -445,6 +446,8 @@ function describe(
     for field in OPERATOR_OPTION_FIELDS
         record[String(field)] = String(getfield(op, field))
     end
+    record["radial_transport"] = op.radial_transport[]
+    record["cross_diffusion"] = op.cross_diffusion[]
     if any(!iszero, op.p_flux_at_lower_boundary)
         record["p_flux_at_lower_boundary"] = _plain(op.p_flux_at_lower_boundary)
     end
@@ -528,7 +531,8 @@ function settings_fields(::Type{<:FokkerPlanckTerm})
             :lagged),
         derived = (:stored_operator, :values, :correction, :dual_input,
             :dual_output, :field_values, :dual_field,
-            :plasma_key, :rebuilds, :dual_operator, :dual_columns, :ion_state))
+            :plasma_key, :rebuilds, :dual_operator, :dual_columns,
+            :dual_plasma_key, :dual_rebuilds, :ion_state))
 end
 
 function describe(term::FokkerPlanckTerm, context::DescriptionContext)
@@ -629,7 +633,7 @@ function settings_fields(::Type{<:RadiatedPowerTerm})
     (
         described = (:plasma, :temperature, :density, :radiation, :extrapolation,
             :bremsstrahlung_corrections, :ions, :kinetic_ionization),
-        derived = (:tables,))
+        derived = (:species_names, :tables, :ionization_energies, :buffers))
 end
 
 function describe(term::RadiatedPowerTerm, context::DescriptionContext)
@@ -647,7 +651,7 @@ function describe(term::RadiatedPowerTerm, context::DescriptionContext)
     end
     # the ADF11 files of each element, by name: the cache itself is not part of the record
     files = SettingsRecord()
-    for (element, tables) in term.tables
+    for (element, tables) in zip(term.species_names, term.tables)
         files[element] = _adf11_file_names(tables, ADF11_CLASSES)
     end
     record["adf11_files"] = files
@@ -933,7 +937,7 @@ function settings_fields(::Type{<:IonEnergyExchangeTerm})
     (
         described = (:plasma, :side, :ion_energy, :temperature, :density,
             :ion_ion, :ion_coulomb_logarithm, :masses, :ions),
-        derived = ())
+        derived = (:buffers,))
 end
 
 function describe(term::IonEnergyExchangeTerm, context::DescriptionContext)
@@ -949,6 +953,13 @@ function describe(term::IonEnergyExchangeTerm, context::DescriptionContext)
         record["ions"] = String(term.ions)
     end
     return _describe_plasma_source!(record, term.plasma, context)
+end
+
+function settings_fields(::Type{<:RunawayFluidEnergyTransferTerm})
+    (
+        described = (:plasma, :runaway_density, :temperature, :density,
+            :coulomb_logarithm, :ions),
+        derived = (:buffers,))
 end
 
 function describe(term::RunawayFluidEnergyTransferTerm, context::DescriptionContext)
@@ -978,7 +989,8 @@ function describe(term::KineticEnergyLossTerm, context::DescriptionContext)
 end
 
 function settings_fields(::Type{<:FrictionEnergyTransferTerm})
-    (described = (:kinetic, :grid, :source, :settings, :coefficient), derived = ())
+    (described = (:kinetic, :grid, :source, :settings, :coefficient),
+        derived = (:plasma_key, :weights, :shapes, :products, :dual_scratch))
 end
 
 function describe(term::FrictionEnergyTransferTerm, context::DescriptionContext)
@@ -990,7 +1002,7 @@ function describe(term::FrictionEnergyTransferTerm, context::DescriptionContext)
     return _describe_plasma_source!(record, term.source, context)
 end
 
-function describe(term::InterfaceEnergyFluxTerm, context::DescriptionContext)
+function describe(term::InterfaceFluxTerm, context::DescriptionContext)
     record = _term_record(term)
     record["coefficient"] = term.coefficient
     record["interface"] = describe(term.interface, context)
@@ -1057,7 +1069,7 @@ function _describe_region!(record, envelopes, context)
 end
 
 function settings_fields(::Type{<:DensityMomentTerm})
-    (described = (:kinetic, :coefficient, :envelopes), derived = ())
+    (described = (:kinetic, :coefficient, :envelopes), derived = (:row_cache,))
 end
 
 function describe(term::DensityMomentTerm, context::DescriptionContext)
@@ -1076,7 +1088,7 @@ end
 
 function settings_fields(::Type{<:CurrentMomentTerm})
     (described = (:kinetic, :grid, :coefficient, :pitch_rule, :envelopes),
-        derived = (:pitch_weights,))
+        derived = (:pitch_weights, :row_cache))
 end
 
 function describe(term::CurrentMomentTerm, context::DescriptionContext)
@@ -1123,7 +1135,7 @@ end
 
 function settings_fields(::Type{<:ConductivityTerm})
     (described = (:electric_field, :model, :coefficient),
-        derived = (:values, :plasma_key, :operator_rebuilds))
+        derived = (:values, :plasma_key, :operator_rebuilds, :buffers))
 end
 
 """

@@ -6,28 +6,12 @@
 import LinearAlgebra
 using Random: Xoshiro
 
-const FIELD_PARTICLE_SETTINGS = CollisionSettings(
-    mode = :full, screening = :complete, coulomb_logarithm = :thermal)
-
 function _field_particle_plasma(;
         T = 10.0, ne = 1e20, Z = 1, E = 0.0, nr_ = 1, cold_fraction = 1.0)
     ions = [IonSpecies("X", Z, Z, fill(ne / Z, nr_))]
     return PlasmaState(;
         cold_electron_temperature = fill(T, nr_), ions, electric_field = fill(E, nr_),
         magnetic_field = zeros(nr_), cold_electron_density = fill(cold_fraction * ne, nr_))
-end
-
-function _field_particle_grid(;
-        np_ = 80, nxi = 4, T = 10.0, nr_ = 1, xi_faces = uniform_xi_faces(nxi))
-    theta = T / Constants.ELECTRON_REST_ENERGY
-    mom = MomentumGrid(uniform_p_faces(np_, 0.0, 7 * sqrt(2theta)), xi_faces)
-    return cylindrical_grid(mom, RadialGrid(uniform_r_faces(nr_, 1.0)))
-end
-
-function _maxwellian_on(g, T)
-    [exp(-(sqrt(1 + p^2) - 1) / (T / Constants.ELECTRON_REST_ENERGY))
-     for p in momentum_grid(g).p_centers, _ in 1:pitch_cell_count(g),
-    _ in 1:radial_cell_count(g)]
 end
 
 # Lorentz conductivity σ_L = 64√(2π) ε₀² T^{3/2} / (√m e² Z lnΛ) (Braginskii, Z → ∞)

@@ -162,18 +162,56 @@ prepare_step!(::EquationTerm, u_old, layout, row, t) = nothing
 
 Add the entries `∂ rhs_term / ∂u` of a term with [`jacobian_assembly`](@ref)`(term) ===
 :direct` to the stored matrix `J` at the state `u` and the time `t`. The entries lie in
-the pattern of `sparsity!`. Allocation free.
+the pattern of `sparsity!`. A method may allocate work arrays per call, such as the dual
+numbers of [`ParticleSourceTerm`](@ref), [`InterfaceParticleFluxTerm`](@ref) and
+[`InterfaceEnergyFluxTerm`](@ref) or the row of [`KineticEnergyLossTerm`](@ref).
 """
 function add_jacobian! end
 
 # add `value` to the stored entry (row, column) of J
 @inline function _add_entry!(J::SparseMatrixCSC, row::Integer, column::Integer, value)
+    nonzeros(J)[_pattern_position(J, row, column)] += value
+    return J
+end
+
+# the position in the stored values of J of the entry (row, column), an `ArgumentError` when
+# the entry is not in the pattern
+@inline function _pattern_position(J::SparseMatrixCSC, row::Integer, column::Integer)
     range = nzrange(J, column)
     rows = rowvals(J)
     k = searchsortedfirst(rows, row, first(range), last(range), Base.Order.Forward)
     (k <= last(range) && rows[k] == row) ||
         throw(ArgumentError("the entry ($row, $column) is not in the pattern of the stored Jacobian"))
-    nonzeros(J)[k] += value
+    return k
+end
+
+# the position in the stored values of J of the entry (first(rows), column), where the rows
+# `rows` of the column are stored one after the other: the entry of row r is at the position
+# plus r - first(rows); the stored rows of a column increase strictly, so the run holds every
+# row of `rows` when its first and last positions hold the first and last rows, and otherwise
+# an entry is not in the pattern, an `ArgumentError` as in `_add_entry!`
+function _run_start(J::SparseMatrixCSC, rows::UnitRange{Int}, column::Integer)
+    isempty(rows) && throw(ArgumentError("an empty run of rows in column $column"))
+    range = nzrange(J, column)
+    stored = rowvals(J)
+    start = searchsortedfirst(
+        stored, first(rows), first(range), last(range), Base.Order.Forward)
+    stop = start + length(rows) - 1
+    if !(stop <= last(range) && stored[start] == first(rows) && stored[stop] == last(rows))
+        throw(ArgumentError("the entries ($rows, $column) are not all in the pattern of the stored Jacobian"))
+    end
+    return start
+end
+
+# add partial k of the dual number `value` to the entry (row, columns[k]) of J, for every k
+# in the order of `columns`
+@inline function _add_partials!(J::SparseMatrixCSC, row::Integer, columns::Vector{Int}, value)
+    length(columns) == ForwardDiff.npartials(value) ||
+        throw(DimensionMismatch("$(length(columns)) plasma columns for $(ForwardDiff.npartials(value)) partials"))
+    partials = ForwardDiff.partials(value)
+    for k in eachindex(columns)
+        _add_entry!(J, row, columns[k], partials[k])
+    end
     return J
 end
 
@@ -280,6 +318,13 @@ struct JacobianCorrectionTag end
 # tag of the dual numbers of the local columns of a term
 struct LocalColumnTag end
 
+# the dual number of type D with value x and partial `partial` equal to one; none when
+# `partial` lies outside the partials of D
+function _seeded_dual(::Type{ForwardDiff.Dual{T, V, N}}, x, partial) where {T, V, N}
+    seed = ntuple(q -> q == partial ? one(V) : zero(V), Val(N))
+    return ForwardDiff.Dual{T, V, N}(x, ForwardDiff.Partials(seed))
+end
+
 """
     add_local_jacobian!(J, term, u, layout, row, t)
 
@@ -297,13 +342,33 @@ radial unknowns on the same radial grid ([`local_layout`](@ref)), so that its co
 grow with the kinetic unknowns of the system.
 """
 function add_local_jacobian!(J, term::EquationTerm, u, layout, row, t)
-    ids = [unknown_id(layout, name) for name in dependencies(term)]
-    all(id -> layout.kinds[id] === :radial, ids) ||
-        throw(ArgumentError("the local Jacobian of a $(nameof(typeof(term))) needs radial unknowns alone"))
-    layout.kinds[row] === :radial ||
-        throw(ArgumentError("the local Jacobian of a $(nameof(typeof(term))) adds to a radial unknown"))
-    count = sum(id -> layout.sizes[id, 1], ids)
-    return _add_local_jacobian!(J, term, u, layout, row, t, ids, Val(count))
+    buffers = _local_jacobian_buffers(term, layout, row)
+    return _add_local_jacobian!(J, term, u, layout, t, buffers)
+end
+
+# the buffers that a term keeps between its evaluations on the state of the system: those of
+# add_local_jacobian! and the plasma states of `_with_state_ions!`. The Jacobian buffers are
+# those of one layout and row, so a term evaluated in turn on two rows or two systems makes
+# them again at each call; the results are the same. The public add_local_jacobian! makes a
+# local layout per call, so on a term that reads the ion densities of the state each of its
+# calls adds a plasma state, and the list, emptied when full, drops the states of the residual
+# and of the kept Jacobian buffers with it.
+struct LocalTermBuffers
+    jacobian::Base.RefValue{Any}   # the LocalJacobianBuffers of the last layout and row
+    plasmas::Vector{Any}           # the StateIonsBuffer per layout and number type
+end
+LocalTermBuffers() = LocalTermBuffers(Ref{Any}(nothing), Any[])
+
+# add_local_jacobian! with the buffers of `buffers`, made again when the layout or the row
+# differ from those of the last call
+function _add_buffered_local_jacobian!(J, term::EquationTerm, u, layout, row, t,
+        buffers::LocalTermBuffers)
+    kept = buffers.jacobian[]
+    if !(kept isa LocalJacobianBuffers && kept.layout === layout && kept.row == row)
+        kept = _local_jacobian_buffers(term, layout, row)
+        buffers.jacobian[] = kept
+    end
+    return _add_local_jacobian!(J, term, u, layout, t, kept)
 end
 
 """
@@ -326,39 +391,76 @@ function _local_unknown(u::RadialUnknown)
     return RadialUnknown(u.name; components = u.components, scale = u.scale, groups)
 end
 
-function _add_local_jacobian!(J, term, u, layout, row, t, ids, ::Val{K}) where {K}
+# the state of the dependencies and the row of a term in the local layout, with the partials
+# seeded, for the layout `layout` of the system and the row `row`
+struct LocalJacobianBuffers{D <: ForwardDiff.Dual, L <: UnknownLayout}
+    layout::UnknownLayout    # the layout of the system
+    row::Int
+    ids::Vector{Int}         # the dependencies, whose components the partials take in order
+    reduced::L               # the layout of the dependencies and the row (local_layout)
+    local_row::Int           # the row in `reduced`
+    sources::Vector{Int}     # per entry of the local state: its index in the state of the system
+    seeded::Vector{D}        # the local state, its partials seeded
+    out::Vector{D}           # the output of the evaluation
+end
+
+# the buffers of the local Jacobian of `term` for the layout and the row
+function _local_jacobian_buffers(term::EquationTerm, layout, row)
+    ids = [unknown_id(layout, name) for name in dependencies(term)]
+    all(id -> layout.kinds[id] === :radial, ids) ||
+        throw(ArgumentError("the local Jacobian of a $(nameof(typeof(term))) needs radial unknowns alone"))
+    layout.kinds[row] === :radial ||
+        throw(ArgumentError("the local Jacobian of a $(nameof(typeof(term))) adds to a radial unknown"))
+    count = sum(id -> layout.sizes[id, 1], ids)
+    return _local_jacobian_buffers(layout, row, ids, Val(count))
+end
+
+function _local_jacobian_buffers(layout, row, ids, ::Val{K}) where {K}
     D = ForwardDiff.Dual{LocalColumnTag, Float64, K}
     local_ids = row in ids ? ids : [ids; row]
     reduced = local_layout(layout, local_ids)
+    local_row = findfirst(==(row), local_ids)::Int
+    sources = zeros(Int, length(reduced))
     seeded = zeros(D, length(reduced))
     for ir in 1:radial_cell_count(layout)
         k = 0
         for (m, id) in enumerate(local_ids)
             target = unknown_range(reduced, m, ir)
             for (a, i) in enumerate(unknown_range(layout, id, ir))
+                sources[target[a]] = i
                 if m <= length(ids)
                     k += 1
-                    #! format: off
-                    seeded[target[a]] = D(u[i], ForwardDiff.Partials(ntuple(q -> Float64(q == k), Val(K))))
-                    #! format: on
-                else
-                    seeded[target[a]] = D(u[i])
+                    seeded[target[a]] = _seeded_dual(D, 0.0, k)
                 end
             end
         end
     end
-    out = zeros(D, length(reduced))
-    local_row = findfirst(==(row), local_ids)
-    rhs!(out, term, seeded, reduced, local_row, t)
+    return LocalJacobianBuffers(
+        layout, row, ids, reduced, local_row, sources, seeded, zeros(D, length(reduced)))
+end
+
+function _add_local_jacobian!(
+        J, term, u, layout, t, buffers::LocalJacobianBuffers{D}) where {D}
+    seeded = buffers.seeded
+    # the values of the state, the seeded partials kept
+    for (j, i) in enumerate(buffers.sources)
+        seeded[j] = D(u[i], ForwardDiff.partials(seeded[j]))
+    end
+    out = buffers.out
+    fill!(out, zero(D))
+    rhs!(out, term, seeded, buffers.reduced, buffers.local_row, t)
     for ir in 1:radial_cell_count(layout)
-        columns = Int[]
-        for id in ids
-            append!(columns, unknown_range(layout, id, ir))
-        end
-        for (r, r_local) in zip(unknown_range(layout, row, ir), unknown_range(reduced, local_row, ir))
+        rows = unknown_range(layout, buffers.row, ir)
+        local_rows = unknown_range(buffers.reduced, buffers.local_row, ir)
+        for (r, r_local) in zip(rows, local_rows)
             partials = ForwardDiff.partials(out[r_local])
-            for k in 1:K
-                _add_entry!(J, r, columns[k], partials[k])
+            # partial k is the k-th component of the dependencies at the radius
+            k = 0
+            for id in buffers.ids
+                for c in unknown_range(layout, id, ir)
+                    k += 1
+                    _add_entry!(J, r, c, partials[k])
+                end
             end
         end
     end
@@ -386,8 +488,9 @@ end
 
 For a `:matrix_free` term whose Jacobian at the state `u` is a sum of low-rank blocks:
 the vector of [`LowRankBlock`](@ref)s. `nothing` (the default) for any other term. The
-block preconditioners of [`GMRES`](@ref) and the direct solver [`SparseLU`](@ref) add
-the blocks by a Woodbury update, so the term needs no stored Jacobian.
+block preconditioners of [`GMRES`](@ref) and the direct solvers [`SparseLU`](@ref) and
+[`MKLPardiso`](@ref) add the blocks by a Woodbury update, so the term needs no stored
+Jacobian.
 """
 low_rank_jacobian(::EquationTerm, u, layout, row, t) = nothing
 

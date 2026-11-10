@@ -161,7 +161,7 @@ export HeatTransportTerm, heat_flux_through_edge
 export IonEnergyExchangeTerm, set_ion_thermal_energy!, ion_temperatures, ion_mass
 export total_energy_equation, RunawayFluidEnergyTransferTerm,
        free_electron_energy_transfer_term, KineticEnergyLossTerm, InterfaceEnergyFluxTerm,
-       FrictionEnergyTransferTerm, FRICTION_TRANSFER_SETTINGS
+       InterfaceParticleFluxTerm, FrictionEnergyTransferTerm, FRICTION_TRANSFER_SETTINGS
 export FokkerPlanckTerm, prescribed_fokker_planck_term, KnockOnTerm, LinearTerm,
        DensityMomentTerm, CurrentMomentTerm, MaxwellianSourceTerm, LayoutKineticArray,
        kinetic_array
@@ -175,7 +175,8 @@ export residual!, fill_initial_values!, fill_maxwellian!, fill_runaway_distribut
 export jacobian_sparsity, jacobian_prototype, jacobian_operator, jacobian_colors,
        residual_scales, ode_function
 export FluidSchurLU
-export LinearSolver, SparseLU, GMRES, RadiusBlockLU, RadiusBlockILU, NewtonSolver,
+export LinearSolver, SparseLU, MKLPardiso, GMRES, RadiusBlockLU, RadiusBlockILU,
+       NewtonSolver,
        NewtonWorkspace, NewtonResult, newton_solve!, invalidate_jacobian!, POLISHED_SCHEMES,
        POLISH_MISSES
 export SolverStatistics, TimeSolution, TimeStepFailure, integrate, write_output

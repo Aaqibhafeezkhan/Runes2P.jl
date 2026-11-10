@@ -1,10 +1,12 @@
 # The kinetic terms with the ion charge states from the unknowns: the columns of the charge
 # states in the Fokker-Planck term and in the energy loss of the electrons against central
-# differences, the lag of the ion group (no columns, the ions of the start of the step), the
-# target of the e-e collisions of a two-grid system with the population closure, and the
-# Newton iterations of a stiff ionization step with the ion group implicit and lagged.
+# differences, a stored pattern without an entry of the plasma columns refused, the plasma
+# columns bit for bit as by one entry at a time, the lag of the ion group (no columns, the
+# ions of the start of the step), the target of the e-e collisions of a two-grid system with
+# the population closure, and the Newton iterations of a stiff ionization step with the ion
+# group implicit and lagged.
 
-using SparseArrays: sparse, nnz
+using SparseArrays: sparse, nnz, findnz, nonzeros
 using Runes2P: plasma_columns
 
 const KINETIC_COMPOSITION = IonComposition(["D" => 1, "Ar" => 18])
@@ -64,6 +66,32 @@ end
         @test_throws ArgumentError Runes2P.validate(late, layout, row, 0.0)
     end
 
+    @testset "one rebuild of the dual coefficients per charge state" begin
+        # the charge states are partials of the coefficients: a change of one rebuilds them
+        layout, fp, u = _kinetic_ion_case()
+        row = unknown_id(layout, :f)
+        argon = first(unknown_range(layout, unknown_id(layout, :ion_densities), 2)) + 3
+        ionized = copy(u)
+        ionized[argon] *= 1.01
+        Runes2P._dual_coefficients!(fp, u, layout, 0.0)
+        @test fp.dual_rebuilds[] == 1
+        Runes2P._dual_coefficients!(fp, u, layout, 0.0)
+        @test fp.dual_rebuilds[] == 1
+        Runes2P._dual_coefficients!(fp, ionized, layout, 0.0)
+        @test fp.dual_rebuilds[] == 2
+        # lagged, the coefficients take the charge states of the start of the step: those of
+        # the iterate rebuild nothing, a new start of the step rebuilds them
+        layout, lagged, u = _kinetic_ion_case(; lagged = :ions)
+        Runes2P.prepare_step!(lagged, u, layout, row, 0.0)
+        Runes2P._dual_coefficients!(lagged, u, layout, 0.0)
+        @test lagged.dual_rebuilds[] == 1
+        Runes2P._dual_coefficients!(lagged, ionized, layout, 0.0)
+        @test lagged.dual_rebuilds[] == 1
+        Runes2P.prepare_step!(lagged, ionized, layout, row, 0.0)
+        Runes2P._dual_coefficients!(lagged, ionized, layout, 0.0)
+        @test lagged.dual_rebuilds[] == 2
+    end
+
     @testset "Fokker-Planck columns of the charge states" begin
         layout, fp, u = _kinetic_ion_case()
         equations = [Equation(:ion_densities, TimeDerivative()),
@@ -94,6 +122,55 @@ end
         # screened collisions of argon make nonzero
         empty = unknown_range(layout, 1, 2)[2 + 3]
         @test u[empty] == 0 && any(!iszero, J[f_rows, empty])
+    end
+
+    @testset "plasma columns outside the stored pattern are refused" begin
+        # the Fokker-Planck term on a pattern without one entry of its plasma columns: the
+        # first, a middle and the last row of f at a radius
+        layout, fp, u = _kinetic_ion_case()
+        equations = [Equation(:ion_densities, TimeDerivative()),
+            population_equations(KINETIC_COMPOSITION)...,
+            _hold(:cold_electron_temperature, [5.0, 3.0]), Equation(:f, TimeDerivative(), fp)]
+        system = EquationSystem(layout, equations; initial_state = u)
+        row = unknown_id(layout, :f)
+        rows, columns, _ = findnz(jacobian_prototype(system))
+        f_rows = unknown_range(layout, row, 2)
+        column = plasma_columns(fp.plasma, layout, 2)[2]
+        for missing_row in (first(f_rows), f_rows[30], last(f_rows))
+            kept = [!(r == missing_row && c == column) for (r, c) in zip(rows, columns)]
+            J = sparse(rows[kept], columns[kept], zeros(count(kept)), length(u), length(u))
+            @test_throws ArgumentError Runes2P.add_plasma_columns!(
+                J, fp, u, layout, row, 0.0)
+        end
+        # a row unknown whose cells differ from those of the term
+        temperature = unknown_id(layout, :cold_electron_temperature)
+        @test_throws DimensionMismatch Runes2P.add_plasma_columns!(
+            jacobian_prototype(system), fp, u, layout, temperature, 0.0)
+    end
+
+    @testset "plasma columns as by one entry at a time" begin
+        # the runs of the plasma columns give the same stored values, bit for bit, as adding
+        # each partial at its own entry, on top of the entries of the other terms
+        layout, fp, u = _kinetic_ion_case()
+        equations = [Equation(:ion_densities, TimeDerivative()),
+            population_equations(KINETIC_COMPOSITION)...,
+            _hold(:cold_electron_temperature, [5.0, 3.0]), Equation(:f, TimeDerivative(), fp)]
+        system = EquationSystem(layout, equations; initial_state = u)
+        row = unknown_id(layout, :f)
+        J = jacobian_prototype(system)
+        jacobian!(J, system, u, 0.0)
+        reference = copy(J)
+        Runes2P.add_plasma_columns!(J, fp, u, layout, row, 0.0)
+        df = fp.dual_columns[]
+        for ir in 1:2
+            columns = plasma_columns(fp.plasma, layout, ir)
+            for j in 1:size(df, 2), i in 1:size(df, 1)
+
+                cell = Runes2P._kinetic_index(layout, row, ir, i, j)
+                Runes2P._add_partials!(reference, cell, columns, df[i, j, ir])
+            end
+        end
+        @test isequal(nonzeros(J), nonzeros(reference))
     end
 
     @testset "Fokker-Planck columns with the friction tied to the ionization" begin

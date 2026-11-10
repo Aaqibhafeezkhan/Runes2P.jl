@@ -1231,7 +1231,7 @@ function _check_plasma_pairings(equations)
         #! format: off
         sources = if term isa KineticEnergyLossTerm
             (term.source,)
-        elseif term isa InterfaceEnergyFluxTerm
+        elseif term isa InterfaceFluxTerm
             (term.interface,)
         else
             filter(s -> s isa FokkerPlanckTerm && is_state_dependent(s.plasma), _coefficient_sources(term))
@@ -1356,8 +1356,9 @@ function _check_ion_pairings(equations)
                                 "tables: give both the same"))
         end
         for (s, name) in enumerate(rate.composition.names)
-            if !(haskey(radiation.tables, name) &&
-                 radiation.tables[name].scd.source == rate.tables[s].scd.source)
+            index = findfirst(==(name), radiation.species_names)
+            if !(index !== nothing &&
+                 radiation.tables[index].scd.source == rate.tables[s].scd.source)
                 throw(ArgumentError("the IonRateTerm and the RadiatedPowerTerm of the ion densities $(rate.ions) read " *
                                     "the ionization of $name from different ADF11 files: read both from one directory"))
             end

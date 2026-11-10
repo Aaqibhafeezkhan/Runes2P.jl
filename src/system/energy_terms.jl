@@ -274,6 +274,7 @@ struct RunawayFluidEnergyTransferTerm{S <: PrescribedPlasma} <: EquationTerm
     density::Symbol
     coulomb_logarithm::Symbol
     ions::Union{Nothing, Symbol}
+    buffers::LocalTermBuffers
 end
 function RunawayFluidEnergyTransferTerm(plasma; runaway_density::Symbol = :runaway_density,
         temperature::Symbol = :cold_electron_temperature,
@@ -287,7 +288,8 @@ function RunawayFluidEnergyTransferTerm(plasma; runaway_density::Symbol = :runaw
                             "the keywords temperature, density and ions"))
     source = plasma isa PrescribedPlasma ? plasma : PrescribedPlasma(plasma)
     return RunawayFluidEnergyTransferTerm(
-        source, runaway_density, temperature, density, coulomb_logarithm, ions)
+        source, runaway_density, temperature, density, coulomb_logarithm, ions,
+        LocalTermBuffers())
 end
 
 function dependencies(term::RunawayFluidEnergyTransferTerm)
@@ -298,7 +300,7 @@ function jacobian_assembly(term::RunawayFluidEnergyTransferTerm)
     term.ions === nothing ? :automatic : :direct
 end
 function add_jacobian!(J, term::RunawayFluidEnergyTransferTerm, u, layout, row, t)
-    add_local_jacobian!(J, term, u, layout, row, t)
+    _add_buffered_local_jacobian!(J, term, u, layout, row, t, term.buffers)
 end
 
 function validate(term::RunawayFluidEnergyTransferTerm, layout, row, t)
@@ -325,7 +327,8 @@ const RUNAWAY_FLUID_ENERGY_PREFACTOR = 4π * Constants.CLASSICAL_ELECTRON_RADIUS
                                        Constants.SPEED_OF_LIGHT^3
 
 function rhs!(out, term::RunawayFluidEnergyTransferTerm, u, layout, row, t)
-    plasma = _term_plasma(plasma_values(term.plasma, u, layout, t), term.ions, u, layout)
+    plasma = _term_plasma(
+        plasma_values(term.plasma, u, layout, t), term.ions, u, layout, term.buffers.plasmas)
     n_re = unknown_values(u, layout, unknown_id(layout, term.runaway_density))
     T = unknown_values(u, layout, unknown_id(layout, term.temperature))
     n = unknown_values(u, layout, unknown_id(layout, term.density))

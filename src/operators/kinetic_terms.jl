@@ -60,7 +60,8 @@ end
     add_slowing_down!(op, collisions)
 
 Collisional friction `Aᵖ = -p ν_s(p)` on the p faces, and the particle flux through
-`p = 0` from `lim p³ν_s`.
+`p = 0` from `lim p³ν_s`, which the operator applies under `p_zero_boundary = :outflow`
+([`AdvectionDiffusion`](@ref)).
 """
 function add_slowing_down!(op::AdvectionDiffusion, collisions::CollisionModel)
     g = op.grid
@@ -84,7 +85,9 @@ end
 """
     add_pitch_scattering!(op, collisions)
 
-Pitch-angle scattering `Dᵠᵠ = ν_D(p)(1 - ξ²)/2` on the ξ faces.
+Pitch-angle scattering `Dᵠᵠ = ν_D(p)(1 - ξ²)/2` on the ξ faces. A model with the faces of
+the grid of `op` ([`CollisionModel`](@ref)`(plasma, settings; faces)`) gives `ν_D` from its
+tables at the cell centres, the values of [`deflection_frequency`](@ref).
 """
 function add_pitch_scattering!(op::AdvectionDiffusion, collisions::CollisionModel)
     g = op.grid
@@ -93,7 +96,9 @@ function add_pitch_scattering!(op::AdvectionDiffusion, collisions::CollisionMode
     for ir in 1:nr, i in 1:np
 
         m = momentum_grid(g, ir)
-        nu = deflection_frequency(collisions, ir, m.p_centers[i])
+        p = m.p_centers[i]
+        entry = _center_entry(collisions, ir, i, p)
+        nu = _deflection_frequency(collisions, ir, p, entry)
         for k in 1:(nxi + 1)
             op.diffusion_xi_xi[i, k, ir] += nu * (1 - m.xi_faces[k]^2) / 2
         end
@@ -116,6 +121,39 @@ function add_energy_diffusion!(op::AdvectionDiffusion, collisions::CollisionMode
         D = parallel_diffusion_frequency(collisions, ir, m.p_faces[k])
         for j in 1:nxi
             op.diffusion_p_p[k, j, ir] += D
+        end
+    end
+    return op
+end
+
+# The friction of `add_slowing_down!` and the energy diffusion of `add_energy_diffusion!` in
+# one sweep over the p faces, which evaluates ν_s once per face for both
+# (`_slowing_down_and_parallel_diffusion`), from the tables of the model at the faces of the
+# grid (`_face_entry`). It writes the same coefficients bit for bit; the energy diffusion only
+# with `mode = :full`, as `add_energy_diffusion!`.
+function _add_slowing_down_and_energy_diffusion!(
+        op::AdvectionDiffusion, collisions::CollisionModel)
+    g = op.grid
+    np, nxi, nr = size(g)
+    energy_diffusion = collisions.settings.mode === :full
+    for ir in 1:nr
+        m = momentum_grid(g, ir)
+        for k in 1:(np + 1)
+            p = m.p_faces[k]
+            entry = _face_entry(collisions, ir, k, p)
+            nu_s, nu_parallel = _slowing_down_and_parallel_diffusion(collisions, ir, p, entry)
+            A = -p * nu_s
+            for j in 1:nxi
+                op.advection_p[k, j, ir] += A
+            end
+            if energy_diffusion
+                for j in 1:nxi
+                    op.diffusion_p_p[k, j, ir] += nu_parallel
+                end
+            end
+        end
+        if m.p_faces[1] == 0
+            op.advection_p_times_p2_at_zero[:, ir] .-= p3_slowing_down_frequency_at_zero(collisions, ir)
         end
     end
     return op
@@ -156,7 +194,8 @@ end
     fokker_planck_operator(grid, plasma, settings; synchrotron=true,
                            scheme=:exponential_fitting, p_scheme=scheme, xi_scheme=scheme,
                            p_lower_boundary=:zero_flux, p_upper_boundary=:f_zero,
-                           r_boundary=:zero_flux, field_in_coefficients=true)
+                           p_zero_boundary=:outflow, r_boundary=:zero_flux,
+                           field_in_coefficients=true)
 
 Kinetic operator for the hot electrons: electric field, slowing down, pitch-angle
 scattering, energy diffusion (`:full` mode) and synchrotron losses. The default boundary
@@ -181,25 +220,39 @@ the operator of the runaway grid `p_lower_boundary = :interface` (a grid with
 `p_min > 0`, [`runaway_grid`](@ref)). The flux between the two is the
 [`MomentumInterfaceTerm`](@ref) of the equation system.
 
+On a grid from `p = 0` the friction carries electrons out through `p = 0` by default
+(`p_zero_boundary = :outflow`, [`p3_slowing_down_frequency_at_zero`](@ref)), as on DREAM's
+hot-tail grid. `p_zero_boundary = :zero_flux` takes no flux there, as on DREAM's runaway
+grid, whose `f_re` keeps the Dirichlet lower condition of its advection in `p`
+(`src/Settings/Equations/f_re.cpp:87`, `fvm/Equation/AdvectionTerm.cpp:36`); the conditions
+are those of [`AdvectionDiffusion`](@ref). `p_zero_boundary` applies to a grid from `p = 0`
+only, `p_lower_boundary` to a grid with `p_min > 0` only.
+
 `field_in_coefficients = false` leaves the field of the plasma out of the coefficients, for
 a field that is an unknown of the system: the operator holds the collisions and the
 coefficients of a unit field, and the term passes the field
 ([`FokkerPlanckTerm`](@ref)`(...; electric_field = :electric_field)`).
+
+The operator declares no radial transport and no cross diffusion
+(`radial_transport = false`, `cross_diffusion = false` of [`AdvectionDiffusion`](@ref)),
+since none of these terms writes them: its stencil couples neither the radii nor the
+corners of the 3×3 block in p and ξ. Radial transport takes an operator of its own.
 """
 function fokker_planck_operator(grid::KineticGrid, plasma::PlasmaState,
         settings::CollisionSettings = CollisionSettings();
         synchrotron::Bool = true, scheme::Symbol = :exponential_fitting,
         p_scheme::Symbol = scheme, xi_scheme::Symbol = scheme,
         p_lower_boundary::Symbol = :zero_flux,
-        p_upper_boundary::Symbol = :f_zero, r_boundary::Symbol = :zero_flux,
-        field_in_coefficients::Bool = true)
+        p_upper_boundary::Symbol = :f_zero, p_zero_boundary::Symbol = :outflow,
+        r_boundary::Symbol = :zero_flux, field_in_coefficients::Bool = true)
     # DREAM replaces the electric-field advection by a diffusion term in the reduced
     # (pitch-averaged) equation; that form is not implemented. A grid with different cell
     # counts or p faces at different radii is refused by AdvectionDiffusion below.
     has_same_cell_counts(grid) && pitch_cell_count(grid) == 1 &&
         throw(ArgumentError("the reduced equation (one pitch cell) is not implemented"))
     op = AdvectionDiffusion(
-        grid; scheme, p_scheme, xi_scheme, p_lower_boundary, p_upper_boundary, r_boundary)
+        grid; scheme, p_scheme, xi_scheme, p_lower_boundary, p_upper_boundary,
+        p_zero_boundary, r_boundary, radial_transport = false, cross_diffusion = false)
     set_unit_field_coefficients!(op)
     set_fokker_planck_coefficients!(
         op, plasma, settings; synchrotron, field_in_coefficients)
@@ -229,12 +282,14 @@ end
                                     field_in_coefficients=true)
 
 Rebuild `op`'s coefficients in place from `plasma` and `settings`
-([`zero_coefficients!`](@ref) then the same `add_*!` calls as
-[`fokker_planck_operator`](@ref)), for a Fokker-Planck term whose plasma state changes
-with time ([`prescribed_fokker_planck_term`](@ref)). `op`'s scheme and
-boundary conditions are unchanged. `field_in_coefficients = false` leaves the field of the plasma
-out, for a field that is an unknown of the system. The synchrotron loss is on by default, as
-in [`fokker_planck_operator`](@ref).
+([`zero_coefficients!`](@ref) then the terms of [`fokker_planck_operator`](@ref), with the
+coefficients of [`add_slowing_down!`](@ref) and [`add_energy_diffusion!`](@ref) written in
+one sweep over the p faces), for a Fokker-Planck term whose plasma state changes
+with time ([`prescribed_fokker_planck_term`](@ref)). `op`'s scheme, boundary conditions and
+declarations ([`AdvectionDiffusion`](@ref)) are unchanged; the rebuild writes no radial
+transport and no cross diffusion. `field_in_coefficients = false` leaves the field of the
+plasma out, for a field that is an unknown of the system. The synchrotron loss is on by
+default, as in [`fokker_planck_operator`](@ref).
 """
 function set_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaState,
         settings::CollisionSettings = CollisionSettings();
@@ -242,18 +297,82 @@ function set_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaS
     radial_cell_count(plasma) == radial_cell_count(op.grid) ||
         throw(DimensionMismatch("plasma and grid radii differ"))
     zero_coefficients!(op)
+    return _add_fokker_planck_coefficients!(
+        op, plasma, settings, synchrotron, field_in_coefficients)
+end
+
+# The rebuild of `set_fokker_planck_coefficients!` for an operator whose coefficient arrays
+# no other function writes, such as the operator of dual coefficients of a Fokker-Planck
+# term: it zeroes only the arrays that its terms write and those of the rebuild before it
+# (`_zero_rebuilt_coefficients!`), which gives the same coefficients as
+# `set_fokker_planck_coefficients!`.
+function _rebuild_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaState,
+        settings::CollisionSettings, synchrotron::Bool, field_in_coefficients::Bool)
+    radial_cell_count(plasma) == radial_cell_count(op.grid) ||
+        throw(DimensionMismatch("plasma and grid radii differ"))
+    _zero_rebuilt_coefficients!(op, settings, synchrotron, field_in_coefficients)
+    return _add_fokker_planck_coefficients!(
+        op, plasma, settings, synchrotron, field_in_coefficients)
+end
+
+# Whether the terms of `set_fokker_planck_coefficients!` write `advection_xi` (the
+# pitch advection, written by the field and the synchrotron loss) and `diffusion_p_p` (the
+# energy diffusion of `mode = :full`) under the given flags. The slowing down writes
+# `advection_p` and `advection_p_times_p2_at_zero` and the pitch scattering
+# `diffusion_xi_xi` under any flags. No call writes the radial and the cross coefficients.
+function _writes_pitch_advection(synchrotron::Bool, field_in_coefficients::Bool)
+    return synchrotron || field_in_coefficients
+end
+function _writes_energy_diffusion(settings::CollisionSettings)
+    return settings.mode === :full
+end
+
+# Zero the coefficient arrays that the rebuild with these flags writes, and those that the
+# rebuild recorded in `op.coefficient_source` wrote. The other arrays hold zeros already when
+# only these rebuilds write `op`: they were zero before the first rebuild, which zeroes all
+# arrays, and no rebuild since wrote them. Without a record of the rebuild before (a new
+# operator, or a rebuild that failed after the zeroing) all arrays are zeroed.
+function _zero_rebuilt_coefficients!(
+        op::AdvectionDiffusion, settings::CollisionSettings, synchrotron::Bool,
+        field_in_coefficients::Bool)
+    previous = op.coefficient_source[]
+    if !(previous isa NamedTuple)
+        return zero_coefficients!(op)
+    end
+    pitch_advection = _writes_pitch_advection(synchrotron, field_in_coefficients) ||
+                      _writes_pitch_advection(previous.synchrotron, previous.electric_field)
+    energy_diffusion = _writes_energy_diffusion(settings) ||
+                       _writes_energy_diffusion(previous.settings)
+    for A in (op.advection_p, op.diffusion_xi_xi, op.advection_p_times_p2_at_zero)
+        fill!(A, zero(eltype(A)))
+    end
+    if pitch_advection
+        fill!(op.advection_xi, zero(eltype(op.advection_xi)))
+    end
+    if energy_diffusion
+        fill!(op.diffusion_p_p, zero(eltype(op.diffusion_p_p)))
+    end
+    op.coefficient_source[] = nothing
+    return op
+end
+
+# the terms of `set_fokker_planck_coefficients!` into zeroed arrays, and the record of the
+# coefficients; the slowing down and the energy diffusion in one sweep, which evaluates ν_s
+# once per face
+function _add_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaState,
+        settings::CollisionSettings, synchrotron::Bool, field_in_coefficients::Bool)
     collisions = CollisionModel(plasma, settings;
         faces = [momentum_grid(op.grid, ir).p_faces for ir in 1:radial_cell_count(op.grid)])
     if field_in_coefficients
         add_electric_field!(op, plasma)
     end
-    add_slowing_down!(op, collisions)
+    _add_slowing_down_and_energy_diffusion!(op, collisions)
     add_pitch_scattering!(op, collisions)
-    add_energy_diffusion!(op, collisions)
     if synchrotron
         add_synchrotron!(op, plasma)
     end
-    # the key :electric_field is read by the settings record and the checks of the terms
+    # the key :electric_field is read by the settings record and the checks of the terms, and
+    # the keys :settings, :synchrotron and :electric_field by `_zero_rebuilt_coefficients!`
     op.coefficient_source[] = (;
         plasma, settings, synchrotron, electric_field = field_in_coefficients)
     return op

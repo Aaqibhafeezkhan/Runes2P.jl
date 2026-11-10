@@ -1,8 +1,8 @@
 # The heating and the radiative losses of the cold electrons, on synthetic
 # ADF11 tables of helium: the radiated power against a sum of the tabulated coefficients
 # in both modes, the recombination gain of each charge state at every radius,
-# Gould's bremsstrahlung against the NRL formulary, the Jacobian, and the ohmic heating
-# against σ E² with Spitzer's conductivity.
+# Gould's bremsstrahlung against the NRL formulary, the Jacobian in both modes, and the
+# ohmic heating against σ E² with Spitzer's conductivity.
 
 @testset "radiated power and ohmic heating" begin
     directory = mktempdir()
@@ -91,8 +91,8 @@
         @test Runes2P.GOULD_BREMSSTRAHLUNG_PREFACTOR ≈ 1.69e-38 rtol = 3e-3
     end
 
-    @testset "Jacobian" begin
-        term = RadiatedPowerTerm(plasma; directory)
+    @testset "Jacobian ($radiation)" for radiation in (:recombination, :dream)
+        term = RadiatedPowerTerm(plasma; radiation, directory)
         system = EquationSystem(layout,
             [
                 Equation(:cold_electron_temperature, TimeDerivative(:cold_thermal_energy), term),
@@ -103,6 +103,8 @@
             initial_state = u)
         J = jacobian_prototype(system)
         jacobian!(J, system, u, 0.0)
+        # the columns of the temperature and the density at a relative step of 1e-6: the
+        # difference is at most 2e-8 of the column in both modes
         for id in 1:2, ir in 1:radii
 
             column = first(Runes2P.unknown_range(layout, id, ir))

@@ -1,7 +1,7 @@
 # The energy that the distributions exchange with the total energy of the electrons: the
 # collisional transfer from the runaway grid to the cold electrons, the sinks of the hot
-# electrons (bound electrons, bremsstrahlung, synchrotron), and the energy that electrons
-# carry out of the hot-tail grid through the interface. Included after
+# electrons (bound electrons, bremsstrahlung, synchrotron), and the energy and the particles
+# that electrons carry out of the hot-tail grid through the interface. Included after
 # operators/field_particle.jl, whose electron-electron operator it uses.
 
 using SparseArrays: findnz, sparse
@@ -151,10 +151,12 @@ function _loss_operators(term::KineticEnergyLossTerm, grid, plasma)
     upper = term.part === :sinks ? :interface : op.p_upper_boundary
     free = electron_electron_operator(
         grid, plasma, term.source.settings; scheme = op.p_scheme,
-        p_lower_boundary = op.p_lower_boundary, p_upper_boundary = upper)
+        p_lower_boundary = op.p_lower_boundary, p_upper_boundary = upper,
+        p_zero_boundary = op.p_zero_boundary)
     term.part === :free_electrons && return (free, nothing)
     collisions = AdvectionDiffusion(grid; p_scheme = op.p_scheme, xi_scheme = op.xi_scheme,
-        p_lower_boundary = op.p_lower_boundary, p_upper_boundary = upper)
+        p_lower_boundary = op.p_lower_boundary, p_upper_boundary = upper,
+        p_zero_boundary = op.p_zero_boundary)
     C = eltype(plasma.cold_electron_temperature)
     if C !== Float64
         collisions = similar_coefficients(collisions, C)
@@ -245,14 +247,7 @@ function add_jacobian!(J, term::KineticEnergyLossTerm, u, layout, row, t)
         with_ions = ion_dependency(source) !== nothing && !_lags_ions(term.source)
         dual = dual_plasma(plasma, source.density !== nothing, with_ions)
         df = _loss_change(_loss_operators(term, grid, dual), f)
-        for ir in 1:nr
-            loss_weights = _loss_weights(term, grid, ir, u, layout, t)
-            loss = -term.coefficient * sum(loss_weights .* view(df, :, :, ir))
-            partials = ForwardDiff.partials(loss)
-            for (k, column) in enumerate(plasma_columns(source, layout, ir; with_ions))
-                _add_entry!(J, first(unknown_range(layout, row, ir)), column, partials[k])
-            end
-        end
+        _add_loss_plasma_columns!(J, term, df, grid, with_ions, u, layout, row, t)
     end
     # the column of the temperature that moves the limit of the region
     temperature = _region_unknowns(term.envelopes)
@@ -278,6 +273,20 @@ function add_jacobian!(J, term::KineticEnergyLossTerm, u, layout, row, t)
                 first(unknown_range(layout, T_id, ir)),
                 -term.coefficient * value)
         end
+    end
+    return J
+end
+
+# the radial rows with the change of f in dual numbers `df`; the number of partials is
+# picked at run time, so the loop runs behind this barrier on the concrete type
+function _add_loss_plasma_columns!(J, term::KineticEnergyLossTerm,
+        df::Array{<:ForwardDiff.Dual, 3}, grid, with_ions, u, layout, row, t)
+    source = term.source.plasma
+    for ir in 1:size(df, 3)
+        loss_weights = _loss_weights(term, grid, ir, u, layout, t)
+        loss = -term.coefficient * sum(loss_weights .* view(df, :, :, ir))
+        columns = plasma_columns(source, layout, ir; with_ions)::Vector{Int}
+        _add_partials!(J, first(unknown_range(layout, row, ir)), columns, loss)
     end
     return J
 end
@@ -325,10 +334,12 @@ alone, the energy-dependent Coulomb logarithm and no bremsstrahlung.
 The moment reads the distribution at the cell centres, so it holds whatever scheme the
 operator of `f` takes, and it counts the energy of an electron until it leaves the grid,
 also through `p = 0` where the friction of the superthermal frequencies carries it out
-(compare [`KineticEnergyLossTerm`](@ref), the energy change of the electron-electron
-operator itself). The term is linear in `f`. With a plasma of unknowns its Jacobian holds the
-columns of the temperature, the density and, when the plasma reads them, the ion charge
-states, as DREAM's.
+under `p_zero_boundary = :outflow` (compare [`KineticEnergyLossTerm`](@ref), the energy
+change of the electron-electron operator itself). The term is linear in `f`. With a plasma
+of unknowns its Jacobian holds the columns of the temperature, the density and, when the
+plasma reads them, the ion charge states, as DREAM's. The weights of the moment are kept
+until the plasma values change. A [`PlasmaState`](@ref) given as `plasma` is read once, so a
+change made to it in place afterwards is not seen.
 """
 struct FrictionEnergyTransferTerm{S} <: EquationTerm
     kinetic::Symbol
@@ -336,6 +347,11 @@ struct FrictionEnergyTransferTerm{S} <: EquationTerm
     source::S
     settings::CollisionSettings
     coefficient::Float64
+    plasma_key::PlasmaKey                # the plasma values of `weights`
+    weights::Vector{Matrix{Float64}}     # per radius: the weights of the plasma of `plasma_key`
+    shapes::Vector{Int}                  # per radius: the shape of its cells (`_friction_shapes`)
+    products::Vector{Matrix{Float64}}    # per shape: the weights times f of a radius
+    dual_scratch::Base.RefValue{Any}     # (weights, products) per shape in dual numbers of the plasma columns
 end
 
 """
@@ -353,8 +369,54 @@ const FRICTION_TRANSFER_SETTINGS = CollisionSettings(; mode = :superthermal,
 
 function FrictionEnergyTransferTerm(kinetic::Symbol, grid::KineticGrid, plasma;
         settings::CollisionSettings = FRICTION_TRANSFER_SETTINGS, coefficient::Real = 1.0)
+    weights = _friction_buffers(Float64, grid)
+    shapes = _friction_shapes(grid)
+    products = _friction_scratch(Float64, grid, shapes)
     return FrictionEnergyTransferTerm(
-        kinetic, grid, plasma_source(plasma), settings, Float64(coefficient))
+        kinetic, grid, plasma_source(plasma), settings, Float64(coefficient), PlasmaKey(),
+        weights, shapes, products, Ref{Any}(nothing))
+end
+
+# a matrix of the momentum and pitch cells of every radius of `grid`, of the number type T
+function _friction_buffers(::Type{T}, grid::KineticGrid) where {T}
+    buffers = Matrix{T}[]
+    for ir in 1:radial_cell_count(grid)
+        m = momentum_grid(grid, ir)
+        push!(buffers, zeros(T, momentum_cell_count(m), pitch_cell_count(m)))
+    end
+    return buffers
+end
+
+# per radius of `grid`, the index of the shape of its cells (the momentum and pitch cell
+# counts) among the shapes of the grid, numbered in the order of their first radius. A
+# scratch matrix of one radius serves every radius of its shape: one of another size, or a
+# view into a larger one, would sum the products in another order.
+function _friction_shapes(grid::KineticGrid)
+    sizes = Tuple{Int, Int}[]
+    shapes = zeros(Int, radial_cell_count(grid))
+    for ir in 1:radial_cell_count(grid)
+        m = momentum_grid(grid, ir)
+        shape = (momentum_cell_count(m), pitch_cell_count(m))
+        index = findfirst(==(shape), sizes)
+        if index === nothing
+            push!(sizes, shape)
+            index = length(sizes)
+        end
+        shapes[ir] = index
+    end
+    return shapes
+end
+
+# a matrix of the number type T for each shape of `shapes` (`_friction_shapes`)
+function _friction_scratch(::Type{T}, grid::KineticGrid, shapes::Vector{Int}) where {T}
+    scratch = Matrix{T}[]
+    for ir in 1:radial_cell_count(grid)
+        if shapes[ir] > length(scratch)
+            m = momentum_grid(grid, ir)
+            push!(scratch, zeros(T, momentum_cell_count(m), pitch_cell_count(m)))
+        end
+    end
+    return scratch
 end
 
 function dependencies(term::FrictionEnergyTransferTerm)
@@ -382,9 +444,15 @@ end
 # mₑc v p ν_s 𝒱' Δp Δξ / V' of every cell of radius ir, in the number type of the plasma
 function _friction_weights(term::FrictionEnergyTransferTerm, model, ir)
     m = momentum_grid(term.grid, ir)
-    V = phase_space_jacobian(term.grid, ir)
     T = eltype(model.free_electron_density)
     weights = zeros(T, momentum_cell_count(m), pitch_cell_count(m))
+    return _friction_weights!(weights, term, model, ir)
+end
+
+# the weights of `_friction_weights` written into `weights`, every entry
+function _friction_weights!(weights, term::FrictionEnergyTransferTerm, model, ir)
+    m = momentum_grid(term.grid, ir)
+    V = phase_space_jacobian(term.grid, ir)
     for i in 1:momentum_cell_count(m)
         p = m.p_centers[i]
         v = Constants.SPEED_OF_LIGHT * p / sqrt(1 + p^2)
@@ -398,12 +466,42 @@ function _friction_weights(term::FrictionEnergyTransferTerm, model, ir)
     return weights
 end
 
+# The weights of the plasma at the state u and the time t, rebuilt when the plasma values
+# differ from those of the last rebuild (`changed_plasma!`); the slowing-down frequency does
+# not read the electric field.
+function _current_friction_weights!(term::FrictionEnergyTransferTerm, u, layout, t)
+    plasma = changed_plasma!(
+        term.plasma_key, term.source, u, layout, t; electric_field = false)
+    plasma === nothing && return term.weights
+    try
+        model = CollisionModel(plasma, term.settings)
+        for ir in 1:radial_cell_count(layout)
+            _friction_weights!(term.weights[ir], term, model, ir)
+        end
+    catch
+        reset_key!(term.plasma_key)
+        rethrow()
+    end
+    return term.weights
+end
+
 function rhs!(out, term::FrictionEnergyTransferTerm, u, layout, row, t)
     id = unknown_id(layout, term.kinetic)
-    model = CollisionModel(plasma_values(term.source, u, layout, t), term.settings)
+    # a state in dual numbers takes weights of its own evaluation, kept nowhere
+    if !(u isa AbstractVector{Float64})
+        model = CollisionModel(plasma_values(term.source, u, layout, t), term.settings)
+        for ir in 1:radial_cell_count(layout)
+            weights = _friction_weights(term, model, ir)
+            power = sum(weights .* kinetic_view(u, layout, id, ir))
+            out[first(unknown_range(layout, row, ir))] += term.coefficient * power
+        end
+        return out
+    end
+    weights = _current_friction_weights!(term, u, layout, t)
     for ir in 1:radial_cell_count(layout)
-        weights = _friction_weights(term, model, ir)
-        power = sum(weights .* kinetic_view(u, layout, id, ir))
+        products = term.products[term.shapes[ir]]
+        products .= weights[ir] .* kinetic_view(u, layout, id, ir)
+        power = sum(products)
         out[first(unknown_range(layout, row, ir))] += term.coefficient * power
     end
     return out
@@ -411,31 +509,55 @@ end
 
 function add_jacobian!(J, term::FrictionEnergyTransferTerm, u, layout, row, t)
     id = unknown_id(layout, term.kinetic)
-    plasma = plasma_values(term.source, u, layout, t)
-    model = CollisionModel(plasma, term.settings)
+    weights = _current_friction_weights!(term, u, layout, t)
     for ir in 1:radial_cell_count(layout)
         r = first(unknown_range(layout, row, ir))
-        weights = _friction_weights(term, model, ir)
-        for j in axes(weights, 2), i in axes(weights, 1)
+        radius_weights = weights[ir]
+        for j in axes(radius_weights, 2), i in axes(radius_weights, 1)
 
             _add_entry!(J, r, _kinetic_index(layout, id, ir, i, j),
-                term.coefficient * weights[i, j])
+                term.coefficient * radius_weights[i, j])
         end
     end
     # the columns of the plasma unknowns: the weights of a plasma with derivative parts
     if is_state_dependent(term.source)
         with_ions = ion_dependency(term.source) !== nothing
+        plasma = plasma_values(term.source, u, layout, t)
         dual = CollisionModel(
             dual_plasma(plasma, term.source.density !== nothing, with_ions), term.settings)
-        for ir in 1:radial_cell_count(layout)
-            weights = _friction_weights(term, dual, ir)
-            power = term.coefficient * sum(weights .* kinetic_view(u, layout, id, ir))
-            partials = ForwardDiff.partials(power)
-            columns = plasma_columns(term.source, layout, ir; with_ions)
-            for (k, column) in enumerate(columns)
-                _add_entry!(J, first(unknown_range(layout, row, ir)), column, partials[k])
-            end
-        end
+        _add_friction_plasma_columns!(J, term, dual, with_ions, u, layout, row)
+    end
+    return J
+end
+
+# the scratch matrices of the weights and the products in the dual numbers D, one per shape
+# of the cells, made at the first use of D and kept in the term
+function _dual_friction_scratch(term::FrictionEnergyTransferTerm, ::Type{D}) where {D}
+    kept = term.dual_scratch[]
+    if kept isa Tuple{Vector{Matrix{D}}, Vector{Matrix{D}}}
+        return kept
+    end
+    scratch = (_friction_scratch(D, term.grid, term.shapes),
+        _friction_scratch(D, term.grid, term.shapes))
+    term.dual_scratch[] = scratch
+    return scratch
+end
+
+# the radial rows with the collision model of a plasma in dual numbers `dual`; the number of
+# partials is picked at run time, so the loop runs behind this barrier on the concrete type
+function _add_friction_plasma_columns!(
+        J, term::FrictionEnergyTransferTerm, dual::CollisionModel, with_ions, u, layout, row)
+    id = unknown_id(layout, term.kinetic)
+    D = eltype(dual.free_electron_density)
+    weights, products = _dual_friction_scratch(term, D)
+    for ir in 1:radial_cell_count(layout)
+        shape = term.shapes[ir]
+        radius_weights = _friction_weights!(weights[shape], term, dual, ir)
+        radius_products = products[shape]
+        radius_products .= radius_weights .* kinetic_view(u, layout, id, ir)
+        power = term.coefficient * sum(radius_products)
+        columns = plasma_columns(term.source, layout, ir; with_ions)::Vector{Int}
+        _add_partials!(J, first(unknown_range(layout, row, ir)), columns, power)
     end
     return J
 end
@@ -466,7 +588,11 @@ the electrons from that cell, so this is the energy that the discrete energy mom
 lower grid loses (the energy at the interface itself differs by about Δp/(2p)). With the default `coefficient = −1` in the row of
 the temperature it is the energy that leaves the total energy of the electrons on the
 hot-tail grid for the runaway grid ([`total_energy_equation`](@ref)), so the electrons that
-cross take their energy with them and do not heat the cold ones.
+cross take their energy with them and do not heat the cold ones. When the flux follows the
+plasma unknowns of the Fokker-Planck term of the interface, the row has their columns
+([`has_plasma_columns`](@ref)). The row reads the cells of both grids at the face, so the
+term assembles it itself ([`jacobian_assembly`](@ref)) and the coloring of the automatic
+Jacobian does not see it.
 """
 struct InterfaceEnergyFluxTerm{I <: MomentumInterfaceTerm} <: EquationTerm
     interface::I
@@ -476,32 +602,170 @@ function InterfaceEnergyFluxTerm(interface::MomentumInterfaceTerm; coefficient::
     InterfaceEnergyFluxTerm(interface, Float64(coefficient))
 end
 
-dependencies(term::InterfaceEnergyFluxTerm) = dependencies(term.interface)
-is_linear(term::InterfaceEnergyFluxTerm) = is_linear(term.interface)
-_coefficient_sources(term::InterfaceEnergyFluxTerm) = _coefficient_sources(term.interface)
+"""
+    InterfaceParticleFluxTerm(interface::MomentumInterfaceTerm; coefficient=1)
 
-function validate(term::InterfaceEnergyFluxTerm, layout, row)
+`coefficient` times the particle flux [`interface_flux`](@ref) through the momentum
+interface from the lower grid to the upper one, per volume and second [m⁻³ s⁻¹], in a
+radial row. With the default `coefficient = 1` in the row of the runaway density it is the
+influx of DREAM's `n_re` from the hot-tail grid (`src/Settings/Equations/n_re.cpp:125-128`,
+`PXiExternalKineticKinetic` with `TYPE_DENSITY`, DREAM v26.5). When the flux follows the
+plasma unknowns of the Fokker-Planck term of the interface, the row has their columns
+([`has_plasma_columns`](@ref)). The row reads the cells of both grids at the face, so the
+term assembles it itself ([`jacobian_assembly`](@ref)) and the coloring of the automatic
+Jacobian does not see it.
+"""
+struct InterfaceParticleFluxTerm{I <: MomentumInterfaceTerm} <: EquationTerm
+    interface::I
+    coefficient::Float64
+end
+function InterfaceParticleFluxTerm(interface::MomentumInterfaceTerm; coefficient::Real = 1.0)
+    InterfaceParticleFluxTerm(interface, Float64(coefficient))
+end
+
+# the two terms of the flux through an interface in a radial row
+const InterfaceFluxTerm = Union{InterfaceEnergyFluxTerm, InterfaceParticleFluxTerm}
+
+dependencies(term::InterfaceFluxTerm) = dependencies(term.interface)
+is_linear(term::InterfaceFluxTerm) = is_linear(term.interface)
+_coefficient_sources(term::InterfaceFluxTerm) = _coefficient_sources(term.interface)
+has_plasma_columns(term::InterfaceFluxTerm) = has_plasma_columns(term.interface)
+
+# coefficient times the factor of the flux at radius ir: the kinetic energy of the last
+# momentum cell of the lower grid, or 1 for the particles
+_crossing_weight(term::InterfaceParticleFluxTerm, ir) = term.coefficient
+function _crossing_weight(term::InterfaceEnergyFluxTerm, ir)
+    p = momentum_grid(term.interface.lower_grid, ir).p_centers[end]
+    energy = Constants.ELECTRON_REST_ENERGY * Constants.ELEMENTARY_CHARGE * p^2 /
+             (1 + sqrt(1 + p^2))
+    return term.coefficient * energy
+end
+
+function validate(term::InterfaceFluxTerm, layout, row)
     layout.kinds[row] === :radial && layout.sizes[row, 1] == 1 ||
-        throw(ArgumentError("InterfaceEnergyFluxTerm adds to a radial unknown with one component"))
+        throw(ArgumentError("$(nameof(typeof(term))) adds to a radial unknown with one component"))
     return validate(term.interface, layout, unknown_id(layout, term.interface.lower))
 end
 
-function rhs!(out, term::InterfaceEnergyFluxTerm, u, layout, row, t)
-    grid = term.interface.lower_grid
+function rhs!(out, term::InterfaceFluxTerm, u, layout, row, t)
     for ir in 1:radial_cell_count(layout)
-        p = momentum_grid(grid, ir).p_centers[end]
-        energy = Constants.ELECTRON_REST_ENERGY * Constants.ELEMENTARY_CHARGE * p^2 /
-                 (1 + sqrt(1 + p^2))
-        #! format: off
-        out[first(unknown_range(layout, row, ir))] += term.coefficient * energy * interface_flux(term.interface, u, layout, ir, t)
-        #! format: on
+        flux = interface_flux(term.interface, u, layout, ir, t)
+        out[first(unknown_range(layout, row, ir))] += _crossing_weight(term, ir) * flux
     end
     return out
 end
 
+jacobian_assembly(::InterfaceFluxTerm) = :direct
+
+# the columns of the row that one evaluation of the flux in dual numbers seeds: wide enough
+# for the face cells of two grids of 15 pitch cells and the field in one evaluation, with one
+# compiled copy of the code for all grids. The default runaway grid has 20 pitch cells
+# (runaway_grid), so next to a hot-tail grid of 15 it takes two evaluations per radius. The
+# entries do not depend on it
+const INTERFACE_COLUMN_CHUNK = 32
+
+# the columns of the cells at the face and of the field, by the flux of dual numbers seeded
+# on them, a chunk of columns at a time in the order of sparsity!: the lower cells, the upper
+# cells, the field. The other cells of the distributions are not read, and the columns of
+# the plasma unknowns come from add_plasma_columns!
+function add_jacobian!(J, term::InterfaceFluxTerm, u, layout, row, t)
+    interface = term.interface
+    op = _operator_at(interface.lower_term, u, layout, t)
+    lower = unknown_id(layout, interface.lower)
+    upper = unknown_id(layout, interface.upper)
+    field_name = _electric_field_of(interface)
+    field_values = _field_values(field_name, u, layout)
+    nr = radial_cell_count(layout)
+    D = ForwardDiff.Dual{LocalColumnTag, Float64, INTERFACE_COLUMN_CHUNK}
+    lower_values = zeros(D, maximum(ir -> layout.shapes[lower, ir][2], 1:nr))
+    upper_values = zeros(D, maximum(ir -> layout.shapes[upper, ir][2], 1:nr))
+    field = field_name === nothing ? nothing : zeros(D, nr)
+    for ir in 1:nr
+        r = first(unknown_range(layout, row, ir))
+        f_lower = kinetic_view(u, layout, lower, ir)
+        f_upper = kinetic_view(u, layout, upper, ir)
+        lower_cells, lower_pitch_cells = layout.shapes[lower, ir]
+        upper_cells, upper_pitch_cells = layout.shapes[upper, ir]
+        face_lower = FaceCells(
+            view(lower_values, 1:lower_pitch_cells), lower_cells, lower_cells)
+        face_upper = FaceCells(view(upper_values, 1:upper_pitch_cells), 1, upper_cells)
+        column_count = lower_pitch_cells + upper_pitch_cells
+        if field !== nothing
+            column_count += 1
+        end
+        for start in 1:INTERFACE_COLUMN_CHUNK:column_count
+            # column k of the row carries partial k - start + 1, a column outside the chunk none
+            for j in 1:lower_pitch_cells
+                lower_values[j] = _seeded_dual(D, f_lower[lower_cells, j], j - start + 1)
+            end
+            for k in 1:upper_pitch_cells
+                partial = lower_pitch_cells + k - start + 1
+                upper_values[k] = _seeded_dual(D, f_upper[1, k], partial)
+            end
+            if field !== nothing
+                field[ir] = _seeded_dual(D, field_values[ir], column_count - start + 1)
+            end
+            flux = _interface_flux_of_cells(
+                interface, op, face_lower, face_upper, field, ir)
+            rate = _crossing_weight(term, ir) * flux
+            stop = min(start + INTERFACE_COLUMN_CHUNK - 1, column_count)
+            for k in start:stop
+                column = _interface_column(
+                    layout, lower, upper, field_name, ir, k, lower_pitch_cells)
+                _add_entry!(J, r, column, ForwardDiff.partials(rate, k - start + 1))
+            end
+        end
+    end
+    return J
+end
+
+# column k of the row at radius ir in the order of sparsity!: the last momentum cells of the
+# lower grid, the first of the upper grid, the field
+function _interface_column(layout, lower, upper, field_name, ir, k, lower_pitch_cells)
+    if k <= lower_pitch_cells
+        return _kinetic_index(layout, lower, ir, layout.shapes[lower, ir][1], k)
+    end
+    pitch_cell = k - lower_pitch_cells
+    if pitch_cell <= layout.shapes[upper, ir][2]
+        return _kinetic_index(layout, upper, ir, 1, pitch_cell)
+    end
+    return first(unknown_range(layout, unknown_id(layout, field_name), ir))
+end
+
+function plasma_column_sparsity!(entries, term::InterfaceFluxTerm, layout, row)
+    source = term.interface.lower_term
+    for ir in 1:radial_cell_count(layout)
+        r = first(unknown_range(layout, row, ir))
+        columns = plasma_columns(source.plasma, layout, ir; with_ions = !_lags_ions(source))
+        append!(entries, ((r, column) for column in columns))
+    end
+    return entries
+end
+
+# the flux with the coefficients of the Fokker-Planck term in dual numbers
+function add_plasma_columns!(J, term::InterfaceFluxTerm, u, layout, row, t)
+    source = term.interface.lower_term
+    op, with_ions = _dual_coefficients!(source, u, layout, t)
+    return _add_crossing_plasma_columns!(J, term, op, with_ions, u, layout, row)
+end
+
+# the radial rows with the operator of dual coefficients `op`; the number of partials is
+# picked at run time, so the loop runs behind this barrier on the concrete type
+function _add_crossing_plasma_columns!(
+        J, term::InterfaceFluxTerm, op::AdvectionDiffusion, with_ions, u, layout, row)
+    source = term.interface.lower_term
+    for ir in 1:radial_cell_count(layout)
+        flux = _interface_flux(term.interface, op, u, layout, ir)
+        r = first(unknown_range(layout, row, ir))
+        columns = plasma_columns(source.plasma, layout, ir; with_ions)::Vector{Int}
+        _add_partials!(J, r, columns, _crossing_weight(term, ir) * flux)
+    end
+    return J
+end
+
 # the row reads the last momentum cells of the lower grid, the first of the upper grid, and
 # the field when the interface takes it
-function sparsity!(entries, term::InterfaceEnergyFluxTerm, layout, row)
+function sparsity!(entries, term::InterfaceFluxTerm, layout, row)
     lower, upper = unknown_id(layout, term.interface.lower),
     unknown_id(layout, term.interface.upper)
     field = _electric_field_of(term.interface)

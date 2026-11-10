@@ -38,7 +38,7 @@ The channels other than [`SecondaryHeatingTerm`](@ref) are those of DREAM's equa
 DREAM adds the collisional transfer from a runaway grid in every mode.
 With a hot-tail grid, DREAM adds the collisional transfer from the hot-tail distribution, except in its fully kinetic mode (`collfreq_mode` FULL), where it leaves the transfer out.
 [`FrictionEnergyTransferTerm`](@ref) is that transfer from the hot-tail distribution: the moment ``\frac{1}{V'} \sum_{ij} m_e c\, v_i p_i\, \nu_s(p_i) f_{ij} \mathcal{V}'_{ij} \Delta p_i \Delta\xi_j`` at the cell centres, with the superthermal frequencies on the cold electrons alone.
-As a moment of `f` it takes any scheme of the operator, and it counts the energy of an electron until it leaves the grid, also through ``p = 0``.
+As a moment of `f` it takes any scheme of the operator, and it counts the energy of an electron until it leaves the grid, also through ``p = 0`` under `p_zero_boundary = :outflow`.
 For a runaway grid it is DREAM's form of the transfer, the option next to Runes2P's [`free_electron_energy_transfer_term`](@ref) ([Comparison with DREAM](../dream-comparison.md#Defaults-that-differ)).
 `test/test_cold_energy_dream.jl` compares the row with ohmic heating, radiation and heat diffusion with DREAM in its fluid mode.
 
@@ -126,7 +126,7 @@ with the envelope ``w`` of the region.
 The sinks take no flux through ``p_\mathrm{max}``: the energy of the electrons that leave there belongs to [`MomentumBoundaryFluxTerm`](@ref) alone, so it is not counted twice.
 With the sinks charged to ``W_\mathrm{tot}``, the cold electrons receive exactly the free-electron part of what the hot electrons lose.
 
-[`MomentumBoundaryFluxTerm`](@ref) and [`InterfaceEnergyFluxTerm`](@ref) weight the flux at the top of the grid with the kinetic energy of the last momentum cell.
+[`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` and [`InterfaceEnergyFluxTerm`](@ref) weight the flux at the top of the grid with the kinetic energy of the last momentum cell.
 That is the energy that the discrete energy moment of the grid loses with the electrons.
 The electrons that cross to the runaway grid take their energy with them and do not heat the cold ones.
 `test/test_energy_transfer.jl` and `test/test_energy_moment.jl` test these terms and the energy moment, and `test/test_friction_energy_transfer.jl` tests [`FrictionEnergyTransferTerm`](@ref).

@@ -257,7 +257,7 @@ struct IonRateTerm{K} <: EquationTerm
     temperature::Symbol
     density::Symbol
     extrapolation::Symbol
-    tables::Vector{NamedTuple}   # per species: the ADF11 tables of its element
+    tables::Vector{ADF11Tables}  # per species: the ADF11 tables of its element
     kinetic_ionization::K        # nothing, or the KineticIonizationTerm of the electrons above the threshold
 end
 
@@ -273,8 +273,8 @@ function IonRateTerm(c::IonComposition; ions::Symbol = :ion_densities,
         throw(ArgumentError("the kinetic ionization of the split has another ion composition"))
     kinetic_ionization === nothing ||
         _check_split_threshold(kinetic_ionization, "an IonRateTerm")
-    tables = NamedTuple[_element_tables(name, Z, directory)
-                        for (name, Z) in zip(c.names, c.nuclear_charges)]
+    tables = ADF11Tables[_element_tables(name, Z, directory)
+                         for (name, Z) in zip(c.names, c.nuclear_charges)]
     return IonRateTerm(
         c, ions, temperature, density, extrapolation, tables, kinetic_ionization)
 end

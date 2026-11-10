@@ -1,9 +1,15 @@
 # The energy that the runaway grid and the electrons leaving the hot-tail grid exchange with
 # the total energy of the electrons: the collisional transfer of a
 # runaway population against the friction power of superthermal electrons, its Jacobian
-# with the plasma columns and with the plasma lagged (no plasma columns), and the energy
-# carried through p_max and through the interface, with the column of the field.
-using SparseArrays: findnz, nnz, sparse
+# with the plasma columns and with the plasma lagged (no plasma columns, in a term and in a
+# step of the system), the Jacobian of the energy loss of f (KineticEnergyLossTerm) with a
+# lagged source, and the energy carried through p_max and through the interface, with its
+# column of the field when the interface reads the field, and the particles through the
+# interface in a radial row (InterfaceParticleFluxTerm), with the rows of both on pitch grids
+# that differ between radii.
+using ForwardDiff: ForwardDiff
+using Random: Xoshiro
+using SparseArrays: findnz, sparse
 
 @testset "energy transfer" begin
     e, c, r0, me = Constants.ELEMENTARY_CHARGE,
@@ -95,6 +101,44 @@ using SparseArrays: findnz, nnz, sparse
         power(state) = Runes2P.rhs!(zeros(length(u)), term, state, layout, 2, 0.0)[first(Runes2P.unknown_range(
             layout, 2, 1))]
         @test power(hotter) == power(u)
+        # lagged at a hotter start of the step: the columns of f hold the operators of that
+        # plasma, against central differences at u. The term is linear in f, so a step of 1e-6
+        # of the scale of f leaves round-off alone, at most 1e-10 of the column. The first cell
+        # has a zero column, so the cells start at the second.
+        T_row = first(Runes2P.unknown_range(layout, 2, 1))
+        T_column, n_column = first(Runes2P.unknown_range(layout, 2, 1)),
+        first(Runes2P.unknown_range(layout, 3, 1))
+        for part in (:free_electrons, :sinks)
+            part_loss = KineticEnergyLossTerm(fp(:all); part)
+            implicit_loss = KineticEnergyLossTerm(fp(:ions); part)
+            Runes2P.prepare_step!(part_loss, hotter, layout, 2, 0.0)
+            loss_rhs(x) = Runes2P.rhs!(zeros(length(x)), part_loss, x, layout, 2, 0.0)[T_row]
+            @test loss_rhs(u) ≈ Runes2P.rhs!(zeros(length(u)), implicit_loss, hotter,
+                layout, 2, 0.0)[T_row] rtol = 1e-14
+            # the sinks hardly depend on the temperature (7e-15 between T0 and 2T0), so only
+            # the free-electron part tells the lagged plasma from that of the state
+            if part === :free_electrons
+                @test loss_rhs(u) != Runes2P.rhs!(zeros(length(u)), implicit_loss, u,
+                    layout, 2, 0.0)[T_row]
+            end
+            # the pattern holds the columns of f alone: no column of the temperature or the
+            # density, which the implicit loss has
+            entries = Runes2P.sparsity!(Tuple{Int, Int}[], part_loss, layout, 2)
+            @test all(in(Runes2P.unknown_range(layout, 1, 1)), last.(entries))
+            JL = sparse(first.(entries), last.(entries), zeros(length(entries)),
+                length(u), length(u))
+            Runes2P.add_jacobian!(JL, part_loss, u, layout, 2, 0.0)
+            for (i, j) in ((2, 1), (60, 2), (120, 2), (150, 4), (300, 3))
+                column = Runes2P._kinetic_index(layout, 1, 1, i, j)
+                h = 1e-6 * 1e16
+                up, down = copy(u), copy(u)
+                up[column] += h
+                down[column] -= h
+                difference = (loss_rhs(up) - loss_rhs(down)) / 2h
+                @test difference != 0
+                @test abs(JL[T_row, column] - difference) <= 1e-8 * abs(difference)
+            end
+        end
         # lagged in a step: the Newton residual prepares the terms at the start of the step
         # u_old, and the loss row holds the columns of f alone. u_old is hotter than the
         # iterate, so that the columns of f tell the plasma of u_old from that of the iterate.
@@ -102,22 +146,9 @@ using SparseArrays: findnz, nnz, sparse
         lagged = system(:all, collisions)
         loss = free_electron_energy_transfer_term(collisions)
         u_old, dt = copy(hotter), 1e-6
-        T_row = first(Runes2P.unknown_range(layout, 2, 1))
-        T_column, n_column = first(Runes2P.unknown_range(layout, 2, 1)),
-        first(Runes2P.unknown_range(layout, 3, 1))
         residual!(zeros(length(u)), u, u_old, lagged, 0.0, dt)
         J = jacobian_prototype(lagged)
         jacobian!(J, lagged, u, 0.0)
-        # the pattern and the values of the loss alone, a copy of that of the system prepared
-        # at u_old as the system prepares its own: no column of the temperature or the
-        # density, which the implicit loss has
-        Runes2P.prepare_step!(loss, u_old, layout, 2, 0.0)
-        entries = Runes2P.sparsity!(Tuple{Int, Int}[], loss, layout, 2)
-        @test all(in(Runes2P.unknown_range(layout, 1, 1)), last.(entries))
-        JL = sparse(first.(entries), last.(entries), zeros(length(entries)), length(u),
-            length(u))
-        Runes2P.add_jacobian!(JL, loss, u, layout, 2, 0.0)
-        @test nnz(JL[:, [T_column, n_column]]) == 0
         # the row in the system: the temperature column is that of the linear term alone
         @test J[T_row, T_column] == -1e3 && J[T_row, n_column] == 0
         # The loss is linear in f with the plasma held, so the central difference of the
@@ -139,6 +170,7 @@ using SparseArrays: findnz, nnz, sparse
         end
         # the loss reads the plasma of u_old, held as numbers, so a step in the temperature
         # or the density of the iterate leaves it unchanged exactly, not to round-off
+        Runes2P.prepare_step!(loss, u_old, layout, 2, 0.0)
         loss_row(x) = Runes2P.rhs!(zeros(length(x)), loss, x, layout, 2, 0.0)[T_row]
         for (column, h) in ((T_column, 1e-6 * 100.0), (n_column, 1e-6 * 1e19))
             up, down = copy(u), copy(u)
@@ -230,50 +262,216 @@ using SparseArrays: findnz, nnz, sparse
                 Equation(:cold_electron_temperature, Algebraic(), stray,
                     LinearTerm(:cold_electron_temperature; coefficient = -1e3))];
             initial_state = w)
+    end
 
-        # the field as an unknown: the lower Fokker-Planck term takes it, the advection at
-        # the interface face holds the field of the state, and the energy row its column
-        E0 = 50.0
-        field_op = fokker_planck_operator(
-            hot, driven, settings; p_upper_boundary = :interface, field_in_coefficients = false)
-        lower_term = FokkerPlanckTerm(:f, field_op; electric_field = :electric_field)
-        field_interface = MomentumInterfaceTerm(:f, :runaway, lower_term, upper_op)
-        field_term = InterfaceEnergyFluxTerm(field_interface)
-        @test :electric_field in dependencies(field_term) && !is_linear(field_term)
-        with_field = UnknownLayout(rad,
-            [RadialUnknown(:electric_field), KineticUnknown(:f, hot; scale = 1e16),
+    @testset "the field column of the flux through the interface ($mapping)" for mapping in (
+        :overlap, :dream)
+        # the lower Fokker-Planck term takes the field as an unknown, so the interface flux,
+        # the energy it carries and the particles it brings to a radial row depend on it
+        driven = PlasmaState(; cold_electron_temperature = [T0],
+            ions = [IonSpecies("D", 1, 1, [n])], electric_field = [0.0],
+            magnetic_field = [0.0])
+        hot = cylindrical_grid(MomentumGrid(uniform_p_faces(60, 0.0, 2.0), uniform_xi_faces(4)), rad)
+        # 30 upper pitch cells: the row has 4 + 30 + 1 columns, more than one evaluation of
+        # its entries seeds (Runes2P.INTERFACE_COLUMN_CHUNK), so the field is seeded in the
+        # second evaluation
+        upper = runaway_grid(hot, uniform_p_faces(40, 2.0, 30.0)[2:end], uniform_xi_faces(30))
+        @test 4 + 30 + 1 > Runes2P.INTERFACE_COLUMN_CHUNK
+        lower_op = fokker_planck_operator(hot, driven, settings;
+            p_upper_boundary = :interface, field_in_coefficients = false)
+        upper_op = fokker_planck_operator(upper, driven, settings;
+            p_lower_boundary = :interface, field_in_coefficients = false)
+        lower_term = FokkerPlanckTerm(:f, lower_op; electric_field = :electric_field)
+        upper_term = FokkerPlanckTerm(:runaway, upper_op; electric_field = :electric_field)
+        interface = MomentumInterfaceTerm(:f, :runaway, lower_term, upper_op;
+            pitch_mapping = mapping)
+        term = InterfaceEnergyFluxTerm(interface)
+        particles = InterfaceParticleFluxTerm(interface)
+        @test :electric_field in Runes2P.dependencies(term) && !is_linear(term)
+        @test :electric_field in Runes2P.dependencies(particles)
+        two = UnknownLayout(rad,
+            [KineticUnknown(:f, hot; scale = 1e16),
                 KineticUnknown(:runaway, upper; scale = 1e16),
-                RadialUnknown(:cold_electron_temperature)])
-        v = zeros(length(with_field))
-        unknown_values(v, with_field, 1) .= E0
-        kinetic_array(v, with_field, 2) .= kinetic_array(w, two, 1)
-        kinetic_array(v, with_field, 3) .= kinetic_array(w, two, 2)
-        field_system = EquationSystem(with_field,
-            [
-                Equation(:electric_field, Algebraic(), PrescribedValueTerm([E0]),
+                RadialUnknown(:electric_field; scale = 10.0),
+                RadialUnknown(:cold_electron_temperature),
+                RadialUnknown(:runaway_density; scale = 1e10)])
+        w = zeros(length(two))
+        kinetic_array(w, two, 1) .= [exp(-p) * (1 + 0.2xi)
+                                     for p in momentum_grid(hot).p_centers,
+        xi in momentum_grid(hot).xi_centers, _ in 1:1] .* 1e16
+        kinetic_array(w, two, 2) .= 1e13
+        unknown_values(w, two, 3) .= 50.0
+        system = EquationSystem(two,
+            [Equation(:f, TimeDerivative(), lower_term, interface),
+                Equation(:runaway, TimeDerivative(), upper_term, interface),
+                Equation(:electric_field, Algebraic(), PrescribedValueTerm([50.0]),
                     LinearTerm(:electric_field; coefficient = -1)),
-                Equation(:f, TimeDerivative(), lower_term, field_interface),
-                Equation(:runaway, TimeDerivative(), field_interface),
-                Equation(:cold_electron_temperature, Algebraic(), field_term,
-                    LinearTerm(:cold_electron_temperature; coefficient = -1e3))];
-            initial_state = v)
-        J = jacobian_prototype(field_system)
-        jacobian!(J, field_system, v, 0.0)
-        T_row = first(Runes2P.unknown_range(with_field, 4, 1))
-        E_column = first(Runes2P.unknown_range(with_field, 1, 1))
-        @test (T_row, E_column) in zip(findnz(J)[1:2]...)
-        # The superthermal operator has no diffusion at the face, so the flux is upwind. The
-        # advection at the face changes sign in a pitch cell at |E| below 0.05 V/m, so at
-        # 50 V/m the row is linear in E within the step: a step of 1e-6 E is exact up to
-        # round-off (within 1e-10), and the tolerance is that of the columns above.
-        h = 1e-6 * E0
-        up, down = copy(v), copy(v)
-        up[E_column] += h
-        down[E_column] -= h
-        F_up, F_down = zeros(length(v)), zeros(length(v))
-        rhs!(F_up, up, field_system, 0.0)
-        rhs!(F_down, down, field_system, 0.0)
-        @test J[T_row, E_column] != 0
-        @test J[T_row, E_column] ≈ (F_up[T_row] - F_down[T_row]) / (2h) rtol = 1e-6
+                Equation(:cold_electron_temperature, Algebraic(), term,
+                    LinearTerm(:cold_electron_temperature; coefficient = -1e3)),
+                Equation(:runaway_density, TimeDerivative(), particles)];
+            initial_state = w)
+        J = jacobian_prototype(system)
+        jacobian!(J, system, w, 0.0)
+        T_row = first(Runes2P.unknown_range(two, 4, 1))
+        n_row = first(Runes2P.unknown_range(two, 5, 1))
+        column = first(Runes2P.unknown_range(two, 3, 1))
+        @test (T_row, column) in zip(findnz(J)[1:2]...)
+        # a relative step of 1e-6 of the field: the difference is at most 1e-10 of the entry
+        # in both rows with both mappings
+        h = 1e-6 * w[column]
+        up, down = copy(w), copy(w)
+        up[column] += h
+        down[column] -= h
+        F_up, F_down = zeros(length(w)), zeros(length(w))
+        rhs!(F_up, up, system, 0.0)
+        rhs!(F_down, down, system, 0.0)
+        for row in (T_row, n_row)
+            difference = (F_up[row] - F_down[row]) / (2h)
+            @test difference != 0
+            @test J[row, column] ≈ difference rtol = 1e-8
+        end
+        # the two rows assemble their entries themselves: the cells at the face and the
+        # field against the AD of the residual
+        @test jacobian_assembly(term) === jacobian_assembly(particles) === :direct
+        dense = ForwardDiff.jacobian(v -> rhs!(similar(v), v, system, 0.0), w)
+        for row in (T_row, n_row)
+            @test any(!iszero, dense[row, Runes2P.unknown_range(two, 1, 1)])
+            @test any(!iszero, dense[row, Runes2P.unknown_range(two, 2, 1)])
+            @test Vector(J[row, :]) ≈ dense[row, :] rtol = 1e-12
+        end
+    end
+    @testset "the particle flux into a radial row ($mapping)" for mapping in (:overlap, :dream)
+        # DREAM's n_re takes the flux through the interface (PXiExternalKineticKinetic,
+        # TYPE_DENSITY): the lower grid loses what the upper grid and the radial row gain
+        rng = Xoshiro(54)
+        radii = RadialGrid(uniform_r_faces(2, 0.5))
+        lower_grid = cylindrical_grid(
+            MomentumGrid(biuniform_p_faces(9, 4, 0.0, 0.4, 2.5), uniform_xi_faces(9)), radii)
+        # 30 upper pitch cells: the row has 39 columns, more than one evaluation of its
+        # entries seeds (Runes2P.INTERFACE_COLUMN_CHUNK)
+        upper_grid = runaway_grid(
+            lower_grid, uniform_p_faces(5, 2.5, 12.0)[2:end], uniform_xi_faces(30))
+        @test 9 + 30 > Runes2P.INTERFACE_COLUMN_CHUNK
+        lower_op = AdvectionDiffusion(lower_grid; scheme = :central, p_upper_boundary = :interface)
+        for A in (lower_op.advection_p, lower_op.advection_xi, lower_op.advection_r)
+            A .= randn(rng, size(A))
+        end
+        for D in (lower_op.diffusion_p_p, lower_op.diffusion_xi_xi, lower_op.diffusion_r_r)
+            D .= rand(rng, size(D))
+        end
+        upper_op = AdvectionDiffusion(upper_grid; p_lower_boundary = :interface)
+        interface = MomentumInterfaceTerm(:hot_tail_distribution, :runaway_distribution,
+            lower_op, upper_op; pitch_mapping = mapping)
+        particles = InterfaceParticleFluxTerm(interface)
+        @test particles.coefficient == 1
+        layout = UnknownLayout(radii,
+            [KineticUnknown(:hot_tail_distribution, lower_grid),
+                KineticUnknown(:runaway_distribution, upper_grid),
+                RadialUnknown(:runaway_density)])
+        system = EquationSystem(layout,
+            [Equation(:hot_tail_distribution, TimeDerivative(), interface),
+                Equation(:runaway_distribution, TimeDerivative(), interface),
+                Equation(:runaway_density, TimeDerivative(), particles)])
+        u = rand(rng, length(layout))
+        du = zeros(length(layout))
+        rhs!(du, u, system, 0.0)
+        rates = unknown_values(du, layout, unknown_id(layout, :runaway_density))
+        @test rates == [interface_flux(interface, u, layout, ir) for ir in 1:2]
+        @test all(!=(0), rates)
+        # Σ 𝒱' Δp Δξ Δr of the rate of a kinetic unknown
+        function content(name)
+            id = unknown_id(layout, name)
+            grid = kinetic_grid(layout, id)
+            return sum(1:2) do ir
+                m = momentum_grid(grid, ir)
+                V = phase_space_jacobian(grid, ir)
+                f = kinetic_view(du, layout, id, ir)
+                sum(V[i, j] * m.p_widths[i] * m.xi_widths[j] * radii.r_widths[ir] * f[i, j]
+                for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m))
+            end
+        end
+        lower_change = content(:hot_tail_distribution)
+        upper_change = content(:runaway_distribution)
+        radial_change = sum(rates[ir] * radii.spatial_jacobian[ir] * radii.r_widths[ir]
+        for ir in 1:2)
+        @test upper_change ≈ -lower_change rtol = 1e-13
+        @test radial_change ≈ upper_change rtol = 1e-13
+        # linear in the state: the stored Jacobian is the term
+        J = jacobian_prototype(system)
+        jacobian!(J, system, u, 0.0)
+        @test J * u ≈ du rtol = 1e-12
+        # the row assembles its entries itself, against the AD of the residual, and leaves
+        # the coloring: in it, each of the 39 cells of the row would take a color of its own
+        @test jacobian_assembly(particles) === :direct
+        @test Matrix(J) ≈ ForwardDiff.jacobian(v -> rhs!(similar(v), v, system, 0.0), u) rtol = 1e-12
+        @test jacobian_colors(system) < 9
+        # the cells at the face hold one momentum cell, and reading another one throws
+        cells = Runes2P.FaceCells([1.0, 2.0, 3.0], 4, 4)
+        @test size(cells) == (4, 3)
+        @test cells[4, 2] == 2.0
+        @test_throws ArgumentError cells[3, 1]
+        context = Runes2P.DescriptionContext()
+        record = describe(particles, context)
+        interface_record = describe(interface, context)
+        @test record["type"] == "InterfaceParticleFluxTerm" && record["coefficient"] == 1.0
+        @test record["interface"]["type"] == "MomentumInterfaceTerm"
+        @test record["interface"] == interface_record
+        # the record of the energy through the interface: the record of a term with its
+        # coefficient and the record of its interface, as the particle flux
+        energy = InterfaceEnergyFluxTerm(interface)
+        energy_record = describe(energy, context)
+        expected = Runes2P._term_record(energy)
+        expected["coefficient"] = -1.0
+        expected["interface"] = interface_record
+        @test energy_record == expected
+        @test energy_record["type"] == "InterfaceEnergyFluxTerm"
+        @test Set(keys(energy_record)) == Set(keys(record))
+    end
+
+    @testset "the rows of the interface on pitch grids that differ between radii ($mapping)" for mapping in (
+        :overlap, :dream)
+        # the particle and energy rows assemble their entries directly, on a lower grid whose
+        # pitch faces differ between the two radii (uniform and cosine), against the AD of the
+        # residual; the counts are the same, since an AdvectionDiffusion takes the same cell
+        # counts at all radii
+        rng = Xoshiro(54)
+        radii = RadialGrid(uniform_r_faces(2, 0.5))
+        p_faces = biuniform_p_faces(9, 4, 0.0, 0.4, 2.5)
+        uniform_pitch = MomentumGrid(p_faces, uniform_xi_faces(9))
+        cosine_pitch = MomentumGrid(p_faces, -cos.(range(0, π; length = 10)))
+        lower_grid = cylindrical_grid([uniform_pitch, cosine_pitch], radii)
+        upper_grid = runaway_grid(
+            lower_grid, uniform_p_faces(5, 2.5, 12.0)[2:end], uniform_xi_faces(30))
+        lower_op = AdvectionDiffusion(lower_grid; scheme = :central,
+            p_upper_boundary = :interface, radial_transport = false, cross_diffusion = false)
+        for A in (lower_op.advection_p, lower_op.advection_xi)
+            A .= randn(rng, size(A))
+        end
+        for D in (lower_op.diffusion_p_p, lower_op.diffusion_xi_xi)
+            D .= rand(rng, size(D))
+        end
+        upper_op = AdvectionDiffusion(upper_grid; p_lower_boundary = :interface)
+        interface = MomentumInterfaceTerm(:hot_tail_distribution, :runaway_distribution,
+            lower_op, upper_op; pitch_mapping = mapping)
+        particles = InterfaceParticleFluxTerm(interface)
+        energy = InterfaceEnergyFluxTerm(interface)
+        layout = UnknownLayout(radii,
+            [KineticUnknown(:hot_tail_distribution, lower_grid),
+                KineticUnknown(:runaway_distribution, upper_grid),
+                RadialUnknown(:runaway_density), RadialUnknown(:energy)])
+        system = EquationSystem(layout,
+            [Equation(:hot_tail_distribution, TimeDerivative(), interface),
+                Equation(:runaway_distribution, TimeDerivative(), interface),
+                Equation(:runaway_density, TimeDerivative(), particles),
+                Equation(:energy, TimeDerivative(), energy)])
+        @test jacobian_assembly(particles) === :direct
+        @test jacobian_assembly(energy) === :direct
+        u = rand(rng, length(layout))
+        J = jacobian_prototype(system)
+        jacobian!(J, system, u, 0.0)
+        reference = ForwardDiff.jacobian(
+            (du, x) -> rhs!(du, x, system, 0.0), zeros(length(layout)), u)
+        largest = maximum(abs, reference)
+        @test maximum(abs, Matrix(J) - reference) <= 1e-12 * largest
     end
 end

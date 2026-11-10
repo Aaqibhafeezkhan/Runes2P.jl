@@ -97,7 +97,7 @@ Where ``f`` is smooth the limiters are second order.
 Its step has no M-matrix property, so non-negativity is not guaranteed.
 The tests check it in particular runs.
 
-Outside the grid the stencil uses ghost cells as DREAM sets them for the hot-tail distribution ([`AdvectionDiffusion`](@ref) lists them and the boundary faces).
+Outside the grid the stencil uses ghost cells as DREAM sets them, for its hot-tail or its runaway distribution by `p_zero_boundary` ([`AdvectionDiffusion`](@ref) lists them and the boundary faces).
 In the radial direction a four-point scheme sets the face value of the advection and needs one pitch grid at all radii.
 
 `test/test_physics.jl` checks the order of the residual of a Maxwellian under the collision operator, central and van Albada, in the bulk of the distribution.

@@ -1,9 +1,10 @@
 # The ionization of the ions by the electrons of a distribution: the cross sections of DREAM's
 # fits against the ADAS coefficients at low density, the conservation of each species, the
-# Jacobian of the term against central differences, and the split of the ionization at the hot
-# threshold: a Maxwellian f ionizes at the ADAS rate for every threshold, DREAM's pairing
-# counts the tail above the threshold twice, and the Jacobians of the term and of the fluid
-# terms with the split hold at both radii and at the cells of the interpolated threshold.
+# Jacobian of the term against central differences, a stored pattern without an ion row of a
+# cell column refused, and the split of the ionization at the hot threshold: a Maxwellian f
+# ionizes at the ADAS rate for every threshold, DREAM's pairing counts the tail above the
+# threshold twice, and the Jacobians of the term and of the fluid terms with the split hold
+# at both radii and at the cells of the interpolated threshold.
 # Needs the ADF11 cache (scripts/fetch_adas.py).
 using SparseArrays: sparse
 using ForwardDiff
@@ -156,6 +157,16 @@ end
                 difference = (term_rhs(up) - term_rhs(down)) / 2h
                 @test maximum(abs, Vector(J[:, column]) - difference) <=
                       1e-6 * maximum(abs, difference) + 1e-13 * size_of_rhs / h
+            end
+            # a pattern without one ion row of a cell column is refused: the first, a middle
+            # and the last row of the ion densities at the radius
+            ion_rows = unknown_range(layout, 1, 2)
+            for missing_row in (first(ion_rows), ion_rows[5], last(ion_rows))
+                kept = [entry != (missing_row, cells[40]) for entry in entries]
+                partial = sparse(first.(entries[kept]), last.(entries[kept]),
+                    zeros(count(kept)), n, n)
+                @test_throws ArgumentError Runes2P.add_jacobian!(
+                    partial, kinetic, u, layout, 1, 0.0)
             end
             # the cells of f that hold the interpolated threshold, at both radii: the threshold
             # cell i and the cell above, whose envelope interpolates the part above the
@@ -378,6 +389,27 @@ end
                 difference = (rhs_all(up) - rhs_all(down))[ion_rows] / 2h
                 @test Vector(J[ion_rows, column])≈difference rtol=1e-5 atol=1e-6*maximum(abs, difference)
             end
+            for ir in 1:2
+                # the cells of f that hold the threshold, where the envelope lies strictly
+                # between 0 and 1, on the rows of both radii. The rows are linear in f, so the
+                # step is a tenth of the scale of f, which keeps the round-off of the fluid
+                # rates small: 1.5e-10 of the column (7.5e-4 at a step of 1e-3 of the value of
+                # the cell)
+                T = unknown_values(u, layout, 3)[ir]
+                envelope = Runes2P._envelope_at_temperature(kinetic, ir, T)
+                i = only(findall(e -> 0 < e < 1, envelope))
+                for j in 1:3
+                    column = Runes2P._kinetic_index(layout, 4, ir, i, j)
+                    h = 0.1 * scales[column]
+                    up, down = copy(u), copy(u)
+                    up[column] += h
+                    down[column] -= h
+                    difference = (rhs_all(up) - rhs_all(down))[ion_rows] / 2h
+                    @test maximum(abs, difference) > 0
+                    @test maximum(abs, Vector(J[ion_rows, column]) - difference) <=
+                          1e-8 * maximum(abs, difference)
+                end
+            end
             # the binding energy at the fluid coefficient of the split
             prescribed = PlasmaState(; cold_electron_temperature = [20.0, 10.0],
                 ions = ion_densities(u, layout,
@@ -400,7 +432,8 @@ end
                     zeros(eltype(x), n), term, x, layout, 3, 0.0), u)
             @test Matrix(J)≈reference rtol=1e-10 atol=1e-12*maximum(abs, reference)
             # and the temperature columns of both radii against central differences, with
-            # the step of the fluid rate above (the split moves them by about 1e-10, as there)
+            # the step of the fluid rate above, which they meet to 3e-9 (2.6e-9 at radius 1,
+            # 3.0e-10 at radius 2); the split moves them by about 1e-10, as there
             for ir in 1:2
                 column = first(unknown_range(layout, 3, ir))
                 h = 1e-6 * u[column]
