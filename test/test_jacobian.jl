@@ -141,10 +141,8 @@ end
         p_upper_boundary in (:f_zero, :constant_flux, :extrapolated_flux,
             :extrapolated_flux_consistent, :interface)
 
-        # the extrapolated flux has no form with exponential fitting
-        extrapolated = p_upper_boundary in
-                       (:extrapolated_flux, :extrapolated_flux_consistent)
-        if scheme === :exponential_fitting && extrapolated
+        # the extrapolated flux has no form with exponential fitting; its consistent form has
+        if scheme === :exponential_fitting && p_upper_boundary === :extrapolated_flux
             continue
         end
         op = fokker_planck_operator(g, plasma; scheme, p_lower_boundary, p_upper_boundary)

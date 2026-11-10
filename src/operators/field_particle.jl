@@ -2,8 +2,8 @@
 # test-particle operator of kinetic_terms.jl loses the parallel momentum that
 # the electrons give to each other; a model field-particle term returns it to the bulk as
 # a shifted Maxwellian, with heat-flux corrections. The term has rank 1 to 3 per radius, is
-# applied matrix-free and enters the block preconditioners and the direct solver through a
-# Woodbury update (linear_solver.jl, block_preconditioners.jl).
+# applied matrix-free and enters the block preconditioners and the direct solvers through a
+# Woodbury update (linear_solver.jl, block_preconditioners.jl, ext/Runes2PMKLPardisoExt.jl).
 # Included after system/terms.jl, since it defines an EquationTerm and implements the
 # low-rank interface defined there (`LowRankBlock`, `low_rank_jacobian`).
 

@@ -5,7 +5,8 @@
 # step of the system), the Jacobian of the energy loss of f (KineticEnergyLossTerm) with a
 # lagged source, and the energy carried through p_max and through the interface, with its
 # column of the field when the interface reads the field, and the particles through the
-# interface in a radial row (InterfaceParticleFluxTerm).
+# interface in a radial row (InterfaceParticleFluxTerm), with the rows of both on pitch grids
+# that differ between radii.
 using ForwardDiff: ForwardDiff
 using Random: Xoshiro
 using SparseArrays: findnz, sparse
@@ -425,5 +426,51 @@ using SparseArrays: findnz, sparse
         @test energy_record == expected
         @test energy_record["type"] == "InterfaceEnergyFluxTerm"
         @test Set(keys(energy_record)) == Set(keys(record))
+    end
+
+    @testset "the rows of the interface on pitch grids that differ between radii ($mapping)" for mapping in (
+        :overlap, :dream)
+        # the particle and energy rows assemble their entries directly, on a lower grid whose
+        # pitch faces differ between the two radii (uniform and cosine), against the AD of the
+        # residual
+        rng = Xoshiro(54)
+        radii = RadialGrid(uniform_r_faces(2, 0.5))
+        p_faces = biuniform_p_faces(9, 4, 0.0, 0.4, 2.5)
+        uniform_pitch = MomentumGrid(p_faces, uniform_xi_faces(9))
+        cosine_pitch = MomentumGrid(p_faces, -cos.(range(0, π; length = 10)))
+        lower_grid = cylindrical_grid([uniform_pitch, cosine_pitch], radii)
+        upper_grid = runaway_grid(
+            lower_grid, uniform_p_faces(5, 2.5, 12.0)[2:end], uniform_xi_faces(30))
+        lower_op = AdvectionDiffusion(lower_grid; scheme = :central,
+            p_upper_boundary = :interface, radial_transport = false, cross_diffusion = false)
+        for A in (lower_op.advection_p, lower_op.advection_xi)
+            A .= randn(rng, size(A))
+        end
+        for D in (lower_op.diffusion_p_p, lower_op.diffusion_xi_xi)
+            D .= rand(rng, size(D))
+        end
+        upper_op = AdvectionDiffusion(upper_grid; p_lower_boundary = :interface)
+        interface = MomentumInterfaceTerm(:hot_tail_distribution, :runaway_distribution,
+            lower_op, upper_op; pitch_mapping = mapping)
+        particles = InterfaceParticleFluxTerm(interface)
+        energy = InterfaceEnergyFluxTerm(interface)
+        layout = UnknownLayout(radii,
+            [KineticUnknown(:hot_tail_distribution, lower_grid),
+                KineticUnknown(:runaway_distribution, upper_grid),
+                RadialUnknown(:runaway_density), RadialUnknown(:energy)])
+        system = EquationSystem(layout,
+            [Equation(:hot_tail_distribution, TimeDerivative(), interface),
+                Equation(:runaway_distribution, TimeDerivative(), interface),
+                Equation(:runaway_density, TimeDerivative(), particles),
+                Equation(:energy, TimeDerivative(), energy)])
+        @test jacobian_assembly(particles) === :direct
+        @test jacobian_assembly(energy) === :direct
+        u = rand(rng, length(layout))
+        J = jacobian_prototype(system)
+        jacobian!(J, system, u, 0.0)
+        reference = ForwardDiff.jacobian(
+            (du, x) -> rhs!(du, x, system, 0.0), zeros(length(layout)), u)
+        largest = maximum(abs, reference)
+        @test maximum(abs, Matrix(J) - reference) <= 1e-12 * largest
     end
 end

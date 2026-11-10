@@ -47,11 +47,12 @@ The licences of the code and data that Runes2P builds on are in the file `THIRD_
 
 Runes2P is added from its repository, as described on the page [Getting started](getting-started.md#Installation).
 
-Three parts are package extensions, enabled by loading their packages next to Runes2P (see [Extensions](extensions.md)):
+Four parts are package extensions, enabled by loading their packages next to Runes2P (see [Extensions](extensions.md)):
 
 - `HDF5`: the output files and checkpoints ([`write_output`](@ref), [`read_output`](@ref)),
 - `SciMLBase`: the SciML form of an equation system ([`ode_function`](@ref)),
-- `Interpolations`: interpolators of Interpolations.jl as radial profiles.
+- `Interpolations`: interpolators of Interpolations.jl as radial profiles,
+- `Pardiso`: the linear solver [`MKLPardiso`](@ref), Intel MKL PARDISO.
 
 Questions and bug reports go to the issue tracker of the repository, <https://github.com/osrep/Runes2P.jl/issues>.
 

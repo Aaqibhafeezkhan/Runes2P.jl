@@ -64,8 +64,9 @@ Settings of the Newton iteration of a backward-Euler step.
   (an inexact Jacobian or linear solve). An inexact linear solve with relative residual
   `η` contracts the error by about `η` per iteration, so both of its tests apply only
   when the last linear solve was accurate to `floor_linear_tolerance` (always true for
-  direct solvers; for [`GMRES`](@ref) its `relative_tolerance`, and the workspace warns
-  when that is above `floor_linear_tolerance`), and never when the
+  [`SparseLU`](@ref); for [`MKLPardiso`](@ref) its measured relative residual; for
+  [`GMRES`](@ref) its `relative_tolerance`, and the workspace warns when that is above
+  `floor_linear_tolerance`), and never when the
   Newton matrix is itself approximate (a term with
   [`jacobian_kind`](@ref)`(term) === :approximate` solved on the stored matrix): such a
   quasi-Newton iteration converges linearly by design, its residual falls by a constant

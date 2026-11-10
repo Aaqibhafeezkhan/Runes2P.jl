@@ -19,6 +19,13 @@ every accepted step (`updates`), at the state and the time where that step ends.
 
 Optional: `changes_continuously(update)`, whether its changes are continuous in time, so that
 `StepController` keeps its history across them; `false` by default, a change is a jump.
+
+An update that writes radial coefficients (`advection_r`, `diffusion_r_r`) or cross
+coefficients (`diffusion_p_xi`, `diffusion_xi_p`) into an [`AdvectionDiffusion`](@ref)
+needs an operator that declares them (`radial_transport`, `cross_diffusion`), and checks
+the declarations itself after the write, as [`RechesterRosenbluthUpdate`](@ref) does:
+`integrate` does not check them after an update, and the Jacobian of an undeclared
+coefficient would be added to declared entries without an error.
 """
 abstract type IntervalUpdate end
 

@@ -488,8 +488,9 @@ end
 
 For a `:matrix_free` term whose Jacobian at the state `u` is a sum of low-rank blocks:
 the vector of [`LowRankBlock`](@ref)s. `nothing` (the default) for any other term. The
-block preconditioners of [`GMRES`](@ref) and the direct solver [`SparseLU`](@ref) add
-the blocks by a Woodbury update, so the term needs no stored Jacobian.
+block preconditioners of [`GMRES`](@ref) and the direct solvers [`SparseLU`](@ref) and
+[`MKLPardiso`](@ref) add the blocks by a Woodbury update, so the term needs no stored
+Jacobian.
 """
 low_rank_jacobian(::EquationTerm, u, layout, row, t) = nothing
 
