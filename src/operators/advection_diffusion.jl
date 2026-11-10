@@ -144,9 +144,9 @@ refused where the coefficients are checked: the operator's place in an
 would otherwise be added to declared entries without an error. A write during a run by an
 [`IntervalUpdate`](@ref) is not checked unless the update checks it. A
 [`FokkerPlanckTerm`](@ref) with a plasma source clears both declarations of its operator,
-since the rebuild of its coefficients writes neither. A declaration may be cleared after the operator is built but
-never set: the pattern of an [`EquationSystem`](@ref) is fixed when the system is built, and
-a declaration set later would not reach it.
+since the rebuild of its coefficients writes neither. A declaration may be cleared after the
+operator is built but never set: the pattern of an [`EquationSystem`](@ref) is fixed when
+the system is built, and a declaration set later would not reach it.
 """
 struct AdvectionDiffusion{T <: AbstractFloat, C <: Real}
     grid::KineticGrid{T}

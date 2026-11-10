@@ -126,13 +126,17 @@ function central_difference_column(residual!, state, column)
 end
 
 # the largest difference between the entries of J at `rows` and `columns` and the central
-# differences of `residual!` at `state`, relative to the larger of the two at each entry
+# differences of `residual!` at `state`, relative to the larger of the two at each entry,
+# with a floor of 1e-8 of the largest entry of the column, so that an entry near zero by
+# cancellation does not compare round-off with round-off
 function worst_central_difference(J, residual!, state, rows, columns)
     worst = 0.0
     for column in columns
         difference = central_difference_column(residual!, state, column)
+        largest = max(maximum(abs, difference[rows]), maximum(abs, J[rows, column]))
+        smallest_scale = 1e-8 * largest
         for r in rows
-            scale = max(abs(difference[r]), abs(J[r, column]))
+            scale = max(abs(difference[r]), abs(J[r, column]), smallest_scale)
             if scale > 0
                 worst = max(worst, abs(J[r, column] - difference[r]) / scale)
             end

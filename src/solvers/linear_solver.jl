@@ -208,13 +208,13 @@ matching need the values of the matrix: they are computed at the first solve, fr
 matrix, and kept for every later matrix of the same pattern; their time counts in the
 factorization time of that solve ([`SolverStatistics`](@ref)). A run resumed from a
 checkpoint computes them from its own first matrix, so it repeats the uninterrupted run as
-with another pivot order, not bit for bit: within the Newton tolerance, and within
-round-off where the Newton iterations of the steps are the same. The numeric factorization is made in every solve, except
-when the matrix is that of the last solve (a system linear in the state,
+with another pivot order, not bit for bit: within the Newton tolerance, and within round-off
+where the Newton iterations of the steps are the same. The numeric factorization is made in
+every solve, except when the matrix is that of the last solve (a system linear in the state,
 [`NewtonSolver`](@ref)). PARDISO reads the compressed columns of the matrix as the
 compressed rows of its transpose and solves the transposed system, so no matrix is
-converted. Its integers have 32 bits, so the factors hold at most ``2^{31} - 1`` nonzeros;
-a larger factorization ends the run with an error that names the limit. The factors are in
+converted. Its integers have 32 bits, so the factors hold at most ``2^{31} - 1`` nonzeros; a
+larger factorization ends the run with an error that names the limit. The factors are in
 memory that MKL allocates and Julia's garbage collector does not count: they are released
 when the workspace is collected, so repeated runs in one process can hold several
 factorizations until `GC.gc()`.

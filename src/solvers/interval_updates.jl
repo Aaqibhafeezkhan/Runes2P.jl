@@ -22,10 +22,11 @@ Optional: `changes_continuously(update)`, whether its changes are continuous in 
 
 An update that writes radial coefficients (`advection_r`, `diffusion_r_r`) or cross
 coefficients (`diffusion_p_xi`, `diffusion_xi_p`) into an [`AdvectionDiffusion`](@ref)
-needs an operator that declares them (`radial_transport`, `cross_diffusion`), and checks
-the declarations itself after the write, as [`RechesterRosenbluthUpdate`](@ref) does:
-`integrate` does not check them after an update, and the Jacobian of an undeclared
-coefficient would be added to declared entries without an error.
+writes only those the operator declares (`radial_transport`, `cross_diffusion`).
+`integrate` does not check the declarations after an update, and the Jacobian of an
+undeclared coefficient would be added to declared entries without an error.
+[`RechesterRosenbluthUpdate`](@ref) checks them after its write, and
+[`check_stencil_pattern`](@ref) checks an operator in a test.
 """
 abstract type IntervalUpdate end
 

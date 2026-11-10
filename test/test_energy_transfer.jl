@@ -432,7 +432,8 @@ using SparseArrays: findnz, sparse
         :overlap, :dream)
         # the particle and energy rows assemble their entries directly, on a lower grid whose
         # pitch faces differ between the two radii (uniform and cosine), against the AD of the
-        # residual
+        # residual; the counts are the same, since an AdvectionDiffusion takes the same cell
+        # counts at all radii
         rng = Xoshiro(54)
         radii = RadialGrid(uniform_r_faces(2, 0.5))
         p_faces = biuniform_p_faces(9, 4, 0.0, 0.4, 2.5)

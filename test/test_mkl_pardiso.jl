@@ -1,14 +1,14 @@
 # MKL PARDISO as the linear solver of the Newton iterations, MKLPardiso of the extension
 # Runes2PMKLPardisoExt: the error without Pardiso.jl and the record of the solver; with MKL,
-# a system linear in the state factorized once per step, the field-particle term (the case of
-# test_field_particle.jl) through the Woodbury update against SparseLU, a checkpoint and a
-# resume that repeat the uninterrupted run of a system linear in the state within round-off,
-# and the window of
-# test_disruption_runaway_dream.jl against SparseLU within the Newton tolerance and against
-# DREAM within the tolerances of that file, with the relative residual of the solves below the
-# floor_linear_tolerance of NewtonSolver; and the texts of the errors of MKL that the
-# extension reads from the exceptions of Pardiso.jl. The tests that need MKL are skipped when
-# Pardiso.jl cannot load it; the window needs the ADF11 cache.
+# a system linear in the state factorized once per step, the field-particle term (the case
+# of test_field_particle.jl) through the Woodbury update against SparseLU, a checkpoint and
+# a resume that repeat the uninterrupted run of a system linear in the state within
+# round-off, and the window of test_disruption_runaway_dream.jl against SparseLU within the
+# Newton tolerance and against DREAM within the tolerances of that file, with the relative
+# residual of the solves below the floor_linear_tolerance of NewtonSolver; and the texts of
+# the errors of MKL that the extension reads from the exceptions of Pardiso.jl. The tests
+# that need MKL are skipped when Pardiso.jl cannot load it; the window needs the ADF11
+# cache.
 using Pardiso
 using HDF5
 using LinearAlgebra: norm
