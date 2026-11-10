@@ -208,7 +208,8 @@ const HEATING_RUN_DEFAULT_FIRST_STEP = 5e-5
             # frequencies, since the electron-electron operator has no ultra-relativistic
             # form (runaway_heating_example). At p = 0.25 the superthermal frequencies give
             # ν_s 17 times and ν_D 4.1 times the ultra-relativistic ones
-            # (src/physics/collision_frequencies.jl:630-634, 670-674), so f_re differs from
+            # (_collisional_slowing_down and _deflection_frequency of
+            # src/physics/collision_frequencies.jl), so f_re differs from
             # DREAM's by 0.46 of its largest value after the first step and 0.76 at the
             # last. T_cold ends 2.9e-4 below DREAM's: the form of the heating takes about
             # 3.2e-4 (the difference of the two heatings over the 5 µs, about 0.39 J/m³,

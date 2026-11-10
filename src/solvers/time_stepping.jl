@@ -669,7 +669,8 @@ The state of the controller (the step length, the memory of the filter, the last
 state and its step) is in every checkpoint. With [`SparseLU`](@ref) a resumed run repeats
 the uninterrupted one bit for bit. With [`MKLPardiso`](@ref) the ordering and the matching
 of PARDISO come from the first matrix of the resumed run, so its states differ from those
-of the uninterrupted run within round-off. With
+of the uninterrupted run as with another pivot order: within the Newton tolerance, and
+within round-off where the Newton iterations of the steps are the same. With
 [`GMRES`](@ref)`(preconditioner_refresh = :on_demand)` the factors of the preconditioner
 are not in the checkpoint, so the Krylov solves after a resume differ within the Newton
 tolerance. After either, the step lengths may differ from those of the uninterrupted run.

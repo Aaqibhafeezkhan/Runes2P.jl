@@ -318,6 +318,7 @@ The reasons of the defaults that are choices of this package are on [Choices of 
 | charge states in the collisions of ``f`` | those of the start of the step, `lagged = :ions` | those of the iterate with their Jacobian columns, `lagged = ()` |
 | Newton matrix of a linear system | assembled and factorized once per step | every iteration, `reuse_linear_matrix = false` of [`NewtonSolver`](@ref) |
 | negative entries of a kinetic unknown at convergence | one more Newton iteration for the schemes of [`POLISHED_SCHEMES`](@ref) | none, `polish_negatives = false` of [`NewtonSolver`](@ref) |
+| iterative refinement of MKL PARDISO | none, `refinement_steps = 0` of [`MKLPardiso`](@ref) | up to 10 steps per solve (`fvm/Solvers/MIMKL.cpp`), `MKLPardiso(refinement_steps = 10)` |
 | floor of a temperature unknown | [`DEFAULT_TEMPERATURE_FLOOR`](@ref) ([`fluid_temperature_floors`](@ref)) | damped towards zero, a lower floor of [`PlasmaFromUnknowns`](@ref) or a [`LowerLimit`](@ref) |
 
 ### Behaviour without an option for DREAM's

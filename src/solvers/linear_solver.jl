@@ -30,7 +30,9 @@ terms. A solver implements
 - `factorization_time(cache)`: seconds spent factorizing in the last solve (the LU of a
   direct solver, the preconditioner blocks of a Krylov solver);
 - `linear_tolerance(cache)`: bound on the relative residual `‖b - A x‖/‖b‖` of the last
-  solve (0 for direct solvers), used by the residual-floor rule of the Newton iteration;
+  solve, used by the residual-floor rule of the Newton iteration: 0 for [`SparseLU`](@ref),
+  the measured relative residual for [`MKLPardiso`](@ref), its `relative_tolerance` for
+  [`GMRES`](@ref);
 - `newton_operator_exact(cache)`: whether the solver's Newton operator is the exact
   Jacobian when the system has terms with an approximate stored block
   ([`jacobian_kind`](@ref); false for solvers on the stored matrix alone);
@@ -205,13 +207,14 @@ nested-dissection ordering (METIS), a weighted matching with scaling, and pivots
 matching need the values of the matrix: they are computed at the first solve, from its
 matrix, and kept for every later matrix of the same pattern; their time counts in the
 factorization time of that solve ([`SolverStatistics`](@ref)). A run resumed from a
-checkpoint computes them from its own first matrix, so it repeats the uninterrupted run
-within round-off, not bit for bit. The numeric factorization is made in every solve, except
-when the matrix is that of the last solve (a system linear in the state,
+checkpoint computes them from its own first matrix, so it repeats the uninterrupted run as
+with another pivot order, not bit for bit: within the Newton tolerance, and within round-off
+where the Newton iterations of the steps are the same. The numeric factorization is made in
+every solve, except when the matrix is that of the last solve (a system linear in the state,
 [`NewtonSolver`](@ref)). PARDISO reads the compressed columns of the matrix as the
 compressed rows of its transpose and solves the transposed system, so no matrix is
-converted. Its integers have 32 bits, so the factors hold at most ``2^{31} - 1`` nonzeros;
-a larger factorization ends the run with an error that names the limit. The factors are in
+converted. Its integers have 32 bits, so the factors hold at most ``2^{31} - 1`` nonzeros; a
+larger factorization ends the run with an error that names the limit. The factors are in
 memory that MKL allocates and Julia's garbage collector does not count: they are released
 when the workspace is collected, so repeated runs in one process can hold several
 factorizations until `GC.gc()`.

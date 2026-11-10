@@ -41,11 +41,13 @@ const OPTIMIZED = Base.JLOptions().opt_level >= 2
 # the bytes a call of jacobian! of the window allocates after a first call, and those of the
 # plasma columns of each term that adds them: about twice those measured at -O2 in this
 # testset (in the comment). A loop that inserts the partials of a dual number whose type is
-# picked at run time boxes every entry: it exceeds the bound of jacobian! and those of the
-# Fokker-Planck terms several times over, but on this small window the interface terms box
-# fewer entries than the margin of their bound.
-const JACOBIAN_ALLOCATION = 2.5e6           # 1.8e5 with the kept buffers of the local Jacobians, 1.19e6 before
-const PLASMA_COLUMNS_ALLOCATION = 1.6e5     # 7.8e4 (largest), 6.5e4 (f_re of the Fokker-Planck term)
+# picked at run time boxes every entry: it exceeds each of these bounds several times over
+# (1.5e5 bytes for the plasma columns of the interface term of f, the fewest boxed entries).
+const JACOBIAN_ALLOCATION = 3.5e5           # 1.76e5
+const PLASMA_COLUMNS_ALLOCATION = 1.6e4     # 8.0e3 (InterfaceParticleFluxTerm, largest), 7.8e3 (FokkerPlanckTerm)
+# the bytes of the Jacobian of FrictionEnergyTransferTerm with the weights it keeps, about
+# twice those measured at -O2; its dual collision model is built at every call
+const FRICTION_JACOBIAN_ALLOCATION = 1.2e5  # 5.7e4
 # the bytes of the Jacobian of each term that assembles it from one evaluation in dual numbers
 # on the charge states of a radius (add_local_jacobian!) with the buffers it keeps, about twice
 # the largest measured at -O2, and of the residuals of the ion rates and the radiated power, which
@@ -201,6 +203,12 @@ end
                 Runes2P.add_jacobian!, J, b.term, u0, case.layout, b.row, times[1])
             @info "the disruption case with a runaway grid against DREAM: local Jacobian of the $(nameof(typeof(b.term))) of $(case.layout.unknowns[b.row].name) $allocated B"
             @test allocated < LOCAL_JACOBIAN_ALLOCATION skip = !OPTIMIZED
+        end
+        for b in friction_terms
+            allocated = call_allocation(
+                Runes2P.add_jacobian!, J, b.term, u0, case.layout, b.row, times[1])
+            @info "the disruption case with a runaway grid against DREAM: Jacobian of the $(nameof(typeof(b.term))) of $(case.layout.unknowns[b.row].name) $allocated B"
+            @test allocated < FRICTION_JACOBIAN_ALLOCATION skip = !OPTIMIZED
         end
         # the moments of the density and the current find the positions of their rows once
         # per pattern of J; the hot-region moments follow the temperature, which differs at the

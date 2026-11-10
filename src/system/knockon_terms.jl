@@ -21,7 +21,7 @@ momentum grids at different radii.
 - `:explicit`: the whole term at the previous time level, target density included.
 - `:implicit`: the whole term at the new time level, matrix-free, since it couples all cells
   of a radius. Every Krylov iteration of [`GMRES`](@ref) applies the operator once, and the
-  direct solver does not take it.
+  direct solvers ([`SparseLU`](@ref), [`MKLPardiso`](@ref)) do not take it.
 
 The explicit forms are the cheaper step; the implicit form is the more accurate one per
 step. The explicit default follows DREAM.

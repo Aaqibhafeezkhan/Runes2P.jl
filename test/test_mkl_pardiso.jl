@@ -1,16 +1,18 @@
 # MKL PARDISO as the linear solver of the Newton iterations, MKLPardiso of the extension
 # Runes2PMKLPardisoExt: the error without Pardiso.jl and the record of the solver; with MKL,
-# a system linear in the state factorized once per step, the field-particle term (the case of
-# test_field_particle.jl) through the Woodbury update against SparseLU, a checkpoint and a
-# resume that repeat the uninterrupted run within round-off, and the window of
-# test_disruption_runaway_dream.jl against SparseLU within the Newton tolerance and against
-# DREAM within the tolerances of that file, with the relative residual of the solves below the
-# floor_linear_tolerance of NewtonSolver; and the texts of the errors of MKL that the
-# extension reads from the exceptions of Pardiso.jl. The tests that need MKL are skipped when
-# Pardiso.jl cannot load it; the window needs the ADF11 cache.
+# a system linear in the state factorized once per step, the field-particle term (the case
+# of test_field_particle.jl) through the Woodbury update against SparseLU, a checkpoint and
+# a resume that repeat the uninterrupted run of a system linear in the state within
+# round-off, and the window of test_disruption_runaway_dream.jl against SparseLU within the
+# Newton tolerance and against DREAM within the tolerances of that file, with the relative
+# residual of the solves below the floor_linear_tolerance of NewtonSolver; and the texts of
+# the errors of MKL that the extension reads from the exceptions of Pardiso.jl. The tests
+# that need MKL are skipped when Pardiso.jl cannot load it; the window needs the ADF11
+# cache.
 using Pardiso
 using HDF5
 using LinearAlgebra: norm
+using SparseArrays: nnz, spdiagm
 include(joinpath(@__DIR__, "example_disruption.jl"))
 
 # the relative residual of a solve that the Newton iterations need for the waivers of the
@@ -98,6 +100,17 @@ end
             v = copy(u_kept)
             newton_solve!(v, u_kept, kept, 2dt, dt)
             @test kept.cache.factorizations == 2
+            # the ordering and the matching of the pattern exist after the first solve, and a
+            # solve that factorizes counts its time
+            @test kept.cache.analyzed
+            @test Runes2P.factorization_time(fresh.cache) > 0
+            # a matrix with another count of nonzeros than the pattern of the cache is refused
+            n = size(kept.matrix, 1)
+            other = spdiagm(0 => ones(n))
+            @test nnz(other) != length(kept.cache.row_indices)
+            x = zeros(n)
+            @test_throws DimensionMismatch Runes2P.solve!(
+                x, kept.cache, other, ones(n), u_kept, 2dt, dt, 1)
         end
 
         @testset "the field-particle term against SparseLU" begin
@@ -117,8 +130,9 @@ end
             @test sigma_pardiso ≈ sigma_lu rtol = 1e-8
             @info "MKL PARDISO, field-particle case: Newton iterations $(sum(pardiso_run.statistics.newton_iterations)) (SparseLU $(sum(lu_run.statistics.newton_iterations))), largest relative difference of j/E $(maximum(abs.(sigma_pardiso ./ sigma_lu .- 1)))"
             @test pardiso_run.settings["solver"]["linear_solver"]["type"] == "MKLPardiso"
-            # the keywords: two threads of PARDISO, and ten refinement steps, whose solves count
-            # as exact (a bound of 0 on the relative residual)
+            # the keywords: two threads of PARDISO, and ten refinement steps, whose bound is
+            # still the measured relative residual, since the refinement stops at its cap and
+            # promises none; it stays at or below floor_linear_tolerance
             sigma_threads, _ = conductivity(MKLPardiso(threads = 2))
             @test sigma_threads ≈ sigma_lu rtol = 1e-8
             sigma_refined, _ = conductivity(MKLPardiso(refinement_steps = 10))
@@ -178,8 +192,8 @@ end
                 updates = (case.update(),), checkpoint, resume = true)
             later = (length(first_saves) + 1):length(case.save_times)
             # the resumed run computes the ordering and the matching of PARDISO from its own
-            # first matrix, the whole run from that of the start: the same within round-off
-            # (measured 1.4e-16)
+            # first matrix, the whole run from that of the start; on this case, linear in the
+            # state, the same within round-off (measured 1.4e-16)
             difference = norm(second_segment.states .- whole.states[:, later]) /
                          norm(whole.states[:, later])
             @info "MKL PARDISO, resumed run: relative difference from the whole run $(difference)"

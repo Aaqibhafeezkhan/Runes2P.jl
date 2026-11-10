@@ -78,10 +78,12 @@ const PHASE_NAMES = Dict(Pardiso.ANALYSIS => "the analysis (phase 11)",
 # `PardisoPosDefException`, -7 as a `PardisoException` with the text "Diagonal matrix is
 # singular"; no other error of MKL has a text with "singular" in Pardiso.jl. Other errors of
 # MKL throw with the meaning that Pardiso.jl gives them, -8 with the limit it stands for.
-function _pardiso!(cache::MKLPardisoCache, phase, x, transposed, b)
+# The texts are those of `check_error` of Pardiso.jl 1.1.2, which is not public: the testset
+# "the errors of MKL that the extension tells apart" of test_mkl_pardiso.jl pins them.
+function _pardiso!(cache::MKLPardisoCache, phase, x, pardiso_matrix, b)
     Pardiso.set_phase!(cache.pardiso, phase)
     try
-        Pardiso.pardiso(cache.pardiso, x, transposed, b)
+        Pardiso.pardiso(cache.pardiso, x, pardiso_matrix, b)
     catch err
         if err isa Pardiso.PardisoPosDefException
             return :singular_matrix
@@ -103,7 +105,7 @@ end
 
 # the Woodbury update of the whole matrix for the low-rank matrix-free terms at (u, t), as
 # that of SparseLU, with the solves of PARDISO; false when a solve or the update fails
-function _update_low_rank!(cache::MKLPardisoCache, transposed, u, t)
+function _update_low_rank!(cache::MKLPardisoCache, pardiso_matrix, u, t)
     cache.low_rank = nothing
     system = cache.system
     isempty(system.matrix_free_terms) && return true
@@ -113,7 +115,7 @@ function _update_low_rank!(cache::MKLPardisoCache, transposed, u, t)
     scaled === nothing && return true
     all_solved = Ref(true)
     function solve_with_factors!(y, x)
-        status = _pardiso!(cache, Pardiso.SOLVE_ITERATIVE_REFINE, y, transposed, x)
+        status = _pardiso!(cache, Pardiso.SOLVE_ITERATIVE_REFINE, y, pardiso_matrix, x)
         if status !== :ok
             all_solved[] = false
         end
@@ -131,28 +133,30 @@ function Runes2P.solve!(
     cache.factorization_seconds = 0.0
     Pardiso.set_nprocs!(cache.pardiso, cache.settings.threads)
     n = size(matrix, 1)
-    transposed = SparseMatrixCSC(
+    # the matrix in PARDISO's integer type, equal to `matrix`: PARDISO reads its compressed
+    # columns as the compressed rows of the transpose
+    pardiso_matrix = SparseMatrixCSC(
         n, n, cache.column_pointers, cache.row_indices, nonzeros(matrix))
     if !(cache.factorized && cache.matrix_unchanged)
         # the analysis counts in the factorization time of the solve
         started = time_ns()
         # the ordering and the matching once per pattern, from the values of the first matrix
         if !cache.analyzed
-            status = _pardiso!(cache, Pardiso.ANALYSIS, x, transposed, b)
+            status = _pardiso!(cache, Pardiso.ANALYSIS, x, pardiso_matrix, b)
             status === :ok || return status
             cache.analyzed = true
         end
-        status = _pardiso!(cache, Pardiso.NUM_FACT, x, transposed, b)
+        status = _pardiso!(cache, Pardiso.NUM_FACT, x, pardiso_matrix, b)
         cache.factorization_seconds = (time_ns() - started) / 1e9
         cache.factorizations += 1
         cache.factorized = if status === :ok
-            _update_low_rank!(cache, transposed, u, t)
+            _update_low_rank!(cache, pardiso_matrix, u, t)
         else
             false
         end
         cache.factorized || return :singular_matrix
     end
-    status = _pardiso!(cache, Pardiso.SOLVE_ITERATIVE_REFINE, x, transposed, b)
+    status = _pardiso!(cache, Pardiso.SOLVE_ITERATIVE_REFINE, x, pardiso_matrix, b)
     status === :ok || return status
     # the relative residual of every solve, with refinement too: the refinement stops at its
     # cap and promises no residual

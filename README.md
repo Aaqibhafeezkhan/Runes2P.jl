@@ -29,7 +29,7 @@ using Pkg
 Pkg.add(url = "https://github.com/osrep/Runes2P.jl")
 ```
 
-The HDF5 output, the SciML interface and the Interpolations.jl profiles are package extensions (see the docs page [Extensions](docs/src/extensions.md)).
+The HDF5 output, the SciML interface, the Interpolations.jl profiles and the linear solver of Intel MKL PARDISO (through Pardiso.jl) are package extensions (see the docs page [Extensions](docs/src/extensions.md)).
 
 ## A first run
 

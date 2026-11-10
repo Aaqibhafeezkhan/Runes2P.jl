@@ -159,8 +159,9 @@ Column `t` is the state of the update in force when saved state `t` was computed
 | `update_states` | the state of each interval update |
 
 With [`SparseLU`](@ref) the stepper record lets a resumed run repeat the steps of the uninterrupted one.
-The ordering and the matching of [`MKLPardiso`](@ref) are not stored, so a resume with it repeats the run within round-off.
-The preconditioner factors of [`GMRES`](@ref) with on-demand refresh are not stored either, so a resume with it repeats the run within the Newton tolerance ([`StepController`](@ref)).
+The ordering and the matching of [`MKLPardiso`](@ref) are not stored, so a resume with it repeats the run within the Newton tolerance, and within round-off where the Newton iterations of the steps are the same.
+The preconditioner factors of [`GMRES`](@ref) with on-demand refresh are not stored either, so a resume with it repeats the run within the Newton tolerance.
+After either, the step lengths of a [`StepController`](@ref) may differ from those of the uninterrupted run.
 A state read from an output file has no stepper record, so its time must be a time point of the resumed run.
 
 ## Reading

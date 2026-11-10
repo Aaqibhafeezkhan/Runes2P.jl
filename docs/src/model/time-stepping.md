@@ -264,7 +264,8 @@ A checkpoint writes the output of the segment first and the checkpoint file afte
 It holds the state, the states of the updates, the record of the stepper and a summary of the run ([`StoredState`](@ref)).
 `resume` continues from a stored state ([`read_checkpoint`](@ref), [`read_state`](@ref)), and `resume = true` lets one script serve every segment.
 On the same layout and with [`SparseLU`](@ref) a resumed run repeats the uninterrupted one bit for bit.
-With [`MKLPardiso`](@ref) the resumed run computes the ordering and the matching of PARDISO from its own first matrix, so its states differ from those of the uninterrupted run within round-off.
+With [`MKLPardiso`](@ref) the resumed run computes the ordering and the matching of PARDISO from its own first matrix, which acts as another pivot order.
+Its states differ from those of the uninterrupted run within the Newton tolerance, and within round-off where the Newton iterations of the steps are the same.
 With `GMRES(preconditioner_refresh = :on_demand)` the preconditioner factors are not stored, so the Krylov solves after a resume differ within the Newton tolerance.
 After either, the step lengths of a [`StepController`](@ref) may differ.
 A run resumed onto another layout starts the step controller with a doubling, and fills only the unknowns with `initial_value = :from_equation` that the stored state does not have ([`fill_initial_values!`](@ref)).
