@@ -12,7 +12,8 @@ The second holds the details of the hot paths and the linear solvers, with the m
 
 ### Accuracy first, cost with it
 
-- A result is trusted because a test holds it: against DREAM in DREAM's mode, to the tolerance of its solver or closer, and against a reference independent of DREAM for each piece of physics.
+- A result is trusted because a test holds it: against DREAM with the options that reproduce it, to the tolerance of its solver or closer.
+  Each piece of physics also has a test against a reference independent of DREAM.
   A faster code path keeps these tests, and the regression values at `-O2` bit for bit where it can.
 - A change that moves results at round-off says so, with what was compared and on which case.
   A sum taken in another order changes the last digits, and a check of single terms does not see an entry that several terms share.
@@ -26,9 +27,10 @@ The second holds the details of the hot paths and the linear solvers, with the m
 
 - The time of a step is in the [`SolverStatistics`](@ref) of a run: `wall_time`, and within it `jacobian_time`, `residual_time` and `linear_solve_time`.
   `factorization_time` is the part of `linear_solve_time` spent in the factorizations.
-  Divided by `newton_iterations` they give the cost of a Newton iteration, the unit of this page.
+  They have one entry per attempted step.
+  Their sums over the steps, divided by the sum of `newton_iterations`, give the cost of a Newton iteration, the unit of this page.
 - A measurement comes after a warm-up of a few steps, so that it leaves out the compilation, and at `-O2`.
-- Every number names its threads: those of Julia, of BLAS (`OPENBLAS_NUM_THREADS`) and of the solver (`threads` of [`MKLPardiso`](@ref)).
+- Every number names its threads: those of Julia, of BLAS (`OPENBLAS_NUM_THREADS` or `BLAS.set_num_threads`) and of the solver (`threads` of [`MKLPardiso`](@ref)).
 - Two versions are compared in one sitting on an idle machine, alternating: base, head, head, base.
   Repeated runs of one version differ by a few milliseconds per iteration on the case below, and a gain below that spread is not a gain.
 - Counts do not vary between machines, and they show a change of the cost before a timer does.
@@ -48,7 +50,7 @@ The second holds the details of the hot paths and the linear solvers, with the m
   A residual or a Jacobian evaluated a second time at one state allocates little, and tests bound it at `-O2`.
 - A cache is keyed on every input that its values read, such as the plasma values per radius of a [`PlasmaKey`](@ref).
   Its test changes an input alone and counts one rebuild, and none at an unchanged state.
-- The caches and buffers of the terms assume that one task assembles the system.
+- The caches and buffers of the terms assume that one task assembles the system, as the package does.
 
 ## The disruption case
 
@@ -71,12 +73,17 @@ It is scenario 1 of DREAM's `examples/Disruptions/generate.py`, fully kinetic in
 The momenta are in units of ``m_e c``.
 The case has two phases, the ionization of the injected material and the thermal and current quench.
 The timed window is 10 steps of 6.53e-7 s from step 170 of DREAM's quench.
-Runes2P starts it from DREAM's state, in DREAM's mode, and takes 2 steps of warm-up first.
+Runes2P starts it from DREAM's state with DREAM's settings (`compat = :dream` of the builder of the case).
+A run of 2 steps warms up first, and the timed run starts with a new solver.
 The tests run the same window at a reduced size, with 2 radii, coarser grids and 835 unknowns (`test_disruption_runaway_dream.jl`).
 
 Runes2P ran with one Julia thread, one BLAS thread and `-O2`, DREAM v26.5 with MKL PARDISO; in both codes only PARDISO ran threaded.
 DREAM's PARDISO allows up to ten refinement steps per solve, and [`MKLPardiso`](@ref) ran with its default of none.
-The machine was one idle machine with 8 cores, one run at a time.
+DREAM v26.5 pins PARDISO to one thread, and its rows at eight threads are of a build with that one setting changed.
+MKL PARDISO is not DREAM's default solver, which is PETSc's LU.
+The runs were on one idle machine with 8 cores, one at a time, with MKL 2025.2 through Pardiso.jl 1.1.2.
+The case at this size is not among the reference data: the tests hold the window at the reduced size.
+The timings and agreements of this page are measurements, and no test repeats them.
 DREAM's timers are sums over a phase, so its figures are means over its quench, per Newton iteration.
 
 ## A Newton iteration
@@ -92,9 +99,10 @@ In milliseconds per Newton iteration, without radial transport of the distributi
 | Runes2P, [`MKLPardiso`](@ref) at 8 threads | 35.2 | 8.9 | 20.5 | 2.6 | 72.0 | 4.50 | 0.49 |
 
 The last column compares with DREAM at the same number of PARDISO threads, and [`SparseLU`](@ref) with DREAM at one.
+DREAM's Newton count is its mean over the quench; in the window DREAM takes 5 iterations per step and Runes2P 4.5.
 DREAM's Jacobian holds the rebuild of its coefficients, about 31 ms, which Runes2P does inside its residual and its Jacobian.
 About 5 ms of a Runes2P iteration are outside the four timers.
-The factorization of [`MKLPardiso`](@ref) holds its one analysis, in the first timed step; the later steps take about 66 ms per iteration at one thread.
+The factorization of [`MKLPardiso`](@ref) holds its one analysis, in the first timed step; in the later steps the factorization takes about 66 ms per iteration at one thread.
 The run at eight threads holds one slow residual in one step, without which its iteration is about 70 ms.
 At the end of the window the states of the two codes agree to 4.1e-9 at this size, the largest difference in the hot-electron density.
 
@@ -108,16 +116,16 @@ At one thread the linear solver is therefore the first place to look in a slow r
 The kinetic operator declares the stencil of the coefficients it holds ([`stencil_pattern`](@ref)).
 An operator without radial transport stores no radial entries, and one without cross diffusion no corners.
 A coefficient outside the declared stencil is refused where the operator enters a system and when its coefficients are rebuilt.
-[`check_stencil_pattern`](@ref) compares the declared pattern with the entries of the matrix in a test.
-With the radial entries and corners declared for this case, which fills none of them, UMFPACK takes about seven times as long to factorize.
+[`check_stencil_pattern`](@ref) checks in a test that the entries of the matrix lie inside the declared pattern.
+With the radial entries and corners declared for this case, which fills none of them, UMFPACK would take about seven times as long to factorize.
 
 ### Colored differentiation and direct rows
 
 The terms with automatic assembly share one coloring, and each color is one directional derivative of their residuals ([`jacobian_colors`](@ref)).
 An evaluation in dual numbers carries up to 12 colors.
 A row that reads many cells of a radius would take a color per cell.
-Such rows are assembled directly: the moments of the density and the current, and the flux through the interface of two momentum grids.
-With the interface rows direct the case has 17 colors in place of 33, two evaluations in place of three.
+Such rows are assembled directly, among them the moments of the density and the current and the flux through the interface of two momentum grids.
+The case has 17 colors, two evaluations; with the interface rows colored it would have 33, three evaluations.
 A moment keeps the positions and weights of its row for the pattern of the matrix, so a later assembly only adds values.
 
 ### Plasma columns
@@ -146,9 +154,9 @@ The test of the case bounds the bytes of a second call of the Jacobian, of these
 - [`MKLPardiso`](@ref) keeps its ordering and matching in the same way, and its one analysis is counted in the factorization time of the first solve.
   It runs threaded: from one thread to eight its factorization and solve go from 77.6 to 23.1 ms in the table above.
   DREAM's inversion goes from 88.2 to 45.4 ms.
-- More BLAS threads do not help UMFPACK on this matrix, and refinement steps of PARDISO cost more than its factorization.
+- More BLAS threads do not help UMFPACK on this matrix, and ten refinement steps of PARDISO cost more than its factorization.
   The page [Choices of this package](choices.md#Linear-solvers) gives a factorization and a solve of the stored matrix outside a run, as medians of repeated calls.
-  The figures of the table are per Newton iteration of a run and hold the analysis of PARDISO, so the two differ.
+  The figures of the table are per Newton iteration of a run, so the two differ.
 - Both solvers take the field-particle term by a low-rank update of the factorized matrix ([`low_rank_jacobian`](@ref)), which adds solves and no fill.
 - [`GMRES`](@ref) with a block preconditioner factorizes blocks in place of the whole matrix ([Linear solvers and preconditioners](model/time-stepping.md#Linear-solvers-and-preconditioners)).
 
@@ -165,8 +173,8 @@ The same window with Rechester–Rosenbluth diffusion of both distributions at `
 | Runes2P, [`MKLPardiso`](@ref) at 1 thread | 56.2 | 11.3 | 1029.7 | 18.4 | 1119.8 | 4.80 | 0.35 |
 | Runes2P, [`MKLPardiso`](@ref) at 8 threads | 57.5 | 11.9 | 232.4 | 8.9 | 314.7 | 4.80 | 0.31 |
 
-DREAM's figures are means over the first 238 steps of its quench with transport.
-In the window itself DREAM takes 4 Newton iterations per step and Runes2P 4.8; without transport DREAM takes 5 and Runes2P 4.5.
+DREAM's figures are means over the first 238 of the 429 steps of its quench, the part of its run with transport that was timed.
+In the window itself DREAM takes 4 Newton iterations per step and Runes2P 4.8.
 The states of the two codes agree to 2.4e-9 at the end of the window, at this size.
 
 - The factorization and the solve are 92 % of an iteration with [`SparseLU`](@ref), and 77 % with [`MKLPardiso`](@ref) at eight threads.
@@ -175,7 +183,9 @@ The states of the two codes agree to 2.4e-9 at the end of the window, at this si
   With eight threads [`MKLPardiso`](@ref) is the faster in both.
 - The transport multiplies the factorization of [`SparseLU`](@ref) by 7.8 and that of [`MKLPardiso`](@ref) by 14.6 at one thread.
   DREAM's inversion grows by 35, between means over different spans of its quench.
-- Of the entries that the transport adds outside the kinetic stencil, two thirds are the corners of the declared cross diffusion, which hold zeros in this case.
+- The transport adds 319735 stored nonzeros, and 142800 of them are the corners of the declared cross diffusion, which hold zeros in this case.
+  An operator of radial transport alone built with `cross_diffusion = false` stores no corners ([`AdvectionDiffusion`](@ref)).
+  The measurement declared them, and the cost without them is not measured at this size.
 
 ## What the tests hold
 
@@ -184,5 +194,6 @@ The states of the two codes agree to 2.4e-9 at the end of the window, at this si
   The bounds hold at `-O2` and are skipped below it.
 - The blocks of the terms that keep buffers, weights or positions are compared bit for bit with blocks built afresh, at a state and at a changed state.
 - Tests of single systems bound their colors ([`jacobian_colors`](@ref)), and tests of operators the stored nonzeros of their matrices.
+  No test holds the colors or the stored nonzeros of the disruption case, so a change there is checked by hand.
 
 A change that moves one of these bounds or counts updates it in the same pull request and says so in its description.
