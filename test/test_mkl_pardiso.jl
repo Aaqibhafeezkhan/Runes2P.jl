@@ -284,7 +284,8 @@ cyclic_shift(m, d, o) = spdiagm(0 => fill(d, m), 1 => fill(o, m - 1), -(m - 1) =
             @test residual == residual_fresh
             @test x == x_fresh
             # with the shift 1e-8 the solve with the analysis of the other matrix gives a
-            # solution that is not a number, which fails too, and the retry recovers
+            # residual that is not within the bound (not a number on the machine of this
+            # test's first run), which fails too, and the retry recovers
             near_diagonal = cyclic_shift(m, 1.0, 1e-8)
             cache = pardiso_cache(shift_dominant)
             @test cache_solve(cache, shift_dominant, b)[1] === :ok

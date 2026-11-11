@@ -117,10 +117,11 @@ function _pardiso!(cache::MKLPardisoCache, phase, x, pardiso_matrix, b)
     return :ok
 end
 
-# a failed solve: the factorization is dropped, and so are the ordering and the matching,
-# which the next factorization computes again from its own matrix, since those of another
-# matrix of the pattern can spoil its solves
-function _singular!(cache::MKLPardisoCache)
+# a failed solve, by MKL's errors -4 and -7, a failed Woodbury update or a residual above
+# the bound: the factorization is dropped, and so are the ordering and the matching, which
+# the next factorization computes again from its own matrix, since those of another matrix
+# of the pattern can spoil its solves; `:singular_matrix`, as SparseLU on a zero pivot
+function _fail_solve!(cache::MKLPardisoCache)
     cache.factorized = false
     cache.analyzed = false
     return :singular_matrix
@@ -168,7 +169,7 @@ function Runes2P.solve!(
         if !cache.analyzed
             status = _pardiso!(cache, Pardiso.ANALYSIS, x, pardiso_matrix, b)
             if status !== :ok
-                return _singular!(cache)
+                return _fail_solve!(cache)
             end
             cache.analyzed = true
         end
@@ -181,12 +182,12 @@ function Runes2P.solve!(
             false
         end
         if !cache.factorized
-            return _singular!(cache)
+            return _fail_solve!(cache)
         end
     end
     status = _pardiso!(cache, Pardiso.SOLVE_ITERATIVE_REFINE, x, pardiso_matrix, b)
     if status !== :ok
-        return _singular!(cache)
+        return _fail_solve!(cache)
     end
     # the relative residual of every solve, with refinement too: the refinement stops at its
     # cap and promises no residual
@@ -203,7 +204,7 @@ function Runes2P.solve!(
     # a residual above the bound fails the solve, and linear_tolerance keeps it; so does a
     # residual that is not a number, since the matrix and the right-hand side are finite
     if !(cache.relative_residual <= MAX_RELATIVE_RESIDUAL)
-        return _singular!(cache)
+        return _fail_solve!(cache)
     end
     if cache.low_rank !== nothing
         _apply_low_rank_correction!(x, cache.low_rank)

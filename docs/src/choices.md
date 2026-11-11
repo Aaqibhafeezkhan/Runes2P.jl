@@ -146,7 +146,8 @@ DREAM's default solver is PETSc's own LU (`LINEAR_SOLVER_LU`), and its MKL PARDI
 PARDISO perturbs a small pivot instead of failing, so a singular or nearly singular matrix gives a finite solution whose residual is large.
 A solve of [`MKLPardiso`](@ref) above the relative residual of 1e-6 fails with `:singular_matrix`, as a zero pivot does with [`SparseLU`](@ref), and the step is retried shorter at once.
 The bound is three orders of magnitude above the residuals of PARDISO on the disruption case, 1e-13 to 1e-9.
-It is four or more orders below the residuals of singular matrices, 1e-2 to 10, and below that of a solve with the ordering and the matching of another matrix of the pattern, which can exceed 1.
+It is four or more orders below the residuals of singular matrices, 1e-2 to 10.
+A solve with the ordering and the matching of another matrix of the pattern can have a residual just above the bound or far above 1.
 A false failure costs a shorter step, and the solve after it computes a new ordering and matching.
 
 ## Time stepping

@@ -242,10 +242,12 @@ gives a finite solution with a large residual. A solve whose relative residual e
 `MAX_RELATIVE_RESIDUAL` of the extension, ``10^{-6}`` (a choice of this package, see the
 docs page *Choices of this package*), or is not a number, fails with `:singular_matrix`,
 as a zero pivot does with [`SparseLU`](@ref): the Newton iteration ends at that solve, and
-the time stepper retries the step shorter. A solve that fails, also on an error of MKL,
-drops the ordering and the matching with the factorization, and the next factorization
-computes them again from its own matrix, since those of another matrix of the same pattern
-can spoil its solves.
+the time stepper retries the step shorter. MKL's errors -4 (a zero pivot, or a failed
+numeric factorization or iterative refinement) and -7 (a singular diagonal) also return
+`:singular_matrix`; its other errors throw. A solve that returns `:singular_matrix` drops
+the ordering and the matching with the factorization, and the next factorization computes
+them again from its own matrix, since those of another matrix of the same pattern can spoil
+its solves.
 """
 struct MKLPardiso <: LinearSolver
     threads::Int
