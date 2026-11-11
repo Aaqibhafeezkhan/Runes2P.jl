@@ -205,19 +205,19 @@ PARDISO factorizes the real unsymmetric matrix with the defaults of its `pardiso
 nested-dissection ordering (METIS), a weighted matching with scaling, and pivots below
 ``10^{-13}`` times the infinity norm of the scaled matrix perturbed. The ordering and the
 matching need the values of the matrix: they are computed at the first solve, from its
-matrix, and kept for every later matrix of the same pattern; their time counts in the
-factorization time of that solve ([`SolverStatistics`](@ref)). A run resumed from a
-checkpoint computes them from its own first matrix, so it repeats the uninterrupted run as
-with another pivot order, not bit for bit: within the Newton tolerance, and within round-off
-where the Newton iterations of the steps are the same. The numeric factorization is made in
-every solve, except when the matrix is that of the last solve (a system linear in the state,
-[`NewtonSolver`](@ref)). PARDISO reads the compressed columns of the matrix as the
-compressed rows of its transpose and solves the transposed system, so no matrix is
-converted. Its integers have 32 bits, so the factors hold at most ``2^{31} - 1`` nonzeros; a
-larger factorization ends the run with an error that names the limit. The factors are in
-memory that MKL allocates and Julia's garbage collector does not count: they are released
-when the workspace is collected, so repeated runs in one process can hold several
-factorizations until `GC.gc()`.
+matrix, and kept for every later matrix of the same pattern until a solve fails (below);
+their time counts in the factorization time of that solve ([`SolverStatistics`](@ref)). A
+run resumed from a checkpoint computes them from its own first matrix, so it repeats the
+uninterrupted run as with another pivot order, not bit for bit: within the Newton tolerance,
+and within round-off where the Newton iterations of the steps are the same. The numeric
+factorization is made in every solve, except when the matrix is that of the last solve (a
+system linear in the state, [`NewtonSolver`](@ref)). PARDISO reads the compressed columns of
+the matrix as the compressed rows of its transpose and solves the transposed system, so no
+matrix is converted. Its integers have 32 bits, so the factors hold at most ``2^{31} - 1``
+nonzeros; a larger factorization ends the run with an error that names the limit. The
+factors are in memory that MKL allocates and Julia's garbage collector does not count: they
+are released when the workspace is collected, so repeated runs in one process can hold
+several factorizations until `GC.gc()`.
 
 - `threads`: the threads of PARDISO, MKL's own; Julia's threads and the BLAS threads do not
   apply. The count is a setting of MKL for the whole process, set before every solve, so
@@ -234,8 +234,18 @@ Every solve measures its relative residual ``\\|b - A x\\|/\\|b\\|`` with one pr
 the matrix, before the Woodbury update, with refinement too, since the refinement stops at
 its cap and promises no residual. That residual is the bound that the residual-floor rule
 of the [`NewtonSolver`](@ref) compares with its `floor_linear_tolerance`: a perturbed pivot
-that spoils the solve then turns both waivers of the residual test off, where
-[`SparseLU`](@ref) reports 0.
+that spoils the solve within the bound below then turns both waivers of the residual test
+off, where [`SparseLU`](@ref) reports 0.
+
+PARDISO perturbs a small pivot instead of failing, so a singular or nearly singular matrix
+gives a finite solution with a large residual. A solve whose relative residual exceeds
+`MAX_RELATIVE_RESIDUAL` of the extension, ``10^{-6}`` (a choice of this package, see the
+docs page *Choices of this package*), or is not a number, fails with `:singular_matrix`,
+as a zero pivot does with [`SparseLU`](@ref): the Newton iteration ends at that solve, and
+the time stepper retries the step shorter. A solve that fails, also on an error of MKL,
+drops the ordering and the matching with the factorization, and the next factorization
+computes them again from its own matrix, since those of another matrix of the same pattern
+can spoil its solves.
 """
 struct MKLPardiso <: LinearSolver
     threads::Int

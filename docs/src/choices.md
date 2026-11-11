@@ -130,6 +130,7 @@ DREAM's documentation gives an upper bound for `pCutAvalanche`, the critical mom
 | restart length of [`GMRES`](@ref) | `restart_length = 50` |
 | linear solver of [`NewtonSolver`](@ref) | `linear_solver = SparseLU()`, UMFPACK ([`SparseLU`](@ref)) |
 | refinement steps of [`MKLPardiso`](@ref) | `refinement_steps = 0` |
+| largest relative residual of a solve of [`MKLPardiso`](@ref) | `MAX_RELATIVE_RESIDUAL = 1e-6` of `Runes2PMKLPardisoExt` |
 
 When a step needs more Krylov iterations than the restart length, restarted GMRES can stagnate, and the step ends with `:linear_solve_failed`.
 The Krylov basis holds `restart_length` vectors.
@@ -141,6 +142,12 @@ These are medians of five factorizations and five solves on one idle machine, wi
 Ten refinement steps of PARDISO take 80 to 90 ms per solve on that matrix, more than the factorization.
 Without them its relative residual is 1.0e-9, below the `floor_linear_tolerance` of 1e-8 of [`NewtonSolver`](@ref).
 DREAM's default solver is PETSc's own LU (`LINEAR_SOLVER_LU`), and its MKL PARDISO solver allows 10 refinement steps (`fvm/Solvers/MIMKL.cpp`): `MKLPardiso(refinement_steps = 10)` reproduces that.
+
+PARDISO perturbs a small pivot instead of failing, so a singular or nearly singular matrix gives a finite solution whose residual is large.
+A solve of [`MKLPardiso`](@ref) above the relative residual of 1e-6 fails with `:singular_matrix`, as a zero pivot does with [`SparseLU`](@ref), and the step is retried shorter at once.
+The bound is three orders of magnitude above the residuals of PARDISO on the disruption case, 1e-13 to 1e-9.
+It is four or more orders below the residuals of singular matrices, 1e-2 to 10, and below that of a solve with the ordering and the matching of another matrix of the pattern, which can exceed 1.
+A false failure costs a shorter step, and the solve after it computes a new ordering and matching.
 
 ## Time stepping
 
