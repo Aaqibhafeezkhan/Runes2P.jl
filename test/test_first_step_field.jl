@@ -24,10 +24,20 @@
 #   (2/Z) ∫₀^∞ ψ(x) e^{−x} dx = (2/Z) (2/√π) ∫₀^∞ x^{1/2} e^{−2x} dx = (2/Z) 2^{−3/2} = 1/(√2 Z)
 # (integrated by parts; it is the ratio M⁰⁰ = −1/√2 of the like-species test-particle element
 # of test_field_particle.jl). With the test-particle term alone the field of the first step is
-# (1 + 1/(√2 Z)) = 1.7071 times that of the ions alone, at Z = 1. With the field-particle term
+# (1 + 1/(√2 Z)) = 1.7071 times that of the ions alone, at Z = 1, in the nonrelativistic limit.
+# With the relativistic Maxwellian and the thermal factors of the code's frequencies the ratio
+# lies below it by an amount of the order of Θ = T/(m c²): extrapolated in the momentum grid,
+# 3.9e-5 at 120 eV, 7.6e-6 at 30 eV and +1.3e-7 at 7.5 eV, relative to 1 + 1/√2. No closed
+# form of that term is derived here. On single grids the ratio crosses 1 + 1/√2 between 80 and
+# 160 cells (+2.4e-5 and −2.3e-5 relative to it), since its second-order grid error, positive
+# on the coarse grid, falls onto a limit below it. With the field-particle term
 # (FieldParticleTerm) the electron-electron collisions conserve the parallel momentum, and the
 # shapes of its heat-flux modes, v_∥ L_a^{(3/2)}(x²) f⁰ with a ≥ 1, carry no current
-# (orthogonal to L_0): the field stays at that of the ions alone.
+# (orthogonal to L_0): the field stays at that of the ions alone. The test passes
+# scheme = :central to both the kinetic operator and FieldParticleOperator: the term conserves
+# the momentum that the electron-electron operator of its own scheme removes, so with the
+# default scheme of FieldParticleOperator (:exponential_fitting) against a :central kinetic
+# operator the field with the term is 1.12e-3 above that of the ions alone on this grid.
 #
 # The case: the axis of reference/dream/cases/self_consistent_field.py, T = 120 eV,
 # n_e = n_D = 5e19 m⁻³ (its argon left out: pure deuterium) and j = 1e6 A/m², complete
@@ -38,6 +48,9 @@
 # Euler step. The ion scattering alone is the operator without cold electrons (1e-10 of the
 # density), as in the Lorentz limit of test_field_particle.jl: the electron-electron terms are
 # proportional to the cold density, the ion terms and lnΛ to the density of the ions.
+# The temperatures 30 and 7.5 eV are choices of this test, with the same density and current:
+# 30 eV shows that the relativistic departures scale with Θ, and 7.5 eV (Θ = 1.5e-5) reaches
+# the nonrelativistic limit within the uncertainty of the grid extrapolation.
 #
 # The shift is to first order, as in eq. (4.6): the system is then linear in the shift, so E/j
 # does not depend on j. What limits the agreement (measured at 120 eV):
@@ -175,16 +188,51 @@ using QuadGK: quadgk
     end
 
     @testset "electron-electron terms" begin
+        r0 = 1 + 1 / sqrt(2)
+        # the field with the test-particle term over that of the ions alone, with 80, 160 and
+        # 320 momentum cells
+        function test_particle_ratios(T)
+            return map((80, 160, 320)) do np_
+                with_test_particle = first_step_field(; T, np_,
+                    electron_electron = :test_particle)
+                return with_test_particle / first_step_field(; T, np_)
+            end
+        end
+        # the Richardson value of the two finest grids, its departure from r0 relative to r0,
+        # and the observed order of the three grids
+        function extrapolated_departure(ratios)
+            order = log2((ratios[2] - ratios[1]) / (ratios[3] - ratios[2]))
+            extrapolated = ratios[3] + (ratios[3] - ratios[2]) / 3
+            return (extrapolated - r0) / r0, order
+        end
+        theta(T) = T / Constants.ELECTRON_REST_ENERGY
+        at_120 = test_particle_ratios(120.0)
+        # coarse check on single grids: the grid error (+2.4e-5 with 80 cells, -2.3e-5 with
+        # 160, relative to r0) and the order-Θ term below bring each grid within 1e-4 of r0
+        @test at_120[1] ≈ r0 rtol = 1e-4
+        @test at_120[2] ≈ r0 rtol = 1e-4
+        # the nonrelativistic limit, at 7.5 eV (Θ = 1.5e-5): the extrapolated ratio is r0
+        # within 5e-6 relative to r0 (measured +1.3e-7). The bound holds the spread of the
+        # Richardson values of 80/160 and 160/320 cells (1.0e-6) and an order-Θ term of
+        # the size measured at higher temperature (2.6e-6 at this Θ)
+        departure, order = extrapolated_departure(test_particle_ratios(7.5))
+        @test 1.8 < order < 2.3       # measured 2.09
+        @test abs(departure) < 5e-6
+        # at higher temperature the ratio lies below r0 by an amount of the order of Θ:
+        # measured -3.9e-5 = -0.17 Θ at 120 eV and -7.6e-6 = -0.13 Θ at 30 eV, relative to
+        # r0, observed orders 1.94 and 2.18. The bound -0.5 Θ to -0.05 Θ is wider than
+        # these and than the 1e-6 to 3e-6 spread of the Richardson values; no closed form
+        # of the term is derived here
+        for (T, ratios) in ((120.0, at_120), (30.0, test_particle_ratios(30.0)))
+            departure, order = extrapolated_departure(ratios)
+            @test 1.8 < order < 2.3
+            @test -0.5 * theta(T) < departure < -0.05 * theta(T)
+        end
+        # the momentum-conserving operator leaves the field of the ions alone (measured
+        # 7.8e-7 below with 80 cells, 2.3e-6 above with 160)
         for np_ in (80, 160)
-            ions_alone = first_step_field(; np_)
-            # the test-particle term adds the loss 1/(√2 Z) of the ion loss
-            # (measured 1 + 0.707149 with 80 cells, 1 + 0.707068 with 160)
-            @test first_step_field(; np_, electron_electron = :test_particle) / ions_alone ≈
-                  1 + 1 / sqrt(2) rtol = 1e-4
-            # the momentum-conserving operator leaves the field of the ions alone (measured
-            # 2.3e-6 apart with 160 cells)
             @test first_step_field(; np_, electron_electron = :field_particle) ≈
-                  ions_alone rtol = 1e-5
+                  first_step_field(; np_) rtol = 1e-5
         end
     end
 

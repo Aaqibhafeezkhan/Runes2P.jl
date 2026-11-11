@@ -275,7 +275,9 @@ It is cut at zero so that the exchange keeps its sign.
   The reference is ``E = m_e j/(n e^2 τ_e)`` of S. I. Braginskii, Rev. Plasma Phys. 1, 205 (1965), eqs. (2.5e), (2.7) and (4.6): 1.030 V/m for deuterium at 120 eV, 5e19 m⁻³ and 1 MA/m².
   It needs a step of about 1e-8 ``τ_e``: the field of a longer step is lower, 2.5e-2 below that of 1e-8 ``τ_e`` at 1e-3 ``τ_e`` with 80 momentum cells.
   With the ion scattering alone, the field extrapolated in the momentum grid is 6.3e-6 below the reference times the relativistic correction ``1 + 13Θ/8``, ``Θ = T/(m_e c^2)``, at 120 eV and 3.3e-6 below it at 30 eV.
-  The test-particle electron-electron term raises the field by ``1/(\sqrt{2} Z)`` of it, at ``Z = 1`` 2.5e-5 above ``1 + 1/\sqrt{2}`` times the field of the ions alone with 80 momentum cells and 2.3e-5 below with 160.
+  The test-particle electron-electron term multiplies the field of the ions alone by ``1 + 1/(\sqrt{2} Z)`` in the nonrelativistic limit, tested at ``Z = 1``.
+  Extrapolated in the momentum grid, the ratio is 1.3e-7 above ``1 + 1/\sqrt{2}`` at 7.5 eV, relative to it.
+  At higher temperature it lies below ``1 + 1/\sqrt{2}`` by an amount of the order of ``Θ``: 3.9e-5 at 120 eV and 7.6e-6 at 30 eV, relative to it.
   With the [`FieldParticleTerm`](@ref) the field is 2.3e-6 from that of the ions alone with 160 momentum cells.
   For an exactly shifted Maxwellian it is 4.1e-6 from it with the cell-centre pitch weights of the current, those of the term's momentum conservation.
   With the linear weights it holds as the pitch grid is refined.
