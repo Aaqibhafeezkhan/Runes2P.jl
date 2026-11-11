@@ -137,8 +137,8 @@ files = ["test_two_grid_physics.jl", "test_radial_transport_dream.jl", "test_ada
 [[group]]
 name = "full-5"
 tier = "full"
-# 8.0 minutes
-files = ["test_field_particle.jl", "test_pitch_accuracy.jl", "test_runaway_physics.jl", "test_manufactured_solutions.jl"]
+# 10.0 minutes
+files = ["test_field_particle.jl", "test_first_step_field.jl", "test_pitch_accuracy.jl", "test_runaway_physics.jl", "test_manufactured_solutions.jl"]
 
 [[group]]
 name = "full-6"

@@ -271,5 +271,12 @@ It is cut at zero so that the exchange keeps its sign.
   The same file checks the Lorentz limit and the Spitzer-Härm conductivity.
   It also checks the conductivity at ``Z = 1`` from 1 to 10 keV against that of B. J. Braams and C. F. F. Karney, Phys. Fluids B 1, 1355 (1989), doi:10.1063/1.858966.
   It is 1.1 % above theirs at 10 keV, a departure that grows with the temperature and that the nonrelativistic field-particle matrix elements would explain.
+- The field of the first short step of a system that holds the current of a shifted Maxwellian, `test/test_first_step_field.jl`.
+  The reference is ``E = m_e j/(n e^2 τ_e)`` of S. I. Braginskii, Rev. Plasma Phys. 1, 205 (1965), eqs. (2.5e), (2.7) and (4.6): 1.030 V/m for deuterium at 120 eV, 5e19 m⁻³ and 1 MA/m².
+  With the ion scattering alone the field converged in the step and the momentum grid is within 7e-6 of it times ``1 + 13Θ/8``, ``Θ = T/(m_e c^2)``, the relativistic correction.
+  The test-particle electron-electron term raises the field by ``1/(\sqrt{2} Z)`` of it, tested at ``Z = 1`` within 1e-4.
+  With the [`FieldParticleTerm`](@ref) the field stays at that of the ions alone within 5e-6.
+  For an exactly shifted Maxwellian this holds with the cell-centre pitch weights of the current, those of the term's momentum conservation.
+  With the linear weights it holds as the pitch grid is refined.
 
 The conductivity is that of L. Spitzer and R. Härm, Phys. Rev. 89, 977 (1953), doi:10.1103/PhysRev.89.977.
