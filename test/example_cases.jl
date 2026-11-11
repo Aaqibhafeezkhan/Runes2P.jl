@@ -106,12 +106,12 @@ to θ = 0.5; the ultra-relativistic collision frequencies (at `compat = :dream`)
 screening and the thermal Coulomb logarithm, no bremsstrahlung and no synchrotron loss;
 upwind interpolation and DREAM's `BC_PHI_CONST` at `p_max`; no flux through `p = 0`
 (`p_zero_boundary = :zero_flux` of [`fokker_planck_operator`](@ref)), as DREAM's runaway
-grid; `f_re` started from
-`n_re = 1e16 m⁻³` in the forward shape ([`fill_runaway_distribution!`](@ref)). The row of
-the temperature holds the ohmic heating with DREAM's conductivity, the radiated power of
-DREAM's mode (the bremsstrahlung of Gould with DREAM's corrections for the fully ionized
-deuterium) and the heating by `f_re` of [`runaway_heating_term`](@ref); the cold density is
-the free-electron density minus the density of `f_re`, as DREAM's `n_cold`.
+grid; `f_re` started from `n_re = 1e16 m⁻³` in the forward shape
+([`fill_runaway_distribution!`](@ref)). The row of the temperature holds the ohmic heating
+with DREAM's conductivity, the radiated power of DREAM's mode (the bremsstrahlung of Gould
+with DREAM's corrections for the fully ionized deuterium) and the heating by `f_re` of
+[`runaway_heating_term`](@ref); the cold density is the free-electron density minus the
+density of `f_re`, as DREAM's `n_cold`.
 
 `compat = :dream` takes DREAM's settings of the case. `compat = :runes2p` differs from them
 in three settings. The heating by `f_re` is Runes2P's energy change of the
