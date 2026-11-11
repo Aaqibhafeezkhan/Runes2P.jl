@@ -273,10 +273,11 @@ It is cut at zero so that the exchange keeps its sign.
   It is 1.1 % above theirs at 10 keV, a departure that grows with the temperature and that the nonrelativistic field-particle matrix elements would explain.
 - The field of the first short step of a system that holds the current of a shifted Maxwellian, `test/test_first_step_field.jl`.
   The reference is ``E = m_e j/(n e^2 τ_e)`` of S. I. Braginskii, Rev. Plasma Phys. 1, 205 (1965), eqs. (2.5e), (2.7) and (4.6): 1.030 V/m for deuterium at 120 eV, 5e19 m⁻³ and 1 MA/m².
-  With the ion scattering alone the field converged in the step and the momentum grid is within 7e-6 of it times ``1 + 13Θ/8``, ``Θ = T/(m_e c^2)``, the relativistic correction.
-  The test-particle electron-electron term raises the field by ``1/(\sqrt{2} Z)`` of it, tested at ``Z = 1`` within 1e-4.
-  With the [`FieldParticleTerm`](@ref) the field stays at that of the ions alone within 5e-6.
-  For an exactly shifted Maxwellian this holds with the cell-centre pitch weights of the current, those of the term's momentum conservation.
+  It needs a step of about 1e-8 ``τ_e``: the field of a longer step is lower, 2.5e-2 below that of 1e-8 ``τ_e`` at 1e-3 ``τ_e`` with 80 momentum cells.
+  With the ion scattering alone, the field extrapolated in the momentum grid is 6.3e-6 below the reference times the relativistic correction ``1 + 13Θ/8``, ``Θ = T/(m_e c^2)``, at 120 eV and 3.3e-6 below it at 30 eV.
+  The test-particle electron-electron term raises the field by ``1/(\sqrt{2} Z)`` of it, at ``Z = 1`` 2.5e-5 above ``1 + 1/\sqrt{2}`` times the field of the ions alone with 80 momentum cells and 2.3e-5 below with 160.
+  With the [`FieldParticleTerm`](@ref) the field is 2.3e-6 from that of the ions alone with 160 momentum cells.
+  For an exactly shifted Maxwellian it is 4.1e-6 from it with the cell-centre pitch weights of the current, those of the term's momentum conservation.
   With the linear weights it holds as the pitch grid is refined.
 
 The conductivity is that of L. Spitzer and R. Härm, Phys. Rev. 89, 977 (1953), doi:10.1103/PhysRev.89.977.

@@ -43,10 +43,11 @@
 # does not depend on j. What limits the agreement (measured at 120 eV):
 # - the step: the ion scattering ν_D ∝ p⁻³ relaxes the cells of small p within the step, which
 #   then hold less of the current. With 80 momentum cells the field falls short of that of
-#   dt/τ_e = 1e-8 by 2.5e-2, 6.9e-3, 1.3e-3, 1.4e-4 and 1.4e-5 at dt/τ_e = 1e-3 to 1e-7, by a
-#   factor that grows from 3.6 to 9 per decade; the test takes 1e-8.
-# - the momentum grid: second order, −2.1e-3, −2.5e-4, +2.2e-4 and +3.4e-4 with 40, 80, 160
-#   and 320 cells to 7 thermal momenta (the observed order between 40, 80 and 160 is 2.00).
+#   dt/τ_e = 1e-8 by 2.5e-2, 6.9e-3, 1.3e-3, 1.4e-4 and 1.4e-5 at dt/τ_e = 1e-3 to 1e-7, by
+#   factors of 3.6, 5.3, 9.3 and 10 per decade; the test takes 1e-8.
+# - the momentum grid: second order, −2.1e-3, −2.5e-4, +2.2e-4 and +3.4e-4 from Braginskii's
+#   E without the relativistic factor, with 40, 80, 160 and 320 cells to 7 thermal momenta
+#   (the observed order between 40, 80 and 160 is 2.00).
 # - the relativistic operator, Θ = T/(m c²). For the Maxwellian exp(−(γ − 1)/Θ) the current of
 #   the shift a p ξ f⁰ is e c a Θ n exactly (⟨p²/γ⟩ = 3Θ), the ion loss with ν_D ∝ γ/p³ is
 #   ∝ ⟨1/p⟩ = √(2/(πΘ)) (1 + Θ)/(1 + 15Θ/8), and the response of the current to the field is
