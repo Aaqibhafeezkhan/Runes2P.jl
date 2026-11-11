@@ -236,6 +236,10 @@ const HEATING_RUN_DEFAULT_FIRST_STEP = 5e-5
             # no flux through p = 0, as at compat = dream: the density of f_re changes by
             # 6.0e-16 of its start over the run, round-off
             @test drift < HEATING_RUN_DENSITY
+            # f_re against DREAM's, relative to DREAM's largest value: 0.458 after the first
+            # step and 0.756 at the last, the difference of the collision frequencies
+            @test 0.4 < distributions[2] < 0.5
+            @test 0.7 < distributions[end] < 0.8
         end
     end
 end
