@@ -4,11 +4,11 @@
 # self-consistent, built by `runaway_heating_example` (example_cases.jl) and run over the 20
 # steps of the case. At compat = dream T_cold, W_cold and f_re are compared with DREAM's. At
 # compat = runes2p the run differs from DREAM's in the collision mode of the operator of
-# f_re, the lag of its plasma, the flux through p = 0 and the form of the heating
-# (runaway_heating_example), and the two forms of the heating are compared over the run.
+# f_re, the lag of its plasma and the form of the heating (runaway_heating_example), and
+# the two forms of the heating are compared over the run.
 # Needs the ADF11 cache.
 #
-# The operator of f_re takes no flux through p = 0 at compat = dream
+# The operator of f_re takes no flux through p = 0 at both compat values
 # (p_zero_boundary = :zero_flux), as DREAM's runaway grid: DREAM computes the friction's
 # limit lim p³ν_s (src/Equations/Kinetic/SlowingDownTerm.cpp:54-56,
 # fvm/Equation/AdvectionTerm.set.cpp:98-118), but multiplies it by the interpolation
@@ -17,8 +17,9 @@
 # That condition holds on DREAM's runaway grid only: f_re has no internal boundary condition
 # (src/Settings/Equations/f_re.cpp:87), while on the hot-tail grid the lower boundary of p
 # is mirrored (src/Settings/Equations/distribution.cpp:234-237), so that f_hot does carry
-# the flux. Runes2P's default (p_zero_boundary = :outflow, taken at compat = runes2p) carries
-# electrons out through p = 0; the test measures its size on the first step of f_re alone.
+# the flux. The operator's default (p_zero_boundary = :outflow, DREAM's hot-tail grid)
+# carries electrons out through p = 0; the test measures its size on the first step of f_re
+# alone.
 #
 # One difference of method remains at compat = dream, checked by its mechanism:
 # DREAM's semi-implicit steps (LINEAR_IMPLICIT) take j_ohm of the start of the step as the
@@ -43,10 +44,11 @@ const HEATING_RUN_REPLAY = 1e-7
 const HEATING_RUN_DISTRIBUTION = 1e-5
 # 2.4e-16 without the flux through p = 0, round-off
 const HEATING_RUN_FIRST_STEP = 1e-14
-# 4.0e-16 of the density of f_re at the start, round-off
+# 4.0e-16 (compat = dream) and 6.0e-16 (compat = runes2p) of the density of f_re at the
+# start, round-off
 const HEATING_RUN_DENSITY = 1e-14
-# with the default flux through p = 0 the first step departs from DREAM's by 1.06e-4 of the
-# largest value and loses 1.55e-4 of the density: at least half of each
+# with the operator's default flux through p = 0 the first step departs from DREAM's by
+# 1.06e-4 of the largest value and loses 1.55e-4 of the density: at least half of each
 const HEATING_RUN_DEFAULT_FIRST_STEP = 5e-5
 
 @testset "the heating by a runaway grid in a run against DREAM" begin
@@ -128,7 +130,8 @@ const HEATING_RUN_DEFAULT_FIRST_STEP = 5e-5
 
             # the first step of f_re alone, with the coefficients at the plasma of the start
             # as DREAM's step takes them: DREAM's without the flux through p = 0, and the
-            # departure of Runes2P's default, which carries electrons out there
+            # departure of the operator's default (:outflow, for a hot-tail grid), which
+            # carries electrons out there
             first_step = map((:zero_flux, :outflow)) do boundary
                 plasma = PlasmaState(; cold_electron_temperature = [T_dream[1]],
                     cold_electron_density = [data["eqsys/n_cold"][1, 1]],
@@ -157,8 +160,8 @@ const HEATING_RUN_DEFAULT_FIRST_STEP = 5e-5
                   "through p = 0 (the difference, the change of the density): $first_step"
             @test first_step[1][1] < HEATING_RUN_FIRST_STEP
             @test abs(first_step[1][2]) < HEATING_RUN_DENSITY
-            # Runes2P's default: f_re departs from DREAM's by 1.06e-4 of its largest value
-            # after the first step, and its density falls by 1.55e-4
+            # the operator's default: f_re departs from DREAM's by 1.06e-4 of its largest
+            # value after the first step, and its density falls by 1.55e-4
             @test first_step[2][1] > HEATING_RUN_DEFAULT_FIRST_STEP
             @test first_step[2][2] < -HEATING_RUN_DEFAULT_FIRST_STEP
 
@@ -192,18 +195,26 @@ const HEATING_RUN_DEFAULT_FIRST_STEP = 5e-5
             T = [value(solution.states[:, k], layout, :cold_electron_temperature)
                  for k in eachindex(times)]
             temperature = maximum(abs, (T .- T_dream) ./ T_dream)
-            @info "T_cold at compat = runes2p against DREAM's: $temperature"
-            # Measured: the energy change of the operator rises from 0 to 472 W/m³, DREAM's
-            # moment on the same states is 7.65e4 to 7.81e4 W/m³. Nearly all of f_re sits
+            @info "T_cold at compat = runes2p against DREAM's: $temperature, at the last " *
+                  "step $((T[end] - T_dream[end]) / T_dream[end])"
+            id = unknown_id(layout, :runaway_distribution)
+            distribution_array(u) = reshape(
+                Array(kinetic_view(u, layout, id, 1)), size(grid))
+            distributions = [maximum(abs,
+                                 distribution_array(solution.states[:, k]) .-
+                                 f_dream[:, :, 1, k]) / maximum(abs, f_dream[:, :, 1, k])
+                             for k in eachindex(times)]
+            densities = [density(grid, distribution_array(solution.states[:, k]))[1]
+                         for k in eachindex(times)]
+            drift = maximum(abs, densities .- densities[1]) / densities[1]
+            @info "f_re at compat = runes2p against DREAM's, after the first step and at " *
+                  "the last: $(distributions[2]), $(distributions[end]); the density of " *
+                  "f_re over the run against its start: $drift"
+            # Measured: the energy change of the operator rises from 0 to 473 W/m³, DREAM's
+            # moment on the same states is 7.68e4 to 7.81e4 W/m³. Nearly all of f_re sits
             # in the first momentum cell (p = 0.25), below which there is no cell for the
             # friction to carry it to, so the energy change of the operator is small; the
             # moment counts the friction of that cell in full.
-            # The electrons that the friction carries out through p = 0, 3.04e13 m⁻³ over
-            # the run (3.0e-3 of f_re), return to n_cold through its algebraic row without
-            # their kinetic energy, (γ - 1) mₑc² = 2.52e-15 J at p = 0.25: the energy
-            # change leaves it out (free_electron_energy_transfer_term), so no term of the
-            # run holds it. It is 1.51e4 to 1.56e4 W/m³ over the steps, about 32 times the
-            # largest energy change and 0.20 of the moment, which counts it.
             # The run takes lagged = :ions in place of :all and the superthermal
             # frequencies, since the electron-electron operator has no ultra-relativistic
             # form (runaway_heating_example). At p = 0.25 the superthermal frequencies give
@@ -215,10 +226,16 @@ const HEATING_RUN_DEFAULT_FIRST_STEP = 5e-5
             # 3.2e-4 (the difference of the two heatings over the 5 µs, about 0.39 J/m³,
             # over the heat capacity 1.5 e n_cold of 12 J/(m³ eV)), and the ohmic heating at
             # the end of the step adds about 3e-5, as at compat = dream.
+            # The bounds: the energy change at the start is 0, at most 1e-12 of the moment;
+            # it is never negative; its largest value is 6.2e-3 of the smallest moment,
+            # below 1e-2; the smallest moment is 7.68e4 W/m³, above 7e4 W/m³.
             @test abs(energy_change[1]) <= 1e-12 * minimum(moments)
             @test all(>=(0), energy_change)
             @test maximum(energy_change) < 1e-2 * minimum(moments)
             @test all(moments .> 7e4)
+            # no flux through p = 0, as at compat = dream: the density of f_re changes by
+            # 6.0e-16 of its start over the run, round-off
+            @test drift < HEATING_RUN_DENSITY
         end
     end
 end
