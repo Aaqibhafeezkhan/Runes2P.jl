@@ -16,28 +16,32 @@
 #
 # Electron-electron collisions. The test-particle operator alone (C(f₁, f⁰), with the
 # Maxwellian f⁰ as target) slows the drifting electrons as well. A test particle slows down as
-# dv/dt = −ν_s v with ν_s = (1 + m_α/m_β) ψ(x) ν₀, ν₀ ∝ n_β e_β²/v³, x = m_β v²/(2T_β) and
-# ψ(x) = (2/√π) ∫₀ˣ t^{1/2} e^{−t} dt (NRL Plasma Formulary, p. 31). On the ions
-# (m_e/m_i → 0, ψ → 1) ν_s = ν₀ with n_i Z², on the electrons ν_s = 2ψ(x) ν₀ with n_e.
-# Averaged over f₁ ∝ v_∥ f⁰ the momentum loss is ∝ ∫ ν_s v⁴ f⁰ dv ∝ ∫ (ν_s v³) e^{−x} dx, so
+# dv/dt = −ν_s v with ν_s = (1 + m_α/m_β) ψ(s) ν₀, ν₀ ∝ n_β e_β²/v³, s = m_β v²/(2T_β) and
+# ψ(s) = (2/√π) ∫₀ˢ t^{1/2} e^{−t} dt (NRL Plasma Formulary, p. 31). On the ions
+# (m_e/m_i → 0, ψ → 1) ν_s = ν₀ with n_i Z², on the electrons ν_s = 2ψ(s) ν₀ with n_e.
+# Averaged over f₁ ∝ v_∥ f⁰ the momentum loss is ∝ ∫ ν_s v⁴ f⁰ dv ∝ ∫ (ν_s v³) e^{−s} ds, so
 # the electron-electron loss over the ion loss is
-#   (2/Z) ∫₀^∞ ψ(x) e^{−x} dx = (2/Z) (2/√π) ∫₀^∞ x^{1/2} e^{−2x} dx = (2/Z) 2^{−3/2} = 1/(√2 Z)
+#   (2/Z) ∫₀^∞ ψ(s) e^{−s} ds = (2/Z) (2/√π) ∫₀^∞ s^{1/2} e^{−2s} ds = (2/Z) 2^{−3/2} = 1/(√2 Z)
 # (integrated by parts; it is the ratio M⁰⁰ = −1/√2 of the like-species test-particle element
 # of test_field_particle.jl). With the test-particle term alone the field of the first step is
 # (1 + 1/(√2 Z)) = 1.7071 times that of the ions alone, at Z = 1, in the nonrelativistic limit.
 # With the relativistic Maxwellian and the thermal factors of the code's frequencies the ratio
 # lies below it by an amount of the order of Θ = T/(m c²): extrapolated in the momentum grid,
-# 3.9e-5 at 120 eV, 7.6e-6 at 30 eV and +1.3e-7 at 7.5 eV, relative to 1 + 1/√2. No closed
-# form of that term is derived here. On single grids the ratio crosses 1 + 1/√2 between 80 and
+# 3.9e-5 at 120 eV and 7.6e-6 at 30 eV relative to 1 + 1/√2, with an uncertainty of about
+# 3e-6 from the step and the extrapolation; at 7.5 eV it is within 5e-6 of it. No closed form
+# of that term is derived here. On single grids the ratio crosses 1 + 1/√2 between 80 and
 # 160 cells (+2.4e-5 and −2.3e-5 relative to it), since its second-order grid error, positive
 # on the coarse grid, falls onto a limit below it. With the field-particle term
 # (FieldParticleTerm) the electron-electron collisions conserve the parallel momentum, and the
-# shapes of its heat-flux modes, v_∥ L_a^{(3/2)}(x²) f⁰ with a ≥ 1, carry no current
-# (orthogonal to L_0): the field stays at that of the ions alone. The test passes
-# scheme = :central to both the kinetic operator and FieldParticleOperator: the term conserves
-# the momentum that the electron-electron operator of its own scheme removes, so with the
-# default scheme of FieldParticleOperator (:exponential_fitting) against a :central kinetic
-# operator the field with the term is 1.12e-3 above that of the ions alone on this grid.
+# shapes of its heat-flux modes, v_∥ L_a^{(3/2)}(y²) f⁰ with a ≥ 1 and y = v/√(2T/m), carry no
+# current (orthogonal to L_0^{(3/2)}): the field stays at that of the ions alone. This argument
+# is nonrelativistic, since the current is the moment of p/γ and the conserved momentum that
+# of p; the measurement shows that it holds here to 2.3e-6 relative to the field of the ions
+# alone, far below 0.7 Θ = 1.6e-4. The test passes scheme = :central to both the kinetic
+# operator and FieldParticleOperator: the term conserves the momentum that the
+# electron-electron operator of its own scheme removes, so with the default scheme of
+# FieldParticleOperator (:exponential_fitting) against a :central kinetic operator the field
+# with the term is 1.12e-3 above that of the ions alone on this grid.
 #
 # The case: the axis of reference/dream/cases/self_consistent_field.py, T = 120 eV,
 # n_e = n_D = 5e19 m⁻³ (its argon left out: pure deuterium) and j = 1e6 A/m², complete
@@ -49,36 +53,47 @@
 # density), as in the Lorentz limit of test_field_particle.jl: the electron-electron terms are
 # proportional to the cold density, the ion terms and lnΛ to the density of the ions.
 # The temperatures 30 and 7.5 eV are choices of this test, with the same density and current:
-# 30 eV shows that the relativistic departures scale with Θ, and 7.5 eV (Θ = 1.5e-5) reaches
-# the nonrelativistic limit within the uncertainty of the grid extrapolation.
+# 30 eV checks that the relativistic departures stay of the order of Θ at a smaller Θ, and
+# 7.5 eV (Θ = 1.5e-5) approaches the nonrelativistic limit, within the bounds of the test.
 #
 # The shift is to first order, as in eq. (4.6): the system is then linear in the shift, so E/j
 # does not depend on j. What limits the agreement (measured at 120 eV):
 # - the step: the ion scattering ν_D ∝ p⁻³ relaxes the cells of small p within the step, which
 #   then hold less of the current. With 80 momentum cells the field falls short of that of
 #   dt/τ_e = 1e-8 by 2.5e-2, 6.9e-3, 1.3e-3, 1.4e-4 and 1.4e-5 at dt/τ_e = 1e-3 to 1e-7, by
-#   factors of 3.6, 5.3, 9.3 and 10 per decade; the test takes 1e-8.
+#   factors of 3.6, 5.3, 9.3 and 10 per decade. The shortfall at 1e-7 grows with the grid,
+#   1.35e-5, 2.44e-5 and 4.92e-5 with 80, 160 and 320 cells, and is linear in dt there: about
+#   1.5e-6, 2.7e-6 and 5.5e-6 at 1e-8, which the test takes. Shorter steps are no better:
+#   1e-8 against 1e-9 differs by 8.1e-6, 9.0e-6 and 1.1e-5 on the three grids, and 1e-9 against
+#   1e-10 by 2.1e-5 to 1.1e-4 without a trend, as round-off of the solve that grows as 1/dt.
+#   At 1e-8 the step error and this floor are both about 1e-6 to 1e-5.
 # - the momentum grid: second order, −2.1e-3, −2.5e-4, +2.2e-4 and +3.4e-4 from Braginskii's
 #   E without the relativistic factor, with 40, 80, 160 and 320 cells to 7 thermal momenta
-#   (the observed order between 40, 80 and 160 is 2.00).
+#   (the observed order between 40, 80 and 160 is 2.00). The step error above is not of
+#   second order in the grid: it biases the Richardson value of 80 and 160 cells by about
+#   −3e-6.
 # - the relativistic operator, Θ = T/(m c²). For the Maxwellian exp(−(γ − 1)/Θ) the current of
 #   the shift a p ξ f⁰ is e c a Θ n exactly (⟨p²/γ⟩ = 3Θ), the ion loss with ν_D ∝ γ/p³ is
 #   ∝ ⟨1/p⟩ = √(2/(πΘ)) (1 + Θ)/(1 + 15Θ/8), and the response of the current to the field is
 #   ∝ ⟨1/γ − p²/(3γ³)⟩ = (1 − 5Θ/8)/(1 + 15Θ/8), to first order in Θ (checked by quadrature).
 #   So E = (1 + 13Θ/8) m j/(n e² τ_e): 1 + 3.82e-4 at 120 eV, 1 + 9.54e-5 at 30 eV. The values
-#   extrapolated in the momentum grid are 6.3e-6 and 3.3e-6 below these.
+#   extrapolated in the momentum grid are 6.3e-6 and 3.3e-6 below these, at the level of the
+#   step bias above: they bound the agreement (the test takes atol 2e-5) and are not the
+#   accuracy of the operator.
 # An exactly shifted Maxwellian adds the nonlinear friction of the ions: the field of the drift
-# u falls as 3√π ψ(x²)/(4x³) = 1 − (3/5) x² + (3/14) x⁴ − …, x = u/√(2T/m). The friction of
+# u falls as 3√π ψ(w²)/(4w³) = 1 − (3/5) w² + (3/14) w⁴ − …, w = u/√(2T/m). The friction of
 # ions at rest is ∝ ∫ (v/v³) f d³v, the field of a Gaussian charge cloud at the distance u,
-# ∝ ψ(x²)/u², with ψ(x²) → (4/(3√π)) x³ as x → 0. Its test compares two currents, so that
-# the O(Θ) difference between the nonrelativistic shift and the relativistic Maxwellian cancels,
-# on 32 pitch cells, since the exact shift has all odd Legendre orders where the first-order
-# shift has only the first, which the pitch grid represents exactly. For the same reason the
-# field-particle term on an exact shift needs the current moment with the pitch weights of its
-# momentum conservation (`pitch_rule = :cell_center`): with the linear weights, the default of
-# CurrentMomentTerm, the current and the conserved momentum differ at the pitch resolution, and
-# the field is 2.2e-3, 7.8e-4, 1.9e-4 and 4.2e-5 above that of the ions alone with 4, 8, 16 and
-# 32 pitch cells at u/√(2T/m) = 0.19; with matching weights it is within 5e-6 on every grid.
+# ∝ ψ(w²)/u², with ψ(w²) → (4/(3√π)) w³ as w → 0. Its test compares two currents, so that
+# the O(Θ) difference between the nonrelativistic shift and the relativistic Maxwellian cancels
+# at first order, on 32 pitch cells, since the exact shift has all odd Legendre orders where
+# the first-order shift has only the first, which the pitch grid represents exactly. A residual
+# of about 4e-5 relative to the expected ratio is not resolved by the pitch grid (below). For
+# the same reason the field-particle term on an exact shift needs the current moment with the
+# pitch weights of its momentum conservation (`pitch_rule = :cell_center`): with the linear
+# weights, the default of CurrentMomentTerm, the current and the conserved momentum differ at
+# the pitch resolution, and the field is 2.2e-3, 7.8e-4, 1.9e-4 and 4.2e-5 above that of the
+# ions alone with 4, 8, 16 and 32 pitch cells at w = 0.19. With matching weights it is 4.1e-6
+# from it on the grid of the test, 4 pitch cells.
 using QuadGK: quadgk
 
 @testset "first-step field against Braginskii" begin
@@ -89,6 +104,7 @@ using QuadGK: quadgk
         coulomb_logarithm = :thermal, bremsstrahlung = :neglect)
     # the axis of reference/dream/cases/self_consistent_field.py, without its argon
     n, j0 = 5e19, 1e6
+    # τ_e at Z = 1 (pure deuterium)
     function collision_time(T)
         temperature = T * e
         return 6 * sqrt(2) * π^1.5 * eps0^2 * sqrt(me) * temperature^1.5 /
@@ -165,7 +181,7 @@ using QuadGK: quadgk
 
     @testset "ion scattering alone" begin
         # the step: the shortfall falls by more than 3 per decade of dt down to 1e-6 τ_e,
-        # and the steps of 1e-7 and 1e-8 τ_e agree to 1.4e-5
+        # and the steps of 1e-7 and 1e-8 τ_e agree to 1.4e-5 (80 cells)
         by_step = [first_step_field(; dt_over_tau = 10.0^-k) for k in 3:8]
         shortfall = 1 .- by_step[1:4] ./ by_step[end]
         @test all(shortfall .> 0)
@@ -177,7 +193,8 @@ using QuadGK: quadgk
         @test 1.8 < order < 2.2
         extrapolated = by_grid[3] + (by_grid[3] - by_grid[2]) / 3
         # the extrapolated field against Braginskii with the relativistic correction 13Θ/8
-        # (measured 6.3e-6 below it at 120 eV, 3.3e-6 at 30 eV)
+        # (measured 6.3e-6 below it at 120 eV, 3.3e-6 at 30 eV, at the level of the step
+        # bias of about −3e-6 of this Richardson value: a bound, not the operator's accuracy)
         relativistic(T) = 1 + 13 / 8 * T / Constants.ELECTRON_REST_ENERGY
         @test extrapolated ≈ relativistic(120.0) atol = 2e-5
         at_30 = [first_step_field(; T = 30.0, np_) for np_ in (80, 160)]
@@ -212,17 +229,17 @@ using QuadGK: quadgk
         @test at_120[1] ≈ r0 rtol = 1e-4
         @test at_120[2] ≈ r0 rtol = 1e-4
         # the nonrelativistic limit, at 7.5 eV (Θ = 1.5e-5): the extrapolated ratio is r0
-        # within 5e-6 relative to r0 (measured +1.3e-7). The bound holds the spread of the
-        # Richardson values of 80/160 and 160/320 cells (1.0e-6) and an order-Θ term of
-        # the size measured at higher temperature (2.6e-6 at this Θ)
+        # within 5e-6 relative to r0. The Richardson values of 80/160 and 160/320 cells are
+        # −8.3e-7 and +1.3e-7; the bound holds them, an order-Θ term of the size measured
+        # at higher temperature, and the step and extrapolation systematics of about 3e-6
         departure, order = extrapolated_departure(test_particle_ratios(7.5))
         @test 1.8 < order < 2.3       # measured 2.09
         @test abs(departure) < 5e-6
         # at higher temperature the ratio lies below r0 by an amount of the order of Θ:
-        # measured -3.9e-5 = -0.17 Θ at 120 eV and -7.6e-6 = -0.13 Θ at 30 eV, relative to
-        # r0, observed orders 1.94 and 2.18. The bound -0.5 Θ to -0.05 Θ is wider than
-        # these and than the 1e-6 to 3e-6 spread of the Richardson values; no closed form
-        # of the term is derived here
+        # measured −3.9e-5 at 120 eV and −7.6e-6 at 30 eV relative to r0, with an
+        # uncertainty of about 3e-6 from the step and the extrapolation, observed orders 1.94
+        # and 2.18. The test checks the sign and the order, between −0.5 Θ and −0.05 Θ; no
+        # closed form of the term is derived here
         for (T, ratios) in ((120.0, at_120), (30.0, test_particle_ratios(30.0)))
             departure, order = extrapolated_departure(ratios)
             @test 1.8 < order < 2.3
@@ -237,24 +254,28 @@ using QuadGK: quadgk
     end
 
     @testset "exactly shifted Maxwellian" begin
-        # E/j of the drift x = u/v_T against that of a 10 times smaller drift, against the
-        # ratio of the Lorentz friction on a drifting Maxwellian, 3√π ψ(x²)/(4x³)
+        # E/j of the drift w = u/v_T against that of a 10 times smaller drift, against the
+        # ratio of the Lorentz friction on a drifting Maxwellian, 3√π ψ(w²)/(4w³)
         psi(y) = 2 / sqrt(π) * quadgk(t -> sqrt(t) * exp(-t), 0, y; rtol = 1e-13)[1]
-        friction(x) = 3 * sqrt(π) * psi(x^2) / (4 * x^3)
+        friction(w) = 3 * sqrt(π) * psi(w^2) / (4 * w^3)
         thermal_speed = sqrt(2 * 120.0 * e / me)
         small, large = 1e6, 1e7
-        x(j) = j / (e * n) / thermal_speed
+        drift(j) = j / (e * n) / thermal_speed
         # the shifted Maxwellian has all odd Legendre orders, so the pitch grid matters: the
-        # ratio is 1.5e-3, 2.2e-4, 9e-5 and 5.7e-5 above with 4, 8, 16 and 32 pitch cells
+        # ratio is 1.5e-3, 2.2e-4, 9e-5 and 5.7e-5 above with 4, 8, 16 and 32 pitch cells.
+        # A floor of about 4e-5 is not pitch error: 64 pitch cells give 4.6e-5, 160 momentum
+        # cells 5.0e-5, 40 momentum cells 8.4e-5. Its cause is likely terms of order (u/c)²,
+        # or the drift taken from the nominal j where the relativistic current differs
         ratio = first_step_field(; j = large, exact = true, nxi = 32) /
                 first_step_field(; j = small, exact = true, nxi = 32)
-        expected = friction(x(large)) / friction(x(small))
+        expected = friction(drift(large)) / friction(drift(small))
         # a departure of 2.2e-2 from 1
         @test 1 - expected > 0.02
         @test ratio ≈ expected rtol = 1e-4
         # the momentum-conserving operator leaves the field of the ions alone on the exact
         # shift as well, with the current moment of the pitch weights of its conservation
-        # (measured 4.1e-6 apart), and with the linear weights as the pitch grid is refined
+        # (measured 4.1e-6 apart on 4 pitch cells), and with the linear weights as the pitch
+        # grid is refined
         # (2.2e-3 and 1.9e-4 above with 4 and 16 pitch cells)
         ions_alone = first_step_field(; j = large, exact = true, pitch_rule = :cell_center)
         @test first_step_field(; j = large, exact = true, pitch_rule = :cell_center,
