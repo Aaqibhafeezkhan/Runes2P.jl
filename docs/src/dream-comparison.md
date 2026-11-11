@@ -231,7 +231,7 @@ Its case script is `reference/dream/cases/disruption_kinetic.py` ([Reference dat
 Each part of the case is compared with DREAM's output at every saved step after its start; the chain end to end compares its two phases, and the initialization has its own test.
 The quench with a runaway grid is compared in a window of 10 steps from DREAM's state, where `f_re` carries part of the current.
 From `f_re` zero its test checks the budgets of its closures alone.
-At the full size of DREAM's example the whole quench of the fully kinetic case with a runaway grid was compared once, as a measurement that no test repeats.
+At the full size of DREAM's example, with the runaway grid of the case script, the whole quench of the fully kinetic case was compared once, as a measurement that no test repeats.
 
 | Part | DREAM | Runes2P | Test |
 |---|---|---|---|
@@ -263,7 +263,7 @@ At the full size of DREAM's example the whole quench of the fully kinetic case w
 - Runes2P, with its default direct solver and at Julia's default optimisation level, accepts all 429 steps of 6.53e-7 s, with 1822 Newton iterations against DREAM's 1935.
   It agrees with DREAM to 4.4e-6 in `n_re` and 3.4e-6 in `j_re`, relative to DREAM's largest value at each radius over the quench.
 - The other radial quantities agree to 2.0e-6 in `j_hot`, 1.1e-6 in `E_field` and `j_ohm`, and 2.2e-7 in `j_tot`, relative to DREAM's largest value over the radii at each step.
-  `f_hot` agrees to 5.3e-8 of DREAM's largest value at each radius and step, `I_p` to 5.1e-9 of DREAM's value, and every other quantity to 5e-8 in the measure that `phase_differences` takes for it.
+  `f_hot` agrees to 5.3e-8 of DREAM's largest value at each radius and step, `I_p` to 5.0e-9 of DREAM's value, and every other quantity to 5e-8 in the measure that `phase_differences` takes for it.
 - `phase_differences` gives 0.51 for `f_re`, relative to DREAM's largest `f_re` at each radius and step.
   That is its largest value over the radii and the steps: at each radius and step the difference is 1.3e-5 or less wherever DREAM's `n_re` is above its absolute tolerance of 1e5 m⁻³.
   The larger values are at the two outermost radii, in steps where DREAM's `n_re` is at most 6.1e-7 m⁻³: up to 0.51 at 0.45 m in steps 1 to 4, and up to 4.6e-2 at 0.48 m in steps 15 to 25.
