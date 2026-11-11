@@ -203,3 +203,4 @@ The caller gives the row of ``j_\mathrm{tot}``, the sum of the currents of the r
 
 `test/test_induction.jl` tests Ampère's law on analytic profiles and the resistive decay with the wall at the edge and at a distance.
 `test/test_self_consistent_dream.jl` compares a self-consistent field on both kinetic grids with DREAM.
+`test/test_first_step_field.jl` checks the field of one short step of a system that holds its current against Braginskii's, independently of DREAM.
