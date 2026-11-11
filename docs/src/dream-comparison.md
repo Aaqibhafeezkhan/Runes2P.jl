@@ -226,12 +226,12 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 
 ## The disruption case
 
-The coupled reference case is DREAM's disruption of `examples/Disruptions/generate.py`, scenario 1, in a cylinder, fully kinetic and in the superthermal mode, at the size of a test and once at the size of DREAM's example.
+The coupled reference case is DREAM's disruption of `examples/Disruptions/generate.py`, scenario 1, in a cylinder, at the size of a test, fully kinetic and in the superthermal mode.
 Its case script is `reference/dream/cases/disruption_kinetic.py` ([Reference data](reference-data.md)).
 Each part of the case is compared with DREAM's output at every saved step after its start; the chain end to end compares its two phases, and the initialization has its own test.
 The quench with a runaway grid is compared in a window of 10 steps from DREAM's state, where `f_re` carries part of the current.
 From `f_re` zero its test checks the budgets of its closures alone.
-At the full size of DREAM's example the whole quench with a runaway grid was compared once, as a measurement that no test repeats.
+At the full size of DREAM's example the whole quench of the fully kinetic case with a runaway grid was compared once, as a measurement that no test repeats.
 
 | Part | DREAM | Runes2P | Test |
 |---|---|---|---|
@@ -266,7 +266,7 @@ At the full size of DREAM's example the whole quench with a runaway grid was com
   `f_hot` agrees to 5.3e-8 of DREAM's largest value at each radius and step, `I_p` to 5.1e-9 of DREAM's value, and every other quantity to 5e-8 in the measure that `phase_differences` takes for it.
 - `phase_differences` gives 0.51 for `f_re`, relative to DREAM's largest `f_re` at each radius and step.
   That is its largest value over the radii and the steps: at each radius and step the difference is 1.3e-5 or less wherever DREAM's `n_re` is above its absolute tolerance of 1e5 m⁻³.
-  The larger values are at the two outermost radii, where DREAM's `n_re` is at most 6.1e-7 m⁻³: up to 0.51 at 0.45 m in steps 1 to 4, and up to 4.6e-2 at 0.48 m in steps 15 to 25.
+  The larger values are at the two outermost radii, in steps where DREAM's `n_re` is at most 6.1e-7 m⁻³: up to 0.51 at 0.45 m in steps 1 to 4, and up to 4.6e-2 at 0.48 m in steps 15 to 25.
 - At the end of the quench the runaway current is 67.8 % of the plasma current in both codes.
 
 ## What Runes2P has that DREAM does not
