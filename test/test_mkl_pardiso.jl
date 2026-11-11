@@ -5,14 +5,16 @@
 # a resume that repeat the uninterrupted run of a system linear in the state within
 # round-off, and the window of test_disruption_runaway_dream.jl against SparseLU within the
 # Newton tolerance and against DREAM within the tolerances of that file, with the relative
-# residual of the solves below the floor_linear_tolerance of NewtonSolver; and the texts of
-# the errors of MKL that the extension reads from the exceptions of Pardiso.jl. The tests
-# that need MKL are skipped when Pardiso.jl cannot load it; the window needs the ADF11
-# cache.
+# residual of the solves below the floor_linear_tolerance of NewtonSolver; the texts of the
+# errors of MKL that the extension reads from the exceptions of Pardiso.jl; and a solve
+# whose residual exceeds MAX_RELATIVE_RESIDUAL of the extension as a singular matrix, with
+# a new analysis after it, a Newton iteration that ends at its first solve and a step
+# retried shorter, as with SparseLU. The tests that need MKL are skipped when Pardiso.jl
+# cannot load it; the window needs the ADF11 cache.
 using Pardiso
 using HDF5
 using LinearAlgebra: norm
-using SparseArrays: nnz, spdiagm
+using SparseArrays: SparseMatrixCSC, nnz, spdiagm, getcolptr, rowvals, nonzeros
 include(joinpath(@__DIR__, "example_disruption.jl"))
 
 # the relative residual of a solve that the Newton iterations need for the waivers of the
@@ -46,6 +48,48 @@ function field_particle_case(E)
         time_scale = 1e-6)
     return (; g, system, u0 = vec(fM))
 end
+
+# the bound of the relative residual of a solve of MKLPardiso
+const MAX_RELATIVE_RESIDUAL = Base.get_extension(Runes2P, :Runes2PMKLPardisoExt).MAX_RELATIVE_RESIDUAL
+
+# a cache of MKLPardiso for `matrix` alone, of a system without matrix-free terms, and one
+# solve with it: the status, the solution and the relative residual of the solve
+function pardiso_cache(matrix; settings...)
+    n = size(matrix, 1)
+    return Runes2P.linear_solver_cache(MKLPardiso(; settings...), matrix,
+        (; matrix_free_terms = ()), ones(n), ones(n))
+end
+function cache_solve(cache, matrix, b)
+    x = zeros(size(matrix, 1))
+    Runes2P.matrix_unchanged!(cache, false)
+    status = Runes2P.solve!(x, cache, matrix, b, nothing, 0.0, 1.0, 1)
+    return status, x, Runes2P.linear_tolerance(cache)
+end
+
+# the solve of PARDISO without the extension, with its settings: the analysis, the
+# factorization and the solve of the transposed matrix of the compressed rows; the
+# solution, and the relative residual
+function plain_pardiso_solve(matrix, b; refinement_steps = 0)
+    pardiso = Pardiso.MKLPardisoSolver()
+    Pardiso.set_matrixtype!(pardiso, Pardiso.REAL_NONSYM)
+    Pardiso.pardisoinit(pardiso)
+    Pardiso.set_iparm!(pardiso, 12, 2)
+    Pardiso.set_iparm!(pardiso, 8, refinement_steps)
+    Pardiso.set_nprocs!(pardiso, 1)
+    n = size(matrix, 1)
+    pardiso_matrix = SparseMatrixCSC(n, n, Vector{Pardiso.MklInt}(getcolptr(matrix)),
+        Vector{Pardiso.MklInt}(rowvals(matrix)), nonzeros(matrix))
+    x = zeros(n)
+    for phase in (Pardiso.ANALYSIS, Pardiso.NUM_FACT, Pardiso.SOLVE_ITERATIVE_REFINE)
+        Pardiso.set_phase!(pardiso, phase)
+        Pardiso.pardiso(pardiso, x, pardiso_matrix, b)
+    end
+    return x, norm(b - matrix * x) / norm(b)
+end
+
+# a matrix of m rows with the diagonal d and the cyclic shift o, the entries (i, i + 1) and
+# (m, 1)
+cyclic_shift(m, d, o) = spdiagm(0 => fill(d, m), 1 => fill(o, m - 1), -(m - 1) => [o])
 
 @testset "MKL PARDISO" begin
     @testset "the solver without Pardiso.jl, and its record" begin
@@ -167,6 +211,121 @@ end
                     @test occursin("32-bit integer overflow", err.info) == (code == -8)
                 end
             end
+        end
+
+        @testset "a solve with a large residual is a singular matrix" begin
+            m = 100
+            b = [1.0 + sin(i) / 2 for i in 1:m]
+            # a zero row and column; two equal rows but for 1e-15; the Laplacian of zero flux,
+            # singular with the constants in its null space
+            zero_row = cyclic_shift(m, 1.0, 0.1)
+            zero_row[1, :] .= 0.0
+            zero_row[:, 1] .= 0.0
+            near_equal_rows = SparseMatrixCSC([1.0 1.0; 1.0 1.0+1e-15])
+            neumann = spdiagm(0 => [1.0; fill(2.0, m - 2); 1.0], 1 => fill(-1.0, m - 1),
+                -1 => fill(-1.0, m - 1))
+            for (name, matrix) in (("a zero row and column", zero_row),
+                ("two nearly equal rows", near_equal_rows), ("the Laplacian", neumann))
+                rhs = b[1:size(matrix, 1)]
+                for refinement_steps in (0, 10)
+                    # PARDISO perturbs the small pivots and returns a finite solution
+                    x_plain, residual_plain = plain_pardiso_solve(
+                        matrix, rhs; refinement_steps)
+                    @info "MKL PARDISO, $name, $refinement_steps refinement steps: relative residual $(residual_plain)"
+                    @test all(isfinite, x_plain)
+                    @test residual_plain > MAX_RELATIVE_RESIDUAL
+                    cache = pardiso_cache(matrix; refinement_steps)
+                    status, x, residual = cache_solve(cache, matrix, rhs)
+                    @test status === :singular_matrix
+                    # the residual of the failed solve is kept, and so is its solution
+                    @test residual == residual_plain
+                    @test x == x_plain
+                    @test !cache.factorized && !cache.analyzed
+                end
+            end
+            # a well-conditioned solve passes, with the solution of PARDISO bit for bit
+            for matrix in (cyclic_shift(m, 1.0, 0.1), neumann + spdiagm(0 => fill(0.5, m)))
+                x_plain, residual_plain = plain_pardiso_solve(matrix, b)
+                cache = pardiso_cache(matrix)
+                status, x, residual = cache_solve(cache, matrix, b)
+                @test status === :ok
+                @test residual <= MAX_RELATIVE_RESIDUAL
+                @test x == x_plain
+                @test cache.factorized && cache.analyzed
+            end
+        end
+
+        @testset "a new analysis after a failed solve" begin
+            # the ordering and the matching of a matrix dominant on the cyclic shift pivot
+            # on the shift, which in a matrix dominant on its diagonal is 1e-4: the solve
+            # with them fails, and the retry of the same matrix analyses it anew and gives
+            # the solution of a fresh cache bit for bit
+            m = 100
+            b = [1.0 + sin(i) / 2 for i in 1:m]
+            shift_dominant = cyclic_shift(m, 1e-3, 1.0)
+            diagonal_dominant = cyclic_shift(m, 1.0, 1e-4)
+            _, x_fresh, residual_fresh = cache_solve(
+                pardiso_cache(diagonal_dominant), diagonal_dominant, b)
+            @test residual_fresh <= MAX_RELATIVE_RESIDUAL
+            cache = pardiso_cache(shift_dominant)
+            status, _, residual = cache_solve(cache, shift_dominant, b)
+            @test status === :ok
+            @test residual <= MAX_RELATIVE_RESIDUAL
+            status, _, stale_residual = cache_solve(cache, diagonal_dominant, b)
+            @info "MKL PARDISO, the analysis of another matrix: relative residual $(stale_residual), a new analysis $(residual_fresh)"
+            @test status === :singular_matrix
+            @test !(stale_residual <= MAX_RELATIVE_RESIDUAL)
+            @test !cache.analyzed
+            factorizations = cache.factorizations
+            status, x, residual = cache_solve(cache, diagonal_dominant, b)
+            @test status === :ok
+            @test cache.analyzed
+            @test cache.factorizations == factorizations + 1
+            @test residual == residual_fresh
+            @test x == x_fresh
+            # with the shift 1e-8 the solve with the analysis of the other matrix gives a
+            # residual outside the bound: not a number, or far above it. It fails too, and
+            # the retry recovers
+            near_diagonal = cyclic_shift(m, 1.0, 1e-8)
+            cache = pardiso_cache(shift_dominant)
+            @test cache_solve(cache, shift_dominant, b)[1] === :ok
+            status, _, stale_residual = cache_solve(cache, near_diagonal, b)
+            @info "MKL PARDISO, the analysis of another matrix, the shift 1e-8: relative residual $(stale_residual)"
+            @test status === :singular_matrix
+            @test !(stale_residual <= MAX_RELATIVE_RESIDUAL)
+            status, _, residual = cache_solve(cache, near_diagonal, b)
+            @test status === :ok
+            @test residual <= MAX_RELATIVE_RESIDUAL
+        end
+
+        @testset "a singular step is retried shorter at once, as with SparseLU" begin
+            # dx/dt = c x with c = 1 and 0.5 at two radii: the Newton matrix 1/dt - c is
+            # singular at the first radius for dt = 1, and regular for the half step
+            system = single_unknown_system(
+                TimeDerivative(), LinearTerm(:x; coefficient = [1.0, 0.5]); nr = 2)
+            u_old = [1.0, 1.0]
+            results = Dict()
+            runs = Dict()
+            for linear_solver in (SparseLU(), MKLPardiso())
+                solver = NewtonSolver(; linear_solver)
+                u = copy(u_old)
+                ws = NewtonWorkspace(system, solver)
+                results[linear_solver] = newton_solve!(u, u_old, ws, 1.0, 1.0)
+                runs[linear_solver] = integrate(system, u_old, [0.0, 1.0]; solver)
+            end
+            lu_result, pardiso_result = results[SparseLU()], results[MKLPardiso()]
+            # the Newton iteration ends at its first solve
+            @test pardiso_result.status === lu_result.status === :singular_matrix
+            @test pardiso_result.iterations == lu_result.iterations == 0
+            lu_run, pardiso_run = runs[SparseLU()], runs[MKLPardiso()]
+            for statistics in (lu_run.statistics, pardiso_run.statistics)
+                @test statistics.status == [:singular_matrix, :converged, :converged]
+                @test statistics.newton_iterations == [0, 2, 2]
+                @test statistics.time_step == [1.0, 0.5, 0.5]
+            end
+            # two half steps of the implicit Euler method: x = 1/(1 - c/2)^2
+            @test pardiso_run.states[:, end] ≈ [4.0, 16 / 9] rtol = 1e-12
+            @test pardiso_run.states[:, end] ≈ lu_run.states[:, end] rtol = 1e-12
         end
 
         @testset "a resumed run repeats the uninterrupted one" begin

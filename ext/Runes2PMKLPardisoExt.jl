@@ -68,6 +68,20 @@ Runes2P.factorization_time(cache::MKLPardisoCache) = cache.factorization_seconds
 Runes2P.linear_tolerance(cache::MKLPardisoCache) = cache.relative_residual
 Runes2P.newton_operator_exact(::MKLPardisoCache) = false
 
+"""
+    MAX_RELATIVE_RESIDUAL = 1e-6
+
+The largest relative residual ``\\|b - A x\\|/\\|b\\|`` of a solve of [`MKLPardiso`](@ref)
+before the Woodbury update: a solve above it returns `:singular_matrix`, as
+[`SparseLU`](@ref) does on a zero pivot, so that the Newton iteration ends and the stepper
+retries the step shorter. PARDISO perturbs small pivots instead of failing, so a singular or
+nearly singular matrix gives a finite solution with a large residual. 1e-6 is a choice of
+this package (see the docs page *Choices of this package*): three orders of magnitude above
+the residuals of PARDISO on the disruption case, ``10^{-13}`` to ``10^{-9}``, and four or
+more below those of singular matrices, ``10^{-2}`` to ``10``.
+"""
+const MAX_RELATIVE_RESIDUAL = 1e-6
+
 const PHASE_NAMES = Dict(Pardiso.ANALYSIS => "the analysis (phase 11)",
     Pardiso.NUM_FACT => "the numeric factorization (phase 22)",
     Pardiso.SOLVE_ITERATIVE_REFINE => "the solve (phase 33)")
@@ -101,6 +115,16 @@ function _pardiso!(cache::MKLPardisoCache, phase, x, pardiso_matrix, b)
         rethrow()
     end
     return :ok
+end
+
+# a failed solve, by MKL's errors -4 and -7, a failed Woodbury update or a residual above
+# the bound: the factorization is dropped, and so are the ordering and the matching, which
+# the next factorization computes again from its own matrix, since those of another matrix
+# of the pattern can spoil its solves; `:singular_matrix`, as SparseLU on a zero pivot
+function _fail_solve!(cache::MKLPardisoCache)
+    cache.factorized = false
+    cache.analyzed = false
+    return :singular_matrix
 end
 
 # the Woodbury update of the whole matrix for the low-rank matrix-free terms at (u, t), as
@@ -140,10 +164,13 @@ function Runes2P.solve!(
     if !(cache.factorized && cache.matrix_unchanged)
         # the analysis counts in the factorization time of the solve
         started = time_ns()
-        # the ordering and the matching once per pattern, from the values of the first matrix
+        # the ordering and the matching from the values of the first matrix of the pattern,
+        # and again after a failed solve
         if !cache.analyzed
             status = _pardiso!(cache, Pardiso.ANALYSIS, x, pardiso_matrix, b)
-            status === :ok || return status
+            if status !== :ok
+                return _fail_solve!(cache)
+            end
             cache.analyzed = true
         end
         status = _pardiso!(cache, Pardiso.NUM_FACT, x, pardiso_matrix, b)
@@ -154,10 +181,14 @@ function Runes2P.solve!(
         else
             false
         end
-        cache.factorized || return :singular_matrix
+        if !cache.factorized
+            return _fail_solve!(cache)
+        end
     end
     status = _pardiso!(cache, Pardiso.SOLVE_ITERATIVE_REFINE, x, pardiso_matrix, b)
-    status === :ok || return status
+    if status !== :ok
+        return _fail_solve!(cache)
+    end
     # the relative residual of every solve, with refinement too: the refinement stops at its
     # cap and promises no residual
     residual = cache.residual
@@ -169,6 +200,11 @@ function Runes2P.solve!(
         residual_norm
     else
         residual_norm / right_hand_side_norm
+    end
+    # a residual above the bound fails the solve, and linear_tolerance keeps it; so does a
+    # residual that is not a number, since the matrix and the right-hand side are finite
+    if !(cache.relative_residual <= MAX_RELATIVE_RESIDUAL)
+        return _fail_solve!(cache)
     end
     if cache.low_rank !== nothing
         _apply_low_rank_correction!(x, cache.low_rank)
