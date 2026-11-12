@@ -370,6 +370,9 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
                 Base.Order.Forward)
         end
         _merge_jacobian!(prototype, automatic_jacobian, automatic_positions)
+        for bound in direct_tuple
+            _prepare_prototype!(bound.term, x0, layout, bound.row, T(initial_time))
+        end
         _add_jacobians!(prototype, direct_tuple, x0, layout, T(initial_time))
         _add_plasma_columns!(prototype, column_tuple, x0, layout, T(initial_time))
     end

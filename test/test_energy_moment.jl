@@ -1,7 +1,7 @@
 # The kinetic energy moment of a distribution: the energy of a resolved
 # relativistic Maxwellian against the mean kinetic energy by quadrature, the split into the
 # regions above and below a threshold that follows the temperature, and the Jacobian with
-# the column of the temperature.
+# the column of the temperature, also on a kept matrix.
 using QuadGK: quadgk
 
 @testset "energy moment" begin
@@ -84,5 +84,29 @@ using QuadGK: quadgk
             rhs!(F_down, down, system, 0.0)
             @test Vector(J[:, column])≈(F_up .- F_down) ./ (2h) rtol=1e-6 atol=1e-12*maximum(abs, F_up)
         end
+        # The term keeps the positions and weights of its row in J: its block on a kept
+        # matrix is the same bit for bit as that of a new term, at the state and at a state
+        # whose threshold lies in other cells, and the same again at the state after the
+        # other state and after a new matrix of the pattern.
+        term = EnergyMomentTerm(:f, grid; coefficient = 0.3, region)
+        function block(J, term, u)
+            fill!(J.nzval, 0.0)
+            Runes2P.add_jacobian!(J, term, u, layout, 3, 0.0)
+            return copy(J.nzval)
+        end
+        new_block(u) = block(jacobian_prototype(system),
+            EnergyMomentTerm(:f, grid; coefficient = 0.3, region), u)
+        other = copy(u)
+        unknown_values(other, layout, 2) .*= 1.5
+        kinetic_array(other, layout, 1) .*= 1.1
+        kept = jacobian_prototype(system)
+        first_block = block(kept, term, u)
+        @test isequal(new_block(u), first_block)
+        other_block = block(kept, term, other)
+        @test !isequal(other_block, first_block)
+        @test isequal(new_block(other), other_block)
+        @test isequal(block(kept, term, u), first_block)
+        @test isequal(block(jacobian_prototype(system), term, other), other_block)
+        @test isequal(block(kept, term, u), first_block)
     end
 end

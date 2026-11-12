@@ -3,7 +3,8 @@
 # runaway population against the friction power of superthermal electrons, its Jacobian
 # with the plasma columns and with the plasma lagged (no plasma columns, in a term and in a
 # step of the system), the Jacobian of the energy loss of f (KineticEnergyLossTerm) with a
-# lagged source, and the energy carried through p_max and through the interface, with its
+# lagged source, its error when never prepared and its values in the prototype of a system,
+# and the energy carried through p_max and through the interface, with its
 # column of the field when the interface reads the field, and the particles through the
 # interface in a radial row (InterfaceParticleFluxTerm), with the rows of both on pitch grids
 # that differ between radii.
@@ -145,6 +146,25 @@ using SparseArrays: findnz, sparse
         collisions = fp(:all)
         lagged = system(:all, collisions)
         loss = free_electron_energy_transfer_term(collisions)
+        # never prepared, the lagged loss has no plasma of the start of the step: its residual
+        # and its Jacobian throw an ArgumentError that names prepare_step!
+        @test_throws ArgumentError Runes2P.rhs!(zeros(length(u)), loss, u, layout, 2, 0.0)
+        @test_throws "prepare_step!" Runes2P.rhs!(zeros(length(u)), loss, u, layout, 2, 0.0)
+        loss_entries = Runes2P.sparsity!(Tuple{Int, Int}[], loss, layout, 2)
+        loss_J = sparse(first.(loss_entries), last.(loss_entries),
+            zeros(length(loss_entries)), length(u), length(u))
+        @test_throws ArgumentError Runes2P.add_jacobian!(loss_J, loss, u, layout, 2, 0.0)
+        @test_throws "prepare_step!" Runes2P.add_jacobian!(loss_J, loss, u, layout, 2, 0.0)
+        # the system takes its initial state u as the start of the step of its prototype: the
+        # columns of f in the loss row are those of a loss prepared at u, bit for bit
+        prototype = jacobian_prototype(lagged)
+        Runes2P.prepare_step!(loss, u, layout, 2, 0.0)
+        Runes2P.add_jacobian!(loss_J, loss, u, layout, 2, 0.0)
+        for (i, j) in ((2, 1), (120, 2), (150, 4))
+            column = Runes2P._kinetic_index(layout, 1, 1, i, j)
+            @test loss_J[T_row, column] != 0
+            @test prototype[T_row, column] == loss_J[T_row, column]
+        end
         u_old, dt = copy(hotter), 1e-6
         residual!(zeros(length(u)), u, u_old, lagged, 0.0, dt)
         J = jacobian_prototype(lagged)

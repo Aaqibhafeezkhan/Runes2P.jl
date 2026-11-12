@@ -154,6 +154,14 @@ Called with the state at the start of the step before every evaluation of the re
 ([`residual!`](@ref)), and with the state itself in the ODE form ([`rhs!`](@ref)). A term
 with a part lagged to the previous time level inside an implicit term (the knock-on term
 with `treatment = :explicit_primary`) evaluates that part here. Nothing by default.
+
+A term with a lagged part, evaluated on its own outside a system, takes that part from the
+state of its last preparation, whatever state is passed. Before any preparation, the
+knock-on term with a lagged primary and the [`KineticEnergyLossTerm`](@ref) of a source
+with `lagged = :all` throw an `ArgumentError`; a [`FokkerPlanckTerm`](@ref) with
+`lagged = :all` and a [`FieldParticleTerm`](@ref) with a plasma of unknowns keep the
+coefficients of the operator they were built with, and a Fokker-Planck term with lagged
+ions takes the ions of the state.
 """
 prepare_step!(::EquationTerm, u_old, layout, row, t) = nothing
 
