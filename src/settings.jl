@@ -337,6 +337,22 @@ function _plasma_size(plasma::PlasmaState)
     sum(s -> length(s.charge_state_densities), plasma.ions; init = 0)
 end
 
+# a file path in a message: absolute, from the home folder or from a drive letter, with at
+# least two parts, and not following a word, so that a unit such as `1/s` stays
+const _PATH_IN_MESSAGE = r"(?<![\w.)\]}])(?:~|[A-Za-z]:)?(?:[/\\][^\s\"'`/\\:]+){2,}"
+
+# reason of a record whose function failed: the type of the exception and the first line of
+# its message, with file paths replaced. The rest of a message, such as the closest
+# candidates of a MethodError with their source files, depends on the machine, the checkout
+# and the packages loaded, and the record would then differ between runs of the same setup.
+function _failure_reason(error)
+    type_name = String(nameof(typeof(error)))
+    first_line = first(split(sprint(showerror, error), '\n'))
+    message = startswith(first_line, type_name) ? first_line : type_name * ": " * first_line
+    return "the function failed at a time point: " *
+           replace(message, _PATH_IN_MESSAGE => "<path>")
+end
+
 """
     describe_prescribed_plasma(plasma_at, context)
 
@@ -347,7 +363,8 @@ the steps of the run use, except the steps shortened after a failure. A function
 be stored, so the table is the record of it. A table that would exceed the context's
 `max_table_bytes` is thinned: sampled evenly over the time points at as many as fit, and
 marked `thinned`. Without time points, or when the function fails at one, the record is
-marked as not described.
+marked as not described. The `reason` of a failure keeps the type of the exception and the
+first line of its message, with file paths replaced by `<path>`.
 """
 function describe_prescribed_plasma(plasma_at, context::DescriptionContext)
     record = SettingsRecord("type" => "prescribed PlasmaState", "source" =>
@@ -361,8 +378,7 @@ function describe_prescribed_plasma(plasma_at, context::DescriptionContext)
     first_state = try
         plasma_at(first(context.times))
     catch error
-        return incomplete("the function failed at a time point: " *
-                          sprint(showerror, error))
+        return incomplete(_failure_reason(error))
     end
     first_state isa PlasmaState ||
         return incomplete("the function does not return a PlasmaState")
@@ -373,8 +389,7 @@ function describe_prescribed_plasma(plasma_at, context::DescriptionContext)
     states = try
         [k == 1 ? first_state : plasma_at(t) for (k, t) in enumerate(times)]
     catch error
-        return incomplete("the function failed at a time point: " *
-                          sprint(showerror, error))
+        return incomplete(_failure_reason(error))
     end
     all(s -> s isa PlasmaState, states) ||
         return incomplete("the function does not return a PlasmaState")
@@ -780,8 +795,7 @@ function describe_prescribed_levels(levels_at, context::DescriptionContext; poin
         [collect(Float64, isempty(profiles) ? vcat(v) : radial_values(v, points))
          for v in sampled]
     catch error
-        return incomplete("the function failed at a time point: " *
-                          sprint(showerror, error))
+        return incomplete(_failure_reason(error))
     end
     record["time_count"] = length(context.times)
     record["values"] = _plain(stack(values))

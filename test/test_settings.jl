@@ -26,6 +26,10 @@ function Runes2P.sparsity!(entries, term::UndescribedDecay, layout, row)
     return entries
 end
 
+# a function with methods of this file, which the candidates of a MethodError list
+method_of_settings_test(x::Int) = x
+method_of_settings_test(x::String) = x
+
 const DOCUMENTED_ROOT_ATTRIBUTES = [
     "format_version", "runes2p_commit", "runes2p_tree_clean", "runes2p_version"]
 const DOCUMENTED_ROOT_GROUPS = [
@@ -349,7 +353,8 @@ _is_plain(x) = false
         failing(t) = t > 1e-4 ? error("outside the table") : case.plasma_at(t)
         plasma = describe_prescribed_plasma(failing, DescriptionContext(times = case.times))
         @test plasma["described"] === false
-        @test occursin("outside the table", plasma["reason"])
+        @test plasma["reason"] ==
+              "the function failed at a time point: ErrorException: outside the table"
 
         # the other terms
         context = DescriptionContext()
@@ -377,6 +382,43 @@ _is_plain(x) = false
         @test record["jacobian"] == "upwind"
         @test record["jacobian_kind"] == "approximate"
         @test record["linear"] === false
+    end
+
+    @testset "reason of a function that fails" begin
+        case = _settings_case()
+        context = DescriptionContext(times = case.times)
+        # a MethodError: the full message lists the closest candidates with their source
+        # files, the reason keeps the type and the first line
+        method_error = try
+            method_of_settings_test(1.0)
+        catch caught
+            caught
+        end
+        full_message = sprint(showerror, method_error)
+        @test occursin("Closest candidates", full_message)
+        @test occursin(basename(@__FILE__), full_message)
+        expected = "the function failed at a time point: " *
+                   "MethodError: no method matching method_of_settings_test(::Float64)"
+        plasma = describe_prescribed_plasma(method_of_settings_test, context)
+        levels = Runes2P.describe_prescribed_levels(method_of_settings_test, context)
+        @test plasma["described"] === false
+        @test plasma["reason"] == expected
+        @test levels["described"] === false
+        @test levels["reason"] == expected
+        # another method, as another package would add, changes the candidates, not the record
+        @eval method_of_settings_test(x::Symbol) = x
+        @test Base.invokelatest(sprint, showerror, method_error) != full_message
+        @test Base.invokelatest(describe_prescribed_plasma, method_of_settings_test,
+            context) == plasma
+        @test Base.invokelatest(
+            Runes2P.describe_prescribed_levels, method_of_settings_test,
+            context) == levels
+        # a path in the first line is replaced, a unit is not
+        reading(t) = error("no table in /data/tables/rates.h5 at $t 1/s")
+        levels = Runes2P.describe_prescribed_levels(reading, DescriptionContext(times = [0.0]))
+        @test levels["reason"] ==
+              "the function failed at a time point: " *
+              "ErrorException: no table in <path> at 0.0 1/s"
     end
 
     @testset "hashes" begin
