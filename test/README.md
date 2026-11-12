@@ -51,7 +51,7 @@ julia --project=test test/runtests.jl --files test_grids.jl,test_layout.jl     #
 
 - Without arguments every group runs, in the order of `groups.toml`.
 - `--index <n>` runs the n-th group of `groups.toml`.
-- `--results <path>` writes a TOML summary of the run: the commit, local changes, the counts and the time per file.
+- `--results <path>` writes a TOML summary of the run: the commit, local changes, the optimisation level, the counts and the time per file.
 - The groups are independent, so they can run side by side in separate processes.
 
 The comparison tests read the reference sets of `Artifacts.toml`, which are downloaded at their first use (about 6.7 MB).
@@ -77,6 +77,7 @@ Two kinds of assertion hold for optimised code alone:
 At `-O2` the pure-Julia entries of `test_regression_values.jl` are compared bit for bit, or to the tolerance of `RUNES2P_REGRESSION_RTOL` where it is set.
 Such an entry that differs is logged with its relative deviation, also when it passes.
 The `:blas` entries are compared to 1e-13 at every level.
+The summary of `--results` records the level as `opt_level`, so that a run at `-O0` cannot pass for one at `-O2`.
 
 ## Environment variables
 

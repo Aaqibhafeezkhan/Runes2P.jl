@@ -56,6 +56,33 @@ An example is the hot region above a [`ThermalMomentum`](@ref), 7 thermal moment
 How the cells near the limit count is set by the `envelope` of [`MomentumRegion`](@ref).
 The `:interpolated` envelope (DREAM's `MIN_THERMAL` mode) is compared with a transcription of DREAM's function in `test/test_momentum_region.jl`, and the other envelopes with their formulas.
 
+### Mean pitch of a beam on a coarse pitch grid
+
+The two pitch rules of [`pitch_moment_weights`](@ref), `:linear` (the default) and `:cell_center` (DREAM's), differ on a coarse pitch grid.
+`test/test_moments.jl` measures the mean pitch ``\langle\xi\rangle`` of a beam ``f \propto e^{\kappa\xi}``, exactly ``\coth\kappa - 1/\kappa``.
+The grid is `biuniform_theta_xi_faces(15, 10, 0.5)`, the pitch grid of `grid=biuniform_270` of the examples, whose last cell is ``1.25 \times 10^{-3}`` wide in ``\xi``.
+The values of ``f`` are its cell averages, and the table gives the error of each rule relative to the exact ``\langle\xi\rangle``.
+
+| ``\kappa`` | exact ``\langle\xi\rangle`` | `:linear` | `:cell_center` |
+|---|---|---|---|
+| 1 | 0.3130 | +0.11 % | −4.4 % |
+| 3 | 0.6716 | +0.76 % | −4.3 % |
+| 10 | 0.9000 | +2.3 % | −3.0 % |
+| 30 | 0.9667 | +1.2 % | −0.42 % |
+| 100 | 0.9900 | +0.009 % | −0.041 % |
+| 300 | 0.9967 | +0.018 % | −0.041 % |
+| 1000 | 0.9990 | +0.045 % | −0.038 % |
+| 3000 | 0.99967 | +0.064 % | −0.035 % |
+
+- `:linear` lies above the exact mean pitch at every ``\kappa`` of the table, and `:cell_center` below it.
+- Neither rule is the closer one at every ``\kappa``: `:linear` is closer at ``\kappa \le 10`` and at ``\kappa`` = 100 and 300, `:cell_center` at ``\kappa`` = 30, 1000 and 3000.
+- The largest errors are those of the broad beams for `:cell_center` and of the beams that end near the split of the grid at ``\theta = 0.5`` (``\kappa`` = 10 to 30) for `:linear`.
+- For a beam inside the last pitch cells the error is small against ``\langle\xi\rangle`` but not against ``1 - \langle\xi\rangle``.
+  At ``\kappa = 1000`` it is 45 % of ``1 - \langle\xi\rangle`` for `:linear` and 38 % for `:cell_center`, and at ``\kappa = 3000`` `:linear` gives ``\langle\xi\rangle > 1``.
+- With the values of ``f`` at the cell centres instead of its cell averages, `:linear` is 5.8 % above the exact ``\langle\xi\rangle`` at ``\kappa = 10`` and `:cell_center` 0.21 % below it.
+- On cell averages and refined grids of the same shape at ``\kappa = 10``, from 30 to 60 to 120 cells, the error falls per doubling of the cells by 4.0 for `:cell_center`.
+  It falls by 12.8, then 14.6 for `:linear`, which is higher than second order.
+
 ## Per-radius grids
 
 Each radius of a [`KineticGrid`](@ref) has its own [`MomentumGrid`](@ref).
