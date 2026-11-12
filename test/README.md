@@ -24,7 +24,7 @@ Every test file is in exactly one group of `groups.toml`, and every group has a 
 - `quick`: the unit tests, which are the component tests and the system tests.
   - The component tests are the group `component` of the tier `quick`: one building block in isolation.
     They cover the grids, the layout, the knock-on kernels, the moments, the operator on a grid, the terms of the fluid equations on a radial grid and the step controllers on small systems.
-    The checks of the repository itself are in this group too: the names, the order of the includes, the data files and the script that decides whether a change is code.
+    The checks of the repository itself are in this group too: the names, the order of the includes, the data files, the script that decides whether a change is code and the markdown lint script.
     They are the smoke tests, run as one process.
   - A system test checks an assembled kinetic system or the machinery of a run: the equation system, the plasma source, the populations, checkpoints, the preconditioner, the records.
 - `full`: the physics validation against independent references (analytic limits, the literature, converged results) and the comparisons with DREAM.
