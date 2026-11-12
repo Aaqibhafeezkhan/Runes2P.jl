@@ -110,15 +110,20 @@ unknown with one component, with `γ` at the momentum cell centres (DREAM's
 moment covers that part of the grid, as [`DensityMomentTerm`](@ref): the energy of the hot
 electrons above the threshold, whose limit may follow the temperature unknown. Linear in
 the distribution; the column of the temperature is that of the envelope.
+
+The term keeps the positions of its row in the stored Jacobian between calls, so its
+[`add_jacobian!`](@ref) is not safe to call concurrently.
 """
 struct EnergyMomentTerm{E} <: EquationTerm
     kinetic::Symbol
     coefficient::Float64
-    envelopes::E    # nothing, or the envelopes of the region per radius
+    envelopes::E                  # nothing, or the envelopes of the region per radius
+    row_cache::MomentRowCache     # the positions and weights of the row in the stored Jacobian
 end
 function EnergyMomentTerm(kinetic::Symbol, grid::KineticGrid; coefficient::Real = 1.0,
         region::Union{Nothing, MomentumRegion} = nothing)
-    EnergyMomentTerm(kinetic, Float64(coefficient), RegionEnvelopes(region, grid))
+    EnergyMomentTerm(
+        kinetic, Float64(coefficient), RegionEnvelopes(region, grid), MomentRowCache())
 end
 
 function dependencies(term::EnergyMomentTerm)
@@ -136,11 +141,13 @@ function validate(term::EnergyMomentTerm, layout, row)
     return nothing
 end
 
-# mₑc²(γ − 1) [J] at the momentum cell centres, in the form without cancellation at small p
-function _kinetic_energies(m::MomentumGrid)
-    [Constants.ELECTRON_REST_ENERGY * Constants.ELEMENTARY_CHARGE * p^2 /
-     (1 + sqrt(1 + p^2)) for p in m.p_centers]
+# mₑc²(γ − 1) [J] at the momentum p, in the form without cancellation at small p
+function _kinetic_energy(p)
+    Constants.ELECTRON_REST_ENERGY * Constants.ELEMENTARY_CHARGE * p^2 / (1 + sqrt(1 + p^2))
 end
+
+# mₑc²(γ − 1) [J] at the momentum cell centres
+_kinetic_energies(m::MomentumGrid) = [_kinetic_energy(p) for p in m.p_centers]
 
 # the weight of cell (i, j) at radius ir without the envelope
 function _energy_weight(grid, ir)
@@ -172,23 +179,24 @@ end
 jacobian_assembly(::EnergyMomentTerm) = :direct
 
 function add_jacobian!(J, term::EnergyMomentTerm, u, layout, row, t)
-    id = unknown_id(layout, term.kinetic)
-    grid = kinetic_grid(layout, id)
-    weights = [_energy_weight(grid, ir) for ir in 1:radial_cell_count(layout)]
-    for ir in 1:radial_cell_count(layout)
-        m = momentum_grid(grid, ir)
-        envelope = _envelope_at(term.envelopes, grid, ir, u, layout, t)
-        r = first(unknown_range(layout, row, ir))
-        @inbounds for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
+    _add_moment_jacobian!(J, term, u, layout, row, t)
+end
 
-            _add_entry!(J, r, _kinetic_index(layout, id, ir, i, j),
-                term.coefficient * _envelope_value(envelope, i) * weights[ir](i, j))
-        end
-    end
-    _add_threshold_column!(J, term.envelopes, grid, u, layout, row, id) do ir, i, j
-        term.coefficient * weights[ir](i, j)
-    end
-    return J
+# the factor of a radius in the moment: the coefficient and the spatial Jacobian, which
+# divides the weight of each cell as in the residual
+function _moment_factor(term::EnergyMomentTerm, grid::KineticGrid, ir)
+    (term.coefficient, grid.radial_grid.spatial_jacobian[ir])
+end
+
+# the entry of the cell (i, j) of the radius ir in the row of the moment, with the envelope
+# value `envelope` of the cell as the second factor of the product: the coefficient and the
+# envelope times the weight of `_energy_weight`
+Base.@propagate_inbounds function _moment_weight(
+        term::EnergyMomentTerm, m::MomentumGrid, jacobian, factor, ir, i, j, envelope)
+    coefficient, spatial_jacobian = factor
+    weight = _kinetic_energy(m.p_centers[i]) * jacobian[i, j] * m.p_widths[i] *
+             m.xi_widths[j] / spatial_jacobian
+    return coefficient * envelope * weight
 end
 
 function sparsity!(entries, term::EnergyMomentTerm, layout, row)

@@ -32,6 +32,10 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Changed
 
+- A `KineticEnergyLossTerm` whose source lags the whole plasma (`lagged = :all`) throws an `ArgumentError` naming `prepare_step!` when it is evaluated on its own before any preparation ([#264](https://github.com/osrep/Runes2P.jl/pull/264)).
+  Until now it read the plasma of the state.
+  An `EquationSystem` prepares such a term at its initial state when it is built, unless the term was prepared before.
+  The results of a run do not change.
 - `InterfaceParticleFluxTerm` and `InterfaceEnergyFluxTerm` assemble their row of the Jacobian directly, from the flux in dual numbers seeded on the cells at the face and the field ([#239](https://github.com/osrep/Runes2P.jl/pull/239)).
   The stored pattern and the partials of the term are unchanged.
   An entry that the term shares with two or more other terms is summed in another order and changes at round-off, and the results with it.
@@ -116,3 +120,6 @@ Until the first release, every change is listed under "Unreleased", with the sub
   Before, a limit at the last centre gave NaN, and the envelope jumped as the limit crossed it; the envelope of every limit above the last centre changes.
 - `RadiusBlockILU` refuses a factorization with a zero diagonal of `U`; before, a zero last pivot of a block passed and the solve divided by zero ([#205](https://github.com/osrep/Runes2P.jl/pull/205)).
 - `fill_initial_values!` refuses a row that couples the entries of its own unknown with a message that says so; before, the message named units or a cycle ([#205](https://github.com/osrep/Runes2P.jl/pull/205)).
+- The `reason` of a settings record whose prescribed function fails holds the type of the exception without its module and the first line of its message ([#265](https://github.com/osrep/Runes2P.jl/pull/265)).
+  Absolute file paths in it are replaced by `<path>`; before, it held the full message, so the record depended on the machine, the checkout and the packages loaded.
+  A run resumed from a checkpoint with the old reason records its section as changed and warns of it.

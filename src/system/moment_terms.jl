@@ -300,7 +300,8 @@ function _moment_rows!(cache::MomentRowCache, J::SparseMatrixCSC, term, layout, 
 
             k += 1
             positions[k] = _pattern_position(J, r, _kinetic_index(layout, id, ir, i, j))
-            # factor * true is factor: the weight is the entry at a full envelope
+            # the envelope `true` gives the entry at a full envelope, since the envelope is a
+            # factor of the product in each moment
             weights[k] = _moment_weight(term, m, jacobian, factor, ir, i, j, true)
         end
     end
@@ -326,10 +327,12 @@ function _moment_rows!(cache::MomentRowCache, J::SparseMatrixCSC, term, layout, 
     return cache
 end
 
-# the Jacobian of a density or current moment from the positions and weights of its row: the
-# stored weight where the envelope of the cell is 1, and the product with the envelope as its
-# second factor elsewhere, so that every entry is the product of the residual's factors in
-# their order
+# the Jacobian of a density, current or energy moment from the positions and weights of its
+# row: the stored weight where the envelope of the cell is 1, and the product with the
+# envelope as its second factor elsewhere, so that every entry is the product of the
+# residual's factors in their order. `_moment_factor` gives the part of a radius shared by
+# its cells, a number or a tuple of numbers (the energy moment), which only
+# `_moment_weight` of the same term reads.
 function _add_moment_jacobian!(J, term, u, layout, row, t)
     cache = _moment_rows!(term.row_cache, J, term, layout, row)
     id = unknown_id(layout, term.kinetic)
@@ -397,34 +400,6 @@ function _add_threshold_column!(
         values[cache.temperature_positions[ir]] += value
     end
     return values
-end
-
-# the column of the temperature of a moment over a region that follows it: the derivative of
-# the envelope with respect to the temperature times the moment weight `weight(ir, i, j)` of
-# each cell and f
-function _add_threshold_column!(weight, J, envelopes, grid, u, layout, row, id)
-    envelopes === nothing && return J
-    temperature = region_temperature(envelopes.region)
-    isempty(temperature) && return J
-    T_id = unknown_id(layout, only(temperature))
-    T = unknown_values(u, layout, T_id)
-    limit = envelopes.region.limit
-    for ir in 1:radial_cell_count(layout)
-        m = momentum_grid(grid, ir)
-        p0 = _dual_threshold(limit, T[ir])
-        envelope = momentum_envelope!(
-            zeros(MomentEnvelopeDual, momentum_cell_count(m)), envelopes.region, m, p0)
-        f = kinetic_view(u, layout, id, ir)
-        value = 0.0
-        for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
-
-            value += ForwardDiff.partials(envelope[i], 1) * weight(ir, i, j) * f[i, j]
-        end
-        r = first(unknown_range(layout, row, ir))
-        column = first(unknown_range(layout, T_id, ir))
-        _add_entry!(J, r, column, value)
-    end
-    return J
 end
 
 """

@@ -325,7 +325,8 @@ A plasma that reads unknowns ([`PlasmaFromUnknowns`](@ref)) is always taken
 at the state at the start of the step ([`prepare_step!`](@ref)), the lagged treatment of
 the [`FokkerPlanckTerm`](@ref). The derivative of the term with respect to the temperature
 and the density at a radius is a dense column of all cells of that radius, which has no
-place in the low-rank Jacobian of the term.
+place in the low-rank Jacobian of the term. Such a term evaluated on its own keeps the
+coefficients of its last preparation, or those of `operator` when it was never prepared.
 """
 struct FieldParticleTerm{T, P} <: EquationTerm
     unknown::Symbol
