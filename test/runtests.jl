@@ -116,6 +116,7 @@ function write_results(path, label, files, counts, elapsed)
     summary = Dict(
         "label" => label, "commit" => git("rev-parse", "HEAD"), "dirty" => dirty,
         "node" => gethostname(), "load" => load, "julia" => string(VERSION),
+        "opt_level" => Int(Base.JLOptions().opt_level),
         "elapsed_seconds" => elapsed, "files" => files,
         "file_seconds" => Dict(f => t for (f, t) in FILE_TIMES),
         "passed" => counts.passed, "failed" => counts.failed, "errored" => counts.errored,
