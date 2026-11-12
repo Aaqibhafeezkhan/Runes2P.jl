@@ -15,7 +15,7 @@ Rules:
 Code blocks, tables, headings and comments are skipped, and so are the files of .github/,
 which keep one paragraph per line, and THIRD_PARTY_NOTICES.md,
 whose attributions and citations keep the wording of their sources.
-A period after an abbreviation of the list below, written as a whole word, does not end a sentence.
+A period after an abbreviation of the list below, not after a letter, does not end a sentence.
 The exit code is 1 when a line breaks a rule, and 0 otherwise.
 """
 import argparse
@@ -70,7 +70,7 @@ def plain(text):
     text = re.sub(r"``+.*?``+|`[^`]*`", "Code", text)
     text = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", text)
     text = re.sub(r"<https?://[^>]*>|https?://\S+", "Link", text)
-    text = ABBREVIATION_PATTERN.sub("\\1\u2024", text)                       # a dot that ends nothing
+    text = ABBREVIATION_PATTERN.sub("\\1\u2024", text)                      # a dot that ends nothing
     text = re.sub(r"\b([A-Z])\.(?=\s+[A-Z])", "\\1\u2024", text)            # initials of a name
     return text
 

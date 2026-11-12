@@ -348,7 +348,11 @@ const _PATH_IN_MESSAGE = r"(?<![\w.)\]}])(?:~|[A-Za-z]:)?(?:[/\\][^\s\"'`/\\:]+)
 function _failure_reason(error)
     type_name = String(nameof(typeof(error)))
     first_line = first(split(sprint(showerror, error), '\n'))
-    message = startswith(first_line, type_name) ? first_line : type_name * ": " * first_line
+    message = if startswith(first_line, type_name)
+        first_line
+    else
+        type_name * ": " * first_line
+    end
     return "the function failed at a time point: " *
            replace(message, _PATH_IN_MESSAGE => "<path>")
 end
@@ -756,7 +760,9 @@ face): the record of a [`PiecewiseConstant`](@ref), or the values at the time po
 `context`, thinned as the tables of the prescribed plasma are. With `points`, the function
 may return a callable of r ([`radial_values`](@ref)): the values are those at `points`, and
 `profile` records the callable (an interpolator by its points), or `profiles` one per
-sampled time where it changes in time.
+sampled time where it changes in time. When the function fails at a time point, the record
+is marked as not described, and its `reason` keeps the type of the exception and the first
+line of its message, with file paths replaced by `<path>`.
 """
 function describe_prescribed_levels(levels_at, context::DescriptionContext; points = nothing)
     levels_at isa PiecewiseConstant && return describe(levels_at)

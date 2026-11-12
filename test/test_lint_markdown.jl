@@ -1,6 +1,6 @@
 # The markdown lint of `scripts/lint_markdown.py` on small files written here: a period after
-# an abbreviation of its list does not end a sentence, and a word whose letters end like
-# such an abbreviation ("approval." and "al.") keeps its period. The expected findings are
+# an abbreviation of its list does not end a sentence, and a word such as "approval.", which
+# ends like "al.", keeps its period. The expected findings are
 # the rules of the section "Markdown" of CONTRIBUTING.md applied by hand to each line.
 using Test
 
