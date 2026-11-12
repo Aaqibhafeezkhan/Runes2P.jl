@@ -18,7 +18,8 @@ export write_adf11, SquareRootDecayTerm, ArctangentTerm, ConstantSourceTerm, Exc
        max_rel_diff,
        BoundedGrowthTerm, _growth_step, DREAM_REFERENCE_SETS, REFERENCE_FILES,
        reference_set, reference_file,
-       FIELD_PARTICLE_SETTINGS, _field_particle_grid, _maxwellian_on
+       FIELD_PARTICLE_SETTINGS, _field_particle_grid, _maxwellian_on,
+       OPTIMIZED, call_allocation
 
 # The reference data of the comparisons, one lazy artifact per set (`Artifacts.toml`): the
 # output of DREAM written by the cases of reference/dream/cases/, and GSL's bicubic
@@ -489,6 +490,20 @@ function _maxwellian_on(g, T)
     [exp(-(sqrt(1 + p^2) - 1) / (T / Constants.ELECTRON_REST_ENERGY))
      for p in momentum_grid(g).p_centers, _ in 1:pitch_cell_count(g),
     _ in 1:radial_cell_count(g)]
+end
+
+# from test_disruption_runaway_dream.jl and test_energy_moment.jl: an assertion on
+# allocations holds for optimised code alone, so it is skipped, and reported as broken, in a
+# development run at -O0 or -O1
+const OPTIMIZED = Base.JLOptions().opt_level >= 2
+
+# from test_disruption_runaway_dream.jl: the bytes that the call `f(args...)` allocates after
+# a first call, which compiles it. The call runs inside this function, a barrier that gives
+# the arguments their concrete types, so that the bytes are those of the call alone and not
+# those of a dynamic dispatch on untyped variables of the caller.
+function call_allocation(f, args...)
+    f(args...)
+    return @allocated f(args...)
 end
 
 end

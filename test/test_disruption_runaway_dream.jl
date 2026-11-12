@@ -35,9 +35,6 @@ const WINDOW_RUNAWAY_BUDGETS = (interface = 2e-14,   # 2.8e-16 / 4.5e-16
                                 avalanche = 1e-11)   # 1.3e-13 / 9.0e-14
 #! format: on
 
-# an assertion on allocations holds for optimised code alone: it is skipped, and reported
-# as broken, in a development run at -O0 or -O1
-const OPTIMIZED = Base.JLOptions().opt_level >= 2
 # the bytes a call of jacobian! of the window allocates after a first call, and those of the
 # plasma columns of each term that adds them: about twice those measured at -O2 in this
 # testset (in the comment). A loop that inserts the partials of a dual number whose type is
@@ -58,13 +55,6 @@ const ION_RESIDUAL_ALLOCATION = 1e3         # 0 (IonRateTerm, RadiatedPowerTerm)
 # weights it keeps, a margin of 1e3 bytes: the moments over the hot region allocate the limits of
 # the region at the radii, the others nothing
 const MOMENT_JACOBIAN_ALLOCATION = 1e3      # 1.6e2 (hot region), 0 (the others)
-
-# the bytes of the call `f(args...)` after a first call, inside a function, so that the
-# arguments have their concrete types and the bytes are those of the call alone
-function call_allocation(f, args...)
-    f(args...)
-    return @allocated f(args...)
-end
 
 # the block of the bound term `b` of `system` at the state u, added by `add!` to a zero Jacobian
 function term_block(system, b, u, t, add!)

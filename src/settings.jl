@@ -376,6 +376,9 @@ end
 # then differ between runs of the same setup. An exception shown by default starts with its
 # type, qualified by its module and with its parameters, which the bare name replaces;
 # module names inside the rest of the line, such as those of its field values, stay.
+# Known limit: a MethodError of a closure or an anonymous function keeps its generated name,
+# such as `var"#3#4"`, which depends on where and in what order it is defined in the user's
+# code, so the reason can differ between two setups that do the same thing.
 function _failure_reason(exception)
     type_name = String(nameof(typeof(exception)))
     lines = split(sprint(showerror, exception), '\n')
