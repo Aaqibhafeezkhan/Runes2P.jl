@@ -251,7 +251,7 @@ Among the ions, `ion_coulomb_logarithm = :nrl` (the default) takes the mixed ion
 It takes the temperature of each species and a screening sum over all ion species and the electrons.
 It is cut at zero so that the exchange keeps its sign.
 The cut guards against cold iterates of the solver, not a state of the plasma.
-The examples of the docstring, states of deuterium and argon that occur, lie between 3.1 and 9.7.
+For states of deuterium and argon that occur, the examples of [`IonEnergyExchangeTerm`](@ref) give 8.7 and 9.7 in equilibrium at 10 and 54 eV, and 5.9 and 3.1 with Ar¹⁶⁺ left at 10 eV.
 `:dream` takes DREAM's form, built from the electron temperature and the same for every pair.
 
 ## Comparisons
