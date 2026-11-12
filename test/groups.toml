@@ -167,7 +167,8 @@ files = ["test_ion_integration.jl"]
 [[group]]
 name = "full-10"
 tier = "full"
-# 6.1 minutes: the disruption chain end to end at both compat values
+# 11.5 minutes: the disruption chain end to end at both compat values (10.6 minutes), and the
+# field of the first short step
 files = ["test_disruption_chain_dream.jl", "test_first_step_field.jl"]
 
 [[group]]
