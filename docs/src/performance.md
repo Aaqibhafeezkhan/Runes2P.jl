@@ -151,7 +151,8 @@ The test of the case bounds the bytes of a second call of the Jacobian, of these
 
 - [`SparseLU`](@ref), UMFPACK, is the default and needs no further package.
   Its symbolic analysis is kept, so each Newton iteration pays the numeric factorization alone.
-- [`MKLPardiso`](@ref) keeps its ordering and matching in the same way, and its one analysis is counted in the factorization time of the first solve.
+- [`MKLPardiso`](@ref) keeps its ordering and matching in the same way until a solve fails ([Choices of this package](choices.md#Linear-solvers)).
+  Each analysis is counted in the factorization time of its solve.
   It runs threaded: from one thread to eight its factorization and solve go from 77.6 to 23.1 ms in the table above.
   DREAM's inversion goes from 88.2 to 45.4 ms.
 - More BLAS threads do not help UMFPACK on this matrix, and ten refinement steps of PARDISO cost more than its factorization.
