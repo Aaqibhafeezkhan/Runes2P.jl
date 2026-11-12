@@ -9,7 +9,8 @@
 #
 # Each file of `code` must be printed and each file of `nocode` must not, so a rule removed
 # from the script shows up as a file in the wrong list. The repository and the script run
-# with neither the global nor the system git configuration.
+# with neither the global nor the system git configuration, and without the configuration,
+# author and committer that environment variables would pass to git.
 
 using Test
 
@@ -118,9 +119,15 @@ const CODE_FILES = sort(vcat(collect(keys(CODE)),
         touch(config)
         repo = joinpath(scratch, "repo")
         mkpath(repo)
+        # git reads GIT_CONFIG_KEY_n and GIT_CONFIG_VALUE_n only below GIT_CONFIG_COUNT, and
+        # the author and committer of the commits come from the user.* settings of `git`
+        no_identity = ["GIT_$(role)_$(part)" => nothing
+                       for role in ("AUTHOR", "COMMITTER")
+                       for part in ("NAME", "EMAIL", "DATE")]
         withenv("GIT_CONFIG_GLOBAL" => config, "GIT_CONFIG_NOSYSTEM" => "1",
+            "GIT_CONFIG_COUNT" => nothing, "GIT_CONFIG_PARAMETERS" => nothing,
             "GIT_DIR" => nothing, "GIT_WORK_TREE" => nothing,
-            "GIT_INDEX_FILE" => nothing) do
+            "GIT_INDEX_FILE" => nothing, no_identity...) do
             git(repo, "init", "--quiet", "--initial-branch=fork")
             for (path, text) in FORK
                 put(repo, path, text)
