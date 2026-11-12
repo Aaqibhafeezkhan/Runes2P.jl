@@ -300,7 +300,8 @@ function _moment_rows!(cache::MomentRowCache, J::SparseMatrixCSC, term, layout, 
 
             k += 1
             positions[k] = _pattern_position(J, r, _kinetic_index(layout, id, ir, i, j))
-            # factor * true is factor: the weight is the entry at a full envelope
+            # the envelope true, a factor of the product in each moment, gives the entry at a
+            # full envelope
             weights[k] = _moment_weight(term, m, jacobian, factor, ir, i, j, true)
         end
     end
@@ -329,7 +330,9 @@ end
 # the Jacobian of a density, current or energy moment from the positions and weights of its
 # row: the stored weight where the envelope of the cell is 1, and the product with the
 # envelope as its second factor elsewhere, so that every entry is the product of the
-# residual's factors in their order
+# residual's factors in their order. `_moment_factor` gives the part of a radius shared by
+# its cells, a number or a tuple of numbers (the energy moment), which only
+# `_moment_weight` of the same term reads.
 function _add_moment_jacobian!(J, term, u, layout, row, t)
     cache = _moment_rows!(term.row_cache, J, term, layout, row)
     id = unknown_id(layout, term.kinetic)

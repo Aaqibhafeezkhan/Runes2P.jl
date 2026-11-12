@@ -171,7 +171,7 @@ prepare_step!(::EquationTerm, u_old, layout, row, t) = nothing
 
 # the preparation of a term at the initial state of a system when it builds the prototype
 # of its Jacobian: nothing by default, a method for the lagged energy loss
-_prepare_for_prototype!(::Any, u, layout, row, t) = nothing
+_prepare_for_prototype!(::EquationTerm, u, layout, row, t) = nothing
 
 """
     add_jacobian!(J, term, u, layout, row, t)

@@ -157,7 +157,8 @@ function _transfer_plasma(term::KineticEnergyLossTerm, u, layout, t)
     if _is_lagged(term.source)
         if term.lagged_plasma[] === nothing
             throw(ArgumentError("the plasma of the start of the step of the lagged energy loss is not set: it is " *
-                                "set by residual! and by the right-hand side of the system (prepare_step!)"))
+                                "set by residual! and by the right-hand side of the system, and a term " *
+                                "evaluated on its own is prepared with prepare_step! first"))
         end
         return term.lagged_plasma[]::PlasmaState
     end
