@@ -250,6 +250,8 @@ Its electron-ion logarithm is the thermal one, as in DREAM.
 Among the ions, `ion_coulomb_logarithm = :nrl` (the default) takes the mixed ion-ion logarithm of the NRL Plasma Formulary (A. S. Richardson, NRL/PU/6770--19-652, 2019).
 It takes the temperature of each species and a screening sum over all ion species and the electrons.
 It is cut at zero so that the exchange keeps its sign.
+The cut guards against cold iterates of the solver and cold prescribed input.
+The docstring of [`IonEnergyExchangeTerm`](@ref) gives examples of the logarithm for deuterium and argon, in equilibrium and with Ar¹⁶⁺ left cold.
 `:dream` takes DREAM's form, built from the electron temperature and the same for every pair.
 
 ## Comparisons
