@@ -39,18 +39,32 @@ order). The logarithm of electrons and ions is the thermal one, as DREAM's. Amon
   own temperature `T = W/(3/2 e N)` and the electrons theirs, at least the 0.5 eV of
   [`DEFAULT_TEMPERATURE_FLOOR`](@ref), and for
   `Z` its mean charge `(nZ²)/(nZ)`, `(nZ) = Σ n_{Z₀} Z₀`. The formula holds for λ ≫ 1 (its
-  corrections are O(1/λ)); for cold, dense, highly charged ions it falls towards zero and
-  below (D with Ar¹⁶⁺ at 1 eV and 10¹⁹ m⁻³ with electrons at 10 eV: 2.5; Ar¹⁶⁺ with itself at
-  0.5 eV: −1.3), and it is cut at 0 so that the exchange keeps its sign.
+  corrections are O(1/λ)). With T_i = T_e, deuterium at 10²⁰ m⁻³, argon at 10¹⁹ m⁻³ in the
+  charge state that dominates in collisional ionization equilibrium in the limit of zero
+  density (P. Bryans, E. Landi and D. W. Savin, Astrophys. J. 691, 1540 (2009),
+  doi:10.1088/0004-637X/691/2/1540, Table 2) and quasi-neutral electrons, it is 8.7 for D
+  with Ar³⁺ at 10 eV and 9.7 for D with Ar⁸⁺ at 54 eV. At the density of this plasma the
+  state of 10 eV lies about one charge state higher: [`coronal_equilibrium`](@ref) with the
+  ADAS rates at n_e = 1.3 × 10²⁰ m⁻³ has Ar⁴⁺ dominant, and D with Ar⁴⁺ gives 8.3
+  (n_e = 1.4 × 10²⁰ m⁻³); at 54 eV it keeps Ar⁸⁺. Ar¹⁶⁺ left at 10 eV by a fast cooling of
+  the electrons, out of equilibrium, gives 5.9 with D (n_e = 2.6 × 10²⁰ m⁻³). Ar¹⁶⁺ with
+  Ar¹⁶⁺ gives 3.1 when the argon is held in two species, together at 10¹⁹ m⁻³: a species is
+  not paired with itself, so a plasma of one argon species has the pair D–Ar alone. The
+  formula falls below zero for two species of a highly charged ion, cold and dense: at these
+  densities and with T_i = T_e, Ar¹⁶⁺ with Ar¹⁶⁺ crosses zero at 1.26 eV and gives −1.4 at
+  the floor of 0.5 eV, where D with Ar¹⁶⁺ still gives 1.4. It is cut at 0 so that the
+  exchange keeps its sign, a guard against cold iterates of the solver and cold prescribed
+  input.
 - `ion_coulomb_logarithm = :dream`: DREAM's `17.3 − ½ ln(n_free/10²⁰) + 3/2 ln(T_e/1 keV)`
   with the electron temperature and the free-electron density, the same for every pair
   (`src/Equations/CoulombLogarithm.cpp:107-113`, with no source named there;
   `BootstrapCurrent.cpp:181` calls the form Wesson's, which takes the ion temperature). With
-  T_e in place of T_i it is too small where the ions are hotter than the electrons and too
-  large where they are colder: 10.4 at T_e = 10 eV and 10²⁰ m⁻³ against 14.9 of the NRL form for
-  two deuterium species at T_i = 1 keV (the exchange among them 1.4 times too slow after the
-  thermal quench), and against 3.8 for deuterium with Ar⁸⁺ at T_i = 1 eV (the exchange with
-  freshly injected argon 2.7 times too fast).
+  T_e in place of T_i it is too small where the ions are hotter than the electrons: 10.4 at
+  T_e = 10 eV and 10²⁰ m⁻³ against 14.9 of the NRL form for two deuterium species at
+  T_i = 1 keV (the exchange among them 1.4 times too slow after the thermal quench). Without
+  the charges it is too large for a pair with a multiply charged ion: 10.3 at T_i = T_e = 10 eV
+  and n_free = 1.3 × 10²⁰ m⁻³ against 8.7 of the NRL form for deuterium with Ar³⁺ in the
+  plasma above (the exchange about 1.2 times too fast).
 
 - `side = :ions`, in the row of `ion_energy`: each component receives `Q_{i,e}` and, with
   `ion_ion`, `Σ_j Q_{ij}`.
@@ -195,7 +209,9 @@ function _nrl_ion_logarithm(a, b, screening)
     Zb = _plain_value(nZb) > 0 ? nZ2b / nZb : one(nZ2b)
     logarithm = 23 -
                 log(Za * Zb * (mu_a + mu_b) / (mu_a * Tb + mu_b * Ta) * sqrt(screening))
-    # cold, dense, highly charged ions take the formula below zero: the exchange keeps its sign
+    # the formula falls below zero for two species of a cold, dense, highly charged ion, in
+    # a cold iterate of the solver or a cold prescribed state: the cut keeps the sign of the
+    # exchange
     return max(logarithm, zero(logarithm))
 end
 
