@@ -62,9 +62,9 @@ The two pitch rules of [`pitch_moment_weights`](@ref), `:linear` (the default) a
 `test/test_moments.jl` measures the mean pitch ``\langle\xi\rangle`` of a beam ``f \propto e^{\kappa\xi}``, exactly ``\coth\kappa - 1/\kappa``.
 The grid is `biuniform_theta_xi_faces(15, 10, 0.5)`, the pitch grid of `grid=biuniform_270` of the examples ([Choices of this package](../choices.md)), whose last cell is ``1.25 \times 10^{-3}`` wide in ``\xi``.
 The values of ``f`` are its cell averages, since the unknown of the finite-volume scheme is the average of ``f`` over a cell.
+The table gives the error of each rule relative to the exact ``\langle\xi\rangle`` with these cell averages, and so does the list below.
 The second order that [`pitch_moment_weights`](@ref) states for `:linear` is for values of ``f`` at the cell centres.
-The list below gives the errors with such values on this grid; they are not refined here.
-The table gives the error of each rule relative to the exact ``\langle\xi\rangle``.
+One item of the list gives the errors with such values instead, on this grid only.
 
 | ``\kappa`` | exact ``\langle\xi\rangle`` | `:linear` | `:cell_center` |
 |---|---|---|---|
@@ -81,7 +81,7 @@ The table gives the error of each rule relative to the exact ``\langle\xi\rangle
 - Neither rule is the closer one at every ``\kappa``: `:linear` is closer at ``\kappa \le 10`` and at ``\kappa`` = 100 and 300, `:cell_center` at ``\kappa`` = 30, 1000 and 3000.
 - The largest errors are those of the broad beams for `:cell_center` and of the beams that end near the split of the grid at ``\theta = 0.5`` (``\kappa`` = 10 to 30) for `:linear`.
 - For a beam inside the last pitch cells the error is small against ``\langle\xi\rangle`` but not against ``1 - \langle\xi\rangle``.
-  At ``\kappa = 1000`` it is 45 % of ``1 - \langle\xi\rangle`` for `:linear` and 38 % for `:cell_center`, and at ``\kappa = 3000`` `:linear` gives ``\langle\xi\rangle > 1``.
+  At ``\kappa = 1000`` it is 45 % of ``1 - \langle\xi\rangle`` for `:linear` and 37 % for `:cell_center`, and at ``\kappa = 3000`` `:linear` gives ``\langle\xi\rangle > 1``.
 - With the values of ``f`` at the cell centres instead of its cell averages, `:linear` is 5.8 % above the exact ``\langle\xi\rangle`` at ``\kappa = 10`` and `:cell_center` 0.21 % below it.
 - On cell averages and refined grids of the same shape at ``\kappa = 10``, from 30 to 60 to 120 cells, the error falls per doubling of the cells by 4.0 for `:cell_center`.
   It falls by 12.8, then 14.6 for `:linear`, which is higher than second order.

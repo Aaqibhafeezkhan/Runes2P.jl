@@ -7,10 +7,6 @@
 using QuadGK: quadgk
 using SparseArrays: sparse
 
-# an assertion on allocations holds for optimised code alone: it is skipped, and reported
-# as broken, in a development run at -O0 or -O1
-const OPTIMIZED = Base.JLOptions().opt_level >= 2
-
 @testset "energy moment" begin
     temperatures, densities = [100.0, 400.0], [1e19, 4e18]
     theta_max = maximum(temperatures) / Constants.ELECTRON_REST_ENERGY
@@ -116,16 +112,12 @@ const OPTIMIZED = Base.JLOptions().opt_level >= 2
         @test isequal(block(jacobian_prototype(system), term, other), other_block)
         @test isequal(block(kept, term, u), first_block)
         # The bytes of the Jacobian with the positions and weights the term keeps, after a
-        # first call, inside a function so that the arguments have their concrete types:
-        # none without a region, and with a region that follows the temperature the limits
-        # of the region at the radii, below a margin of 1e3 bytes (0 and 1.6e2 at -O2).
-        function jacobian_allocation(J, term, u, layout)
-            Runes2P.add_jacobian!(J, term, u, layout, 3, 0.0)
-            return @allocated Runes2P.add_jacobian!(J, term, u, layout, 3, 0.0)
-        end
+        # first call: none without a region, and with a region that follows the temperature
+        # the limits of the region at the radii, below a margin of 1e3 bytes (0 and 1.6e2 at
+        # -O2).
         whole = EnergyMomentTerm(:f, grid; coefficient = 0.3)
-        @test jacobian_allocation(kept, whole, u, layout) == 0 skip = !OPTIMIZED
-        @test jacobian_allocation(kept, term, u, layout) < 1e3 skip = !OPTIMIZED
+        @test call_allocation(Runes2P.add_jacobian!, kept, whole, u, layout, 3, 0.0) == 0 skip = !OPTIMIZED
+        @test call_allocation(Runes2P.add_jacobian!, kept, term, u, layout, 3, 0.0) < 1e3 skip = !OPTIMIZED
     end
 
     @testset "order of the products" begin

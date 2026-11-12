@@ -300,8 +300,8 @@ function _moment_rows!(cache::MomentRowCache, J::SparseMatrixCSC, term, layout, 
 
             k += 1
             positions[k] = _pattern_position(J, r, _kinetic_index(layout, id, ir, i, j))
-            # the envelope true, a factor of the product in each moment, gives the entry at a
-            # full envelope
+            # the envelope `true` gives the entry at a full envelope, since the envelope is a
+            # factor of the product in each moment
             weights[k] = _moment_weight(term, m, jacobian, factor, ir, i, j, true)
         end
     end
