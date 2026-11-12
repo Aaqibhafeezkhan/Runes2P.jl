@@ -39,18 +39,25 @@ order). The logarithm of electrons and ions is the thermal one, as DREAM's. Amon
   own temperature `T = W/(3/2 e N)` and the electrons theirs, at least the 0.5 eV of
   [`DEFAULT_TEMPERATURE_FLOOR`](@ref), and for
   `Z` its mean charge `(nZ²)/(nZ)`, `(nZ) = Σ n_{Z₀} Z₀`. The formula holds for λ ≫ 1 (its
-  corrections are O(1/λ)); for cold, dense, highly charged ions it falls towards zero and
-  below (D with Ar¹⁶⁺ at 1 eV and 10¹⁹ m⁻³ with electrons at 10 eV: 2.5; Ar¹⁶⁺ with itself at
-  0.5 eV: −1.3), and it is cut at 0 so that the exchange keeps its sign.
+  corrections are O(1/λ)). With T_i = T_e, deuterium at 10²⁰ m⁻³, argon at 10¹⁹ m⁻³ in the
+  charge state that dominates in collisional ionization equilibrium (P. Bryans, E. Landi and
+  D. W. Savin, Astrophys. J. 691, 1540 (2009), Table 2) and quasi-neutral electrons, it is 8.7
+  for D with Ar³⁺ at 10 eV and 9.7 for D with Ar⁸⁺ at 54 eV. Ar¹⁶⁺ left at 10 eV by a fast
+  cooling of the electrons, out of equilibrium, gives 5.9 with D and 3.1 with Ar¹⁶⁺
+  (n_e = 2.6 × 10²⁰ m⁻³). The formula falls below zero only where the ions are colder still:
+  −1.4 for Ar¹⁶⁺ with Ar¹⁶⁺ at the same densities, the ions and the electrons at the floor of
+  0.5 eV. It is cut at 0 so that the exchange keeps its sign, a guard against such cold
+  iterates of the solver, not a state of the plasma.
 - `ion_coulomb_logarithm = :dream`: DREAM's `17.3 − ½ ln(n_free/10²⁰) + 3/2 ln(T_e/1 keV)`
   with the electron temperature and the free-electron density, the same for every pair
   (`src/Equations/CoulombLogarithm.cpp:107-113`, with no source named there;
   `BootstrapCurrent.cpp:181` calls the form Wesson's, which takes the ion temperature). With
-  T_e in place of T_i it is too small where the ions are hotter than the electrons and too
-  large where they are colder: 10.4 at T_e = 10 eV and 10²⁰ m⁻³ against 14.9 of the NRL form for
-  two deuterium species at T_i = 1 keV (the exchange among them 1.4 times too slow after the
-  thermal quench), and against 3.8 for deuterium with Ar⁸⁺ at T_i = 1 eV (the exchange with
-  freshly injected argon 2.7 times too fast).
+  T_e in place of T_i it is too small where the ions are hotter than the electrons: 10.4 at
+  T_e = 10 eV and 10²⁰ m⁻³ against 14.9 of the NRL form for two deuterium species at
+  T_i = 1 keV (the exchange among them 1.4 times too slow after the thermal quench). Without
+  the charges it is too large for a pair with a multiply charged ion: 10.3 at T_i = T_e = 10 eV
+  and n_free = 1.3 × 10²⁰ m⁻³ against 8.7 of the NRL form for deuterium with Ar³⁺ in the
+  plasma above (the exchange 1.19 times too fast).
 
 - `side = :ions`, in the row of `ion_energy`: each component receives `Q_{i,e}` and, with
   `ion_ion`, `Σ_j Q_{ij}`.
