@@ -52,13 +52,15 @@ end
 # the bound of the relative residual of a solve of MKLPardiso
 const MAX_RELATIVE_RESIDUAL = Base.get_extension(Runes2P, :Runes2PMKLPardisoExt).MAX_RELATIVE_RESIDUAL
 
-# a cache of MKLPardiso for `matrix` alone, of a system without matrix-free terms, and one
-# solve with it: the status, the solution and the relative residual of the solve
+# a cache of MKLPardiso for `matrix` alone, of a system without matrix-free terms
 function pardiso_cache(matrix; settings...)
     n = size(matrix, 1)
     return Runes2P.linear_solver_cache(MKLPardiso(; settings...), matrix,
         (; matrix_free_terms = ()), ones(n), ones(n))
 end
+
+# one solve of `matrix` x = `b` with `cache`: the status, the solution and the relative
+# residual of the solve
 function cache_solve(cache, matrix, b)
     x = zeros(size(matrix, 1))
     Runes2P.matrix_unchanged!(cache, false)

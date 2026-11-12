@@ -238,12 +238,16 @@ using QuadGK: quadgk
         # at higher temperature the ratio lies below r0 by an amount of the order of Θ:
         # measured −3.9e-5 at 120 eV and −7.6e-6 at 30 eV relative to r0, with an
         # uncertainty of about 3e-6 from the step and the extrapolation, observed orders 1.94
-        # and 2.18. The test checks the sign and the order, between −0.5 Θ and −0.05 Θ; no
-        # closed form of the term is derived here
+        # and 2.18. The test checks the sign and the order, between −0.5 Θ and −0.02 Θ; no
+        # closed form of the term is derived here. Each side keeps at least twice the
+        # uncertainty: at 120 eV (Θ = 2.35e-4, measured −0.17 Θ) the bounds are −1.2e-4 and
+        # −4.7e-6, margins 7.8e-5 and 3.4e-5; at 30 eV (Θ = 5.87e-5, measured −0.13 Θ) they
+        # are −2.9e-5 and −1.2e-6, margins 2.2e-5 and 6.4e-6. The sign is firm at 120 eV; at
+        # 30 eV the upper bound lies within the uncertainty of zero
         for (T, ratios) in ((120.0, at_120), (30.0, test_particle_ratios(30.0)))
             departure, order = extrapolated_departure(ratios)
             @test 1.8 < order < 2.3
-            @test -0.5 * theta(T) < departure < -0.05 * theta(T)
+            @test -0.5 * theta(T) < departure < -0.02 * theta(T)
         end
         # the momentum-conserving operator leaves the field of the ions alone (measured
         # 7.8e-7 below with 80 cells, 2.3e-6 above with 160)

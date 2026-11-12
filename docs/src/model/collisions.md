@@ -274,7 +274,9 @@ It is cut at zero so that the exchange keeps its sign.
 - The field of the first short step of a system that holds the current of a shifted Maxwellian, `test/test_first_step_field.jl`.
   The reference is ``E = m_e j/(n e^2 τ_e)`` of S. I. Braginskii, Rev. Plasma Phys. 1, 205 (1965), eqs. (2.5e), (2.7) and (4.6): 1.030 V/m for deuterium at 120 eV, 5e19 m⁻³ and 1 MA/m².
   The step is short against ``τ_e``: at 1e-7 ``τ_e`` the field is within 1.4e-5 of that at 1e-8 ``τ_e``, relative to it, with 80 momentum cells, and shorter steps are no better.
-  With the ion scattering alone, the field extrapolated in the momentum grid is within 1e-5 of the reference times the relativistic correction ``1 + 13Θ/8``, ``Θ = T/(m_e c^2)``, relative to it, at 120 and 30 eV.
+  With the ion scattering alone, the field extrapolated in the momentum grid lies below the reference times the relativistic correction ``1 + 13Θ/8``, ``Θ = T/(m_e c^2)``.
+  It is 6.3e-6 below at 120 eV and 3.3e-6 below at 30 eV, relative to that value.
+  The test holds it within 2e-5 of that value at both temperatures.
   That bound is set by the error of the step, not by the operator.
   The test-particle electron-electron term multiplies the field of the ions alone by ``1 + 1/(\sqrt{2} Z)`` in the nonrelativistic limit, derived in the test from the slowing-down frequencies and tested at ``Z = 1``.
   Extrapolated in the momentum grid, the ratio is within 5e-6 of ``1 + 1/\sqrt{2}`` at 7.5 eV, relative to it.
