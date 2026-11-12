@@ -1,7 +1,7 @@
 # The markdown lint of `scripts/lint_markdown.py` on small files written here: a period after
 # an abbreviation of its list does not end a sentence, and a word such as "approval.", which
-# ends like "al.", keeps its period. The expected findings are
-# the rules of the section "Markdown" of CONTRIBUTING.md applied by hand to each line.
+# ends like "al.", keeps its period. The expected findings are worked out by applying the
+# rules of the section "Markdown" of CONTRIBUTING.md by hand to each line.
 using Test
 
 const LINT = joinpath(dirname(@__DIR__), "scripts", "lint_markdown.py")
@@ -41,14 +41,19 @@ end
             text = """
             The rate follows Smith et al. Their values are used here.
             The rate follows the approval. Their values are used here.
-            The rates agree, e.g. at the edge.
+            The rates agree, e.g. Smith finds the same values.
+            The rates agree, _e.g._ Smith finds the same values.
+            The rates agree with Fig. A and with Figs. B and C.
+            The values are taken from the journal. Their errors are not.
             The rate follows Smith et al.
             in its second part.
             """
             findings, code = lint_findings(directory, "abbreviations.md", text)
-            # line 1: "et al." does not end the sentence; line 2: "approval." does;
-            # line 4: the sentence after "et al." goes on in line 5
-            @test findings == [(2, "sentences"), (4, "wrap")]
+            # lines 1 and 3 to 5: an abbreviation before a capital does not end the sentence,
+            # also in emphasis (line 4) and where two of them share a prefix (line 5);
+            # lines 2 and 6: "approval." and "journal." do; line 7: the sentence after
+            # "et al." goes on in line 8
+            @test findings == [(2, "sentences"), (6, "sentences"), (7, "wrap")]
             @test code == 1
         end
     end

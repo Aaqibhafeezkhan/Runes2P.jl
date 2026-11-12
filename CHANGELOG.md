@@ -116,6 +116,10 @@ Until the first release, every change is listed under "Unreleased", with the sub
 - `RadiusBlockILU` refuses a factorization with a zero diagonal of `U`; before, a zero last pivot of a block passed and the solve divided by zero ([#205](https://github.com/osrep/Runes2P.jl/pull/205)).
 - `fill_initial_values!` refuses a row that couples the entries of its own unknown with a message that says so; before, the message named units or a cycle ([#205](https://github.com/osrep/Runes2P.jl/pull/205)).
 - The `reason` of a settings record whose prescribed function fails keeps only the type of the exception and the first line of its message ([#265](https://github.com/osrep/Runes2P.jl/pull/265)).
-  A path in it of two or more parts from the root, `~` or a drive letter is replaced by `<path>`.
+  The type is named without its module.
+  A first line that ends in a colon, as that of a `DomainError`, is followed by the next line.
+  A file path in the reason is replaced by `<path>`.
+  Such a path starts at the root, at `~` or at a drive letter, and has two or more parts.
+  Units such as `1/m^3/s` and URLs are kept.
   Until now it held the full message, which for a `MethodError` lists the closest candidates with their source files, so the record depended on the machine, the checkout and the packages loaded.
   A run with such a function resumed from a checkpoint written before this change records its section as changed and warns of it.

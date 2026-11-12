@@ -30,6 +30,19 @@ end
 method_of_settings_test(x::Int) = x
 method_of_settings_test(x::String) = x
 
+# exceptions of a nested module without a showerror method of their own, whose default
+# display names the modules and the parameters of the type
+module SettingsTestErrors
+module Nested
+struct TableError <: Exception
+    message::String
+end
+struct IndexedError{T} <: Exception
+    index::T
+end
+end
+end
+
 const DOCUMENTED_ROOT_ATTRIBUTES = [
     "format_version", "runes2p_commit", "runes2p_tree_clean", "runes2p_version"]
 const DOCUMENTED_ROOT_GROUPS = [
@@ -419,6 +432,46 @@ _is_plain(x) = false
         @test levels["reason"] ==
               "the function failed at a time point: " *
               "ErrorException: no table in <path> at 0.0 1/s"
+
+        prefix = "the function failed at a time point: "
+        function reason_of(exception)
+            failing(t) = throw(exception)
+            record = Runes2P.describe_prescribed_levels(
+                failing, DescriptionContext(times = [0.0]))
+            return record["reason"]
+        end
+        # an exception shown by default: the type without its modules and parameters
+        table_error = SettingsTestErrors.Nested.TableError("no table in /data/tables/rates.h5")
+        @test occursin("SettingsTestErrors.Nested.TableError(", sprint(showerror, table_error))
+        @test reason_of(table_error) == prefix * "TableError(\"no table in <path>\")"
+        indexed_error = SettingsTestErrors.Nested.IndexedError{Int64}(3)
+        @test occursin("SettingsTestErrors.Nested.IndexedError{Int64}(3)",
+            sprint(showerror, indexed_error))
+        @test reason_of(indexed_error) == prefix * "IndexedError(3)"
+        # a first line that ends in a colon is followed by the message on the next line
+        domain_error = DomainError(0.0, "outside the table")
+        @test occursin('\n', sprint(showerror, domain_error))
+        @test reason_of(domain_error) == prefix * "DomainError with 0.0: outside the table"
+        # a message that only begins with the letters of the type's name gets the type
+        @test reason_of(ErrorException("ErrorExceptionish thing")) ==
+              prefix * "ErrorException: ErrorExceptionish thing"
+        # paths of two or more parts are replaced; units, URLs, relative paths and paths
+        # of one part are kept
+        reason_of_message(message) = reason_of(ErrorException(message))
+        @test reason_of_message("a rate in 1/m^3/s") ==
+              prefix * "ErrorException: a rate in 1/m^3/s"
+        @test reason_of_message("no table in ~/tables/rates.h5") ==
+              prefix * "ErrorException: no table in <path>"
+        @test reason_of_message("no table in C:\\tables\\rates.h5") ==
+              prefix * "ErrorException: no table in <path>"
+        @test reason_of_message("see https://example.com/tables/rates.h5") ==
+              prefix * "ErrorException: see https://example.com/tables/rates.h5"
+        @test reason_of_message("no table in PATH=/data/a:/data/b") ==
+              prefix * "ErrorException: no table in PATH=<path>:<path>"
+        @test reason_of_message("no table in ~/rates.h5") ==
+              prefix * "ErrorException: no table in ~/rates.h5"
+        @test reason_of_message("no table in tables/rates.h5") ==
+              prefix * "ErrorException: no table in tables/rates.h5"
     end
 
     @testset "hashes" begin

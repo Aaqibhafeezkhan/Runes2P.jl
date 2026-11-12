@@ -15,7 +15,7 @@ Rules:
 Code blocks, tables, headings and comments are skipped, and so are the files of .github/,
 which keep one paragraph per line, and THIRD_PARTY_NOTICES.md,
 whose attributions and citations keep the wording of their sources.
-A period after an abbreviation of the list below, not after a letter, does not end a sentence.
+A period after an abbreviation of the list below that does not follow a letter does not end a sentence.
 The exit code is 1 when a line breaks a rule, and 0 otherwise.
 """
 import argparse
