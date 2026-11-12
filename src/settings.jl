@@ -337,6 +337,71 @@ function _plasma_size(plasma::PlasmaState)
     sum(s -> length(s.charge_state_densities), plasma.ions; init = 0)
 end
 
+# a file path in a message, which `_failure_reason` replaces by `<path>`: a word that starts
+# the message or follows a space, a quote, an opening bracket, `=`, `:`, `,` or `;`, may
+# begin with `~` or a drive letter, and has at least two parts, each after a separator: a
+# slash, a backslash or a doubled backslash, as Julia prints a backslash of a string with
+# `repr`. It ends at a space, a quote, `:`, `;` or a closing bracket, so that `/a/b.jl:12`
+# keeps its `:12` and `PATH=/a/b:/c/d` gives `PATH=<path>:<path>`. Without `~` or a drive
+# letter it may not begin with a doubled backslash, which starts a UNC path.
+# Replaced: `/a/b`, `~/a/b`, `C:\a\b`, `C:\\a\\b`. Kept:
+# - units and ratios that follow a letter, a digit or a closing bracket: `1/m^3/s`,
+#   `n_e/n_i/Z`, `[0, 1]/2/3`;
+# - a URL, which is no path of the machine: its `//` makes an empty part after the `:`, and
+#   its later slashes follow characters that start no path;
+# - a relative path, and a path of one part: `src/x.jl`, `~/x.jl`.
+# A ratio of two parts after a space, such as ` /p_0/2`, has the form of an absolute path and
+# is replaced too: the form cannot tell the two apart.
+# Known limits: a path with a space keeps the part after the space. `file:///a/b`,
+# `~user/a/b`, UNC paths, `\\a\\b` without a drive letter and a path after a character that
+# starts no path, such as `|`, are kept.
+const _PATH_IN_MESSAGE = r"(?:^|(?<=[\s\"'`(\[{<=:,;]))(?:~|[A-Za-z]:|(?!\\\\))(?:(?:/|\\{1,2})[^\s\"'`/\\:;)\]}>]+){2,}"
+
+# whether `text` starts with the word `name`: followed by the end of the text or by a
+# character that is no letter, digit or underscore
+function _starts_with_word(text, name)
+    startswith(text, name) || return false
+    rest = chopprefix(text, name)
+    isempty(rest) && return true
+    next_character = first(rest)
+    return !(isletter(next_character) || isdigit(next_character) || next_character == '_')
+end
+
+# reason of a record whose function failed: the type of the exception without its module and
+# the first line of its message, with absolute file paths of two or more parts replaced and
+# trailing spaces removed. A first line that ends in a colon, as that of a DomainError, is
+# followed by the next line, skipping empty ones; without a next line the colon goes. The
+# rest of a message, such as the closest candidates of a MethodError with their source
+# files, depends on the machine, the checkout and the packages loaded, and the record would
+# then differ between runs of the same setup. An exception shown by default starts with its
+# type, qualified by its module and with its parameters, which the bare name replaces;
+# module names inside the rest of the line, such as those of its field values, stay.
+function _failure_reason(exception)
+    type_name = String(nameof(typeof(exception)))
+    lines = split(sprint(showerror, exception), '\n')
+    qualified_name = string(typeof(exception))
+    first_line = if startswith(lines[1], qualified_name)
+        type_name * chopprefix(lines[1], qualified_name)
+    else
+        lines[1]
+    end
+    message = if _starts_with_word(first_line, type_name)
+        rstrip(first_line)
+    else
+        rstrip(type_name * ": " * first_line)
+    end
+    if endswith(message, ':')
+        next_index = findnext(line -> !isempty(strip(line)), lines, 2)
+        message = if next_index === nothing
+            rstrip(chop(message))
+        else
+            message * " " * strip(lines[next_index])
+        end
+    end
+    return "the function failed at a time point: " *
+           replace(message, _PATH_IN_MESSAGE => "<path>")
+end
+
 """
     describe_prescribed_plasma(plasma_at, context)
 
@@ -347,7 +412,9 @@ the steps of the run use, except the steps shortened after a failure. A function
 be stored, so the table is the record of it. A table that would exceed the context's
 `max_table_bytes` is thinned: sampled evenly over the time points at as many as fit, and
 marked `thinned`. Without time points, or when the function fails at one, the record is
-marked as not described.
+marked as not described. The `reason` of a failure keeps the type of the exception, without
+its module, and the first line of its message, followed by the next line when it ends in a
+colon, with absolute file paths of two or more parts replaced by `<path>`.
 """
 function describe_prescribed_plasma(plasma_at, context::DescriptionContext)
     record = SettingsRecord("type" => "prescribed PlasmaState", "source" =>
@@ -361,8 +428,7 @@ function describe_prescribed_plasma(plasma_at, context::DescriptionContext)
     first_state = try
         plasma_at(first(context.times))
     catch error
-        return incomplete("the function failed at a time point: " *
-                          sprint(showerror, error))
+        return incomplete(_failure_reason(error))
     end
     first_state isa PlasmaState ||
         return incomplete("the function does not return a PlasmaState")
@@ -373,8 +439,7 @@ function describe_prescribed_plasma(plasma_at, context::DescriptionContext)
     states = try
         [k == 1 ? first_state : plasma_at(t) for (k, t) in enumerate(times)]
     catch error
-        return incomplete("the function failed at a time point: " *
-                          sprint(showerror, error))
+        return incomplete(_failure_reason(error))
     end
     all(s -> s isa PlasmaState, states) ||
         return incomplete("the function does not return a PlasmaState")
@@ -741,7 +806,10 @@ face): the record of a [`PiecewiseConstant`](@ref), or the values at the time po
 `context`, thinned as the tables of the prescribed plasma are. With `points`, the function
 may return a callable of r ([`radial_values`](@ref)): the values are those at `points`, and
 `profile` records the callable (an interpolator by its points), or `profiles` one per
-sampled time where it changes in time.
+sampled time where it changes in time. When the function fails at a time point, the record
+is marked as not described, and its `reason` keeps the type of the exception, without its
+module, and the first line of its message, followed by the next line when it ends in a
+colon, with absolute file paths of two or more parts replaced by `<path>`.
 """
 function describe_prescribed_levels(levels_at, context::DescriptionContext; points = nothing)
     levels_at isa PiecewiseConstant && return describe(levels_at)
@@ -780,8 +848,7 @@ function describe_prescribed_levels(levels_at, context::DescriptionContext; poin
         [collect(Float64, isempty(profiles) ? vcat(v) : radial_values(v, points))
          for v in sampled]
     catch error
-        return incomplete("the function failed at a time point: " *
-                          sprint(showerror, error))
+        return incomplete(_failure_reason(error))
     end
     record["time_count"] = length(context.times)
     record["values"] = _plain(stack(values))
