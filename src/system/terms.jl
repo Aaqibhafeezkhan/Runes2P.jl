@@ -151,9 +151,13 @@ jacobian_assembly(::EquationTerm) = :automatic
     prepare_step!(term, u_old, layout, row, t)
 
 Called with the state at the start of the step before every evaluation of the residual
-([`residual!`](@ref)), and with the state itself in the ODE form ([`rhs!`](@ref)). A term
-with a part lagged to the previous time level inside an implicit term (the knock-on term
-with `treatment = :explicit_primary`) evaluates that part here. Nothing by default.
+([`residual!`](@ref)), and with the state itself in the ODE form ([`rhs!`](@ref)).
+[`fill_initial_values!`](@ref) calls it for the terms of the rows it fills, with the state
+and the time it is given, before the fill. The construction of an [`EquationSystem`](@ref)
+calls it with the initial state for a [`KineticEnergyLossTerm`](@ref) of a source with
+`lagged = :all` that was never prepared. A term with a part lagged to the previous time
+level inside an implicit term (the knock-on term with `treatment = :explicit_primary`)
+evaluates that part here. Nothing by default.
 
 A term with a lagged part, evaluated on its own outside a system, takes that part from the
 state of its last preparation, whatever state is passed. Before any preparation, the
@@ -164,6 +168,10 @@ coefficients of the operator they were built with, and a Fokker-Planck term with
 ions takes the ions of the state.
 """
 prepare_step!(::EquationTerm, u_old, layout, row, t) = nothing
+
+# the preparation of a term at the initial state of a system when it builds the prototype
+# of its Jacobian: nothing by default, a method for the lagged energy loss
+_prepare_for_prototype!(::Any, u, layout, row, t) = nothing
 
 """
     add_jacobian!(J, term, u, layout, row, t)

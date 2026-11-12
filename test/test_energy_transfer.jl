@@ -140,9 +140,8 @@ using SparseArrays: findnz, sparse
                 @test abs(JL[T_row, column] - difference) <= 1e-8 * abs(difference)
             end
         end
-        # lagged in a step: the Newton residual prepares the terms at the start of the step
-        # u_old, and the loss row holds the columns of f alone. u_old is hotter than the
-        # iterate, so that the columns of f tell the plasma of u_old from that of the iterate.
+        # the plasma lagged: the system builds a loss of its own, and `loss` on the same
+        # collisions, outside the system, is never prepared by it
         collisions = fp(:all)
         lagged = system(:all, collisions)
         loss = free_electron_energy_transfer_term(collisions)
@@ -165,6 +164,9 @@ using SparseArrays: findnz, sparse
             @test loss_J[T_row, column] != 0
             @test prototype[T_row, column] == loss_J[T_row, column]
         end
+        # lagged in a step: the Newton residual prepares the terms at the start of the step
+        # u_old, and the loss row holds the columns of f alone. u_old is hotter than the
+        # iterate, so that the columns of f tell the plasma of u_old from that of the iterate.
         u_old, dt = copy(hotter), 1e-6
         residual!(zeros(length(u)), u, u_old, lagged, 0.0, dt)
         J = jacobian_prototype(lagged)

@@ -124,7 +124,7 @@ With the radial entries and corners declared for this case, which fills none of 
 The terms with automatic assembly share one coloring, and each color is one directional derivative of their residuals ([`jacobian_colors`](@ref)).
 An evaluation in dual numbers carries up to 12 colors.
 A row that reads many cells of a radius would take a color per cell.
-Such rows are assembled directly, among them the moments of the density and the current and the flux through the interface of two momentum grids.
+Such rows are assembled directly, among them the moments of the density, the current and the energy and the flux through the interface of two momentum grids.
 The case has 17 colors, two evaluations; with the interface rows colored it would have 33, three evaluations.
 A moment keeps the positions and weights of its row for the pattern of the matrix, so a later assembly only adds values.
 

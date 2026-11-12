@@ -68,11 +68,13 @@ control of the adaptive steppers ([`StepDoubling`](@ref), [`StepController`](@re
 
 The construction evaluates the implicit `:sparse` terms once, at the state `initial_state`
 (the zero state by default) and the time `initial_time`, for the structure of the stored
-Jacobian. Set `initial_time` to the start of the run when a term is defined only on the
-run's time interval (the `plasma_at` of a [`prescribed_fokker_planck_term`](@ref)), and
-`initial_state` to the initial state when a term needs a valid state, such as a
-Fokker-Planck term whose plasma reads the temperature from an unknown
-([`PlasmaFromUnknowns`](@ref)).
+Jacobian. A [`KineticEnergyLossTerm`](@ref) of a source with `lagged = :all` that was never
+prepared is prepared there at `initial_state` ([`prepare_step!`](@ref)) before its block is
+assembled; one prepared before keeps its plasma. Set `initial_time` to the start of the run
+when a term is defined only on the run's time interval (the `plasma_at` of a
+[`prescribed_fokker_planck_term`](@ref)), and `initial_state` to the initial state when a
+term needs a valid state, such as a Fokker-Planck term whose plasma reads the temperature
+from an unknown ([`PlasmaFromUnknowns`](@ref)).
 """
 struct EquationSystem{
     T, S <: Tuple, M <: Tuple, X <: Tuple, C <: Tuple, D <: Tuple, K <: Tuple, F, P, B}
@@ -371,7 +373,7 @@ function EquationSystem(layout::UnknownLayout{T}, equations::AbstractVector;
         end
         _merge_jacobian!(prototype, automatic_jacobian, automatic_positions)
         for bound in direct_tuple
-            _prepare_prototype!(bound.term, x0, layout, bound.row, T(initial_time))
+            _prepare_for_prototype!(bound.term, x0, layout, bound.row, T(initial_time))
         end
         _add_jacobians!(prototype, direct_tuple, x0, layout, T(initial_time))
         _add_plasma_columns!(prototype, column_tuple, x0, layout, T(initial_time))

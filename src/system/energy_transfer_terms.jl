@@ -52,10 +52,10 @@ region whose limit follows the temperature adds the column of its envelope.
 A lagged plasma (`lagged = :all` of `source`) is that of the last [`prepare_step!`](@ref)
 of the term, which [`residual!`](@ref) and the right-hand side of the system call before
 every evaluation, and which the system calls with its initial state for a term never
-prepared when it builds the prototype of its Jacobian. A term evaluated on its own reads the plasma of its last
-preparation, by whatever system or call made it, and a term never prepared throws an
-`ArgumentError`. Lagged ion densities alone are those of the last `prepare_step!` of
-`source`, or those of the state when `source` was never prepared.
+prepared when it builds the prototype of its Jacobian. A term evaluated on its own reads
+the plasma of its last preparation, by whatever system or call made it, and a term never
+prepared throws an `ArgumentError`. Lagged ion densities alone are those of the last
+`prepare_step!` of `source`, or those of the state when `source` was never prepared.
 """
 struct KineticEnergyLossTerm{F <: FokkerPlanckTerm, E} <: EquationTerm
     kinetic::Symbol
@@ -142,8 +142,7 @@ end
 # A system builds the prototype of its Jacobian before any step: a lagged loss that no step
 # has prepared takes the initial state there as the start of the step. A loss prepared
 # before, by another system or call, keeps its plasma.
-_prepare_prototype!(::Any, u, layout, row, t) = nothing
-function _prepare_prototype!(term::KineticEnergyLossTerm, u, layout, row, t)
+function _prepare_for_prototype!(term::KineticEnergyLossTerm, u, layout, row, t)
     if _is_lagged(term.source) && term.lagged_plasma[] === nothing
         prepare_step!(term, u, layout, row, t)
     end
