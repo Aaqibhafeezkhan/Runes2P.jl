@@ -65,6 +65,67 @@ using Random: MersenneTwister
               κ^2 * I1 / (2κ * I0 + κ^2 * I1) rtol = 0.02
     end
 
+    @testset "mean pitch of a beam on the 15-cell biuniform θ grid" begin
+        # f ∝ e^{κξ} has the exact mean pitch ⟨ξ⟩ = coth κ − 1/κ, and the moments give
+        # ⟨ξ⟩ = Σ w_j f_j / Σ Δξ_j f_j. f_j are the cell averages of e^{κ(ξ−1)} (the
+        # finite-volume unknown; the shift by 1 keeps e^{κξ} finite) or its values at the
+        # cell centres. The grid has 10 cells of Δθ = 0.05 within θ = 0.5 of ξ = 1 and 5 cells
+        # of Δθ ≈ 0.53 below; its last cell is 1.25e-3 wide in ξ. κ runs from a broad beam
+        # (κ = 1, 1 − ⟨ξ⟩ = 0.69) through a beam that ends at the split of the grid (κ ≈ 10,
+        # pitch-angle width √(2/κ) ≈ 0.45) to a beam inside the last cells (κ ≈ 800 has
+        # 1 − ⟨ξ⟩ of one width of the last cell).
+        function mean_pitch(m, f, rule)
+            current = sum(pitch_moment_weights(m; pitch_rule = rule) .* f)
+            return current / sum(f .* m.xi_widths)
+        end
+        function mean_pitch_error(m, f, rule, κ)
+            return mean_pitch(m, f, rule) / (coth(κ) - 1 / κ) - 1
+        end
+        function beam_samples(m, κ)
+            lower, upper = m.xi_faces[1:(end - 1)], m.xi_faces[2:end]
+            averages = @. (exp(κ * (upper - 1)) - exp(κ * (lower - 1))) / (κ * m.xi_widths)
+            return (; averages, centres = exp.(κ .* (m.xi_centers .- 1)))
+        end
+        m = MomentumGrid(uniform_p_faces(2, 0.0, 1.0), biuniform_theta_xi_faces(15, 10, 0.5))
+        # measured relative errors of ⟨ξ⟩ against coth κ − 1/κ: κ, then :linear and
+        # :cell_center on cell averages, then :linear and :cell_center on centre values
+        measured = [
+            (1, 1.105e-3, -4.429e-2, 4.216e-3, -4.146e-2),
+            (3, 7.616e-3, -4.260e-2, 2.300e-2, -2.910e-2),
+            (10, 2.345e-2, -3.034e-2, 5.794e-2, -2.099e-3),
+            (30, 1.233e-2, -4.242e-3, 1.932e-2, 2.701e-3),
+            (100, 9.000e-5, -4.147e-4, 2.952e-4, -2.063e-4),
+            (300, 1.799e-4, -4.080e-4, 4.015e-4, -1.967e-4),
+            (1000, 4.538e-4, -3.750e-4, 7.476e-4, -1.347e-4),
+            (3000, 6.400e-4, -3.504e-4, 7.082e-4, -2.958e-4)]
+        for (κ, avg_linear, avg_center, centre_linear, centre_center) in measured
+            samples = beam_samples(m, κ)
+            @test mean_pitch_error(m, samples.averages, :linear, κ) ≈ avg_linear rtol = 0.01
+            @test mean_pitch_error(m, samples.averages, :cell_center, κ) ≈ avg_center rtol = 0.01
+            @test mean_pitch_error(m, samples.centres, :linear, κ) ≈ centre_linear rtol = 0.01
+            @test mean_pitch_error(m, samples.centres, :cell_center, κ) ≈ centre_center rtol = 0.01
+        end
+        # on cell averages :linear lies above the exact mean pitch at every κ and
+        # :cell_center below it; with the beam inside the last cells :linear gives ⟨ξ⟩ > 1
+        narrow = beam_samples(m, 3000).averages
+        @test mean_pitch(m, narrow, :linear) > 1
+        @test mean_pitch(m, narrow, :cell_center) < 1
+        # the errors are those of the rules, not of the reference: refining the grid (15r
+        # cells, 10r near ξ = 1) at κ = 10 lowers the error of :cell_center by 4 per doubling
+        # (4.03 and 4.01 measured for r = 2, 4, 8) and that of :linear on cell averages by more
+        # than second order (12.8 and 14.6 measured)
+        bounds = (; linear = (12.0, 16.5), cell_center = (3.8, 4.2))
+        for rule in (:linear, :cell_center)
+            errors = map((2, 4, 8)) do refinement
+                fine = MomentumGrid(uniform_p_faces(2, 0.0, 1.0),
+                    biuniform_theta_xi_faces(15refinement, 10refinement, 0.5))
+                return mean_pitch_error(fine, beam_samples(fine, 10).averages, rule, 10)
+            end
+            low, high = bounds[rule]
+            @test all(low .< errors[1:2] ./ errors[2:3] .< high)
+        end
+    end
+
     @testset "current density of a Spitzer-like distribution" begin
         rad = RadialGrid(uniform_r_faces(2, 0.5))
         mom = MomentumGrid(biuniform_p_faces(50, 30, 0.0, 0.05, 0.6), biuniform_theta_xi_faces(15, 10, 0.5))
