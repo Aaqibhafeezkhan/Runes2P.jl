@@ -50,13 +50,17 @@ from its Jacobian alone (`enableIonJacobian(False)`, `examples/Disruptions/gener
   [`prepare_step!`](@ref), with the prescribed part of the plasma at the time of the
   evaluation. The term is linear in `f` within a step and its block is exact. In the ODE
   form ([`rhs!`](@ref) of the system, the SciML interface) `prepare_step!` sees the state
-  itself, so the term is implicit there.
+  itself, so the term is implicit there. A term evaluated on its own keeps the
+  coefficients of its last preparation, or those of `operator` when it was never
+  prepared.
 - `lagged = :ions` (the default, a choice of this package; see the docs page *Choices of
   this package*): the ion densities of the plasma when it reads them, no group otherwise.
   A term that lags them is of first order under BDF2, and `ode_function` passes no Jacobian
   for a system with it ([`lags_in_ode_form`](@ref)). The kinetic ionization and a corrected
   conductivity read the charge states of the iterate, so within a step the ions enter the
   collisions of `f` and those terms at two states, a difference of first order in the step.
+  A term evaluated on its own takes the ion densities of its last [`prepare_step!`](@ref),
+  or those of the state when it was never prepared.
 - `lagged = ()`: nothing lagged; the columns of the charge states are part of the plasma
   columns.
 - `lagged = (:ion_densities,)`: the ion densities by name, as `:ions` for that unknown.

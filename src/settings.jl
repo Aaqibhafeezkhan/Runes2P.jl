@@ -1146,6 +1146,10 @@ function describe(term::DensityMomentTerm, context::DescriptionContext)
     return _describe_region!(record, term.envelopes, context)
 end
 
+function settings_fields(::Type{<:EnergyMomentTerm})
+    (described = (:kinetic, :coefficient, :envelopes), derived = (:row_cache,))
+end
+
 function describe(term::EnergyMomentTerm, context::DescriptionContext)
     record = _term_record(term)
     record["kinetic"] = String(term.kinetic)

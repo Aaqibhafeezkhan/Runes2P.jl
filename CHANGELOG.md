@@ -31,6 +31,10 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Changed
 
+- A `KineticEnergyLossTerm` whose source lags the whole plasma (`lagged = :all`) throws an `ArgumentError` naming `prepare_step!` when it is evaluated on its own before any preparation ([#264](https://github.com/osrep/Runes2P.jl/pull/264)).
+  Until now it read the plasma of the state.
+  An `EquationSystem` prepares such a term at its initial state when it is built, unless the term was prepared before.
+  The results of a run do not change.
 - `InterfaceParticleFluxTerm` and `InterfaceEnergyFluxTerm` assemble their row of the Jacobian directly, from the flux in dual numbers seeded on the cells at the face and the field ([#239](https://github.com/osrep/Runes2P.jl/pull/239)).
   The stored pattern and the partials of the term are unchanged.
   An entry that the term shares with two or more other terms is summed in another order and changes at round-off, and the results with it.

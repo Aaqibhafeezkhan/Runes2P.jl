@@ -48,6 +48,14 @@ operators of the plasma, collision settings, scheme and boundaries of `source`:
 The term takes the plasma of `source` in the same treatment: implicit, with the columns of
 the temperature and density unknowns, or lagged at the state of the start of the step. A
 region whose limit follows the temperature adds the column of its envelope.
+
+A lagged plasma (`lagged = :all` of `source`) is that of the last [`prepare_step!`](@ref)
+of the term, which [`residual!`](@ref) and the right-hand side of the system call before
+every evaluation, and which the system calls with its initial state for a term never
+prepared when it builds the prototype of its Jacobian. A term evaluated on its own reads
+the plasma of its last preparation, by whatever system or call made it, and a term never
+prepared throws an `ArgumentError`. Lagged ion densities alone are those of the last
+`prepare_step!` of `source`, or those of the state when `source` was never prepared.
 """
 struct KineticEnergyLossTerm{F <: FokkerPlanckTerm, E} <: EquationTerm
     kinetic::Symbol
@@ -131,13 +139,29 @@ function prepare_step!(term::KineticEnergyLossTerm, u_old, layout, row, t)
     return nothing
 end
 
+# A system builds the prototype of its Jacobian before any step: a lagged loss that no step
+# has prepared takes the initial state there as the start of the step. A loss prepared
+# before, by another system or call, keeps its plasma.
+function _prepare_for_prototype!(term::KineticEnergyLossTerm, u, layout, row, t)
+    if _is_lagged(term.source) && term.lagged_plasma[] === nothing
+        prepare_step!(term, u, layout, row, t)
+    end
+    return nothing
+end
+
 # the plasma of the collisions: of the state, of the start of the step, or that of the
 # operator when the source has none
 function _transfer_plasma(term::KineticEnergyLossTerm, u, layout, t)
     plasma = term.source.plasma
     plasma === nothing && return term.source.operator.coefficient_source[].plasma
-    _is_lagged(term.source) && term.lagged_plasma[] !== nothing &&
+    if _is_lagged(term.source)
+        if term.lagged_plasma[] === nothing
+            throw(ArgumentError("the plasma of the start of the step of the lagged energy loss is not set: it is " *
+                                "set by residual! and by the right-hand side of the system, and a term " *
+                                "evaluated on its own is prepared with prepare_step! first"))
+        end
         return term.lagged_plasma[]::PlasmaState
+    end
     return _fokker_planck_plasma(term.source, u, layout, t)
 end
 
