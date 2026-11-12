@@ -452,6 +452,9 @@ _is_plain(x) = false
         domain_error = DomainError(0.0, "outside the table")
         @test occursin('\n', sprint(showerror, domain_error))
         @test reason_of(domain_error) == prefix * "DomainError with 0.0: outside the table"
+        # trailing spaces go, and so does a last colon that no line follows
+        @test reason_of(ErrorException("")) == prefix * "ErrorException"
+        @test reason_of(DomainError(-1.0)) == prefix * "DomainError with -1.0"
         # a message that only begins with the letters of the type's name gets the type
         @test reason_of(ErrorException("ErrorExceptionish thing")) ==
               prefix * "ErrorException: ErrorExceptionish thing"
@@ -464,6 +467,13 @@ _is_plain(x) = false
               prefix * "ErrorException: no table in <path>"
         @test reason_of_message("no table in C:\\tables\\rates.h5") ==
               prefix * "ErrorException: no table in <path>"
+        # the doubled backslashes of a path printed with `repr`, as in Julia's own messages
+        @test reason_of_message("no table in " * repr("C:\\tables\\rates.h5")) ==
+              prefix * "ErrorException: no table in \"<path>\""
+        system_error = SystemError("opening file " * repr("C:\\Users\\name\\x.h5"), 2)
+        @test occursin("C:\\\\Users", sprint(showerror, system_error))
+        @test reason_of(system_error) ==
+              prefix * "SystemError: opening file \"<path>\": " * Libc.strerror(2)
         @test reason_of_message("see https://example.com/tables/rates.h5") ==
               prefix * "ErrorException: see https://example.com/tables/rates.h5"
         @test reason_of_message("no table in PATH=/data/a:/data/b") ==
