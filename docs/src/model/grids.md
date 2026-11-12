@@ -62,7 +62,8 @@ The two pitch rules of [`pitch_moment_weights`](@ref), `:linear` (the default) a
 `test/test_moments.jl` measures the mean pitch ``\langle\xi\rangle`` of a beam ``f \propto e^{\kappa\xi}``, exactly ``\coth\kappa - 1/\kappa``.
 The grid is `biuniform_theta_xi_faces(15, 10, 0.5)`, the pitch grid of `grid=biuniform_270` of the examples ([Choices of this package](../choices.md)), whose last cell is ``1.25 \times 10^{-3}`` wide in ``\xi``.
 The values of ``f`` are its cell averages, since the unknown of the finite-volume scheme is the average of ``f`` over a cell.
-The second order that [`pitch_moment_weights`](@ref) states for `:linear` is for values of ``f`` at the cell centres, which the list below gives on this grid only.
+The second order that [`pitch_moment_weights`](@ref) states for `:linear` is for values of ``f`` at the cell centres.
+The list below gives the errors with such values on this grid; they are not refined here.
 The table gives the error of each rule relative to the exact ``\langle\xi\rangle``.
 
 | ``\kappa`` | exact ``\langle\xi\rangle`` | `:linear` | `:cell_center` |

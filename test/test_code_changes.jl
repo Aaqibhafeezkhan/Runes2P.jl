@@ -16,7 +16,8 @@ using Test
 
 const SCRIPT = joinpath(dirname(@__DIR__), "scripts", "code_changes.jl")
 
-# the file of `DOCSTRINGS_READ_BY_TESTS` in the script
+# the file of `DOCSTRINGS_READ_BY_TESTS` in the script, copied by hand: a change of that list
+# fails this test, which then takes the new file
 const DOCSTRING_READ_BY_A_TEST = "src/physics/ionization_chianti_fits.jl"
 
 function git(repo, arguments...)
