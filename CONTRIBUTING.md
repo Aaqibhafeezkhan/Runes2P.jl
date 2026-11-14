@@ -4,7 +4,7 @@ These rules hold for every contribution, by people and by coding agents alike.
 
 ## Branches and pull requests
 
-This section holds the branches, the checks of a pull request, its merge and its entry in the changelog.
+The rules below cover the branches, the checks of a pull request, its review, its merge, its size and its entry in the changelog.
 
 - Development happens on the branch `dev`.
   Pull requests go to `dev`, or to an integration branch (below).
@@ -42,10 +42,10 @@ This section holds the branches, the checks of a pull request, its merge and its
   Tests, reference data and documentation do not count.
   Above that size, the description of the pull request says why the change cannot be split.
   The usual split is a series of pull requests into `dev` that each pass the full suite on their own, or the steps of an integration branch.
-  For example: the data layout, then the operator, then the solver wiring with its tests.
+  An example of such a series is the data layout, then the operator, then the solver wiring with its tests.
 - A larger change may collect its steps on an integration branch `feat/<topic>` off `dev`.
   The steps are branches of the other types (`fix/…`, `perf/…`, `test/…`, `docs/…`, `chore/…`), with pull requests into the integration branch.
-- A step runs the checks of `CI.yml`.
+- A step of an integration branch runs the checks of `.github/workflows/CI.yml`.
   When it changes code, as `scripts/code_changes.jl` decides, its author also runs `test/test_regression_values.jl` at `-O2` and the test files of the code it changes.
   The step merges with a merge commit once these pass.
   The full suite runs on the integration branch by hand every few steps, and on its pull request into `dev`, which the maintainer reviews and merges.
@@ -58,7 +58,7 @@ This section holds the branches, the checks of a pull request, its merge and its
 
 ## Running the tests
 
-From the root of a checkout:
+The commands below run the tests from the root of a checkout, and the paragraphs after them name the data that some tests need.
 
 ```sh
 julia --project=. -e 'using Pkg; Pkg.test()'                                   # every group
@@ -76,32 +76,42 @@ The docstring of `scripts/fetch_adas.py` has the details.
 
 ## Building the documentation
 
+The commands below build the documentation, and the paragraph after them says what fails the build.
+
 ```sh
 julia --project=docs -e 'using Pkg; Pkg.instantiate()'   # once
 julia --project=docs docs/make.jl
 ```
 
-The build is strict: a public name (exported or declared `public`) without a docstring or an unresolved `@ref` link fails it.
+The build is strict.
+A public name (exported or declared `public`) without a docstring fails it, and so does an unresolved `@ref` link.
 A new source file goes into the table `CATEGORIES` of `docs/make.jl`.
 The header of `docs/make.jl` gives the command of a live local preview.
 
 ## Code and comments
 
-- The code is formatted with JuliaFormatter 2.14.0 and the `.JuliaFormatter.toml` of the root (SciML style): `julia -e 'using JuliaFormatter; format(".")'` at the root of a checkout, and CI checks it.
+- The code is formatted with JuliaFormatter 2.14.0 and the `.JuliaFormatter.toml` of the root (SciML style).
+  The command is `julia -e 'using JuliaFormatter; format(".")'` at the root of a checkout.
+  CI checks the format.
 - The code explains itself.
-  Comments and docstrings state what the code does and why.
-- The code does not refer to issues, pull requests or commits.
+  Comments and docstrings state what the code does and why, not how it came to be (section "Writing", below).
+- Code, comments and docstrings do not refer to issues, pull requests or commits.
 - Longer reasons go on the pages of the documentation, not into comments.
 - A value or default that neither DREAM's examples nor a cited reference fixes is marked "a choice of this package" where it is set.
   It gets a row on the docs page [Choices of this package](docs/src/choices.md).
-- Performance and accuracy are weighed together: a change that affects either one states what it costs and what it gains, from a measurement.
+- Performance and accuracy are weighed together.
+  A change that affects either one states what it costs and what it gains, from a measurement.
   A change that makes a run significantly slower gives its reason in its pull request and is optimized there as far as it can be.
   An issue takes the rest, with suggestions.
   The docs page [Performance and accuracy](docs/src/performance.md) has the guidelines and the details of the hot paths.
 - Every public name (exported or declared `public`) has a docstring of its own.
-  A docstring is a string literal: a LaTeX backslash is written twice (`\\partial`), formulas go into math (```` ```math ```` blocks, ``` ``…`` ``` inline), and `@ref` links point to documented names only.
+  A docstring is a string literal, so a LaTeX backslash is written twice (`\\partial`).
+  Formulas go into math (```` ```math ```` blocks, ``` ``…`` ``` inline).
+  `@ref` links point to documented names only.
 
 ## Names
+
+The rules below cover the names, keywords and fields that users see, the short forms and the order of arguments.
 
 - A public name (exported or declared `public`) has one meaning, and a concept has one spelling in the names, keywords and fields that users see.
   Settled spellings include `coulomb_logarithm`, `kinetic_ionization`, `ionization_cross_section_form`, `free_electron_density` and `temperature`.
@@ -138,7 +148,8 @@ The formatter sets the layout only, so the reviews check these rules, helped by 
   A negated equality is written `a != b` or `a !== b`.
 - An `if` that gives one variable its value is written `x = if ... else ... end`, unless a conditional expression `a ? b : c` of one line fits.
   An `if` that gives the value of a function has a `return` in each branch.
-- A line holds one statement: no `;` joins two statements, and no assignment sits inside an expression.
+- A line holds one statement, so no `;` joins two statements.
+  No assignment sits inside an expression.
 - A conditional expression `a ? b : c` chooses between two simple values, short enough for one line, and is never nested.
 - An intermediate quantity gets a name, the name of the physical quantity where there is one, instead of a long chain of calls or broadcasts.
   A line that transcribes a cited formula may stay one expression, so that it can be compared with its source.
@@ -178,43 +189,61 @@ The formatter sets the layout only, so the reviews check these rules, helped by 
 ## Writing
 
 These rules hold for the pages of `docs/src/`, the README files, docstrings and comments where they hold prose, the descriptions of pull requests, and the text of issues and of their comments.
+They hold for this file and for new entries of `CHANGELOG.md` too.
+New and changed text follows these rules.
 
-- A sentence makes one statement, and a semicolon does not join two clauses.
-  Where one natural sentence reads better than two, it stays one.
+- A sentence makes one statement.
+  Two clauses with the same subject may stay one sentence, joined by "and".
+  In prose, outside code, math and citations, no semicolon joins two clauses.
+  In a table, a semicolon may separate alternatives in a cell.
+- A value is a number with its unit, measured or set.
+  Names, equation numbers, citations and numbers inside a formula are not values.
+  A condition, such as "at 120 eV", is not a value either.
 - A sentence holds at most two values of a kind.
   Three or more values of a kind go into a table.
-  A condition, such as "at 120 eV", is not a value.
-- A list item is a sentence and ends with a period.
-  Where the items would be bare noun phrases, one sentence takes them instead.
+  In a comment or a docstring, where no table fits, a list takes the place of the table.
+- A list item is one or more full sentences, each ending with a period.
+  An item may start with a label and a colon.
+  A list of bare names, files or links is a list of names, and its items take no periods.
+  A sentence is not cut into list items.
+  An enumeration of other things than values becomes a list only when each item is a sentence.
 - A paragraph holds one topic in at most five sentences.
-- A page or a long section starts with one or two sentences on what it holds.
-- A sentence names its subject instead of reaching it through a chain of "of".
-  "It" and "that" point to the previous sentence only.
-- A name, a symbol or an abbreviation is defined at its first use on a page, or linked there.
-  Nothing is used before it is defined.
+- A page starts with one or two sentences on what it holds.
+  So does a section of more than about twenty lines, its tables counted.
+- A sentence names its subject instead of reaching it through a chain of three or more "of".
+- A sentence that opens with "it", "this" or "that" refers to the sentence before it.
+- A name, a symbol or an abbreviation is defined where it is first used on a page, in the same sentence or the next, or it is linked.
+  An API name linked with `@ref` counts as linked.
+  A reference forward says "(below)".
 - A difference names its kind, relative or absolute, and what it is divided by, once per section.
   An example is "|Runes2P − DREAM| divided by DREAM's largest value at the radius".
   A signed deviation is written (value − reference) / reference.
 - A table has one convention for its differences, or a column "Reference".
-- A table cell holds a value, a name or a short phrase, and what its column header says.
-  Reasons, citations and tests go into notes below the table.
+- A table cell holds what its column header says, as a value, a name or a short phrase.
+  A column may hold reasons, sources or tests when its header says so and its cells stay short.
+  What is too long for a short phrase goes into a note below the table.
   When prose becomes a table, each cell is checked against its header.
 - A count says how it counts when that is not obvious.
-- A number has one owning page, and other pages link to it.
-  Where the reader needs the number on the spot, it is stated once next to the link.
-- Text describes the code as it is.
-  How it came to be stays out, or goes into [`CHANGELOG.md`](CHANGELOG.md) when the change is one that users see.
+- A number has one owning page, a page of `docs/src/`.
+  Other pages link to that page.
+  Where the reader needs the number on the spot, the number is stated once next to the link.
+  The comments of the tests may repeat the number.
+- The pages of `docs/src/`, the README files, docstrings and comments describe the code as it is.
+  How the code came to be stays out of them, or goes into [`CHANGELOG.md`](CHANGELOG.md) when the change is one that users see.
 - A page explains what its reader needs and does not reproduce the comments of the tests.
 - GitHub renders headings and tables in pull requests, issues and comments.
-  So the description of a pull request has a heading for each part, such as built, results, tests, decisions and open.
+  The description of a pull request has a heading for each part, as the template `.github/PULL_REQUEST_TEMPLATE.md` gives.
   A part is not one long paragraph.
-  A description, an issue or a comment puts its numbers in tables.
 
 ## Markdown
 
 These rules hold for the markdown files of the repository, except those of `.github/` and `THIRD_PARTY_NOTICES.md`.
+The files of `.github/` keep one paragraph per line, as the text of pull requests and issues does.
 
-- A line holds one sentence, and no line break falls inside a sentence.
+- A line holds one sentence.
+- No line break falls inside a sentence.
 - A sentence has at most 200 characters.
   A longer one is split into shorter sentences or into a list of sentences.
+- No second sentence stands inside parentheses.
 - `python3 scripts/lint_markdown.py <file> ...` checks these rules.
+  It skips code blocks, tables, headings, quotes and comments.
