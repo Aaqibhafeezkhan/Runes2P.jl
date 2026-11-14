@@ -67,7 +67,7 @@ Above the matching energy ``E_m =`` [`CHIANTI_MATCHING_ENERGY`](@ref) the cross 
 A cubic weight in ``\ln E`` from ``E_m/2`` to ``2 E_m`` joins it to the fit with its relativistic rise.
 The elements without CHIANTI data in [`CHIANTI_IONIZATION_FITS`](@ref) keep DREAM's form.
 `form = :dream` takes DREAM's form for every element.
-`form = :bethe` takes DREAM's form with the factor ``1/\beta^2`` ([Atomic data](model/atomic-data.md)).
+`form = :bethe` takes DREAM's form with the factor ``1/\beta^2`` on its relativistic Bethe term, and refitted parameters ([Atomic data](model/atomic-data.md)).
 
 The spectrum of the secondaries is the binary-encounter-Bethe spectrum of Y.-K. Kim and M. E. Rudd, Physical Review A 50, 3954 (1994), [doi:10.1103/PhysRevA.50.3954](https://doi.org/10.1103/PhysRevA.50.3954).
 It takes the ionization energy of a charge state as its binding energy.
@@ -238,7 +238,7 @@ Its options and their values are in the table, with one note per row below it.
   `generate.py` runs scenario 0 by default, which `--scenario 0` reproduces.
 - Elongation: the cylinder of Runes2P has no shaping.
   `ASDEXU.py` takes an elongation linear from 1.0 to 1.15 in the radius, which `--elongation asdexu` reproduces.
-- Steps of phase 1: the case passes `--nt-ioniz 500` explicitly, together with `--elongation 1`.
+- Steps of phase 1: the case passes `--nt-ioniz 500` explicitly, at the default `--elongation 1`.
   The default of the script stays the 200 steps of scenario 1.
   Each step of phase 1 is then 4e-8 s instead of 1e-7 s.
   With 200 steps DREAM's first step fails in runs with `--linear-solver mkl`, also when retried, since its Newton iteration meets a non-finite value (`brent.c:69: computed function value is infinite or NaN`).
@@ -312,7 +312,7 @@ The table gives the window of the test at the reduced size.
 | time of the scenario at that step | 131.0 µs | 130 to 150 µs |
 | runaway share of the plasma current at that step | 5.9 % | 1 to 10 % |
 | steps | 10 | - |
-| DREAM's wall time of the whole chain at the reduced size | 10.5 s | - |
+| run time of the whole chain of the case script at the reduced size | 10.5 s | - |
 | test data of the window | 95.9 kB | - |
 
 - The window starts where `f_re` carries part of the current.
