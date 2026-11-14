@@ -176,8 +176,8 @@ DREAM's default is `AD_INTERP_CENTRED` (DREAM's `py/DREAM/Settings/Equations/Dis
 `scheme=central` matches it ([Defaults that differ](dream-comparison.md#Defaults-that-differ)).
 DREAM's other choices include the flux limiters ([Comparison with DREAM](dream-comparison.md#Kinetic-options)).
 
-The stored Jacobian, or stored matrix, is the matrix of the implicit terms that the solver assembles ([The step](model/time-stepping.md#The-step)).
-[`SparseLU`](@ref) factorizes it, and the preconditioners of [`GMRES`](@ref) factorize it in blocks ([Linear solvers and preconditioners](model/time-stepping.md#Linear-solvers-and-preconditioners)).
+The stored Jacobian, or stored matrix, is the Jacobian of the implicit terms that have a stored Jacobian, which the solver assembles ([The step](model/time-stepping.md#The-step)).
+[`SparseLU`](@ref) factorizes the Newton matrix built from it, and the preconditioners of [`GMRES`](@ref) factorize the stored matrix in blocks ([Linear solvers and preconditioners](model/time-stepping.md#Linear-solvers-and-preconditioners)).
 
 - `jacobian=exact` takes the exact Jacobian by automatic differentiation.
 - `jacobian=frozen_limiter` freezes the limiter at the iterate (DREAM `AD_INTERP_JACOBIAN_LINEAR`).
@@ -203,7 +203,7 @@ The examples set three keywords of [`GMRES`](@ref) differently from its defaults
 | Switch | Keyword of [`GMRES`](@ref) | Default of the examples | Default of [`GMRES`](@ref) |
 |---|---|---|---|
 | `preconditioner=` | `preconditioner` | [`RadiusBlockLU`](@ref) | [`FluidSchurLU`](@ref) |
-| `refresh=` | `preconditioner_refresh` | `every_step` | `:every_iteration` |
+| `refresh=` | `preconditioner_refresh` | `:every_step` | `:every_iteration` |
 | `restart=` | `restart_length` | 30 | 50 |
 
 `operator=` matters only for a term whose block of the stored Jacobian approximates its Jacobian ([`jacobian_kind`](@ref)), such as a limiter with a `jacobian=` other than `exact`.
