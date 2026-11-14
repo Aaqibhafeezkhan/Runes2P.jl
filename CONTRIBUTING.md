@@ -4,39 +4,48 @@ These rules hold for every contribution, by people and by coding agents alike.
 
 ## Branches and pull requests
 
+This section holds the branches, the checks of a pull request, its merge and its entry in the changelog.
+
 - Development happens on the branch `dev`.
   Pull requests go to `dev`, or to an integration branch (below).
 - `main` and `dev` change only through pull requests, and only the maintainer merges them.
   `main` is updated from `dev`.
-- A suggestion for branch names: `<type>/<topic>`, with the type one of `fix`, `docs`, `ci`, `test`, `perf` or `chore`.
-  `feat/<topic>` names an integration branch only (below); a new feature in one pull request takes the type of its main change.
+- A suggested branch name is `<type>/<topic>`, with the type one of `fix`, `docs`, `ci`, `test`, `perf` or `chore`.
+  `feat/<topic>` names an integration branch only (below).
+  A new feature in one pull request takes the type of its main change.
   The topic is a few lowercase words joined by hyphens, for example `fix/pmax-boundary`.
 - Open a pull request as a draft while it is in progress.
   The lint, the code style check, the format check, the component tests and the docs build run on every push to a pull request.
   The full suite runs once a pull request into `dev` or `main` is marked ready, and again on every push after that.
-  A pull request that changes no code skips the component tests and the full suite.
-  The skipped check of the component tests counts as passed, and the check of the full suite passes without tests.
-  No code means markdown files, files under `docs/src/`, and Julia files outside `test/` whose code stays the same without docstrings and comments; `scripts/code_changes.jl` decides, and its header lists the exceptions.
   A merge into `dev` or `main` runs the lint, the code style check, the format check and the component tests again, on `dev` with the deployment of the docs in place of the docs build.
   The full suite runs on `dev` once a week.
+- A pull request that changes no code skips the component tests and the full suite.
+  The skipped check of the component tests counts as passed, and the check of the full suite passes without tests.
+  No code means markdown files, files under `docs/src/`, and Julia files outside `test/` whose code stays the same without docstrings and comments.
+  `scripts/code_changes.jl` decides, and its header lists the exceptions.
 - Six checks are required for a merge into `dev` or `main`: Markdown lint, Code style check, Format check, Component tests, Documentation build and Full suite.
   A step into an integration branch requires these checks except the Full suite.
 - A pull request into `dev` must be up to date with `dev`.
-- A pull request into `dev` needs the approval of its latest push by the maintainer; a later push dismisses it.
+- A pull request into `dev` needs the approval of its latest push by the maintainer.
+  A later push dismisses it.
   Coding agents never approve a pull request, and merge one only into an integration branch (below).
 - GitHub deletes the branch of a merged pull request.
 - `dev` takes merge commits or squash merges, no rebase merges.
   `main` takes merge commits only.
 - A pull request merges with a merge commit by default, which keeps its signed commits and suits stacked pull requests.
 - A small fix that needed several commits, with no pull request stacked on it, may suggest a squash merge, with a proposed squash message.
-  Its subject has at most 72 characters, including the ` (#n)` that GitHub appends; its body has at most 6 lines.
-  GitHub pre-fills a `Co-authored-by` line for each co-author of the squashed commits; they stay below the proposed message.
-- A pull request aims at about 500 changed lines in `src/` and `ext/`; tests, reference data and documentation do not count.
-  Above that, its description says why the change cannot be split.
+  Its subject has at most 72 characters, including the ` (#n)` that GitHub appends.
+  The body of the message has at most 6 lines.
+  GitHub pre-fills a `Co-authored-by` line for each co-author of the squashed commits.
+  These lines stay below the proposed message.
+- A pull request aims at about 500 changed lines in `src/` and `ext/`.
+  Tests, reference data and documentation do not count.
+  Above that size, the description of the pull request says why the change cannot be split.
   The usual split is a series of pull requests into `dev` that each pass the full suite on their own, or the steps of an integration branch.
   For example: the data layout, then the operator, then the solver wiring with its tests.
-- A larger change may collect its steps on an integration branch `feat/<topic>` off `dev`; the steps are branches of the other types (`fix/…`, `perf/…`, `test/…`, `docs/…`, `chore/…`) with pull requests into it.
-  A step runs the checks of `CI.yml`.
+- A larger change may collect its steps on an integration branch `feat/<topic>` off `dev`.
+  The steps are branches of the other types (`fix/…`, `perf/…`, `test/…`, `docs/…`, `chore/…`), with pull requests into the integration branch.
+- A step runs the checks of `CI.yml`.
   When it changes code, as `scripts/code_changes.jl` decides, its author also runs `test/test_regression_values.jl` at `-O2` and the test files of the code it changes.
   The step merges with a merge commit once these pass.
   The full suite runs on the integration branch by hand every few steps, and on its pull request into `dev`, which the maintainer reviews and merges.
@@ -58,10 +67,12 @@ julia --project=test test/runtests.jl --files test_grids.jl,test_layout.jl     #
 ```
 
 [`test/README.md`](test/README.md) describes the tiers and groups, the optimisation level, the environment variables and the rules for a new test file.
+
 The tests on OpenADAS data need the cache that `scripts/fetch_adas.py` fills.
 Without it they are skipped and reported as broken.
 The high-density files of hydrogen are not served by OpenADAS and are copied from the `tools/cache` of a DREAM checkout, given with `--dream-cache`.
-A cache without them makes the tests of the cache and of deuterium fail; the docstring of `scripts/fetch_adas.py` has the details.
+A cache without them makes the tests of the cache and of deuterium fail.
+The docstring of `scripts/fetch_adas.py` has the details.
 
 ## Building the documentation
 
@@ -78,13 +89,14 @@ The header of `docs/make.jl` gives the command of a live local preview.
 
 - The code is formatted with JuliaFormatter 2.14.0 and the `.JuliaFormatter.toml` of the root (SciML style): `julia -e 'using JuliaFormatter; format(".")'` at the root of a checkout, and CI checks it.
 - The code explains itself.
-  Comments and docstrings state what the code does and why, not how it came to be.
-- No references to issues, pull requests or commits in the code.
+  Comments and docstrings state what the code does and why.
+- The code does not refer to issues, pull requests or commits.
 - Longer reasons go on the pages of the documentation, not into comments.
 - A value or default that neither DREAM's examples nor a cited reference fixes is marked "a choice of this package" where it is set.
   It gets a row on the docs page [Choices of this package](docs/src/choices.md).
 - Performance and accuracy are weighed together: a change that affects either one states what it costs and what it gains, from a measurement.
-  A change that makes a run significantly slower gives its reason in its pull request and is optimized there as far as it can be; an issue takes the rest, with suggestions.
+  A change that makes a run significantly slower gives its reason in its pull request and is optimized there as far as it can be.
+  An issue takes the rest, with suggestions.
   The docs page [Performance and accuracy](docs/src/performance.md) has the guidelines and the details of the hot paths.
 - Every public name (exported or declared `public`) has a docstring of its own.
   A docstring is a string literal: a LaTeX backslash is written twice (`\\partial`), formulas go into math (```` ```math ```` blocks, ``` ``…`` ``` inline), and `@ref` links point to documented names only.
@@ -93,9 +105,11 @@ The header of `docs/make.jl` gives the command of a live local preview.
 
 - A public name (exported or declared `public`) has one meaning, and a concept has one spelling in the names, keywords and fields that users see.
   Settled spellings include `coulomb_logarithm`, `kinetic_ionization`, `ionization_cross_section_form`, `free_electron_density` and `temperature`.
-- A function that builds a term or another type has a lowercase name, such as `ohmic_heating_term`; a name in CamelCase is a type.
+- A function that builds a term or another type has a lowercase name, such as `ohmic_heating_term`.
+  A name in CamelCase is a type.
 - What users call is exported, also the functions of the term interface that a new term adds methods to and that callers use, such as `rhs!` and `dependencies`.
-  A function that only a new term or operator implements or calls is declared `public`, such as `validate`, `add_local_jacobian!` and `lags_in_ode_form`; the rest stays internal.
+  A function that only a new term or operator implements or calls is declared `public`, such as `validate`, `add_local_jacobian!` and `lags_in_ode_form`.
+  The rest stays internal.
 - Public names, the keywords of their methods and the fields of their types are ASCII, which `test/test_names.jl` checks.
   A local variable may use the Greek symbol of a cited formula.
   A name that becomes exported, public, a keyword or a field users read is renamed to ASCII in every use.
@@ -109,8 +123,9 @@ The header of `docs/make.jl` gives the command of a live local preview.
 
 ## Code style
 
-These rules hold for `src/` and `ext/`, where the physics and the numerics are read and checked; tests, examples and scripts may be denser.
-New and changed code follows them.
+These rules hold for `src/` and `ext/`, where the physics and the numerics are read and checked.
+Tests, examples and scripts may be denser.
+New and changed code follows these rules.
 The formatter sets the layout only, so the reviews check these rules, helped by the script of the last item.
 
 - Control flow is written with `if`.
@@ -123,16 +138,18 @@ The formatter sets the layout only, so the reviews check these rules, helped by 
   A negated equality is written `a != b` or `a !== b`.
 - An `if` that gives one variable its value is written `x = if ... else ... end`, unless a conditional expression `a ? b : c` of one line fits.
   An `if` that gives the value of a function has a `return` in each branch.
-- One statement per line: no `;` between statements, and no assignment inside an expression.
+- A line holds one statement: no `;` joins two statements, and no assignment sits inside an expression.
 - A conditional expression `a ? b : c` chooses between two simple values, short enough for one line, and is never nested.
 - An intermediate quantity gets a name, the name of the physical quantity where there is one, instead of a long chain of calls or broadcasts.
   A line that transcribes a cited formula may stay one expression, so that it can be compared with its source.
-- A comprehension or generator has one level; a nested one, or a `map` or `foreach` whose function takes more than one line, is written as a loop.
-- No composition of functions with `∘` as an operator in code, and no chains of `|>`.
+- A comprehension or generator has one level.
+  A nested one, or a `map` or `foreach` whose function takes more than one line, is written as a loop.
+- Functions are not composed with `∘` as an operator in code, and calls are not chained with `|>`.
 - `python3 scripts/check_code_style.py <file> ...` finds the simplest breaks of these rules.
   It reports an assignment or a call ending in `!` after `&&` or `||`, and a `throw` or `error` after them outside the checks at the start of a function.
   It also reports a nested or two-line `a ? b : c`, a `;` between two statements, a chain of `|>` and `∘` as an operator.
-  CI runs it on the lines a pull request adds, and on every line of `src/` and `ext/` after a push to `dev` or `main`; the reviews check the rest.
+  CI runs it on the lines a pull request adds, and on every line of `src/` and `ext/` after a push to `dev` or `main`.
+  The reviews check the rest.
 
 ## Physics values and their sources
 
@@ -158,9 +175,46 @@ The formatter sets the layout only, so the reviews check these rules, helped by 
 - By default new data goes into a TOML file of `data/`, with the header that [`data/README.md`](data/README.md) describes.
 - Data too large for the repository is published as an artifact instead, as the reference sets are.
 
+## Writing
+
+These rules hold for the pages of `docs/src/`, the README files, docstrings and comments where they hold prose, the descriptions of pull requests, and the text of issues and of their comments.
+
+- A sentence makes one statement, and a semicolon does not join two clauses.
+  Where one natural sentence reads better than two, it stays one.
+- A sentence holds at most two values of a kind.
+  Three or more values of a kind go into a table.
+  A condition, such as "at 120 eV", is not a value.
+- A list item is a sentence and ends with a period.
+  Where the items would be bare noun phrases, one sentence takes them instead.
+- A paragraph holds one topic in at most five sentences.
+- A page or a long section starts with one or two sentences on what it holds.
+- A sentence names its subject instead of reaching it through a chain of "of".
+  "It" and "that" point to the previous sentence only.
+- A name, a symbol or an abbreviation is defined at its first use on a page, or linked there.
+  Nothing is used before it is defined.
+- A difference names its kind, relative or absolute, and what it is divided by, once per section.
+  An example is "|Runes2P − DREAM| divided by DREAM's largest value at the radius".
+  A signed deviation is written (value − reference) / reference.
+- A table has one convention for its differences, or a column "Reference".
+- A table cell holds a value, a name or a short phrase, and what its column header says.
+  Reasons, citations and tests go into notes below the table.
+  When prose becomes a table, each cell is checked against its header.
+- A count says how it counts when that is not obvious.
+- A number has one owning page, and other pages link to it.
+  Where the reader needs the number on the spot, it is stated once next to the link.
+- Text describes the code as it is.
+  How it came to be stays out, or goes into [`CHANGELOG.md`](CHANGELOG.md) when the change is one that users see.
+- A page explains what its reader needs and does not reproduce the comments of the tests.
+- GitHub renders headings and tables in pull requests, issues and comments.
+  So the description of a pull request has a heading for each part, such as built, results, tests, decisions and open.
+  A part is not one long paragraph.
+  A description, an issue or a comment puts its numbers in tables.
+
 ## Markdown
 
-- One sentence per line, with no line break inside a sentence.
+These rules hold for the markdown files of the repository, except those of `.github/` and `THIRD_PARTY_NOTICES.md`.
+
+- A line holds one sentence, and no line break falls inside a sentence.
 - A sentence has at most 200 characters.
-  A longer one is split or turned into a list.
+  A longer one is split into shorter sentences or into a list of sentences.
 - `python3 scripts/lint_markdown.py <file> ...` checks these rules.
