@@ -835,7 +835,8 @@ In DREAM's source:
 
 - ``f_\mathrm{re}`` has no internal boundary condition (`src/Settings/Equations/f_re.cpp:87`).
 - ``f_\mathrm{re}`` keeps the Dirichlet lower boundary of its advection in ``p`` (`fvm/Equation/AdvectionTerm.cpp:36`).
-- Unlike ``f_\mathrm{re}``, ``f_\mathrm{hot}`` has an internal boundary condition (`src/Settings/Equations/f_hot.cpp:96`), which mirrors the lower boundary of its advection in ``p`` (`src/Settings/Equations/distribution.cpp:234-237`).
+- Unlike ``f_\mathrm{re}``, ``f_\mathrm{hot}`` has an internal boundary condition (`src/Settings/Equations/f_hot.cpp:96`).
+  With it, the lower boundary of its advection in ``p`` is mirrored (`AD_BC_MIRRORED`) in place of Dirichlet (`src/Settings/Equations/distribution.cpp:234-237`).
 
 **Heating of the cold electrons by a runaway grid.**
 Runes2P's default is the energy change of the electron-electron operator of the grid, with a linear scheme of the operator.
