@@ -6,10 +6,9 @@
 # merge, so its run has tested the merged tree. The weekly run catches changes from outside the
 # repository (new versions of packages, a new runner image) and renews the depot cache of dev,
 # which the runs of pull requests restore. A pull request that changes no code
-# (scripts/code_changes.jl, as in CI.yml) skips the suite; its check "Full suite" is then
-# skipped, which counts as passed. A draft skips the suite too, under the check
-# "Full suite (draft)", so that only a pull request that is ready gives the check the rulesets
-# require.
+# (scripts/code_changes.jl, as in CI.yml) skips the suite, and its check "Full suite" passes
+# without tests. A draft skips the suite too, and its check is named "Full suite (draft)", so
+# that only a pull request that is ready gives the check the rulesets require.
 name: Full suite
 
 on:
@@ -24,7 +23,7 @@ permissions:
   contents: read
 
 # a newer commit of a pull request cancels the older run; a weekly or manual run finishes. A
-# run of a draft skips its jobs and has a group of its own: GitHub can create the run of a push
+# run of a draft skips the suite and has a group of its own: GitHub can create the run of a push
 # made while the pull request was a draft only after the run of ready_for_review, and in one
 # group that late run would cancel the suite of the ready pull request.
 concurrency:
@@ -42,7 +41,8 @@ env:
 
 jobs:
   # whether the pull request changes code, the same job as in CI.yml; a weekly or manual run
-  # changes code. A failure of this job leaves the output empty, and the suite runs.
+  # changes code. After a failure of this job the groups are skipped, and the check
+  # "Full suite" fails.
   changes:
     name: Code changes
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
@@ -169,22 +169,37 @@ jobs:
           path: results/
           if-no-files-found: ignore
 
-  # a table of the counts of every group, and the result of the suite as one check. A draft's
-  # run gives it another name: a skipped "Full suite" of a draft run on the same commit as the
-  # suite of the ready pull request would read as passed
+  # the result of the suite as one check, with a table of the counts of every group. The job
+  # runs in every run: GitHub evaluates the expression of a job's name only when the job runs,
+  # and a skipped job would report its check under the text of the expression, never under the
+  # name "Full suite" that the rulesets require. It passes without tests on a pull request
+  # that changes no code and on a draft. A draft's check has another name, so that it never
+  # reads as the check of the ready pull request on the same commit. In every other run, a
+  # cancelled one or one whose job "Code changes" failed among them, it passes only when every
+  # group passed.
   summary:
     name: ${{ github.event.pull_request.draft && 'Full suite (draft)' || 'Full suite' }}
-    needs: [setup, groups]
-    if: always() && needs.setup.result != 'skipped'
+    needs: [changes, setup, groups]
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Report a pull request that changes no code
+        if: needs.changes.result == 'success' && needs.changes.outputs.code == 'false'
+        run: |
+          echo "No file changes code: the suite did not run." >> "$GITHUB_STEP_SUMMARY"
+      - name: Report a draft
+        if: github.event.pull_request.draft == true
+        run: |
+          echo "A draft: the suite did not run. It runs once the pull request is ready." >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/download-artifact@v8
+        if: needs.setup.result == 'success'
         with:
           pattern: results-*
           path: results
           merge-multiple: true
       - name: Write the table of the groups
+        if: needs.setup.result == 'success'
         run: |
           python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
           import glob, tomllib
@@ -194,8 +209,24 @@ jobs:
               r = tomllib.load(open(path, "rb"))
               print(f"| {r['label']} | {r['passed']} | {r['failed']} | {r['errored']} | {r['broken']} | {r['elapsed_seconds'] / 60:.1f} |")
           EOF
-      - name: Fail unless every group passed
-        if: needs.groups.result != 'success'
+      # the one decision of the check, in every run: it passes on a draft, on a pull request
+      # that changes no code, or when every group passed, and fails in every other case
+      - name: Decide the result of the suite
+        if: always()
+        env:
+          DRAFT: ${{ github.event.pull_request.draft == true }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          CHANGES_CODE: ${{ needs.changes.outputs.code }}
+          SETUP_RESULT: ${{ needs.setup.result }}
+          GROUPS_RESULT: ${{ needs.groups.result }}
         run: |
-          echo "a group of the full suite did not pass: ${{ needs.groups.result }}"
-          exit 1
+          if [ "$DRAFT" = "true" ]; then
+            echo "a draft: the suite did not run"
+          elif [ "$CHANGES_RESULT" = "success" ] && [ "$CHANGES_CODE" = "false" ]; then
+            echo "no file changes code: the suite did not run"
+          elif [ "$GROUPS_RESULT" = "success" ]; then
+            echo "every group of the full suite passed"
+          else
+            echo "the full suite did not pass: Code changes $CHANGES_RESULT (code '$CHANGES_CODE'), Test groups $SETUP_RESULT, groups $GROUPS_RESULT"
+            exit 1
+          fi
