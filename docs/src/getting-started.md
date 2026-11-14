@@ -37,8 +37,7 @@ The scripts are described in [The examples](#The-examples), and the arguments su
 ## The examples
 
 Each script solves one kinetic equation for the electron distribution ``f(p, \xi, r)`` and runs without arguments.
-Its header lists its default values and further command lines.
-Parameter values come from DREAM's examples or are choices of this package, cited in each script.
+Its header lists its default values, the sources of these values and further command lines.
 
 | Script | What it integrates | What it reports |
 |---|---|---|
@@ -90,7 +89,6 @@ The direct solvers do not take it, so with `treatment=implicit` the solver defau
 A run is one segment, or a chain of segments when it is split over several allocations ([Checkpoints, segments and the stop](model/time-stepping.md#Checkpoints,-segments-and-the-stop)).
 Every script prints the segment and its status, the solver statistics ([`SolverStatistics`](@ref)) and the negative entries of the saved states.
 It then prints the density per radius at every save.
-The statistics are the counts of [`SolverStatistics`](@ref), described with the convergence tests on the page [Time stepping and solvers](model/time-stepping.md).
 In a GMRES run the statistics include the Krylov iterations and factorizations.
 Before the timed run a script integrates over the first three time points, so that the timing leaves out the compilation.
 `relaxation.jl` and `cooling.jl` end with [`exit_status`](@ref) as the exit status of the process.
@@ -133,10 +131,10 @@ The switches of `common.jl` are shared, and a script's header names the defaults
 | `pmax_boundary=` | `f_zero` (default), `constant_flux`, `extrapolated_flux` (needs a `p_scheme=` other than the default), `extrapolated_flux_consistent`, `outflow` | the boundary at `p_max` ([`AdvectionDiffusion`](@ref)) |
 | `nonnegative=` | `true`, `false` (default) | a [`LowerLimit`](@ref) ``f \ge 0`` on the unknown (`relaxation.jl`, `cooling.jl`) |
 | `solver=` | `lu` (default), `gmres` | the monolithic sparse LU of [`SparseLU`](@ref), or [`GMRES`](@ref) on the Newton operator |
-| `preconditioner=` | `lu` (default), `ilu` | [`RadiusBlockLU`](@ref) or [`RadiusBlockILU`](@ref) for GMRES |
+| `preconditioner=` | `lu` (default), `ilu` | the factorization of the stored matrix per radius for GMRES, [`RadiusBlockLU`](@ref) or [`RadiusBlockILU`](@ref) |
 | `ilu_drop=` | number | the drop tolerance of [`RadiusBlockILU`](@ref) |
 | `refresh=` | `every_step` (default), `every_iteration`, `on_demand` | when the preconditioner is factorized again |
-| `operator=` | `exact` (default), `stored` | the Newton operator of GMRES |
+| `operator=` | `exact` (default), `stored` | the Newton operator of GMRES (below) |
 | `restart=` | integer | the restart length of GMRES |
 | `max_iterations=`, `residual_tolerance=` | integer, number | the Newton iterations and the residual tolerance of [`NewtonSolver`](@ref) |
 | `line_search=` | boolean | the backtracking line search of [`NewtonSolver`](@ref) |
@@ -147,8 +145,8 @@ The switches of `common.jl` are shared, and a script's header names the defaults
 | `checkpoint_interval=` | s | the wall time between checkpoints, 1800 s by default |
 | `resume=` | `true`, `false` (default) | the continuation from the last checkpoint, when there is one |
 | `overwrite=` | `true`, `false` (default) | whether a run may replace the segment files of an earlier one |
-| `stop_file=`, `wall_budget=`, `slack=` | file name, s, s | the [`StopCondition`](@ref) of a segment |
-| `log=` | `stdout` or a file name | the [`ProgressLog`](@ref) |
+| `stop_file=`, `wall_budget=`, `slack=` | file name, s, s | the [`StopCondition`](@ref) of a segment ([The stop of a segment](#The-stop-of-a-segment)) |
+| `log=` | `stdout` or a file name | the [`ProgressLog`](@ref), appended to the file of a file name |
 | `request_file=` | file name | the file whose appearance asks the log for an entry |
 
 ### Notes on the grids and schemes
@@ -162,13 +160,9 @@ The schemes up to `upwind_second_order` are linear in ``f``.
 The rest are flux limiters, which are nonlinear.
 The default scheme, exponential fitting, is a choice of this package.
 Its properties, the other schemes and DREAM's default are on the page [Positivity and flux limiters](model/positivity.md).
-
-Exponential fitting keeps ``f`` non-negative at every resolution.
-It is first order where a smooth tail is driven by the field.
-So field-driven quantities need a check against a finer `np=`: the runaway fraction of `relaxation.jl` at large `e_over_ec`, and the loss through `p_max` in `cooling.jl`.
-The limiters converge faster there and cost more per step.
-DREAM's default is the central value (`AD_INTERP_CENTRED` in DREAM's `py/DREAM/Settings/Equations/DistributionFunction.py`).
-Its other choices include the flux limiters.
+Results set by a field-driven tail, such as the loss through `p_max` in `cooling.jl`, need a check against a finer `np=` ([Exponential fitting](model/positivity.md#Exponential-fitting)).
+DREAM's default is `AD_INTERP_CENTRED` (DREAM's `py/DREAM/Settings/Equations/DistributionFunction.py`).
+DREAM's other choices include the flux limiters ([Comparison with DREAM](dream-comparison.md#Kinetic-options)).
 
 - `jacobian=exact` takes the exact Jacobian by automatic differentiation.
 - `jacobian=frozen_limiter` freezes the limiter at the iterate (DREAM `AD_INTERP_JACOBIAN_LINEAR`).
@@ -185,15 +179,20 @@ The fourth is the consistent form of the third.
 | `extrapolated_flux` | `BC_DPHI_CONST` |
 | `extrapolated_flux_consistent` | the consistent form of `BC_DPHI_CONST` |
 
-### Notes on the solver and the run
+### Notes on the solver
 
-The examples precondition GMRES with [`RadiusBlockLU`](@ref), factorize the preconditioner again every step and restart GMRES after 30 iterations, unlike the defaults of [`GMRES`](@ref).
-The preconditioner is a block factorization per radius of the stored matrix, exact with `lu` and incomplete with `ilu`.
+The examples set three keywords of [`GMRES`](@ref) differently from its defaults.
 
-- `operator=exact` uses the approximate stored Jacobian only as a preconditioner.
-- `operator=stored` iterates with the stored matrix, a quasi-Newton iteration as in DREAM.
-- The segment stops at a time point when the file of `stop_file=` appears or the budget of `wall_budget=` runs out.
-- `log=` with a file name appends the log to that file.
+| Keyword of [`GMRES`](@ref) | Default of the examples | Default of [`GMRES`](@ref) |
+|---|---|---|
+| `preconditioner` | [`RadiusBlockLU`](@ref) | [`FluidSchurLU`](@ref) |
+| `preconditioner_refresh` | `:every_step` | `:every_iteration` |
+| `restart_length` | 30 | 50 |
+
+`operator=` matters only for terms whose stored block approximates their Jacobian ([`jacobian_kind`](@ref)), such as a limiter with a `jacobian=` other than `exact`.
+Without such terms the two values are the same.
+With `operator=exact` the approximate block only preconditions the exact Newton operator.
+`operator=stored` iterates with the stored matrix, a quasi-Newton iteration as in DREAM.
 
 ### The switches of `avalanche.jl`
 
@@ -207,24 +206,29 @@ Its own switches are these.
 | `treatment=` | the time level of the knock-on term ([`avalanche.jl`](#avalanche.jl)) |
 | `cutoff=` | the knock-on cutoff momentum |
 | `np=`, `np_low=` | the momentum cells, and those below the fixed split at ``p = 0.7`` |
-| `nxi=` | the cells of its own pitch grid, which grows geometrically |
+| `nxi=` | the cells of its own pitch grid, finer towards ``\xi = 1`` |
 | `e_over_ec=` | the field in multiples of the critical field of the total electron density |
 
 ### Lower limits
 
-`nonnegative=true` follows DREAM's rule.
-A Newton step may remove at most 90% of an entry's distance to zero.
-A Newton step that would push an entry already at zero below it fails with `:below_lower_limit` ([`LowerLimit`](@ref), [`NewtonSolver`](@ref)).
+`nonnegative=true` declares a [`LowerLimit`](@ref) of value 0 and tolerance 0 on ``f``.
+[`NewtonSolver`](@ref) shortens the Newton update so that no limited entry loses more than the fraction `max_reduction` of its distance to its limit in one iteration.
+The default `max_reduction = 0.9` is DREAM's value ([Lower limits of the Newton step](model/positivity.md#Lower-limits-of-the-Newton-step)).
+A step that would push an entry already at its limit further down fails with `:below_lower_limit`, where DREAM skips such entries.
 [`FixedSteps`](@ref) then retries the step with half the time step.
 At a low temperature on a wide grid, the Maxwell-Jüttner tail underflows to exact zeros, so such a run rejects and halves many steps.
-This is the rule at work, not a fault.
 Shorter steps do not remove a round-off negative update of an entry at zero.
 A positive tolerance of the [`LowerLimit`](@ref) does.
 
-### Slurm jobs
+### The stop of a segment
 
+A segment stops after an accepted step when the file of `stop_file=` exists ([`StopCondition`](@ref), [Checkpoints, segments and the stop](model/time-stepping.md#Checkpoints,-segments-and-the-stop)).
+It also stops when the wall time left until the end time is less than a margin.
+The margin is the longest accepted step of the segment so far, plus the longest write of a checkpoint with its output, plus `slack=` seconds.
+`wall_budget=` gives the end in seconds from the start of the timed run.
 In a Slurm job with checkpoints, the segment stops before the end of the job without further switches.
 [`StopCondition`](@ref) takes `SLURM_JOB_END_TIME` as its end.
+With both ends, the earlier one counts.
 
 ## The settings of a run
 
