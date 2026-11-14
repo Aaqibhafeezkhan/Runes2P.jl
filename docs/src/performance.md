@@ -54,7 +54,7 @@ The second holds the details of the hot paths and the linear solvers, with the m
 
 ## The disruption case
 
-The measurements of this page are of DREAM's disruption case with a runaway grid ([The disruption case](dream-comparison.md#The-disruption-case)).
+The measurements of this page are of DREAM's disruption case with a runaway grid ([The disruption case](disruption-case.md)).
 It is scenario 1 of DREAM's `examples/Disruptions/generate.py`, fully kinetic in a cylinder, with the parameters of `ASDEXU.py` of that example.
 
 | Quantity | Value |
