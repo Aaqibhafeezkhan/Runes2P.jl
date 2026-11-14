@@ -82,8 +82,8 @@ An update of the setup discards it ([`invalidate_jacobian!`](@ref)).
 #### The residual floor
 
 On a stiff step the terms of a row cancel to many digits, and round-off holds the residual above `residual_tolerance`.
-Each term of a row carries a rounding error of about ``\varepsilon`` times its size.
-No iterate then brings the row below its round-off bound ``|F_i| \le c\,\varepsilon \sum_j |(\partial F/\partial u)_{ij}\, u_j|``, scaled by the row's weight, with ``c = 1`` ([Choices of this package](../choices.md)).
+Each term of a row carries a rounding error of about ``\varepsilon`` times its size, so no iterate brings the row much below that round-off level.
+The round-off bound of a row is ``|F_i| \le c\,\varepsilon \sum_j |(\partial F/\partial u)_{ij}\, u_j|``, scaled by the row's weight, with ``c = 1`` ([Choices of this package](../choices.md)).
 A step whose update passes is accepted in two cases, both flagged as `residual_floor`:
 
 1. The bound is available, and every row above `residual_tolerance` is within its bound.
@@ -174,7 +174,7 @@ The error of an unknown is ``\|u_\mathrm{full} - u_\mathrm{half}\|_2 / (a + r\,\
 The error of the step is the largest over the unknowns, and the step is accepted at an error of at most 1.
 An unknown at zero with no absolute tolerance stays out of that largest error, but fails the step when it moves between the full and the half steps, as in DREAM.
 
-The next step follows from the largest error of the unknowns other than those at zero, as in DREAM.
+The next step follows from the largest error of the unknowns other than those at zero with no absolute tolerance, as in DREAM.
 When that error is zero, the step is retried with half its length ([Choices of this package](../choices.md)).
 The tolerances of [`StepDoubling`](@ref) are the `time_step_tolerances` of the [`EquationSystem`](@ref).
 An unknown without one gets `relative_tolerance` and no absolute part.
@@ -256,7 +256,7 @@ Its doubling difference is the difference of the values its equation gives at th
 
 The unknown of a [`Constraint`](@ref) is the mean rate over a step.
 Its doubling difference is the change of that rate between the full step and the second half step, ``h\,S'/4`` for a rate ``S``, of first order in the step.
-The estimate of that rate is twice its doubling difference, ``h\,S'/2``.
+As for every unknown, the estimate is twice the doubling difference, ``h\,S'/2``.
 
 ## Legs
 

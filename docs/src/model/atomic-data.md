@@ -161,7 +161,7 @@ With the closure ``n_{\mathrm{cold}} = n_M (1 - f_>)`` and the kinetic rate ``n_
 
 The fluid coefficient has no floor, since a floor would break that sum.
 The fluid coefficient is negative where the cross sections give more ionization above the threshold than ADAS gives for the whole Maxwellian.
-One such case is a threshold below the ionization energy of a populated state: then all of the ionization of that state lies above the threshold.
+The fluid coefficient can be negative for a threshold below the ionization energy of a populated state, since then all of the ionization of that state lies above the threshold.
 
 A threshold in the first momentum cell, below its upper face, is not resolved by the grid.
 The part of the Maxwellian below such a threshold then comes from the envelope within that cell, not from the shape of the Maxwellian.

@@ -36,7 +36,7 @@ With a runaway grid, [`free_electron_energy_transfer_term`](@ref) takes its plac
 
 The channels other than [`SecondaryHeatingTerm`](@ref) are those of DREAM's equation of ``T_\mathrm{cold}`` (`src/Settings/Equations/T_cold.cpp`, DREAM v26.5).
 With `radiation = :dream` and `bremsstrahlung_corrections = :dream`, [`RadiatedPowerTerm`](@ref) takes DREAM's radiation.
-Whether DREAM adds the collisional transfer from each grid depends on its mode:
+DREAM adds the collisional transfer from a runaway grid in every mode, and from a hot-tail grid in every mode but one:
 
 | DREAM's mode | Transfer from the hot-tail distribution | Transfer from the runaway grid |
 |---|---|---|
