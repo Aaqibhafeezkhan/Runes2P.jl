@@ -42,7 +42,8 @@ julia --project=examples examples/cooling.jl scheme=van_albada solver=gmres
 julia --project=examples examples/avalanche.jl treatment=implicit solver=gmres
 ```
 
-The scripts and their switches are described in [`examples/README.md`](examples/README.md) and on the docs page [Getting started](docs/src/getting-started.md).
+The scripts are listed in [`examples/README.md`](examples/README.md).
+The docs page [Getting started](docs/src/getting-started.md) describes them and their switches.
 
 ## Tests
 
