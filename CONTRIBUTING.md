@@ -15,16 +15,18 @@ The rules below cover the branches, the checks of a pull request, its review, it
   A new feature in one pull request takes the type of its main change.
   The topic is a few lowercase words joined by hyphens, for example `fix/pmax-boundary`.
 - Open a pull request as a draft while it is in progress.
-  The lint, the code style check, the format check, the component tests and the docs build run on every push to a pull request.
+  The lint (below), the code style check, the format check, the component tests and the docs build run on every push to a pull request.
   The full suite runs once a pull request into `dev` or `main` is marked ready, and again on every push after that.
   A merge into `dev` or `main` runs the lint, the code style check, the format check and the component tests again, on `dev` with the deployment of the docs in place of the docs build.
   The full suite runs on `dev` once a week.
 - A pull request that changes no code skips the component tests and the full suite.
-  The skipped check of the component tests counts as passed, and the check of the full suite passes without tests.
-  No code means markdown files, files under `docs/src/`, and Julia files outside `test/` whose code stays the same without docstrings and comments.
-  `scripts/code_changes.jl` decides, and its header lists the exceptions.
+  The skipped check of the component tests counts as passed.
+  The check of the full suite passes without tests.
+- No code means markdown files, files under `docs/src/`, and Julia files outside `test/` whose code stays the same without docstrings and comments.
+  `scripts/code_changes.jl` decides.
+  Its header lists the exceptions.
 - Six checks are required for a merge into `dev` or `main`: Markdown lint, Code style check, Format check, Component tests, Documentation build and Full suite.
-  A step into an integration branch requires these checks except the Full suite.
+  A step into an integration branch (below) requires these checks except the Full suite.
 - A pull request into `dev` must be up to date with `dev`.
 - A pull request into `dev` needs the approval of its latest push by the maintainer.
   A later push dismisses it.
@@ -54,11 +56,12 @@ The rules below cover the branches, the checks of a pull request, its review, it
   Refactors, tests, CI and documentation get no entry.
   At the first release, "Unreleased" becomes the section of that version.
 - A pull request whose checks pass needs no comment about them, since GitHub shows them.
-  After a failed check, the author comments once the fixes are in: what failed and what fixed it.
+  After a failed check, the author comments once the fixes are in, saying what failed and what fixed it.
 
 ## Running the tests
 
-The commands below run the tests from the root of a checkout, and the paragraphs after them name the data that some tests need.
+The commands below run the tests from the root of a checkout.
+The paragraphs after them name the data that some tests need.
 
 ```sh
 julia --project=. -e 'using Pkg; Pkg.test()'                                   # every group
@@ -76,7 +79,8 @@ The docstring of `scripts/fetch_adas.py` has the details.
 
 ## Building the documentation
 
-The commands below build the documentation, and the paragraph after them says what fails the build.
+The commands below build the documentation.
+The paragraph after them says what fails the build.
 
 ```sh
 julia --project=docs -e 'using Pkg; Pkg.instantiate()'   # once
@@ -113,7 +117,8 @@ The header of `docs/make.jl` gives the command of a live local preview.
 
 The rules below cover the names, keywords and fields that users see, the short forms and the order of arguments.
 
-- A public name (exported or declared `public`) has one meaning, and a concept has one spelling in the names, keywords and fields that users see.
+- A public name (exported or declared `public`) has one meaning.
+  A concept has one spelling in the names, keywords and fields that users see.
   Settled spellings include `coulomb_logarithm`, `kinetic_ionization`, `ionization_cross_section_form`, `free_electron_density` and `temperature`.
 - A function that builds a term or another type has a lowercase name, such as `ohmic_heating_term`.
   A name in CamelCase is a type.
@@ -123,7 +128,8 @@ The rules below cover the names, keywords and fields that users see, the short f
 - Public names, the keywords of their methods and the fields of their types are ASCII, which `test/test_names.jl` checks.
   A local variable may use the Greek symbol of a cited formula.
   A name that becomes exported, public, a keyword or a field users read is renamed to ASCII in every use.
-- The same kind of unknown has the same keyword in every constructor, and a switch of type `Bool` among the keywords users see never shares a name with an unknown.
+- The same kind of unknown has the same keyword in every constructor.
+  A switch of type `Bool` among the keywords users see never shares a name with an unknown.
 - A key of a settings record changes only with the output format, so a keyword that is such a key keeps its name even where the rule above would rename it.
   A field may be named differently from its key.
 - Established short forms stay, such as `dt`, `p_max`, `p_cutoff` and `xi`, and `p` for a momentum in argument names.
@@ -155,7 +161,8 @@ The formatter sets the layout only, so the reviews check these rules, helped by 
   A line that transcribes a cited formula may stay one expression, so that it can be compared with its source.
 - A comprehension or generator has one level.
   A nested one, or a `map` or `foreach` whose function takes more than one line, is written as a loop.
-- Functions are not composed with `∘` as an operator in code, and calls are not chained with `|>`.
+- Functions are not composed with `∘` as an operator in code.
+  Calls are not chained with `|>`.
 - `python3 scripts/check_code_style.py <file> ...` finds the simplest breaks of these rules.
   It reports an assignment or a call ending in `!` after `&&` or `||`, and a `throw` or `error` after them outside the checks at the start of a function.
   It also reports a nested or two-line `a ? b : c`, a `;` between two statements, a chain of `|>` and `∘` as an operator.
@@ -168,7 +175,8 @@ The formatter sets the layout only, so the reviews check these rules, helped by 
   The citation is the full literature reference, or DREAM's file for a value ported from DREAM.
 - Agreement with DREAM shows that both codes use the same method, not that the method is right.
   So each new piece of physics gets a check against a reference independent of DREAM: an analytic limit, the literature or a manufactured solution.
-- Where a default of Runes2P differs from DREAM, the behaviour of DREAM stays available as an option, and the comparison tests run with it.
+- Where a default of Runes2P differs from DREAM, the behaviour of DREAM stays available as an option.
+  The comparison tests run with that option.
   A new departure gets such an option where it can.
   The departures, with the options that exist, are listed on the docs page [Comparison with DREAM](docs/src/dream-comparison.md#departures-from-dream).
 
@@ -193,28 +201,29 @@ They hold for this file and for new entries of `CHANGELOG.md` too.
 New and changed text follows these rules.
 
 - A sentence makes one statement.
-  Two clauses with the same subject may stay one sentence, joined by "and".
+  A second clause may join it where it gives the reason, the consequence or the exception of the first, or where it shares its subject.
   In prose, outside code, math and citations, no semicolon joins two clauses.
   In a table, a semicolon may separate alternatives in a cell.
-- A value is a number with its unit, measured or set.
+- A value is a number, with its unit where it has one, measured or set.
   Names, equation numbers, citations and numbers inside a formula are not values.
   A condition, such as "at 120 eV", is not a value either.
 - A sentence holds at most two values of a kind.
   Three or more values of a kind go into a table.
   In a comment or a docstring, where no table fits, a list takes the place of the table.
 - A list item is one or more full sentences, each ending with a period.
-  An item may start with a label and a colon.
+  An item may be a label, a colon and a phrase, as in a list of definitions, or a label and a colon above a nested list.
   A list of bare names, files or links is a list of names, and its items take no periods.
   A sentence is not cut into list items.
-  An enumeration of other things than values becomes a list only when each item is a sentence.
+  An enumeration of other things than values and names becomes a list only when each item is a sentence.
 - A paragraph holds one topic in at most five sentences.
 - A page starts with one or two sentences on what it holds.
-  So does a section of more than about twenty lines, its tables counted.
+  So does a section of more than about twenty lines of text and tables.
 - A sentence names its subject instead of reaching it through a chain of three or more "of".
 - A sentence that opens with "it", "this" or "that" refers to the sentence before it.
 - A name, a symbol or an abbreviation is defined where it is first used on a page, in the same sentence or the next, or it is linked.
   An API name linked with `@ref` counts as linked.
   A reference forward says "(below)".
+  The names of codes and common abbreviations, such as DREAM, CI and API, need no definition.
 - A difference names its kind, relative or absolute, and what it is divided by, once per section.
   An example is "|Runes2P − DREAM| divided by DREAM's largest value at the radius".
   A signed deviation is written (value − reference) / reference.
@@ -224,16 +233,17 @@ New and changed text follows these rules.
   What is too long for a short phrase goes into a note below the table.
   When prose becomes a table, each cell is checked against its header.
 - A count says how it counts when that is not obvious.
-- A number has one owning page, a page of `docs/src/`.
+- A result, such as a measured difference or a timing, has one owning page of `docs/src/`.
   Other pages link to that page.
-  Where the reader needs the number on the spot, the number is stated once next to the link.
-  The comments of the tests may repeat the number.
+  Where the reader needs the result on the spot, it is stated once next to the link.
+  The comments of the tests may repeat it.
 - The pages of `docs/src/`, the README files, docstrings and comments describe the code as it is.
   How the code came to be stays out of them, or goes into [`CHANGELOG.md`](CHANGELOG.md) when the change is one that users see.
 - A page explains what its reader needs and does not reproduce the comments of the tests.
 - GitHub renders headings and tables in pull requests, issues and comments.
   The description of a pull request has a heading for each part, as the template `.github/PULL_REQUEST_TEMPLATE.md` gives.
   A part is not one long paragraph.
+  GitHub renders a newline as a line break, so a paragraph of such text is one line.
 
 ## Markdown
 
@@ -246,4 +256,4 @@ The files of `.github/` keep one paragraph per line, as the text of pull request
   A longer one is split into shorter sentences or into a list of sentences.
 - No second sentence stands inside parentheses.
 - `python3 scripts/lint_markdown.py <file> ...` checks these rules.
-  It skips code blocks, tables, headings, quotes and comments.
+  It skips fenced code blocks, tables, headings, quotes, comments and horizontal rules.
