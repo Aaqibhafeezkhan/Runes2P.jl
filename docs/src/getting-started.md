@@ -112,7 +112,7 @@ The shared helpers of the scripts are in `examples/common.jl`: the switches, a M
 The inputs of a run are in SI units, except temperatures and particle energies in eV and momenta in units of ``m_e c``, with ``m_e`` the electron mass and ``c`` the speed of light.
 One setting is in minutes, `guard_minutes` of [`ProgressLog`](@ref).
 The code checks no unit, so a value in another unit gives a wrong result without an error.
-The table lists the units by group.
+The table lists the units by group, for the inputs and for the results of the functions it names.
 
 | Group | Quantity | Unit |
 |---|---|---|
