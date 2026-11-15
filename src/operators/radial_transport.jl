@@ -18,7 +18,7 @@ end
     add_rechester_rosenbluth_diffusion!(op, delta_b_over_b; major_radius, safety_factor=1)
 
 Radial diffusion of electrons along stochastic field lines (Rechester and Rosenbluth, Phys.
-Rev. Lett. 40, 38, 1978), added to `op.diffusion_r_r`:
+Rev. Lett. 40, 38, 1978), added to `op.diffusion_r_r` [m²/s]:
 
 ```math
 D^{rr} = \\pi q R_0 \\left(\\frac{\\delta B}{B}\\right)^2 |v_\\parallel|, \\qquad v_\\parallel = \\frac{c p \\xi}{\\gamma}.
@@ -81,12 +81,13 @@ end
 """
     radial_particle_flux(op::AdvectionDiffusion, f, face)
 
-Particles per second that cross the radial face `face` (between the radii `face - 1` and
-`face`) towards larger radii, `Σ 𝒱' Γʳ Δp Δξ` over the momentum cells, in the normalization
-of [`total_particles`](@ref): the content of the radii inside the face falls by this flux
-and by nothing else when only radial transport acts. Face `radii + 1` is the edge of the
-plasma, where the flux is the loss of the plasma (zero with `r_boundary = :zero_flux`). The
-flux through the first face is zero.
+Rate [m⁻¹ s⁻¹] at which particles cross the radial face `face` (between the radii `face - 1`
+and `face`) towards larger radii, `Σ 𝒱' Γʳ Δp Δξ` over the momentum cells, in the
+normalization of [`total_particles`](@ref): the electrons per second through the face per
+metre of the cylinder, divided by 2π. The content of the radii inside the face falls by this
+flux and by nothing else when only radial transport acts. Face `radii + 1` is the edge of
+the plasma, where the flux is the loss of the plasma (zero with `r_boundary = :zero_flux`).
+The flux through the first face is zero.
 """
 function radial_particle_flux(op::AdvectionDiffusion, f::AbstractArray{<:Any, 3}, face::Integer)
     nr = radial_cell_count(op.grid)
@@ -107,8 +108,10 @@ end
 """
     radial_particle_content(grid, f)
 
-Particle content of every radius, `Σ 𝒱' Δp Δξ Δr f` over its momentum cells. The sum over
-the radii is [`total_particles`](@ref).
+Particle content of every radius, `Σ 𝒱' Δp Δξ Δr f = n V' Δr` [m⁻¹] over its momentum cells,
+with the density `n` [m⁻³], the spatial Jacobian `V' = r` [m] of a cylinder and the radial
+cell width `Δr` [m]. The sum over the radii is [`total_particles`](@ref), the number of
+electrons per metre of the cylinder divided by 2π.
 """
 function radial_particle_content(grid::KineticGrid{T}, f::AbstractArray{S, 3}) where {T, S}
     size(f) == size(grid) || throw(DimensionMismatch("f must have the grid size"))

@@ -33,7 +33,7 @@ end
 
 Build the kernel for knock-on momentum grid `knockon` and primary momentum grid
 `primary` (both `MomentumGrid`; only the p grids are used) with cutoff momentum
-`p_cutoff > 0`.
+`p_cutoff > 0` in units of `mₑc`.
 """
 function MollerEnergyKernel(knockon::MomentumGrid{T}, primary::MomentumGrid{T}, p_cutoff::Real) where {T}
     p_cutoff > 0 ||

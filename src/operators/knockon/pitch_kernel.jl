@@ -161,8 +161,9 @@ end
                       primary_pitch_points=4)
 
 - The part of knock-on cell `i` that receives knock-ons from primary cell `k` is
-  `[max(p_{i-1/2}, p_cutoff), min(p_{i+1/2}, p_max(p1_k))]`, the interval the energy
-  kernel integrates over. `ξ*` varies over it, fastest at low `p`.
+  `[max(p_{i-1/2}, p_cutoff), min(p_{i+1/2}, p_max(p1_k))]`, with the momenta in units of
+  `mₑc`, the interval the energy kernel integrates over. `ξ*` varies over it, fastest at low
+  `p`.
 - `xi_star_mode` selects how that is treated. `:interval` (the default) spreads each pair
   over the table slices its `ξ*` range covers, with the weights of
   [`KnockOnKernels`](@ref); the table then covers the `ξ*` of the interval ends of all

@@ -17,7 +17,7 @@ const _MOLLER_PREFACTOR = 2pi * Constants.CLASSICAL_ELECTRON_RADIUS^2 *
     xi_star(p, p1)
 
 Cosine ξ* of the angle between the incident electron (momentum `p1`, colliding with a
-stationary electron) and the knock-on electron (momentum `p`),
+stationary electron) and the knock-on electron (momentum `p`), both in units of `mₑc`,
 `ξ* = √[(γ₁ + 1)(γ - 1) / ((γ₁ - 1)(γ + 1))]` (notation of Embréus et al. 2018).
 
 Ported from DREAM `KnockOnUtilities.hpp` (`Kinematics::EvaluateXiStar`).
@@ -33,9 +33,9 @@ end
 """
     momentum_at_xi_star(xi_s, p1)
 
-Knock-on momentum `p` with [`xi_star`](@ref)`(p, p1) = xi_s`, the inverse of `xi_star` in
-its first argument (`ξ*` grows monotonically with `p`): from
-``\\xi_*^2 = (\\gamma_1 + 1)(\\gamma - 1) / ((\\gamma_1 - 1)(\\gamma + 1))``,
+Knock-on momentum `p` (units of `mₑc`) with [`xi_star`](@ref)`(p, p1) = xi_s`, the inverse
+of `xi_star` in its first argument (`ξ*` grows monotonically with `p`): from ``\\xi_*^2 =
+(\\gamma_1 + 1)(\\gamma - 1) / ((\\gamma_1 - 1)(\\gamma + 1))``,
 
 ```math
 \\gamma - 1 = \\frac{2 \\xi_*^2 (\\gamma_1 - 1)}{\\gamma_1 + 1 - \\xi_*^2 (\\gamma_1 - 1)}, \\qquad
@@ -62,7 +62,7 @@ end
 
 Møller differential cross section `Σ = c dσ/dγ` [m³/s] for producing a knock-on
 electron of momentum `p` from an incident electron of momentum `p1` on a stationary
-target. The rate coefficient per target electron is `(p1/γ1) Σ dγ`.
+target, both in units of `mₑc`. The rate coefficient per target electron is `(p1/γ1) Σ dγ`.
 
 Ported from DREAM `KnockOnUtilities.hpp`
 (`Kinematics::EvaluateMollerDifferentialCrossSection`).
@@ -82,9 +82,9 @@ end
 """
     moller_flux(p, p1)
 
-Antiderivative `S` of the Møller cross section in the knock-on momentum,
-`∂S/∂p = (p/γ) Σ`, i.e. `∂S/∂γ = Σ`. Integrating the knock-on source over a
-momentum cell reduces to differences of `S`.
+Antiderivative `S` [m³/s] of the Møller cross section in the knock-on momentum `p` (units of
+`mₑc`), `∂S/∂p = (p/γ) Σ`, i.e. `∂S/∂γ = Σ`. Integrating the knock-on source over a momentum
+cell reduces to differences of `S`.
 
 Ported from DREAM `KnockOnUtilities.hpp` (`Kinematics::EvaluateMollerFlux`).
 """
@@ -103,9 +103,9 @@ end
 """
     max_knockon_momentum(p1)
 
-Largest knock-on momentum from an incident electron of momentum `p1`: the momentum at
-half the incident kinetic energy, `γ_max = (γ₁ + 1)/2`. Above it, the outgoing electron
-with momentum `p` is the primary, not the knock-on.
+Largest knock-on momentum from an incident electron of momentum `p1`, in units of `mₑc`: the
+momentum at half the incident kinetic energy, `γ_max = (γ₁ + 1)/2`. Above it, the outgoing
+electron with momentum `p` is the primary, not the knock-on.
 
 Ported from DREAM `KnockOnUtilities.hpp` (`Kinematics::MaximumKnockOnMomentum`).
 """
@@ -118,12 +118,12 @@ end
 """
     moller_total_rate(p1, p_cutoff)
 
-Rate coefficient [m³/s] for an incident electron of momentum `p1` to produce a
-knock-on electron with momentum above `p_cutoff`,
+Rate coefficient [m³/s] for an incident electron of momentum `p1` to produce a knock-on
+electron with momentum above `p_cutoff`, both in units of `mₑc`,
 `(p1/γ1) ∫ Σ dγ = (p1/γ1) [S(p_max) - S(p_cutoff)]` with `p_max = max_knockon_momentum(p1)`;
-zero when `p_cutoff ≥ p_max`. Multiplied by the target density it gives the production
-rate per incident electron. Corresponds to DREAM's
-`EvaluateMollerFluxIntegratedOverKnockonGrid` on an unbounded knock-on grid.
+zero when `p_cutoff ≥ p_max`. Multiplied by the target density it gives the production rate
+per incident electron. Corresponds to DREAM's `EvaluateMollerFluxIntegratedOverKnockonGrid`
+on an unbounded knock-on grid.
 """
 function moller_total_rate(p1, p_cutoff)
     p_cutoff > 0 || throw(ArgumentError("p_cutoff must be positive"))

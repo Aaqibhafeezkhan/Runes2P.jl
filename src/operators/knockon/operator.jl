@@ -213,7 +213,7 @@ end
 
 Knock-on source on the grid `knockon` produced by primaries on the grid `primary`
 (the same grid for in-grid knock-on) colliding with stationary targets of density
-`n_tot` (the total electron density):
+`n_tot` (the total electron density, in m⁻³):
 
 ```math
 \\begin{aligned}
@@ -234,11 +234,11 @@ production rate, with `total_rates` from the energy kernel:
 enters, so any constant normalization of `𝒱'` cancels (DREAM's cylindrical `Vprime` is
 `4π²` times Runes2P's).
 
-The cutoff momentum `p_cutoff[r]` may differ between radii and change in time
-([`set_cutoff!`](@ref)); each radius uses the kernels of its cutoff, and radii with
-equal cutoffs share them. Both grids must have the same radial grid. The operator is
-linear in `f` and in `n_tot`; DREAM evaluates it explicitly, from `f` at the previous
-time level, with one cutoff for all radii and times.
+The cutoff momentum `p_cutoff[r]` (units of `mₑc`) may differ between radii and change in
+time ([`set_cutoff!`](@ref)); each radius uses the kernels of its cutoff, and radii with
+equal cutoffs share them. Both grids must have the same radial grid. The operator is linear
+in `f` and in `n_tot`; DREAM evaluates it explicitly, from `f` at the previous time level,
+with one cutoff for all radii and times.
 """
 mutable struct KnockOnOperator{T <: AbstractFloat}
     const knockon::KineticGrid{T}
@@ -259,10 +259,10 @@ end
     KnockOnOperator(knockon, primary, p_cutoff; method=:blas, table_size=80,
                     dream_compatible=false, primary_pitch, primary_pitch_points=4)
 
-Build the energy and pitch kernels for knock-on grid `knockon` and primary grid
-`primary` (both `KineticGrid`) with cutoff momentum `p_cutoff` (a number, or one value per
-radius). `method` selects the evaluation (`:blas` or `:loop`, see the source file); the
-other keyword arguments are passed to [`MollerPitchKernel`](@ref).
+Build the energy and pitch kernels for knock-on grid `knockon` and primary grid `primary`
+(both `KineticGrid`) with cutoff momentum `p_cutoff` in units of `mₑc` (a number, or one
+value per radius). `method` selects the evaluation (`:blas` or `:loop`, see the source
+file); the other keyword arguments are passed to [`MollerPitchKernel`](@ref).
 `dream_compatible = true, table_size = 80` (primary at the cell centre) with one cutoff
 reproduces DREAM's `MollerBoltzmannOperator` in cylindrical geometry.
 """
@@ -316,14 +316,13 @@ end
 """
     set_cutoff!(op::KnockOnOperator, p_cutoff)
 
-Set the cutoff momentum (a number for all radii, or one value per radius) and rebuild
-the kernels of the radii whose cutoff changed. Kernels are cached by the momentum grids
-of the radius and the cutoff value, so radii with the same grids and cutoff share one
-set, and a combination already in use costs nothing. Returns the number of kernel sets
-built. When a cutoff is invalid or a kernel cannot be built, the operator is unchanged.
-A rebuild costs a few operator applications; snapping the cutoff
-to momentum cell faces ([`choose_cutoff`](@ref)) keeps rebuilds rare when the cutoff
-follows the plasma.
+Set the cutoff momentum in units of `mₑc` (a number for all radii, or one value per radius)
+and rebuild the kernels of the radii whose cutoff changed. Kernels are cached by the
+momentum grids of the radius and the cutoff value, so radii with the same grids and cutoff
+share one set, and a combination already in use costs nothing. Returns the number of kernel
+sets built. When a cutoff is invalid or a kernel cannot be built, the operator is unchanged.
+A rebuild costs a few operator applications; snapping the cutoff to momentum cell faces
+([`choose_cutoff`](@ref)) keeps rebuilds rare when the cutoff follows the plasma.
 
 A `knockon_linear_operator` of `op` sees the new kernels, and a [`KnockOnTerm`](@ref) of
 `op` recomputes its lagged source at its next preparation.
@@ -390,7 +389,8 @@ pitch_kernel(op::KnockOnOperator, ir::Integer = 1) = op.kernels[ir].pitch
     apply!(df, op::KnockOnOperator, f, total_electron_density; scale=1)
 
 Add `scale` times the knock-on source produced by the primary distribution `f[k, l, r]`
-to `df[i, j, r]` on the knock-on grid; `total_electron_density[r]` is the target density.
+to `df[i, j, r]` on the knock-on grid; `total_electron_density[r]` is the target density
+[m⁻³].
 `f` and `df` are 3D arrays, so both grids must have a shared momentum grid; for per-radius
 grids use [`apply_at_radius!`](@ref). Allocation free; not safe to call concurrently on
 the same operator (shared scratch).
@@ -418,8 +418,8 @@ end
 
 Knock-on source at radius index `ir` alone: `f` is the primary distribution at that radius
 (`(p cells, ξ cells)` of the primary momentum grid there), `df` the rate of change of the
-knock-on distribution there, `total_electron_density` the target density there. Works with
-a different momentum grid at each radius.
+knock-on distribution there, `total_electron_density` the target density [m⁻³] there. Works
+with a different momentum grid at each radius.
 """
 function apply_at_radius!(df::AbstractMatrix, op::KnockOnOperator, f::AbstractMatrix,
         total_electron_density::Real, ir::Integer; scale = true)
@@ -518,14 +518,15 @@ end
 """
     knockon_linear_operator(op::KnockOnOperator, total_electron_density; scale=1)
 
-Matrix-free linear operator `scale ∂C/∂f` of size `(cell_count(knockon), cell_count(primary))`,
-acting on `vec(f)` of the primary grid and returning `vec` of the knock-on grid: the
-implicit (Jacobian) form of the knock-on term, for use in Krylov solvers and in sums
-with other `LinearOperator`s or matrices. `C` is linear in `f`, so the Jacobian-vector
-product is [`apply!`](@ref) itself. `total_electron_density` is referenced, not copied:
-updating it in place (e.g. between Newton iterations) changes the operator. Both grids
-need a shared momentum grid, as `apply!` does; with a momentum grid per radius the
-products go through [`apply_at_radius!`](@ref), as in [`KnockOnTerm`](@ref).
+Matrix-free linear operator `scale ∂C/∂f` of size
+`(cell_count(knockon), cell_count(primary))`, acting on `vec(f)` of the primary grid and
+returning `vec` of the knock-on grid: the implicit (Jacobian) form of the knock-on term, for
+use in Krylov solvers and in sums with other `LinearOperator`s or matrices. `C` is linear in
+`f`, so the Jacobian-vector product is [`apply!`](@ref) itself. `total_electron_density`
+[m⁻³] is referenced, not copied: updating it in place (e.g. between Newton iterations)
+changes the operator. Both grids need a shared momentum grid, as `apply!` does; with a
+momentum grid per radius the products go through [`apply_at_radius!`](@ref), as in
+[`KnockOnTerm`](@ref).
 
 The derivative with respect to the total electron density is `C(f)/n_tot` at each radius
 (DREAM's only Jacobian block for this term, which it treats explicitly in `f`). Treating
