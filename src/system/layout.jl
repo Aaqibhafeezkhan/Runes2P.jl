@@ -49,9 +49,10 @@ _lower_limit(nonnegative::Bool) = nonnegative ? LowerLimit() : nothing
 _lower_limit(limit::LowerLimit) = limit
 
 # The units of the unknowns that the package names by default, in the ASCII form written
-# to the output file; the table "Units of the unknowns" of docs/src/model/unknowns.md lists
+# to the output file. The table "Units of the unknowns" of docs/src/model/unknowns.md lists
 # the same pairs. A kinetic unknown, a distribution per unit of momentum volume with the
-# momentum in m_e c, is in m^-3 whatever its name; any other name has no unit.
+# momentum in m_e c, is in m^-3 whatever its name. A scalar or radial unknown of any other
+# name has no unit.
 const DEFAULT_UNKNOWN_UNITS = Dict{Symbol, String}(
     :electric_field => "V/m",
     :poloidal_flux => "V s/m",
@@ -73,8 +74,19 @@ const KINETIC_UNKNOWN_UNIT = "m^-3"
 # the unit of the default name `name`, an error for a name outside the table
 _default_unit(name::Symbol) = DEFAULT_UNKNOWN_UNITS[name]
 
+# whether `unit` can be the unit of an unknown: ASCII without control characters, which
+# the output file stores as a string attribute
+_valid_unit(unit::AbstractString) = isascii(unit) && !any(iscntrl, unit)
+
+# the unit `unit` of the unknown `name`, refused unless it is valid
+function _checked_unit(unit::AbstractString, name::Symbol)
+    _valid_unit(unit) ||
+        throw(ArgumentError("the unit $(repr(unit)) of the unknown $name must be ASCII without control characters"))
+    return String(unit)
+end
+
 # the unit of an unknown: the one given, or the default of its name
-_unit(unit::AbstractString, name::Symbol) = String(unit)
+_unit(unit::AbstractString, name::Symbol) = _checked_unit(unit, name)
 _unit(::Nothing, name::Symbol) = get(DEFAULT_UNKNOWN_UNITS, name, "")
 
 """
@@ -82,9 +94,10 @@ _unit(::Nothing, name::Symbol) = get(DEFAULT_UNKNOWN_UNITS, name, "")
 
 Unknown with one value for the whole system (e.g. `:plasma_current`). `scale` is its
 reference magnitude; `nonnegative` declares a [`LowerLimit`](@ref). `unit` is the unit of
-its values as a string, such as `"A"`, which the output file stores. Without one, an unknown
-of a default name takes the unit of the table in [Units of the unknowns](@ref), and any
-other the empty string.
+its values as a string, such as `"A"`, which the output file stores. It is ASCII without
+control characters. Without one, an unknown of a default name takes the unit of the table
+in the section "Units of the unknowns" of the docs page "Unknowns and the equation
+system", and any other the empty string.
 """
 struct ScalarUnknown
     name::Symbol
@@ -162,7 +175,7 @@ Distribution function on the kinetic grid `grid`, one value per momentum cell at
 radius (e.g. `:hot_tail_distribution`). The momentum grid may differ between radii.
 A distribution is normally declared without a lower limit: negative values produced by
 the discretization belong to the scheme, not to the Newton steps. `unit` is the unit of
-its values as a string. Without one, it is `"m^-3"` whatever the name, for a density per
+its values as a string, ASCII without control characters. Without one, it is `"m^-3"` whatever the name, for a density per
 unit of momentum volume with the momentum in ``m_e c``.
 """
 struct KineticUnknown{T}
@@ -175,7 +188,7 @@ end
 function KineticUnknown(name::Symbol, grid::KineticGrid; scale::Real = 1.0,
         nonnegative::Union{Bool, LowerLimit} = false,
         unit::Union{Nothing, AbstractString} = nothing)
-    kinetic_unit = unit === nothing ? KINETIC_UNKNOWN_UNIT : String(unit)
+    kinetic_unit = unit === nothing ? KINETIC_UNKNOWN_UNIT : _checked_unit(unit, name)
     KineticUnknown(name, grid, Float64(scale), kinetic_unit, _lower_limit(nonnegative))
 end
 
@@ -331,13 +344,12 @@ unknown(layout::UnknownLayout, name::Symbol) = layout.unknowns[unknown_id(layout
     unknown_unit(layout, id_or_name)
 
 Unit of the values of an unknown, the string that the output file stores with it: the
-`unit` of its declaration, or its default ([Units of the unknowns](@ref)). The empty string
-marks an unknown without a unit.
+`unit` of its declaration, or its default (the section "Units of the unknowns" of the docs
+page "Unknowns and the equation system"). The empty string marks an unknown without a
+unit.
 """
-function unknown_unit(layout::UnknownLayout, id_or_name::Union{Integer, Symbol})
-    unknown(
-        layout, id_or_name).unit
-end
+unknown_unit(layout::UnknownLayout, id::Integer) = unknown(layout, id).unit
+unknown_unit(layout::UnknownLayout, name::Symbol) = unknown(layout, name).unit
 
 """
     kinetic_grid(layout, id)

@@ -143,22 +143,46 @@ function _read_kinetic_grid(record, radial::RadialGrid)
     return cylindrical_grid(grids, radial)
 end
 
-# the layout of a file, rebuilt from its root group `layout` (the settings record of the
-# layout with the grids inline) for matching unknowns by name and comparing grids
-function _read_layout(group)
+# the layout of the file `filename`, rebuilt from its root group `layout` (the settings
+# record of the layout with the grids inline) for matching unknowns by name and comparing
+# grids, and the units that the file stores, by unknown
+function _read_layout(group, filename)
     radial = RadialGrid(read(group["r_faces"]))
     scalars = Symbol(read(group["scalars"]))
     entries = group["unknowns"]
     order = read(group["order"])
-    unknowns = [_read_unknown(group, entries[name], name, radial) for name in order]
-    return UnknownLayout(radial, unknowns; scalars)
+    units = Dict{Symbol, String}()
+    for name in order
+        unit = _read_unit(entries[name], name, filename)
+        if unit !== nothing
+            units[Symbol(name)] = unit
+        end
+    end
+    unknowns = [_read_unknown(
+                    group, entries[name], name, radial, get(units, Symbol(name), nothing))
+                for name in order]
+    return UnknownLayout(radial, unknowns; scalars), units
 end
 
-# the unknown `name` of the layout group `group` from its entry `entry`. A file of the
-# format 0.0.4 or older has no unit, and the unknown takes the default of its name
-function _read_unknown(group, entry, name, radial::RadialGrid)
+# The unit that the entry `entry` of the unknown `name` stores, or nothing. A file of the
+# format 0.0.4 or older stores none. A unit that is not an ASCII string without control
+# characters, which another tool may have written, is dropped with a warning, so that the
+# file stays readable.
+function _read_unit(entry, name, filename)
+    haskey(entry, "unit") || return nothing
+    unit = read(entry["unit"])
+    if unit isa AbstractString && Runes2P._valid_unit(unit)
+        return String(unit)
+    end
+    @warn "the unit $(repr(unit)) of the unknown $name in $filename is not an ASCII string without " *
+          "control characters: the unknown takes its default unit"
+    return nothing
+end
+
+# the unknown `name` of the layout group `group` from its entry `entry`, with the unit
+# `unit` that the file stores, or the default of its constructor for nothing
+function _read_unknown(group, entry, name, radial::RadialGrid, unit)
     kind, scale = read(entry["kind"]), read(entry["scale"])
-    unit = haskey(entry, "unit") ? read(entry["unit"]) : nothing
     limit = if haskey(entry, "lower_limit_tolerance")
         reference = if haskey(entry, "lower_limit_reference")
             Symbol(read(entry["lower_limit_reference"]))
@@ -420,7 +444,7 @@ end
 function Runes2P.read_state(filename::AbstractString; time_index::Union{Nothing, Integer} = nothing)
     return h5open(filename, "r") do file
         _check_version(file, filename)
-        layout = _read_layout(file["layout"])
+        layout, units = _read_layout(file["layout"], filename)
         settings = if haskey(file, "settings")
             _read_record(file["settings"])
         else
@@ -437,7 +461,7 @@ function Runes2P.read_state(filename::AbstractString; time_index::Union{Nothing,
             return StoredState(Float64(read(group["time"])), state, layout,
                 _read_update_states(group["update_states"], nothing), settings,
                 Int(read(group["segment"])), Int(read(group["saved_count"])),
-                _read_record(group["summary"]), stepper, String(filename))
+                _read_record(group["summary"]), stepper, String(filename), units)
         end
         index = time_index === nothing ? length(times) : Int(time_index)
         if !(1 <= index <= length(times))
@@ -454,7 +478,7 @@ function Runes2P.read_state(filename::AbstractString; time_index::Union{Nothing,
             updates, settings, Int(get(segment, "index", 1)),
             Int(get(segment, "saved_before", 0)) + index, Dict{String, Any}(), Dict{
                 String, Any}(),
-            String(filename))
+            String(filename), units)
     end
 end
 
@@ -484,13 +508,14 @@ end
 # ---------------------------------------------------------------------------------------
 # reading outputs
 
+# the solution of the output file `filename` and the units that the file stores, by unknown
 function _read_solution(filename::AbstractString)
     return h5open(filename, "r") do file
         _check_version(file, filename)
         if haskey(file, "checkpoint")
             throw(ArgumentError("$filename is a checkpoint, read it with read_state"))
         end
-        layout = _read_layout(file["layout"])
+        layout, units = _read_layout(file["layout"], filename)
         times = haskey(file, "time") ? read(file["time"]) : Float64[]
         states = if isempty(times)
             zeros(length(layout), 0)
@@ -508,9 +533,33 @@ function _read_solution(filename::AbstractString)
                 updates[name] = read(file["update_states"][name])
             end
         end
-        TimeSolution(layout, times, states,
+        solution = TimeSolution(layout, times, states,
             _read_statistics(file["solver_statistics"]), settings, updates)
+        (; solution, units)
     end
+end
+
+# the unknown `u` with the unit `unit`
+_with_unit(u::ScalarUnknown, unit) = ScalarUnknown(u.name, u.scale, unit, u.lower_limit)
+function _with_unit(u::RadialUnknown, unit)
+    RadialUnknown(u.name, u.components, u.scale, unit, u.lower_limit, u.groups, u.grouped)
+end
+function _with_unit(u::KineticUnknown, unit)
+    KineticUnknown(u.name, u.grid, u.scale, unit, u.lower_limit)
+end
+
+# The layout of joined segments: the layout `layout` of the first segment, with the unit of
+# each unknown from the latest segment that stores one (`units`, one dictionary per
+# segment), the empty unit included. A segment of the format 0.0.4 or older stores none, so
+# a first segment of that format does not hide the units of the later ones.
+function _joined_layout(layout::UnknownLayout, units)
+    unknowns = Runes2P.Unknown[]
+    for u in layout.unknowns
+        latest = findlast(segment_units -> haskey(segment_units, u.name), units)
+        unit = latest === nothing ? u.unit : units[latest][u.name]
+        push!(unknowns, _with_unit(u, unit))
+    end
+    return UnknownLayout(layout.radial_grid, unknowns; scalars = layout.scalars)
 end
 
 function _start_time(solution::TimeSolution)
@@ -524,7 +573,8 @@ end
 
 function Runes2P.read_output(filenames::AbstractString...)
     isempty(filenames) && throw(ArgumentError("no output file given"))
-    parts = [_read_solution(filename) for filename in filenames]
+    read_parts = [_read_solution(filename) for filename in filenames]
+    parts = [part.solution for part in read_parts]
     length(parts) == 1 && return only(parts)
     first_part = first(parts)
     times = empty(first_part.times)
@@ -597,7 +647,8 @@ function Runes2P.read_output(filenames::AbstractString...)
     else
         reduce(hcat, columns)
     end
-    return TimeSolution(first_part.layout, times, states, statistics, last(parts).settings,
+    layout = _joined_layout(first_part.layout, [part.units for part in read_parts])
+    return TimeSolution(layout, times, states, statistics, last(parts).settings,
         Dict(name => reduce(hcat, parts) for (name, parts) in updates if !isempty(parts)))
 end
 

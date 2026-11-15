@@ -52,10 +52,10 @@ The layout is immutable.
 ### Units of the unknowns
 
 An unknown carries its unit as a string, which [`unknown_unit`](@ref) reads and the output file stores ([Unknowns](output.md#Unknowns)).
-The constructors and equations of the package give their unknowns the default names below, and an unknown of such a name takes the unit of this table.
+The constructors and equations of the package give their unknowns the default names below, and a scalar or radial unknown of such a name takes the unit of this table.
 The column "In the file" gives the unit in the ASCII form of the file.
-The keyword `unit` of [`ScalarUnknown`](@ref), [`RadialUnknown`](@ref) and [`KineticUnknown`](@ref) sets another unit.
-An unknown of any other name without that keyword has the empty string as its unit.
+The keyword `unit` of [`ScalarUnknown`](@ref), [`RadialUnknown`](@ref) and [`KineticUnknown`](@ref) sets another unit, an ASCII string without control characters.
+Without that keyword, a [`KineticUnknown`](@ref) takes `"m^-3"` whatever its name, and a scalar or radial unknown of a name outside the table has the empty string as its unit.
 
 A keyword sets another name, such as `total_energy` of [`total_energy_equation`](@ref) for `:total_electron_energy`.
 [`induction_unknowns`](@ref) and [`ion_densities_unknown`](@ref) keep the unit of the default name under another name.
@@ -81,8 +81,7 @@ An unknown declared by the caller under another name takes its unit from the key
 A distribution and the density of the hot electrons have no default name.
 The caller names them, as the examples name the distribution `:f`.
 The density of the hot electrons is in m⁻³, which its declaration passes as `unit = "m^-3"`.
-A distribution is in m⁻³ per unit of momentum volume ([Notes on the units](../getting-started.md#Notes-on-the-units)).
-A [`KineticUnknown`](@ref) takes `"m^-3"` as its unit whatever its name.
+A distribution is in m⁻³ per unit of momentum volume ([Notes on the units](../getting-started.md#Notes-on-the-units)), hence the default unit of a [`KineticUnknown`](@ref).
 
 ## Equations
 

@@ -13,8 +13,12 @@ using LinearAlgebra: BLAS
 
 Version of the output file format, written as the string `"major.minor.patch"` in the
 root attribute `format_version`. It counts up with every change of the file's content.
-Since 0.0.5 every entry of the group `unknowns` carries its unit in the attribute `unit`
-([`write_output`](@ref)).
+Since 0.0.5 a file stores units ([`write_output`](@ref)):
+
+- every entry of the group `unknowns` carries the unit of its unknown in the attribute
+  `unit`, and the entry of each unknown in the group `layout` holds it as `unit`;
+- the dataset `time` carries the attribute `unit`, `"s"`;
+- the datasets of the grid faces in the group `layout` carry the attribute `unit`.
 """
 const OUTPUT_FORMAT_VERSION = v"0.0.5"
 

@@ -960,12 +960,12 @@ using HDF5
         # shows the defaults
         rad = RadialGrid(uniform_r_faces(2, 0.5))
         grid = cylindrical_grid(MomentumGrid(uniform_p_faces(5, 0.0, 2.0), uniform_xi_faces(3)), rad)
-        function unit_case()
+        function unit_case(; temperature_unit = "eV", distribution_unit = "")
             layout = UnknownLayout(rad,
                 [ScalarUnknown(:plasma_current; scale = 2.0, unit = "MA"),
                     RadialUnknown(:cold_electron_temperature; scale = 10.0),
-                    RadialUnknown(:T; unit = "eV"),
-                    KineticUnknown(:f, grid; unit = "")])
+                    RadialUnknown(:T; unit = temperature_unit),
+                    KineticUnknown(:f, grid; unit = distribution_unit)])
             decay(name) = Equation(name, TimeDerivative(), LinearTerm(name; coefficient = -1.0))
             system = EquationSystem(layout, [decay(name) for name in unknown_names(layout)])
             return (; system, layout, u0 = collect(1.0:length(layout)),
@@ -1006,6 +1006,9 @@ using HDF5
         @test unknown_unit(current.layout, :plasma_current) == "MA"
         @test unknown_unit(current.layout, :f) == ""
         @test unknown_unit(current.layout, :T) == "eV"
+        @test current.units ==
+              Dict(:plasma_current => "MA", :cold_electron_temperature => "eV",
+            :T => "eV", :f => "")
         output = make_old!(Runes2P.segment_file(checkpoint, 1))
         h5open(output) do h5
             @test !haskey(attributes(h5["unknowns/f"]), "unit")
@@ -1019,12 +1022,75 @@ using HDF5
         @test [unknown_unit(whole.layout, name) for name in (:plasma_current, :T, :f)] ==
               ["MA", "eV", ""]
 
+        # a resume warns for a unit stored in the checkpoint that differs from the declared
+        # one, both nonempty, and copies the values unchanged
+        stored = read_checkpoint(Runes2P.previous_checkpoint_file(checkpoint))
+        case = unit_case(temperature_unit = "keV")
+        message = "the unknown T is stored in $(stored.source) in \"eV\" and declared in " *
+                  "\"keV\": its values are copied unchanged"
+        resumed = @test_logs (:warn, message) integrate(
+            case.system, case.u0, case.times; resume = stored)
+        @test resumed.settings["segment"]["settings_changed"] === false
+        @test resumed.states[:, end] == whole.states[:, end]
+        @test unknown_unit(resumed.layout, :T) == "keV"
+        # no warning where one of the two units is empty: "" stored against "keV" declared,
+        # and "eV" stored against "" declared
+        case = unit_case(temperature_unit = "", distribution_unit = "keV")
+        resumed = @test_logs integrate(case.system, case.u0, case.times; resume = stored)
+        @test resumed.states[:, end] == whole.states[:, end]
+
+        # a unit that another tool wrote and that is not ASCII is dropped with a warning that
+        # names the unknown and the file, and the file stays readable
+        foreign = tempname() * ".h5"
+        write_output(foreign, whole)
+        h5open(foreign, "r+") do h5
+            delete_object(h5["layout/unknowns/T"], "unit")
+            h5["layout/unknowns/T"]["unit"] = "°C"
+        end
+        dropped = (:warn,
+            "the unit \"°C\" of the unknown T in $foreign is not an ASCII string without " *
+            "control characters: the unknown takes its default unit")
+        back = @test_logs dropped read_output(foreign)
+        @test back.states == whole.states
+        @test unknown_unit(back.layout, :T) == ""
+        @test unknown_unit(back.layout, :plasma_current) == "MA"
+        stored_foreign = @test_logs dropped read_state(foreign)
+        @test !haskey(stored_foreign.units, :T)
+        @test stored_foreign.units[:plasma_current] == "MA"
+        rm(foreign)
+
+        # the join of a first segment of the format 0.0.4 with a later one: the units come
+        # from the later segment, the empty one of f included, which the old file reads as
+        # the default "m^-3"
+        chain = CheckpointSettings("units_join"; directory = _checkpoint_directory(), interval = 0)
+        case = unit_case()
+        integrate(case.system, case.u0, case.times[1:3]; checkpoint = chain)
+        make_old!(Runes2P.segment_file(chain, 1))
+        make_old!(Runes2P.checkpoint_file(chain))
+        case = unit_case()
+        @test_logs (:warn, r"changed settings") integrate(
+            case.system, case.u0, case.times; checkpoint = chain, resume = true)
+        old_first = read_output(Runes2P.segment_file(chain, 1))
+        @test [unknown_unit(old_first.layout, name) for name in (:plasma_current, :T, :f)] ==
+              ["A", "", "m^-3"]
+        joined = read_output(chain)
+        @test joined.times == whole.times
+        @test joined.states == whole.states
+        @test [unknown_unit(joined.layout, name) for name in unknown_names(joined.layout)] ==
+              [unknown_unit(whole.layout, name) for name in unknown_names(whole.layout)]
+        @test unknown_unit(joined.layout, :f) == ""
+        @test joined.layout.offsets == whole.layout.offsets
+        @test joined.layout.scalar_offsets == whole.layout.scalar_offsets
+
         # the resume from the checkpoint before the last, with the setup unchanged: the setup
-        # hash does not hold the units, so no section has changed
+        # hash does not hold the units, so no section has changed, and the old file stores
+        # no unit, so the default "A" read for plasma_current gives no warning against the
+        # declared "MA"
         previous = make_old!(Runes2P.previous_checkpoint_file(checkpoint))
         stored = read_checkpoint(previous)
         @test stored.time == case.times[end - 1]
         @test unknown_unit(stored.layout, :plasma_current) == "A"
+        @test isempty(stored.units)
         case = unit_case()
         resumed = @test_logs integrate(case.system, case.u0, case.times; resume = stored)
         @test resumed.settings["segment"]["settings_changed"] === false

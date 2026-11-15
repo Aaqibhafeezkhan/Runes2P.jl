@@ -52,9 +52,18 @@ Output and checkpoint files share one root:
 | `checkpoint` | group | the stepper and the counters (checkpoint files only) |
 
 The version counts up with every change of the format.
-The format 0.0.5 adds the attribute `unit` to the unknowns, to `time` and to the faces of the grids in `layout`.
+The format 0.0.5 adds the units listed below.
 [`read_output`](@ref) and [`read_state`](@ref) refuse a file whose `format_version` is older than 0.0.1 or newer than [`OUTPUT_FORMAT_VERSION`](@ref).
 A segment without a saved state has no `time`, no `unknowns` and no datasets under `update_states`.
+
+A file of the format 0.0.5 stores units in three places:
+
+- Each entry of `unknowns` carries the unit of its unknown as the string attribute `unit` (below).
+- In the group `layout`, the entry of each unknown holds its `unit`, and the datasets of the grid faces carry the attribute `unit` (below).
+- The dataset `time` carries the attribute `unit`, which is `"s"`.
+
+No other entry carries a unit.
+The times and step lengths of `solver_statistics` and the `time` of the group `checkpoint` are in seconds as well.
 
 ## Records
 
@@ -67,7 +76,7 @@ The `settings` group, the `layout` group and the record parts of a checkpoint ar
 - Strings, numbers, arrays of numbers and lists of strings become datasets.
 
 A record stores no unit with its numbers.
-The one exception is the root group `layout` (below), whose datasets of grid faces carry the attribute `unit`.
+The one exception is the root group `layout` (below), whose entries of the unknowns hold `unit` and whose datasets of grid faces carry the attribute `unit`.
 
 The reader returns every group as a record, so a list of records reads back as a record keyed by the names and a list of arrays as one keyed `"1"`, `"2"`, ….
 [`read_settings`](@ref) returns the record of [`run_settings`](@ref) as written, type for type, and [`settings_hash`](@ref) of it equals the hash written.
@@ -125,7 +134,7 @@ Some entries are recorded only when they are set, and the reader takes a default
 | `lower_limit_value` | the value is not zero | `0.0` |
 | `lower_limit_reference` | the limit has a reference | no reference |
 | `group_starts` of a radial unknown | it declares component groups, also a single one | one group of all components, not declared |
-| `unit` of an unknown | always, from the format 0.0.5 | the default unit of its name ([Units of the unknowns](unknowns.md#Units-of-the-unknowns)) |
+| `unit` of an unknown | always, from the format 0.0.5 | the default unit of the unknown ([Units of the unknowns](unknowns.md#Units-of-the-unknowns)) |
 
 Two entries of the settings record follow the same rule: `ions` of the `plasma_unknowns` of a [`PlasmaFromUnknowns`](@ref), absent for prescribed ions, and `group` of a [`Tolerance`](@ref), absent for group 0.
 
@@ -150,7 +159,8 @@ In memory, [`unknown_view`](@ref) views one unknown of a saved state of a [`Time
 Each entry carries the unit of its unknown as the string attribute `unit` ([`unknown_unit`](@ref)), such as `"V/m"` or `"m^-3"`.
 The group of an unknown on per-radius grids carries it, and so does each of its datasets `radius_<ir>`.
 The attribute is empty for an unknown without a unit.
-A file of the format 0.0.4 or older has no attribute `unit`, and its reader gives each unknown the default unit of its name.
+A file of the format 0.0.4 or older has no attribute `unit`, and its reader gives each unknown its default unit ([Units of the unknowns](unknowns.md#Units-of-the-unknowns)).
+A unit stored in a file that is not an ASCII string without control characters, as another tool may write, is dropped with a warning, and the unknown takes its default unit.
 
 ## Solver statistics and update states
 
@@ -182,6 +192,10 @@ The preconditioner factors of [`GMRES`](@ref) with on-demand refresh are not sto
 After either, the step lengths of a [`StepController`](@ref) may differ from those of the uninterrupted run.
 A state read from an output file has no stepper record, so its time must be a time point of the resumed run.
 
+The units stay outside the setup hash, so a resume does not see a changed unit as a changed setup.
+It warns instead for each copied unknown whose unit stored in the file and unit of its declaration are both nonempty and differ, and it copies the values unchanged.
+A file of the format 0.0.4 or older stores no unit and gives no such warning.
+
 ## Reading
 
 - [`read_output`](@ref) returns the [`TimeSolution`](@ref) of an output file, or of the segments of a run joined.
@@ -209,6 +223,8 @@ Its states after the start time of the following segment are dropped.
 Its statistics are cut at the count of attempts the following segment resumed from (`attempts_before` of both), or at the start time where a count is missing.
 The count matters because a rejected attempt is recorded at the time it aimed at, which may lie beyond the checkpoint.
 The joined solution carries the settings of the last file.
+Its layout is that of the first segment, and each unknown takes the unit of the latest segment that stores one, the empty unit included.
+A first segment of the format 0.0.4 or older then does not hide the units of the later segments.
 
 The higher segments of an earlier run under the same name and with the same setup pass these checks.
 This is why a run refuses to start while segment files of its name with higher numbers than its segment exist ([`CheckpointSettings`](@ref)).

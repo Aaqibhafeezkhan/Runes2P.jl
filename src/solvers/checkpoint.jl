@@ -94,8 +94,11 @@ that wrote it, the number of states the run had saved up to the time (`saved_cou
 `summary` of the run so far (attempted and accepted steps, Newton and Krylov iterations,
 wall time), the record of the time `stepper` at the time (its step length and what it
 carries between steps, [`FixedSteps`](@ref); empty for a state read from an output file,
-whose time is then a time point of the run) and the file it came from.
-[`read_checkpoint`](@ref) and [`read_state`](@ref) return one.
+whose time is then a time point of the run), the file it came from and the `units` that
+the file stores, by unknown. A file of the format 0.0.4 or older stores no unit, and its
+`units` are empty, while its `layout` holds the default units. Without `units`, the
+constructor takes those of `layout`. [`read_checkpoint`](@ref) and [`read_state`](@ref)
+return one.
 """
 struct StoredState{T}
     time::Float64
@@ -108,6 +111,13 @@ struct StoredState{T}
     summary::Dict{String, Any}
     stepper::Dict{String, Any}
     source::String
+    units::Dict{Symbol, String}
+end
+function StoredState(time, state, layout::UnknownLayout, update_states, settings, segment,
+        saved_count, summary, stepper, source)
+    units = Dict{Symbol, String}(u.name => u.unit for u in layout.unknowns)
+    return StoredState(time, state, layout, update_states, settings, segment, saved_count,
+        summary, stepper, source, units)
 end
 
 const SUMMARY_COUNTS = (
@@ -205,13 +215,14 @@ function read_state end
     read_output(filenames...)
     read_output(settings::CheckpointSettings)
 
-The [`TimeSolution`](@ref) of one output file, or of the segments of a run in order,
-joined. The layout is rebuilt from the file's layout record. Of a segment that went on
-after its last checkpoint and was followed by another, the states and statistics after
-the start of the following segment are left out, since that segment repeats them. The
-settings are those of the last file. Segments in the wrong order, or whose joined times
-repeat one (two runs from the same start), are refused with an `ArgumentError`. So is a
-segment that did not resume from the one before it: its `resumed_from_segment` must be the
+The [`TimeSolution`](@ref) of one output file, or of the segments of a run in order, joined.
+The layout is rebuilt from the file's layout record. The joined layout is that of the first
+segment, with the unit of each unknown from the latest segment that stores one. Of a segment
+that went on after its last checkpoint and was followed by another, the states and
+statistics after the start of the following segment are left out, since that segment repeats
+them. The settings are those of the last file. Segments in the wrong order, or whose joined
+times repeat one (two runs from the same start), are refused with an `ArgumentError`. So is
+a segment that did not resume from the one before it: its `resumed_from_segment` must be the
 index of that segment and its `previous_setup_hash` the setup hash of that segment, where
 both records hold them. The higher segments of an earlier run under the same name with the
 same setup pass this check; a run refuses to start while segment files with higher numbers

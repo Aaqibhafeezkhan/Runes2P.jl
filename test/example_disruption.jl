@@ -171,7 +171,7 @@ function build_initialization(start, electric_field; scheme::Symbol = :tcdf,
                 :hot_electron_density; scale = 1e17, unit = "m^-3"),
             RadialUnknown(:runaway_density; scale = 1e15), RadialUnknown(:total_electron_density; scale = 1e20),
             RadialUnknown(:free_electron_density; scale = 1e19, unit = "m^-3"), RadialUnknown(
-                :particle_source; scale = 1e24),
+                :particle_source; scale = 1e24, unit = "m^-3 s^-1"),
             RadialUnknown(:cold_electron_temperature; scale = 100.0),
             RadialUnknown(:cold_thermal_energy; scale = 1e4),
             RadialUnknown(:ohmic_current_density; scale = 1e6), RadialUnknown(
@@ -646,7 +646,7 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
                 :hot_electron_density; scale = 1e17, unit = "m^-3"),
             RadialUnknown(:runaway_density; scale = 1e15), RadialUnknown(:total_electron_density; scale = 1e20),
             RadialUnknown(:free_electron_density; scale = 1e19, unit = "m^-3"), RadialUnknown(
-                :particle_source; scale = 1e24),
+                :particle_source; scale = 1e24, unit = "m^-3 s^-1"),
             RadialUnknown(:cold_electron_temperature; scale = 100.0),
             RadialUnknown(:cold_thermal_energy; scale = 1e4),
             RadialUnknown(:ohmic_current_density; scale = 1e6), RadialUnknown(

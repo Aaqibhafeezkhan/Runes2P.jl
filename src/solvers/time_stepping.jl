@@ -1521,6 +1521,7 @@ function _start_segment!(
         end
         t = T(stored.time)
         copied = copy_unknowns!(u_old, layout, stored.state, stored.layout)
+        _warn_changed_units(layout, stored, copied)
         for update in updates
             state = get(stored.update_states, update_name(update), nothing)
             if state !== nothing
@@ -1561,6 +1562,22 @@ function _start_segment!(
         @warn "resuming $(stored.source) with changed settings" sections = settings["segment"]["changed_sections"]
     end
     return (; t, first_save, segment, summary_before, stepper_before, copied)
+end
+
+# A warning for every unknown in `copied` whose unit stored in the file of `stored` and the
+# unit of its declaration in `layout` are both set and differ. The units stay outside the
+# setup hash, and the values are copied as they are. A file of the format 0.0.4 or older
+# stores no unit and gets no warning.
+function _warn_changed_units(layout::UnknownLayout, stored::StoredState, copied)
+    for name in sort(copied)
+        stored_unit = get(stored.units, name, "")
+        declared_unit = unknown_unit(layout, name)
+        if !isempty(stored_unit) && !isempty(declared_unit) && stored_unit != declared_unit
+            @warn "the unknown $name is stored in $(stored.source) in $(repr(stored_unit)) and declared in " *
+                  "$(repr(declared_unit)): its values are copied unchanged"
+        end
+    end
+    return nothing
 end
 
 # The state of a running segment: the states and the times, what it has saved, its

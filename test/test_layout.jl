@@ -130,7 +130,8 @@ using ForwardDiff: Dual
 
     @testset "units" begin
         # the default units of the package, pinned against the table of the docs page, whose
-        # column "In the file" holds the strings written to the output file
+        # column "In the file" holds the strings written to the output file; the page is in
+        # DOCS_READ_BY_TESTS of scripts/code_changes.jl
         page = read(joinpath(@__DIR__, "..", "docs", "src", "model", "unknowns.md"), String)
         section = split(split(page, "### Units of the unknowns")[2], "\n## ")[1]
         documented = Dict{Symbol, String}()
@@ -176,6 +177,15 @@ using ForwardDiff: Dual
         reduced = Runes2P.local_layout(local_ions, [2, 1])
         @test unknown_unit(reduced, :n_i) == "m^-3"
         @test unknown_unit(reduced, :T) == "keV"
+        # a unit is ASCII without control characters, which the output file can store; the
+        # error names the unknown
+        for unit in ("µs", "°C", "m\0", "eV\n", "\t")
+            @test_throws "the unit $(repr(unit)) of the unknown Ip" ScalarUnknown(:Ip; unit)
+            @test_throws "of the unknown T must be ASCII" RadialUnknown(:T; unit)
+            @test_throws "of the unknown f must be ASCII" KineticUnknown(:f, grid; unit)
+            @test_throws ArgumentError KineticUnknown(:f, grid; unit)
+        end
+        @test RadialUnknown(:T; unit = "m^-3 s^-1").unit == "m^-3 s^-1"
     end
 
     @testset "code does not depend on the order" begin
