@@ -146,7 +146,7 @@ The table lists the units by group.
 | rates | growth rate in the report of `avalanche.jl` | s⁻¹ |
 | rates | Dreicer rate ([`connor_hastie_rate`](@ref)) | m⁻³ s⁻¹ |
 | rates | `rate` of [`MaxwellianSourceTerm`](@ref) and [`LossRateTerm`](@ref) | s⁻¹ |
-| transport | diffusivities | m²/s |
+| transport | radial diffusivities | m²/s |
 | transport | relative perturbation ``\delta B/B`` of the magnetic field | dimensionless |
 | atomic data | rate coefficients of ionization, recombination and charge exchange | m³/s |
 | atomic data | coefficients of the radiated power | W m³ |
@@ -163,7 +163,8 @@ So ``f`` is in m⁻³.
 Its density moment at a radius is ``n = \int 2\pi p^2 f \, \mathrm{d}p \, \mathrm{d}\xi`` ([`density`](@ref)).
 The tests against DREAM read DREAM's `f_hot` and `f_re` without a conversion factor and compare them with ``f`` value by value.
 
-A species takes its mass from [`ion_mass`](@ref) unless `masses` of [`IonEnergyExchangeTerm`](@ref) gives it.
+[`IonEnergyExchangeTerm`](@ref) takes the masses of the species from [`ion_mass`](@ref).
+Its keyword `masses` replaces them all, with one mass per species in kg.
 
 A thermal energy density is ``W = \tfrac32 e\, n T`` in J/m³, with ``e`` the elementary charge ([The energy of the cold electrons](model/energy-current.md#The-energy-of-the-cold-electrons)).
 The factor ``e`` converts the temperature ``T`` from eV to J ([`THERMAL_ENERGY_FACTOR`](@ref)).
@@ -211,7 +212,7 @@ The switches of `common.jl` are shared, and a script's header names the defaults
 | `nonnegative=` | `true`, `false` (default) | a [`LowerLimit`](@ref) ``f \ge 0`` on the unknown (`relaxation.jl`, `cooling.jl`, [Lower limits](#Lower-limits)) |
 | `solver=` | `lu` (default), `gmres` | the monolithic sparse LU of [`SparseLU`](@ref), or [`GMRES`](@ref) on the Newton operator |
 | `preconditioner=` | `lu` (default), `ilu` | the factorization of the stored matrix per radius for GMRES, [`RadiusBlockLU`](@ref) or [`RadiusBlockILU`](@ref) ([notes](#Notes-on-the-solver)) |
-| `ilu_drop=` | number | the absolute drop tolerance of [`RadiusBlockILU`](@ref) |
+| `ilu_drop=` | number | the absolute drop tolerance of [`RadiusBlockILU`](@ref), on the factors of the scaled matrix |
 | `refresh=` | `every_step` (default), `every_iteration`, `on_demand` | when the preconditioner is factorized again ([notes](#Notes-on-the-solver)) |
 | `operator=` | `exact` (default), `stored` | the Newton operator of GMRES ([notes](#Notes-on-the-solver)) |
 | `restart=` | integer | the restart length of GMRES ([notes](#Notes-on-the-solver)) |
