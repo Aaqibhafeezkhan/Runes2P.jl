@@ -93,7 +93,8 @@ The mass [kg] of an ion species. For nuclear charge 1 it is the mass of hydrogen
 - `table = :standard`: the nuclei of [`HYDROGEN_ISOTOPE_MASSES`](@ref) and the standard
   atomic weight of [`ATOMIC_MASSES`](@ref) for the other elements, up to uranium. An element
   without a standard atomic weight needs its mass given (`masses` of
-  [`IonEnergyExchangeTerm`](@ref)). The weight is that of the neutral atom: an ion lacks up
+  [`IonEnergyExchangeTerm`](@ref)). `masses` holds one mass in kg per species and replaces
+  the masses of all species. The weight is that of the neutral atom: an ion lacks up
   to Z electron masses, which this neglects, at most 2.7e-4 of its mass for the elements
   beyond hydrogen.
 - `table = :dream`: DREAM's rule (`src/IonHandler.cpp:153-170`), the masses of

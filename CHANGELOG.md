@@ -123,3 +123,6 @@ Until the first release, every change is listed under "Unreleased", with the sub
 - The `reason` of a settings record whose prescribed function fails holds the type of the exception without its module and the first line of its message ([#265](https://github.com/osrep/Runes2P.jl/pull/265)).
   Absolute file paths in it are replaced by `<path>`; before, it held the full message, so the record depended on the machine, the checkout and the packages loaded.
   A run resumed from a checkpoint with the old reason records its section as changed and warns of it.
+- `IonEnergyExchangeTerm` refuses a mass of `masses` outside the range 1e-27 kg to 1e-24 kg, with an `ArgumentError` that names the species ([#286](https://github.com/osrep/Runes2P.jl/pull/286)).
+  Before, a mass in atomic mass units or in grams gave a wrong exchange without an error.
+  The masses of `ion_mass` lie inside the range, and the results of a run do not change.
