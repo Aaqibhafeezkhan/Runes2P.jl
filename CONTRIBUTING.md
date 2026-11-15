@@ -241,6 +241,8 @@ Where following one would make a passage harder to read, the passage wins.
   The comments of the tests may repeat it.
 - The pages of `docs/src/`, the README files, docstrings and comments describe the code as it is.
   How the code came to be stays out of them, or goes into [`CHANGELOG.md`](CHANGELOG.md) when the change is one that users see.
+  The section "History of the repository" of `README.md` is the one exception.
+  It stays short and takes no new developments, which the pull requests, the commits and `CHANGELOG.md` record.
 - A page explains what its reader needs and does not reproduce the comments of the tests.
 - GitHub renders headings and tables in pull requests, issues and comments.
   The description of a pull request has a heading for each part, as the template `.github/PULL_REQUEST_TEMPLATE.md` gives.
