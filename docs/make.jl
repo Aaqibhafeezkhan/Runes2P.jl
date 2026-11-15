@@ -219,6 +219,7 @@ makedocs(;
              "Choices of this package" => "choices.md",
              "Performance and accuracy" => "performance.md",
              "Comparison with DREAM" => "dream-comparison.md",
+             "The disruption case" => "disruption-case.md",
              "Reference data" => "reference-data.md",
              "API" => ["Overview" => "api-overview.md", API_PAGES..., "Extensions" => "extensions.md"]],
     checkdocs = :public,
