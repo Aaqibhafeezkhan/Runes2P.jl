@@ -71,6 +71,7 @@ Questions and bug reports go to the issue tracker of the repository, <https://gi
 - [Choices of this package](choices.md): the values and defaults that are choices of this package, with their reasons.
 - [Performance and accuracy](performance.md): the guidelines for cost and accuracy, the hot paths, the linear solvers and the measurements against DREAM.
 - [Comparison with DREAM](dream-comparison.md): the features of DREAM and their state in Runes2P, the departures.
+- [The disruption case](disruption-case.md): the comparison of Runes2P with DREAM in DREAM's disruption case, at the size of the tests and in two whole quenches at full size.
 - [Reference data](reference-data.md): the reference sets of the tests and how to regenerate them.
 - API:
   - [Overview](api-overview.md): how the API reference is organized and built.
