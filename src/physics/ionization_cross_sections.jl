@@ -154,7 +154,7 @@ const SECONDARY_SPECTRUM_WIDTHS = Dict{String, Float64}(
 The mean kinetic energy [eV] of the secondary electron of an ionization with the ionization
 potential `I` by an electron of kinetic energy `E`, with the spectrum of Opal et al. of
 width `width` ([`SECONDARY_SPECTRUM_WIDTHS`](@ref)) up to the smaller of `(E − I)/2` (the
-slower of the two electrons is the secondary) and `cut`:
+slower of the two electrons is the secondary) and `cut`, all four in eV:
 `(Ē/2) ln(1 + (E_top/Ē)²) / arctan(E_top/Ē)`. Zero below the threshold. This is the mean
 of the secondaries below the top, conditional on lying there. With `cut = Inf` it is the mean
 over every secondary, which [`SecondaryHeatingTerm`](@ref) with `spectrum = :opal` gives to the cold electrons and
@@ -172,9 +172,10 @@ end
     beb_mean_secondary_energy(E, B, cut)
 
 The mean kinetic energy [eV] of the secondary electron of an ionization of a subshell with
-the binding energy `B` by an electron of kinetic energy `E`, with the singly differential
-cross section of the binary-encounter-Bethe (BEB) model of Y.-K. Kim and M. E. Rudd,
-Phys. Rev. A 50, 3954 (1994), doi:10.1103/PhysRevA.50.3954, eqs. (52) to (54):
+the binding energy `B` by an electron of kinetic energy `E`, the energies and `cut` in eV,
+with the singly differential cross section of the binary-encounter-Bethe (BEB) model of
+Y.-K. Kim and M. E. Rudd, Phys. Rev. A 50, 3954 (1994), doi:10.1103/PhysRevA.50.3954, eqs.
+(52) to (54):
 
 ```math
 \\frac{dσ}{dW} ∝ \\sum_{n=1}^{3} F_n(t) \\left[\\frac{1}{(w + 1)^n} + \\frac{1}{(t − w)^n}\\right],

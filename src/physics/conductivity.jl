@@ -100,13 +100,13 @@ Electric conductivity [S/m] of a relativistic plasma after Braams and Karney,
     \\bar\\sigma\\left(\\frac{T}{m_e c^2}, \\frac{1}{1 + Z_\\mathrm{eff}}\\right),
 ```
 
-with the temperature in eV (in joules in the formula), the thermal Coulomb logarithm
-([`thermal_coulomb_logarithm`](@ref)) at the free-electron density, and the table of
-[`normalized_conductivity`](@ref). This is DREAM's `evaluateBraamsElectricConductivity`. In
-cylindrical geometry DREAM's conductivity of Sauter and Redl equals it, since the
-neoclassical correction is 1 without trapped particles. At low temperature and high charge
-it is the Lorentz conductivity
-``64 \\sqrt{2\\pi} \\, \\varepsilon_0^2 T^{3/2} / (\\sqrt{m_e} \\, e^2 Z \\ln\\Lambda)``.
+with the free-electron density in m⁻³, the temperature in eV (in joules in the formula), the
+thermal Coulomb logarithm ([`thermal_coulomb_logarithm`](@ref)) at the free-electron
+density, and the table of [`normalized_conductivity`](@ref). This is DREAM's
+`evaluateBraamsElectricConductivity`. In cylindrical geometry DREAM's conductivity of Sauter
+and Redl equals it, since the neoclassical correction is 1 without trapped particles. At low
+temperature and high charge it is the Lorentz conductivity ``64 \\sqrt{2\\pi} \\,
+\\varepsilon_0^2 T^{3/2} / (\\sqrt{m_e} \\, e^2 Z \\ln\\Lambda)``.
 """
 function braams_karney_conductivity(free_electron_density, temperature, effective_charge)
     temperature > 0 || throw(DomainError(temperature, "the temperature must be positive"))
@@ -124,7 +124,7 @@ end
 """
     braams_karney_conductivity(plasma, ir)
 
-The conductivity of Braams and Karney at the radius index `ir` of `plasma`, with its
+The conductivity [S/m] of Braams and Karney at the radius index `ir` of `plasma`, with its
 free-electron density, its cold temperature and its effective charge.
 """
 function braams_karney_conductivity(plasma::PlasmaState, ir::Integer)

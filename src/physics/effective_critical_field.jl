@@ -78,11 +78,12 @@ U(p) = \\hat E ⟨ξ_0⟩_A − p ν_s(p) − p γ τ_s^{-1} ⟨1 − ξ_0^2⟩_
 A = \\frac{2 \\hat E}{p ν_D(p)},
 ```
 
-with `Ê = e|E|/(mₑc)`, the slowing-down and deflection frequencies of `model` (superthermal,
-with the bremsstrahlung stopping, [`runaway_fluid_settings`](@ref)), and the synchrotron time of
-the magnetic field of the plasma ([`SYNCHROTRON_RATE_PER_FIELD_SQUARED`](@ref)). In a cylinder
-the pitch distribution `exp(−A(1 − ξ₀))` gives `⟨ξ₀⟩ = coth A − 1/A` and `⟨1 − ξ₀²⟩ = 2⟨ξ₀⟩/A`
-in closed form, where DREAM interpolates both on 50 points
+with the momentum `p` in units of `mₑc`, `Ê = e|E|/(mₑc)` (`field_frequency`, in s⁻¹), the
+slowing-down and deflection frequencies of `model` (superthermal, with the bremsstrahlung
+stopping, [`runaway_fluid_settings`](@ref)), and the synchrotron time of the magnetic field
+of the plasma ([`SYNCHROTRON_RATE_PER_FIELD_SQUARED`](@ref)). In a cylinder the pitch
+distribution `exp(−A(1 − ξ₀))` gives `⟨ξ₀⟩ = coth A − 1/A` and `⟨1 − ξ₀²⟩ = 2⟨ξ₀⟩/A` in
+closed form, where DREAM interpolates both on 50 points
 (`REPitchDistributionAveragedBACoeff.cpp`), with differences of about 1e-3.
 """
 function critical_field_advection(model::CollisionModel, ir, p, field_frequency)
@@ -167,15 +168,16 @@ _plain_plasma(plasma::PlasmaState) = plasma
 DREAM's effective critical field [V/m] at radius `ir` of `plasma` in mode FULL in a
 cylinder: the field `|E|` at which the largest momentum advection over `p`,
 [`critical_field_advection`](@ref), is zero (Hesslow et al., Plasma Phys. Control. Fusion
-60, 074010 (2018), doi:10.1088/1361-6587/aac33e, eq. (21); DREAM's `EffectiveCriticalField.cpp:124-169`
-and `249-372`). Above it some electrons gain momentum at every pitch of their distribution.
-The collisions are those of [`runaway_fluid_settings`](@ref)`(settings; role =
-:critical_field)`: superthermal, partially screened as `settings`, with the bremsstrahlung
-stopping and the synchrotron loss of the magnetic field of the plasma. DREAM solves to a
-relative 2e-3 in the field and 1e-3 in the momentum with a secant step warm-started from the
-last call; this solves to 1e-13 and 1e-10. Returns the field and the momentum of the largest
-advection. A `plasma` in dual numbers ([`dual_plasma`](@ref)) gives the field with the exact
-derivatives: the envelope of the maximum, `dE_ceff/dx = −(∂U/∂x)/(∂U/∂E)` at that momentum.
+60, 074010 (2018), doi:10.1088/1361-6587/aac33e, eq. (21); DREAM's
+`EffectiveCriticalField.cpp:124-169` and `249-372`). Above it some electrons gain momentum
+at every pitch of their distribution. The collisions are those of
+[`runaway_fluid_settings`](@ref)`(settings; role = :critical_field)`: superthermal,
+partially screened as `settings`, with the bremsstrahlung stopping and the synchrotron loss
+of the magnetic field of the plasma. DREAM solves to a relative 2e-3 in the field and 1e-3
+in the momentum with a secant step warm-started from the last call; this solves to 1e-13 and
+1e-10. Returns the field [V/m] and the momentum (units of `mₑc`) of the largest advection. A
+`plasma` in dual numbers ([`dual_plasma`](@ref)) gives the field with the exact derivatives:
+the envelope of the maximum, `dE_ceff/dx = −(∂U/∂x)/(∂U/∂E)` at that momentum.
 """
 function effective_critical_field(
         plasma::PlasmaState, ir::Integer; settings::CollisionSettings = CollisionSettings())
@@ -243,7 +245,8 @@ p^2 \\hat E_\\mathrm{eff} = \\sqrt{\\hat ν_s(p) (\\hat ν_D(p) + 4 \\hat ν_s(p
 \\hat ν_s = \\frac{p^3 ν_s}{γ^2}, \\quad \\hat ν_D = \\frac{p^3 ν_D}{γ},
 ```
 
-with `Ê_eff = e max(|E|, E_ceff)/(mₑc)` (`field_frequency`) and the collisions of
+with `Ê_eff = e max(|E|, E_ceff)/(mₑc)` (`field_frequency`, in s⁻¹), `p⋆` in units of `mₑc`
+and the collisions of
 [`runaway_fluid_settings`](@ref)`(settings; role = :critical_momentum)` (no bremsstrahlung),
 in a cylinder, where the passing fraction is 1. Solved to 1e-12 relative (DREAM: 1e-3); with
 dual numbers in the plasma or the field the derivatives follow from one Newton correction.
@@ -299,8 +302,9 @@ end
 """
     fluid_avalanche_growth_rate(plasma, ir, total_density; settings=CollisionSettings())
 
-DREAM's avalanche growth rate [s⁻¹] of the fluid runaways at radius `ir`
-(`RunawayFluid.cpp:595-660` and `353`; Hesslow et al. 2019), in a cylinder:
+DREAM's avalanche growth rate [s⁻¹] of the fluid runaways at radius `ir`, for the total
+electron density `total_density` (`n_tot`) [m⁻³] (`RunawayFluid.cpp:595-660` and `353`;
+Hesslow et al. 2019), in a cylinder:
 
 ```math
 Γ = n_\\mathrm{tot}\\, 4π r_0^2 c\\, \\frac{\\hat E − \\hat E_\\mathrm{ceff}}{p_⋆^2 \\hat E_\\mathrm{eff}},
@@ -309,9 +313,9 @@ DREAM's avalanche growth rate [s⁻¹] of the fluid runaways at radius `ir`
 
 with the field `|E|` of the plasma, the [`effective_critical_field`](@ref) and the
 [`avalanche_critical_momentum`](@ref) at `Ê_eff`. It is negative below the effective
-critical field, linear in `|E|` there, and takes the sign of the field away. Returns the rate,
-the effective critical field [V/m] and `p⋆`. Dual numbers in `plasma` (also in its
-`electric_field`) or in `total_density` give its exact derivatives.
+critical field, linear in `|E|` there, and takes the sign of the field away. Returns the
+rate, the effective critical field [V/m] and `p⋆` (units of `mₑc`). Dual numbers in `plasma`
+(also in its `electric_field`) or in `total_density` give its exact derivatives.
 """
 function fluid_avalanche_growth_rate(plasma::PlasmaState, ir::Integer, total_density;
         settings::CollisionSettings = CollisionSettings())
