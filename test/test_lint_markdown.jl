@@ -3,24 +3,29 @@
 # does not end a sentence, and a word such as "approval.", which ends like "al.", keeps its
 # period. The warnings of the section "Writing": each rule on a sample that breaks it and on
 # near misses that must stay quiet (code, math, citations, conditions, equation numbers, the
-# alternatives of a table cell). The mode for the text of GitHub, the exit codes and the
-# annotations of GitHub Actions. The expected lines are worked out by applying the rules of
-# the script's docstring by hand to each line.
+# alternatives of a table cell). Each near miss of the rule values is a sentence that would
+# warn without its exemption. The mode for the text of GitHub, the exit codes, the lines that
+# a branch adds and the annotations of GitHub Actions. The expected lines are worked out by
+# applying the rules of the script's docstring by hand to each line.
 using Test
 
 const LINT = joinpath(dirname(@__DIR__), "scripts", "lint_markdown.py")
+# git apart from the configuration of the user: no global or system file, so that no hook,
+# signing key or default branch of the machine applies
+const GIT_ENV = ("GIT_CONFIG_GLOBAL" => "/dev/null", "GIT_CONFIG_NOSYSTEM" => "1")
 
 # the lint run with `arguments` from the copy of the script in `directory`: its findings and
-# its warnings as (line, rule) pairs, its exit code and its output. GITHUB_ACTIONS is set by
-# hand, since CI sets it for the tests too.
+# its warnings as (line, rule) pairs, its exit code, its output and its messages on stderr.
+# GITHUB_ACTIONS is set by hand, since CI sets it for the tests too.
 function lint(directory, arguments...; annotate = false, input = nothing)
     script = joinpath(directory, "scripts", "lint_markdown.py")
-    command = addenv(`python3 $script $arguments`, "GITHUB_ACTIONS" =>
-        annotate ? "true" : "false")
+    environment = ("GITHUB_ACTIONS" => annotate ? "true" : "false", GIT_ENV...)
+    command = addenv(`python3 $script $arguments`, environment...)
     output = IOBuffer()
+    errors = IOBuffer()
     process = run(pipeline(
         ignorestatus(command); stdin = input === nothing ? devnull : IOBuffer(input),
-        stdout = output, stderr = devnull))
+        stdout = output, stderr = errors))
     text = String(take!(output))
     findings = Tuple{Int, String}[]
     warnings = Tuple{Int, String}[]
@@ -31,7 +36,16 @@ function lint(directory, arguments...; annotate = false, input = nothing)
                 parse(Int, found[1]), found[3]))
         end
     end
-    return (; findings, warnings, code = process.exitcode, text)
+    return (; findings, warnings, code = process.exitcode, text,
+        message = String(take!(errors)))
+end
+
+# git in the repository `directory`, with a name, no signing and a default branch of its own
+function git_in(directory, arguments...)
+    command = `git -C $directory -c user.name=Test -c user.email=test@example.org
+               -c commit.gpgsign=false -c init.defaultBranch=main $arguments`
+    run(pipeline(addenv(command, GIT_ENV...); stdout = devnull, stderr = devnull))
+    return nothing
 end
 
 # the lint of one file written into `directory`, below the copy of the script
@@ -93,13 +107,17 @@ end
 
                 The runs take 1.2 s, 3.4 s and 5.6 s.
 
-                At 120 eV, the time is 6.89e-7 s and the field is 1.030 V/m.
+                At 10 eV, the losses are 2 eV and 4 eV per step.
 
-                The forms follow eqs. (2.5e), (2.7) and (4.6), built on 2026-11-12 with v26.5 and 1.13.1.
+                The forms follow (2.5e), (2.7) and (4.6).
+
+                The build uses 1.13.1, 1.12.4 and 1.11.2.
 
                 The ratios are 1.5e-3, 2.5e-3 and 3.5e-3.
 
-                The rates follow eqs. 2.22, 2.25 and 2.31 of the paper, from 0.1 to 10 MeV.
+                The rates follow eqs. 2.22, 2.25 and 2.31 of the paper.
+
+                The window spans 0.5 s to 1.5 s, and the step takes 2.5 s.
 
                 The moment is that of a part of the collisions of the term.
 
@@ -107,33 +125,65 @@ end
 
                 The weights are ``a = 1.5``, ``b = 2.5`` and ``c = 3.5`` in math.
 
-                The two steps take 70.6 + 7.0 = 77.6 ms, and 4.0e-5 to 4.1e-5 of the density leaves.
+                The sum is 1.5 + 2.5 = 4.0 of the total.
 
                 The tolerances are set to 1e-6, 1e-8 and 1e-10.
+
+                The run at 3 eV, 5 eV and 7 eV converges.
+
+                The tests run on Julia 1.10, 1.11 and 1.12.
+
+                The run at 1.5, 2.5 and 3.5 converges.
+
+                Julia 1.10 runs the cases with 1.5, 2.5 and 3.5.
                 """
                 result = lint_text(directory, "prose.md", text)
                 # - line 1: a semicolon joins two clauses
                 # - line 3: a semicolon in code
-                # - line 5: a semicolon before a citation
+                # - line 5: a semicolon before a doi
                 # - line 7: semicolons in math and in an entity
                 # - line 9: three values in s
-                # - line 11: a condition and two values of other units
-                # - line 13: equation numbers, a date and versions
-                # - line 15: three numbers in scientific notation
-                # - line 17: equation numbers and a range
-                # - line 19: a chain of three "of"
-                # - line 21: "and" breaks the chain
-                # - line 23: numbers in math
-                # - line 25: a formula and a range
-                # - line 27: "to" before a list of three values states no range
+                # - line 11: a condition and two values in eV
+                # - line 13: numbers alone in parentheses
+                # - line 15: versions of three parts
+                # - line 17: three numbers in scientific notation
+                # - line 19: equation numbers
+                # - line 21: the first number of a range and two values in s
+                # - line 23: a chain of three "of"
+                # - line 25: "and" breaks the chain
+                # - line 27: numbers in math
+                # - line 29: a formula
+                # - line 31: "to" before a list of three values states no range
+                # - line 33: a condition word before a list of three values in eV
+                # - line 35: a list of versions after "Julia"
+                # - line 37: a condition word before a list of three numbers
+                # - line 39: the version after "Julia" and three numbers after it
                 @test isempty(result.findings)
                 @test result.warnings ==
-                      [(1, "semicolon"), (9, "values"), (15, "values"),
-                    (19, "of_chain"), (27, "values")]
+                      [(1, "semicolon"), (9, "values"), (17, "values"), (23, "of_chain"),
+                    (31, "values"), (33, "values"), (37, "values"), (39, "values")]
                 @test result.code == 0
-                @test occursin("0 findings in 1 file, 5 warnings\n", result.text)
+                @test occursin("0 findings in 1 file, 8 warnings\n", result.text)
                 # with --strict a warning fails the run
                 @test lint(directory, "--strict", joinpath(directory, "prose.md")).code == 1
+            end
+
+            @testset "semicolons between citations" begin
+                text = """
+                The scheme is central; the boundary follows Smith (2019).
+
+                The rates are tabulated ([`FITS`](@ref); K. P. Dere, Astronomy and Astrophysics 466, 771 (2007), [doi:10.1051/0004-6361:20066728](https://doi.org/10.1051/0004-6361:20066728)).
+
+                The rates are those of A. B. Rechester and M. N. Rosenbluth, Phys. Rev. Lett. 40, 38 (1978); L. Hesslow et al., Nucl. Fusion 59, 084004 (2019).
+
+                The model follows Smith (2019); the boundary follows Jones (2020).
+                """
+                result = lint_text(directory, "citations.md", text)
+                # - lines 1 and 7: a clause after the semicolon, even with a year in it
+                # - line 3: names and a journal up to its volume, page and year after it
+                # - line 5: a list of two journal references
+                @test isempty(result.findings)
+                @test result.warnings == [(1, "semicolon"), (7, "semicolon")]
             end
 
             @testset "warnings in tables, lists and paragraphs" begin
@@ -181,6 +231,17 @@ end
                 result = lint_text(directory, "meta-first.md",
                     "# Title\n\n```@meta\nCurrentModule = X\n```\n\nThe page holds this.\n")
                 @test isempty(result.warnings)
+                # a comment below the title renders nothing
+                result = lint_text(directory, "comment-first.md",
+                    "# Title\n\n<!-- a note -->\n\nThe page holds this.\n")
+                @test isempty(result.warnings)
+                result = lint_text(directory, "long-comment-first.md",
+                    "# Title\n\n<!--\na note\n-->\n\n- A list comes first.\n")
+                @test result.warnings == [(7, "page_start")]
+                # a line of a code block that starts with "# " is no title
+                result = lint_text(directory, "code-first.md",
+                    "```bash\n# install\n```\n\nThe page holds this.\n")
+                @test isempty(result.warnings)
             end
 
             @testset "text for GitHub" begin
@@ -206,6 +267,99 @@ end
                     # the same text from standard input
                     result = lint(directory, "--github", "-"; input = broken)
                     @test result.findings == [(1, "wrap"), (4, "length")]
+                    # HTML lines, math blocks and definitions of reference links do not
+                    # render as paragraphs
+                    write(path, """
+                    <details>
+                    <summary>The log</summary>
+
+                    The log is long.
+
+                    </details>
+
+                    \$\$
+                    a = b; c
+                    d = e
+                    \$\$
+
+                    [a]: https://example.org/a
+                    [b]: https://example.org/b
+                    """)
+                    result = lint(directory, "--github", path)
+                    @test isempty(result.findings) && isempty(result.warnings)
+                end
+            end
+
+            @testset "usage errors" begin
+                # a file that does not exist, with and without --github
+                missing = joinpath(directory, "missing.md")
+                for arguments in ((missing,), ("--github", missing))
+                    result = lint(directory, arguments...)
+                    @test result.code == 2
+                    @test occursin("missing.md: no such file", result.message)
+                end
+                # --github without a file
+                result = lint(directory, "--github")
+                @test result.code == 2
+                @test occursin("--github takes the files to check", result.message)
+                # a file that is no UTF-8 text
+                write(joinpath(directory, "latin.md"), UInt8[0x54, 0xe9, 0x0a])
+                result = lint(directory, joinpath(directory, "latin.md"))
+                @test result.code == 2
+                @test occursin("latin.md: not UTF-8 text", result.message)
+            end
+
+            @testset "the lines that a branch adds" begin
+                if Sys.which("git") === nothing
+                    @info "no git on the path: the test of the lines that a branch adds is skipped"
+                    @test_skip false
+                else
+                    mktempdir() do repository
+                        mkpath(joinpath(repository, "scripts"))
+                        cp(LINT, joinpath(repository, "scripts", "lint_markdown.py"))
+                        page = joinpath(repository, "page.md")
+                        git_in(repository, "init", "-q")
+                        write(page, """
+                        # Title
+
+                        The first sentence.
+                        The second sentence.
+                        The third sentence.
+                        The fourth sentence.
+
+                        The scheme is old; it stays.
+                        """)
+                        git_in(repository, "add", "page.md")
+                        git_in(repository, "commit", "-q", "-m", "base")
+                        git_in(repository, "checkout", "-q", "-b", "topic")
+                        write(page, """
+                        # Title
+
+                        The first sentence.
+                        The second sentence.
+                        The third sentence.
+                        The fourth sentence.
+                        The fifth sentence.
+                        The sixth sentence.
+
+                        The scheme is old; it stays.
+
+                        The scheme is new; it is added.
+                        """)
+                        git_in(repository, "commit", "-q", "-a", "-m", "topic")
+                        result = lint(repository, "--base", "main")
+                        # - line 7: the first added line of a paragraph of six sentences
+                        #   that starts on line 3
+                        # - line 10: a semicolon on a line of the base, not reported
+                        # - line 12: a semicolon on an added line
+                        @test isempty(result.findings)
+                        @test result.warnings == [(7, "paragraph"), (12, "semicolon")]
+                        @test result.code == 0
+                        # a reference that git does not know
+                        result = lint(repository, "--base", "nosuch")
+                        @test result.code == 2
+                        @test occursin("--base nosuch", result.message)
+                    end
                 end
             end
 

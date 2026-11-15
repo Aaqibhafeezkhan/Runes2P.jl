@@ -17,17 +17,24 @@ Findings, from the section "Markdown" of CONTRIBUTING.md:
 Warnings, from the section "Writing" of CONTRIBUTING.md:
 
     semicolon   a semicolon followed by more text of the sentence, in prose outside code, math, URLs
-                and HTML entities. One before a citation (a year in parentheses or a doi in the
-                text after it) is not reported. Table cells, where it may separate alternatives,
-                are not checked.
+                and HTML entities. One that separates the entries of a list of citations is not
+                reported: the text after it starts with a doi, or with names and a journal up to
+                its volume, page and year ("; K. P. Dere, Astronomy and Astrophysics 466, 771
+                (2007)"). Table cells, where it may separate alternatives, are not checked.
     values      three or more values of one unit in a sentence. Numbers with a unit of the list
                 UNITS count by their unit. Numbers in scientific notation or with a decimal point
                 count as one kind. These do not count:
-                - integers without a unit, citations, dates and versions
-                - numbers in parentheses, such as equation numbers
-                - numbers joined by + = − ×
-                - a number after a word of a condition ("at 120 eV")
-                - the first number of a range ("a to b")
+                - integers without a unit, among them years and the parts of a date
+                - a number that follows a letter or a period, such as v26.5
+                - a version of three parts (1.13.1), and the list of versions after Julia, Python,
+                  DREAM or "version" ("Julia 1.10, 1.11 and 1.12")
+                - a doi, and the volume, page and year of a journal reference
+                - a number alone in parentheses, with an optional letter, such as (2.7) or (2.5e)
+                - the numbers after "eq.", "fig.", "table", "sec." and their plurals, and a file and line
+                - a formula: numbers joined by + - − = or ×, with a space after the sign
+                - a number after a word of a condition ("at 120 eV"), unless further values of
+                  its unit follow it as a list ("at 3 eV, 5 eV and 7 eV" counts three)
+                - the first number of a range ("a to b", "a – b")
     cell        a table cell of more than 150 characters as it renders, with links reduced to their
                 text and backticks removed
     list_end    a list item that ends with a semicolon or a comma
@@ -37,8 +44,9 @@ Warnings, from the section "Writing" of CONTRIBUTING.md:
     page_start  a page whose first block below its title is no paragraph, past Documenter's blocks
                 `@meta` and `@setup`. It does not apply with --github.
 
-Code blocks, headings, quotes, comments and horizontal rules are skipped, and so are tables except
-for the rule cell.
+Code blocks, `$$` math blocks, headings, quotes, comments, lines that start with an HTML tag,
+definitions of reference links and horizontal rules are skipped, and so are tables except for the
+rule cell.
 The files of .github/ are skipped, since they keep one paragraph per line, and so is
 THIRD_PARTY_NOTICES.md, whose attributions and citations keep the wording of their sources.
 A period after an abbreviation of the list below that does not follow a letter does not end a sentence.
@@ -54,12 +62,13 @@ The files may lie outside the repository, and none is skipped.
 Each finding and each warning is one line, `file:line: rule: message` and `file:line: warning: rule: message`.
 Under GitHub Actions (GITHUB_ACTIONS=true) each one of a file is also written as a workflow command,
 which GitHub shows as an annotation on the line.
-GitHub shows only the first 10 warnings and the first 10 errors of a step as annotations, and the
-log of the job lists them all.
+GitHub shows at most 10 warnings and 10 errors of a step as annotations ("REST API endpoints for
+check runs" of the GitHub Docs), and the log of the job lists them all.
 The exit code is 1 when a line breaks a rule of "Markdown", or a rule of "Writing" with --strict,
 and 0 otherwise.
-It is 2 on a usage error, such as a file outside the repository without --github, or --github
-without a file.
+It is 2 on a usage error, with a message: a file that does not exist or cannot be read as UTF-8
+text, a file outside the repository without --github, --github without a file, or a --base that
+git does not know.
 """
 import argparse
 import os
@@ -87,37 +96,59 @@ UNITS = ("eV", "keV", "MeV", "GeV", "K", "s", "ms", "µs", "μs", "ns", "min", "
          "m⁻¹", "m²", "m³", "T", "V", "V/m", "A", "kA", "MA", "W", "MW", "J", "MJ", "Pa", "%", "GB", "MB",
          "kB", "Hz", "rad")
 NUMBER = r"(?<![\w.^⁻])[-−+]?\d+(?:\.\d+)?(?:[eE][-−+]?\d+|\s?[×x]\s?10[⁻⁺]?[⁰¹²³⁴⁵⁶⁷⁸⁹]+)?"
-VALUE_PATTERN = (NUMBER + r"(?:\s?(" + "|".join(re.escape(u) for u in sorted(UNITS, key=len, reverse=True))
-                 + r")(?![\w⁻⁰¹²³⁴⁵⁶⁷⁸⁹/]))?")
+UNIT = (r"(?:" + "|".join(re.escape(u) for u in sorted(UNITS, key=len, reverse=True))
+        + r")(?![\w⁻⁰¹²³⁴⁵⁶⁷⁸⁹/])")
+VALUE_PATTERN = NUMBER + r"(?:\s?(" + UNIT + r"))?"
 VALUE = re.compile(VALUE_PATTERN)
 # numbers joined by an operator are a formula, not values
 FORMULA = re.compile(VALUE_PATTERN + r"(?:\s*[-+=−×]\s+" + VALUE_PATTERN + ")+")
-# a number that follows one of these words states a condition, not a value, and so does the first
-# number of a range "a to b"
+# a number that follows one of these words states a condition, not a value, unless further values of
+# its unit follow as a list
 CONDITION = re.compile(r"\b(?:[Aa]t|[Aa]bove|[Bb]elow|[Bb]eyond|[Uu]nder|[Oo]ver|[Ff]rom|[Bb]etween|[Ww]ithin"
-                       r"|[Uu]p to|[Ff]or|[Aa]fter|[Bb]efore|than|[Nn]ear)\s+" + NUMBER
-                       + "|" + VALUE_PATTERN + r"\s+(?:to|–)\s+(?=[-−+]?\d)")
-# what is not a value: dates, versions, numbers in parentheses (equation numbers, years), a file and
-# line, a doi, and the numbers of equations, figures, tables and sections
-NOT_VALUES = re.compile(r"\d{4}-\d{2}-\d{2}|\bv?\d+(?:\.\d+){2,}\b|\bv\d+(?:\.\d+)*|\(\s*[\d.]+[a-z]?\s*\)"
+                       r"|[Uu]p to|[Ff]or|[Aa]fter|[Bb]efore|than|[Nn]ear)\s+" + VALUE_PATTERN)
+LIST_NEXT = re.compile(r"(?:,\s*|\s+(?:and|or)\s+)" + VALUE_PATTERN)
+# the first number of a range "a to b"
+RANGE = re.compile(VALUE_PATTERN + r"\s+(?:to|–)\s+(?=[-−+]?\d)")
+# a version without a unit after it, and a list of them after the name of a program or "version"
+VERSION = r"v?\d+(?:\.\d+)*(?!\w|\.\d)(?!\s?" + UNIT + ")"
+VERSIONS = (r"\b(?:Julia|Python|DREAM|[Vv]ersions?)\s+" + VERSION
+            + r"(?:(?:,\s*|\s+(?:and|or|to)\s+)" + VERSION + ")*")
+# what is not a value: versions, a number alone in parentheses (an equation number), a file and line,
+# a doi, and the numbers of equations, figures, tables and sections
+NOT_VALUES = re.compile(r"\bv?\d+(?:\.\d+){2,}\b|" + VERSIONS + r"|\(\s*[\d.]+[a-z]?\s*\)"
                         r"|\S+\.\w+:\d+|\bdoi:\S+"
                         r"|\b(?:[Ee]qs?|[Ee]quations?|[Ff]igs?|[Ff]igures?|[Tt]ables?|[Ss]ecs?|[Ss]ections?)[.․]?\s+"
                         r"[\w.()]+(?:(?:,\s*|\s+and\s+|\s+to\s+)[\w.()]+)*")
 CITATION = re.compile(r"\(\d{4}[a-z]?\)|\bdoi:")
+# an entry of a list of citations as `prose` gives it: a doi, or names and a journal, each word
+# capitalized or a joining word, up to the volume, the page and the year
+CITATION_ENTRY = re.compile(r"doi:|(?:(?:[A-ZÀ-Ý][^\s,;()]*|and|et|al․|of|de|van|von|der),?\s+)+"
+                            r"\d+(?:,\s*[A-Z]?\d+)?\s+\(\d{4}[a-z]?\)")
+FENCE = re.compile(r"^(`{3,}|~{3,})")
+HTML_LINE = re.compile(r"^</?[A-Za-z][\w-]*(?:\s[^>]*)?/?>")
+LINK_DEFINITION = re.compile(r"^\[[^\]]+\]:\s*\S")
 # three "of" in a row, each pair joined by one or two words that are not a conjunction or a verb of the list
 LINK_WORD = r"(?!(?:and|or|is|are|was|were|than|as)\b)[^\s,;:()]+"
 OF_CHAIN = re.compile(rf"\bof(?:\s+{LINK_WORD}){{1,2}}\s+of(?:\s+{LINK_WORD}){{1,2}}\s+of\b")
 
 
+class UsageError(Exception):
+    """A call that the lint cannot run, reported with exit code 2."""
+
+
 def git(*args):
     result = subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True)
     if result.returncode != 0:
-        raise SystemExit(f"git {' '.join(args)} failed: {result.stderr}")
+        raise UsageError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
     return result.stdout
 
 
 def added_lines(base):
     """Markdown files of the branch and the numbers of the lines it adds, against the merge base."""
+    try:
+        git("rev-parse", "--verify", "--quiet", base + "^{commit}")
+    except UsageError:
+        raise UsageError(f"--base {base}: git knows no such commit") from None
     start = git("merge-base", base, "HEAD").strip()
     files = {}
     for name in git("diff", "--name-only", "--diff-filter=AMR", start, "--", "*.md").split("\n"):
@@ -165,11 +196,11 @@ def sentences(text):
 
 def blocks(lines):
     """The paragraphs, list items and table rows of a text, each as a kind and its line numbers (from 1)."""
-    found, fence, comment = [], None, False
+    found, fence, comment, math = [], None, False, False
     previous = None     # the kind of the line before: "prose", "row" or None
     for number, line in enumerate(lines, start=1):
         stripped = line.strip()
-        marker = re.match(r"^(`{3,}|~{3,})", stripped)
+        marker = FENCE.match(stripped)
         if fence:
             if marker and marker.group(1).startswith(fence):
                 fence = None
@@ -177,8 +208,18 @@ def blocks(lines):
         if marker:
             fence, previous = marker.group(1), None
             continue
+        if math:
+            math = not stripped.endswith("$$")
+            continue
+        if stripped.startswith("$$"):
+            # a block of math, which closes on this line when it also ends with $$
+            math, previous = not (len(stripped) >= 4 and stripped.endswith("$$")), None
+            continue
         if comment or stripped.startswith("<!--"):
             comment, previous = "-->" not in stripped, None
+            continue
+        if HTML_LINE.match(stripped) or LINK_DEFINITION.match(stripped):
+            previous = None
             continue
         if stripped.startswith("|"):
             found.append(("row", [number]))
@@ -216,7 +257,15 @@ def cells(line):
 def values(sentence):
     """The units of which a sentence holds three or more values, with their counts."""
     text = CITATION.sub(" ", re.sub(r"\d+, [A-Z]?\d+ \(\d{4}[a-z]?\)", " ", sentence))
-    text = CONDITION.sub(" ", FORMULA.sub(" ", NOT_VALUES.sub(" ", text)))
+    text = FORMULA.sub(" ", NOT_VALUES.sub(" ", text))
+
+    def condition(found):
+        following = LIST_NEXT.match(text, found.end())
+        if following and following.group(1) == found.group(1):
+            return found.group(0)       # the first value of a list
+        return " "
+
+    text = RANGE.sub(" ", CONDITION.sub(condition, text))
     counts = {}
     for found in VALUE.finditer(text):
         unit = found.group(1)
@@ -229,10 +278,9 @@ def values(sentence):
 
 
 def semicolons(sentence):
-    """Whether a semicolon joins more text of the sentence, other than a citation after it."""
+    """Whether a semicolon joins more text of the sentence, other than the next entry of a list of citations."""
     for found in re.finditer(r";\s+(?=\S)", sentence):
-        after = sentence[found.end():].split(";")[0]
-        if not CITATION.search(after):
+        if not CITATION_ENTRY.match(sentence, found.end()):
             return True
     return False
 
@@ -240,24 +288,39 @@ def semicolons(sentence):
 def page_start(lines):
     """The number of the first line below the title of a page when it is no paragraph, or None.
 
-    Documenter's blocks `@meta` and `@setup`, which render nothing, are passed over.
+    The title is the first line outside code blocks that starts with "# ".
+    Documenter's blocks `@meta` and `@setup` and HTML comments, which render nothing, are passed over.
     """
-    title = next((i for i, line in enumerate(lines) if line.startswith("# ")), None)
+    title, fence = None, None
+    for index, line in enumerate(lines):
+        marker = FENCE.match(line.strip())
+        if fence:
+            if marker and marker.group(1).startswith(fence):
+                fence = None
+        elif marker:
+            fence = marker.group(1)
+        elif line.startswith("# "):
+            title = index
+            break
     if title is None:
         return None
-    index, hidden = title + 1, False
+    index, hidden, comment = title + 1, False, False
     while index < len(lines):
         stripped = lines[index].strip()
         if hidden:
             hidden = not stripped.startswith("```")
+        elif comment:
+            comment = "-->" not in stripped
         elif stripped.startswith(("```@meta", "```@setup")):
             hidden = True
+        elif stripped.startswith("<!--"):
+            comment = "-->" not in stripped
         elif stripped:
             break
         index += 1
     if index == len(lines):
         return None
-    if LIST_ITEM.match(lines[index]) or lines[index].strip().startswith(("#", "|", ">", "`" * 3, "~" * 3, "<!--")):
+    if LIST_ITEM.match(lines[index]) or lines[index].strip().startswith(("#", "|", ">", "`" * 3, "~" * 3)):
         return index + 1
     return None
 
@@ -323,10 +386,10 @@ def check(lines, wanted, github=False):
     return findings
 
 
-def escape(text, property=False):
+def escape(text, as_property=False):
     """Text escaped for a workflow command of GitHub Actions, as data or as a property."""
     text = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-    if property:
+    if as_property:
         text = text.replace(":", "%3A").replace(",", "%2C")
     return text
 
@@ -351,16 +414,29 @@ if __name__ == "__main__":
                 parser.error(f"{name} lies outside the repository: check a draft for GitHub with --github")
             targets[str(path.relative_to(ROOT))] = None
     else:
-        targets = added_lines(arguments.base)
+        try:
+            targets = added_lines(arguments.base)
+        except UsageError as error:
+            parser.error(str(error))
+    # the texts, read before any output, so that a file that cannot be read stops the run with a message
+    texts = {}
+    for name in sorted(targets):
+        if not arguments.github and name.startswith(SKIPPED):
+            continue
+        path = Path(name) if arguments.github else ROOT / name
+        if not arguments.files and not path.exists():
+            continue        # a file of the diff that the working tree no longer holds
+        try:
+            texts[name] = sys.stdin.read() if arguments.github and name == "-" else path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            parser.error(f"{name}: no such file")
+        except UnicodeDecodeError:
+            parser.error(f"{name}: not UTF-8 text")
+        except OSError as error:
+            parser.error(f"{name}: cannot be read: {error.strerror}")
     annotate = os.environ.get("GITHUB_ACTIONS") == "true"
     errors, warnings = 0, 0
-    for name in sorted(targets):
-        if arguments.github:
-            text = sys.stdin.read() if name == "-" else Path(name).read_text(encoding="utf-8")
-        elif name.startswith(SKIPPED) or not (ROOT / name).exists():
-            continue
-        else:
-            text = (ROOT / name).read_text(encoding="utf-8")
+    for name, text in texts.items():
         for number, level, rule, message in check(text.split("\n"), targets[name], arguments.github):
             if level == "error":
                 print(f"{name}:{number}: {rule}: {message}")

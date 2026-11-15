@@ -261,17 +261,19 @@ The files of `.github/` keep one paragraph per line, as the text of pull request
 - No second sentence stands inside parentheses.
 - `python3 scripts/lint_markdown.py <file> ...` checks these rules, and a break of one fails it.
   Without files it checks the lines that the branch adds against `origin/dev`, or against the reference given with `--base`.
-  It skips fenced code blocks, headings, quotes, comments and horizontal rules, and it skips tables for these rules.
+  It skips fenced code blocks, `$$` math blocks, headings, quotes, comments, lines that start with an HTML tag, definitions of reference links and horizontal rules.
+  It skips tables for these rules.
 - The lint also reports the rules of the section "Writing" that a script can check, as warnings that do not fail it.
   They are a semicolon between two clauses, three values of a unit in a sentence, a long table cell and a list item that ends with ";" or ",".
   They are also a paragraph of more than five sentences, a chain of three "of" and a page that does not start with a sentence.
   The docstring of the script defines each one.
   With `--strict` the warnings fail the lint too.
 - The exit code is 1 when the lint fails and 0 when it passes.
-  It is 2 on a usage error, such as a file outside the repository without `--github`.
+  It is 2 on a usage error, with a message.
+  Such an error is a file that does not exist or is no UTF-8 text, a file outside the repository without `--github`, `--github` without a file, or a `--base` that git does not know.
 - In CI the lint runs on the lines that a pull request adds, and on every tracked markdown file after a push to `dev` or `main`.
   The script writes each finding and each warning as an annotation on its line.
-  GitHub shows only the first 10 warnings and the first 10 errors of a step as annotations, and the log of the job lists them all.
+  GitHub shows at most 10 warnings and 10 errors of a step as annotations, and the log of the job lists them all.
 - `--github` checks a text for GitHub, where a paragraph is one line.
   A line break inside a paragraph is then a break of the rules, and the limit of 200 characters holds for each sentence.
   The warning `page_start`, a page that does not start with a sentence, does not apply there.
