@@ -23,6 +23,7 @@ The rules below cover the branches, the checks of a pull request, its review, it
   The skipped check of the component tests counts as passed.
   The check of the full suite passes without tests.
 - No code means markdown files, files under `docs/src/`, and Julia files outside `test/` whose code stays the same without docstrings and comments.
+  A page of the docs that a test reads counts as code.
   `scripts/code_changes.jl` decides.
   Its header lists the exceptions.
 - Six checks are required for a merge into `dev` or `main`: Markdown lint, Code style check, Format check, Component tests, Documentation build and Full suite.
@@ -101,6 +102,8 @@ The header of `docs/make.jl` gives the command of a live local preview.
   Comments and docstrings state what the code does and why, not how it came to be (section "Writing", below).
 - Code, comments and docstrings do not refer to issues, pull requests or commits.
 - Longer reasons go on the pages of the documentation, not into comments.
+- An unknown that the package declares or names by default carries its unit, in the table `DEFAULT_UNKNOWN_UNITS` of `src/system/layout.jl` and in the table of [Units of the unknowns](docs/src/model/unknowns.md#units-of-the-unknowns).
+  A change that adds such an unknown adds its unit to both tables, and the output file then stores it.
 - A value or default that neither DREAM's examples nor a cited reference fixes is marked "a choice of this package" where it is set.
   It gets a row on the docs page [Choices of this package](docs/src/choices.md).
 - Performance and accuracy are weighed together.

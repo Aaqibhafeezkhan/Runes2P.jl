@@ -1521,6 +1521,7 @@ function _start_segment!(
         end
         t = T(stored.time)
         copied = copy_unknowns!(u_old, layout, stored.state, stored.layout)
+        _warn_changed_units(layout, stored, copied)
         for update in updates
             state = get(stored.update_states, update_name(update), nothing)
             if state !== nothing
@@ -1561,6 +1562,22 @@ function _start_segment!(
         @warn "resuming $(stored.source) with changed settings" sections = settings["segment"]["changed_sections"]
     end
     return (; t, first_save, segment, summary_before, stepper_before, copied)
+end
+
+# A warning for every unknown in `copied` whose unit stored in the file of `stored` and the
+# unit of its declaration in `layout` are both nonempty and differ. The units stay outside
+# the setup hash, and the values are copied as they are. A file of the format 0.0.4 or
+# older stores no unit and gets no warning.
+function _warn_changed_units(layout::UnknownLayout, stored::StoredState, copied)
+    for name in sort(copied)
+        stored_unit = get(stored.units, name, "")
+        declared_unit = unknown_unit(layout, name)
+        if !isempty(stored_unit) && !isempty(declared_unit) && stored_unit != declared_unit
+            @warn "the unknown $name is stored in $(stored.source) in $(repr(stored_unit)) and declared in " *
+                  "$(repr(declared_unit)): its values are copied unchanged"
+        end
+    end
+    return nothing
 end
 
 # The state of a running segment: the states and the times, what it has saved, its
@@ -1846,7 +1863,10 @@ back by [`read_settings`](@ref)), the [`describe`](@ref) record of the layout un
 `(components, r, t)`, kinetic on a shared grid `(p, xi, r, t)`, on per-radius grids a group
 with one `(p, xi, t)` dataset per radius named `radius_<ir>`), and the
 [`SolverStatistics`](@ref) under `solver_statistics` with their own time array, and the
-states of the interval updates per saved time under `update_states`. `atomic = true` writes
+states of the interval updates per saved time under `update_states`. The string attribute
+`unit` holds the unit of every entry of `unknowns` ([`unknown_unit`](@ref), empty for an
+unknown without one), of `time` (`"s"`) and of the faces of the grids under `layout`
+(`"m"`, `"m_e c"` and `"1"`). `atomic = true` writes
 to a temporary file that is renamed onto `filename` ([`write_atomically`](@ref)).
 [`read_output`](@ref) reads the file back. Defined by the package extension
 `Runes2PHDF5Ext`, which loads with HDF5 (`using HDF5`).

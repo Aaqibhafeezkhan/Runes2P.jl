@@ -17,7 +17,7 @@ with a constant mass matrix ``M``, checks that the parts fit together, and suppl
 
 ## Unknowns
 
-An unknown has a name, a kind, a reference scale and optionally a [`LowerLimit`](@ref).
+An unknown has a name, a kind, a reference scale, a unit and optionally a [`LowerLimit`](@ref).
 
 | Kind | Values | Example |
 |---|---|---|
@@ -51,32 +51,37 @@ The layout is immutable.
 
 ### Units of the unknowns
 
-An unknown carries no unit.
-Its values are plain numbers in the units of this table.
-The constructors and equations of the package give their unknowns the default names below.
-A keyword sets another name, such as `total_energy` of [`total_energy_equation`](@ref) for `:total_electron_energy`.
+An unknown carries its unit as a string, which [`unknown_unit`](@ref) reads and the output file stores ([Unknowns](output.md#Unknowns)).
+The constructors and equations of the package give their unknowns the default names below, and a scalar or radial unknown of such a name takes the unit of this table.
+The column "In the file" gives the unit in the ASCII form of the file.
+The keyword `unit` of [`ScalarUnknown`](@ref), [`RadialUnknown`](@ref) and [`KineticUnknown`](@ref) sets another unit, an ASCII string without control characters.
+Without that keyword, a [`KineticUnknown`](@ref) takes `"m^-3"` whatever its name, and a scalar or radial unknown of a name outside the table has the empty string as its unit.
 
-| Unknown | Holds | Unit |
-|---|---|---|
-| `:electric_field` | the parallel electric field | V/m |
-| `:poloidal_flux` | the poloidal flux divided by the major radius | V s/m |
-| `:edge_poloidal_flux`, `:wall_poloidal_flux` | that flux at the edge and at the wall | V s/m |
-| `:total_current_density` | the total current density | A/m² |
-| `:ohmic_current_density` | the ohmic current density | A/m² |
-| `:plasma_current` | the plasma current | A |
-| `:cold_electron_temperature` | the temperature of the cold electrons | eV |
-| `:cold_electron_density` | the density of the cold electrons | m⁻³ |
-| `:cold_thermal_energy` | the thermal energy density of the cold electrons | J/m³ |
-| `:total_electron_energy` | the energy density ``W_\mathrm{tot}`` of the [fully kinetic mode](energy-current.md#The-total-energy-in-the-fully-kinetic-mode) | J/m³ |
-| `:ion_densities` | the densities of the ion charge states | m⁻³ |
-| `:ion_thermal_energy` | the thermal energy density of each ion species | J/m³ |
-| `:runaway_density` | the density of the fluid runaways | m⁻³ |
-| `:total_electron_density` | the density of the free and the bound electrons | m⁻³ |
+A keyword sets another name, such as `total_energy` of [`total_energy_equation`](@ref) for `:total_electron_energy`.
+[`induction_unknowns`](@ref) and [`ion_densities_unknown`](@ref) keep the unit of the default name under another name.
+An unknown declared by the caller under another name takes its unit from the keyword `unit`.
+
+| Unknown | Holds | Unit | In the file |
+|---|---|---|---|
+| `:electric_field` | the parallel electric field | V/m | `V/m` |
+| `:poloidal_flux` | the poloidal flux divided by the major radius | V s/m | `V s/m` |
+| `:edge_poloidal_flux`, `:wall_poloidal_flux` | that flux at the edge and at the wall | V s/m | `V s/m` |
+| `:total_current_density` | the total current density | A/m² | `A/m^2` |
+| `:ohmic_current_density` | the ohmic current density | A/m² | `A/m^2` |
+| `:plasma_current` | the plasma current | A | `A` |
+| `:cold_electron_temperature` | the temperature of the cold electrons | eV | `eV` |
+| `:cold_electron_density` | the density of the cold electrons | m⁻³ | `m^-3` |
+| `:cold_thermal_energy` | the thermal energy density of the cold electrons | J/m³ | `J/m^3` |
+| `:total_electron_energy` | the energy density ``W_\mathrm{tot}`` of the [fully kinetic mode](energy-current.md#The-total-energy-in-the-fully-kinetic-mode) | J/m³ | `J/m^3` |
+| `:ion_densities` | the densities of the ion charge states | m⁻³ | `m^-3` |
+| `:ion_thermal_energy` | the thermal energy density of each ion species | J/m³ | `J/m^3` |
+| `:runaway_density` | the density of the fluid runaways | m⁻³ | `m^-3` |
+| `:total_electron_density` | the density of the free and the bound electrons | m⁻³ | `m^-3` |
 
 A distribution and the density of the hot electrons have no default name.
 The caller names them, as the examples name the distribution `:f`.
-The density of the hot electrons is in m⁻³.
-A distribution is in m⁻³ per unit of momentum volume ([Notes on the units](../getting-started.md#Notes-on-the-units)).
+The density of the hot electrons is in m⁻³, which the caller's declaration passes as `unit = "m^-3"`.
+A distribution is in m⁻³ per unit of momentum volume ([Notes on the units](../getting-started.md#Notes-on-the-units)), hence the default unit of a [`KineticUnknown`](@ref).
 
 ## Equations
 

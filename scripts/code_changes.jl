@@ -17,8 +17,9 @@
 # A docstring counts as code when it interpolates (`$name`), since it runs when the package
 # loads, and so does the docstring of a field, which the parser keeps as a plain string. A
 # Julia file whose docstrings a test reads (`DOCSTRINGS_READ_BY_TESTS`) changes code with any
-# change. Every other file changes code, among them a file under `test/` and a Julia file
-# that is added, deleted or renamed, or that does not parse.
+# change, and so does a file of the documentation that a test reads (`DOCS_READ_BY_TESTS`),
+# markdown or under `docs/src/`. Every other file changes code, among them a file under
+# `test/` and a Julia file that is added, deleted or renamed, or that does not parse.
 #
 # The script prints the files that change code, and writes `code=true` or `code=false` to the
 # file `$GITHUB_OUTPUT` when it is set. It throws when git fails or when it gets more than one
@@ -28,6 +29,11 @@
 # source that the docstring of CHIANTI_IONIZATION_FITS cites. A new test that reads a
 # docstring adds the file of that docstring here (test/README.md).
 const DOCSTRINGS_READ_BY_TESTS = ["src/physics/ionization_chianti_fits.jl"]
+
+# the files of the documentation that a test reads: test_layout.jl checks the table of units
+# of docs/src/model/unknowns.md against DEFAULT_UNKNOWN_UNITS. A new test that reads a page
+# adds it here (test/README.md).
+const DOCS_READ_BY_TESTS = ["docs/src/model/unknowns.md"]
 
 # the expression without its plain docstrings and line numbers; a docstring is the macro call
 # `Core.@doc` (or `@doc`) with the string and the documented expression
@@ -82,6 +88,7 @@ _git(args...) = read(Cmd(["git", args...]), String)
 _file_at(ref, path) = _git("show", "$ref:$path")
 
 function changes_code(merge_base::AbstractString, status::AbstractString, path::AbstractString)
+    path in DOCS_READ_BY_TESTS && return true
     endswith(path, ".md") && return false
     startswith(path, "docs/src/") && return false
     startswith(path, "test/") && return true
