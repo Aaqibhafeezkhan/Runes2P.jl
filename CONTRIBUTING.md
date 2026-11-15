@@ -112,6 +112,8 @@ The header of `docs/make.jl` gives the command of a live local preview.
   A docstring is a string literal, so a LaTeX backslash is written twice (`\\partial`).
   Formulas go into math (```` ```math ```` blocks, ``` ``…`` ``` inline).
   `@ref` links point to documented names only.
+- The docstring of a public name gives the unit of every argument, keyword, field and result that is a physical quantity.
+  A dimensionless quantity needs no unit.
 
 ## Names
 
