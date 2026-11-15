@@ -59,7 +59,9 @@ jobs:
           fi
 
   # the markdown rules of CONTRIBUTING.md: the lines a pull request changes, or every tracked
-  # markdown file on a push
+  # markdown file on a push. A break of the section "Markdown" fails the job. A break of the
+  # section "Writing" is a warning: the job passes, and the script writes it as an annotation
+  # on its line, since GITHUB_ACTIONS is set on the runner. The log lists them all.
   lint:
     name: Markdown lint
     runs-on: ubuntu-latest

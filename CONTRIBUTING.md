@@ -259,5 +259,16 @@ The files of `.github/` keep one paragraph per line, as the text of pull request
 - A sentence has at most 200 characters.
   A longer one is split into shorter sentences or into a list of sentences.
 - No second sentence stands inside parentheses.
-- `python3 scripts/lint_markdown.py <file> ...` checks these rules.
-  It skips fenced code blocks, tables, headings, quotes, comments and horizontal rules.
+- `python3 scripts/lint_markdown.py <file> ...` checks these rules, and a break of one fails it.
+  Without files it checks the lines that the branch adds against `origin/dev`, or against the reference given with `--base`.
+  It skips fenced code blocks, headings, quotes, comments and horizontal rules, and it skips tables for these rules.
+- The lint also reports the rules of the section "Writing" that a script can check, as warnings that do not fail it.
+  They are a semicolon between two clauses, three values of a unit in a sentence, a long table cell and a list item that ends with ";" or ",".
+  They are also a paragraph of more than five sentences, a chain of three "of" and a page that does not start with a sentence.
+  The docstring of the script defines each one.
+  With `--strict` the warnings fail the lint too.
+- In CI the lint runs on the lines that a pull request adds, and its warnings show as annotations on those lines.
+- `--github` checks a text for GitHub, where a paragraph is one line.
+  A line break inside a paragraph is then a break of the rules, and the limit of 200 characters holds for each sentence.
+  The file may lie outside the repository, and `-` reads standard input.
+  Before a pull request is opened, `python3 scripts/lint_markdown.py --github pr.md` checks the draft of its description in `pr.md`.
