@@ -6,7 +6,8 @@ CurrentModule = Runes2P
 
 A run writes HDF5 files through the package extension `Runes2PHDF5Ext`, which loads with HDF5 ([Extensions](../extensions.md)).
 Without `using HDF5` the writers and readers below have no methods.
-A run that does not fit one allocation is a chain of segments; when a segment stops and how segments are chained: [Time stepping and solvers](time-stepping.md).
+A run that does not fit one allocation is a chain of segments.
+The page [Time stepping and solvers](time-stepping.md) says when a segment stops and how segments are chained.
 
 ## Files of a run
 
@@ -58,11 +59,11 @@ A segment without a saved state has no `time`, no `unknowns` and no datasets und
 
 The `settings` group, the `layout` group and the record parts of a checkpoint are plain records ([`SettingsRecord`](@ref)) written as HDF5 objects:
 
-- a record becomes a group with one entry per key;
-- a list of records becomes a group with one subgroup per entry, named by the entry's `name`, and the dataset `order` with the names;
-- a list of arrays becomes a group with the datasets `1`, `2`, …;
-- a boolean becomes a byte with the attribute `bool`, read back as a boolean;
-- strings, numbers, arrays of numbers and lists of strings become datasets.
+- A record becomes a group with one entry per key.
+- A list of records becomes a group with one subgroup per entry, named by the entry's `name`, and the dataset `order` with the names.
+- A list of arrays becomes a group with the datasets `1`, `2` and so on.
+- A boolean becomes a byte with the attribute `bool`, read back as a boolean.
+- Strings, numbers, arrays of numbers and lists of strings become datasets.
 
 The reader returns every group as a record, so a list of records reads back as a record keyed by the names and a list of arrays as one keyed `"1"`, `"2"`, ….
 [`read_settings`](@ref) returns the record of [`run_settings`](@ref) as written, type for type, and [`settings_hash`](@ref) of it equals the hash written.
@@ -104,7 +105,8 @@ A resumed segment adds `resumed_from` (the file), `resumed_from_segment`, `previ
 
 ### The layout group
 
-The root group `layout` is the [`describe`](@ref) record of the [`UnknownLayout`](@ref) with its grids inline under `grids`, so it does not depend on the settings group; the record carries `layout_version = 2`.
+The root group `layout` is the [`describe`](@ref) record of the [`UnknownLayout`](@ref) with its grids inline under `grids`, so it does not depend on the settings group.
+The record carries `layout_version = 2`.
 A reader rebuilds the layout from it and the kinetic grids with [`cylindrical_grid`](@ref) from the stored faces.
 A resume matches the unknowns by name with [`copy_unknowns!`](@ref), which refuses a stored unknown on other momentum grids: the distribution is not remapped between grids.
 
@@ -130,8 +132,10 @@ The group `unknowns` has one entry per unknown, named by it, with the saved time
 | kinetic, one momentum grid at all radii | dataset | `(p, xi, r, t)` |
 | kinetic, per-radius momentum grids | group with one dataset `radius_<ir>` per radius | `(p, xi, t)` |
 
-The shapes are those Julia reads; a C-order reader such as h5py or h5dump sees the dimensions reversed, with time first.
-The values are those of the state vector, in the units of each unknown, not divided by its `scale` (a reference magnitude); `time` is in seconds.
+The shapes are those Julia reads.
+A C-order reader such as h5py or h5dump sees the dimensions reversed, with time first.
+The values are those of the state vector, in the units of each unknown, not divided by its `scale` (a reference magnitude).
+The dataset `time` is in seconds.
 In memory, [`unknown_view`](@ref) views one unknown of a saved state of a [`TimeSolution`](@ref).
 
 ## Solver statistics and update states
@@ -166,7 +170,8 @@ A state read from an output file has no stepper record, so its time must be a ti
 
 ## Reading
 
-- [`read_output`](@ref) returns the [`TimeSolution`](@ref) of an output file, or of the segments of a run joined; it refuses a checkpoint.
+- [`read_output`](@ref) returns the [`TimeSolution`](@ref) of an output file, or of the segments of a run joined.
+  It refuses a checkpoint.
 - [`read_settings`](@ref) returns the `settings` group alone.
 - [`read_state`](@ref) returns one saved state of an output file, the last by default, or the state of a checkpoint, as a [`StoredState`](@ref) to resume from.
 - [`read_checkpoint`](@ref) with the [`CheckpointSettings`](@ref) of a run reads its last checkpoint and falls back on the previous one.
@@ -176,14 +181,14 @@ A state read from an output file has no stepper record, so its time must be a ti
 
 `read_output(settings)` joins the segment files that exist, in the order of their numbers ([`segment_files`](@ref)).
 Files given by name are joined in the order given.
-The join refuses files that are not the segments of one run:
+The join refuses files that are not the segments of one run, in these cases:
 
-- a segment that starts before the one given before it;
-- a segment whose `resumed_from_segment` is not the `index` of the one before it, where both records hold them;
-- a segment whose `previous_setup_hash` is not the `setup_hash` of the one before it, where both are known;
-- a segment with other unknown names or another state length;
-- a segment with saved states and other interval updates;
-- joined times that are not strictly increasing.
+- A segment starts before the one given before it.
+- The `resumed_from_segment` of a segment is not the `index` of the one before it, where both records hold them.
+- The `previous_setup_hash` of a segment is not the `setup_hash` of the one before it, where both are known.
+- A segment has other unknown names or another state length.
+- A segment has saved states and other interval updates.
+- The joined times are not strictly increasing.
 
 A segment that went on after its last checkpoint is repeated from there by the following one.
 Its states after the start time of the following segment are dropped.

@@ -66,19 +66,20 @@ The table gives the error of each rule relative to the exact ``\langle\xi\rangle
 The second order that [`pitch_moment_weights`](@ref) states for `:linear` is for values of ``f`` at the cell centres.
 One item of the list gives the errors with such values instead, on this grid without a refinement.
 
-| ``\kappa`` | exact ``\langle\xi\rangle`` | `:linear` | `:cell_center` |
-|---|---|---|---|
-| 1 | 0.3130 | +0.11 % | −4.4 % |
-| 3 | 0.6716 | +0.76 % | −4.3 % |
-| 10 | 0.9000 | +2.3 % | −3.0 % |
-| 30 | 0.9667 | +1.2 % | −0.42 % |
-| 100 | 0.9900 | +0.009 % | −0.041 % |
-| 300 | 0.9967 | +0.018 % | −0.041 % |
-| 1000 | 0.9990 | +0.045 % | −0.037 % |
-| 3000 | 0.99967 | +0.064 % | −0.035 % |
+| ``\kappa`` | exact ``\langle\xi\rangle`` | `:linear` | `:cell_center` | Closer rule |
+|---|---|---|---|---|
+| 1 | 0.3130 | +0.11 % | −4.4 % | `:linear` |
+| 3 | 0.6716 | +0.76 % | −4.3 % | `:linear` |
+| 10 | 0.9000 | +2.3 % | −3.0 % | `:linear` |
+| 30 | 0.9667 | +1.2 % | −0.42 % | `:cell_center` |
+| 100 | 0.9900 | +0.009 % | −0.041 % | `:linear` |
+| 300 | 0.9967 | +0.018 % | −0.041 % | `:linear` |
+| 1000 | 0.9990 | +0.045 % | −0.037 % | `:cell_center` |
+| 3000 | 0.99967 | +0.064 % | −0.035 % | `:cell_center` |
+
+Neither rule is the closer one at every ``\kappa``.
 
 - `:linear` lies above the exact mean pitch at every ``\kappa`` of the table, and `:cell_center` below it.
-- Neither rule is the closer one at every ``\kappa``: `:linear` is closer at ``\kappa \le 10`` and at ``\kappa`` = 100 and 300, `:cell_center` at ``\kappa`` = 30, 1000 and 3000.
 - The largest errors are those of the broad beams for `:cell_center` and of the beams that end near the split of the grid at ``\theta = 0.5`` (``\kappa`` = 10 to 30) for `:linear`.
 - For a beam inside the last pitch cells the error is small against ``\langle\xi\rangle`` but not against ``1 - \langle\xi\rangle``.
   At ``\kappa = 1000`` it is 45 % of ``1 - \langle\xi\rangle`` for `:linear` and 37 % for `:cell_center`, and at ``\kappa = 3000`` `:linear` gives ``\langle\xi\rangle > 1``.
