@@ -136,6 +136,12 @@ end
                 The run at 1.5, 2.5 and 3.5 converges.
 
                 Julia 1.10 runs the cases with 1.5, 2.5 and 3.5.
+
+                The code is version 1.10, 1.11 or 1.12.
+
+                In DREAM 1.5 s, 2.5 s and 3.5 s pass.
+
+                Between 0.5 s and 1.5 s the step takes 2.5 s.
                 """
                 result = lint_text(directory, "prose.md", text)
                 # - line 1: a semicolon joins two clauses
@@ -158,12 +164,16 @@ end
                 # - line 35: a list of versions after "Julia"
                 # - line 37: a condition word before a list of three numbers
                 # - line 39: the version after "Julia" and three numbers after it
+                # - line 41: a list of versions after "version"
+                # - line 43: values with a unit after "DREAM" are no versions
+                # - line 45: a range "between a and b" and one more value in s
                 @test isempty(result.findings)
                 @test result.warnings ==
                       [(1, "semicolon"), (9, "values"), (17, "values"), (23, "of_chain"),
-                    (31, "values"), (33, "values"), (37, "values"), (39, "values")]
+                    (31, "values"), (33, "values"), (37, "values"), (39, "values"),
+                    (43, "values")]
                 @test result.code == 0
-                @test occursin("0 findings in 1 file, 8 warnings\n", result.text)
+                @test occursin("0 findings in 1 file, 9 warnings\n", result.text)
                 # with --strict a warning fails the run
                 @test lint(directory, "--strict", joinpath(directory, "prose.md")).code == 1
             end
@@ -184,6 +194,32 @@ end
                 # - line 5: a list of two journal references
                 @test isempty(result.findings)
                 @test result.warnings == [(1, "semicolon"), (7, "semicolon")]
+            end
+
+            @testset "math blocks, link definitions and footnotes" begin
+                text = """
+                \$\$
+                a = b; c
+                \$\$
+
+                \$\$ a = b; c \$\$
+
+                [a]: https://example.org/a "A title"
+                [b]: <https://example.org/b>
+
+                \$\$a\$\$ is the weight; it holds.
+
+                [^1]: A footnote; it holds.
+
+                [Note]: some text; it holds.
+                """
+                result = lint_text(directory, "math.md", text)
+                # - lines 1 to 8: blocks of math and definitions of links are skipped
+                # - line 10: a line that starts with math and goes on is prose
+                # - lines 12 and 14: a footnote and a label without a single target are prose
+                @test isempty(result.findings)
+                @test result.warnings ==
+                      [(10, "semicolon"), (12, "semicolon"), (14, "semicolon")]
             end
 
             @testset "warnings in tables, lists and paragraphs" begin

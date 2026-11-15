@@ -34,7 +34,7 @@ Warnings, from the section "Writing" of CONTRIBUTING.md:
                 - a formula: numbers joined by + - − = or ×, with a space after the sign
                 - a number after a word of a condition ("at 120 eV"), unless further values of
                   its unit follow it as a list ("at 3 eV, 5 eV and 7 eV" counts three)
-                - the first number of a range ("a to b", "a – b")
+                - the first number of a range ("a to b", "a – b", "between a and b")
     cell        a table cell of more than 150 characters as it renders, with links reduced to their
                 text and backticks removed
     list_end    a list item that ends with a semicolon or a comma
@@ -103,8 +103,8 @@ VALUE = re.compile(VALUE_PATTERN)
 # numbers joined by an operator are a formula, not values
 FORMULA = re.compile(VALUE_PATTERN + r"(?:\s*[-+=−×]\s+" + VALUE_PATTERN + ")+")
 # a number that follows one of these words states a condition, not a value, unless further values of
-# its unit follow as a list
-CONDITION = re.compile(r"\b(?:[Aa]t|[Aa]bove|[Bb]elow|[Bb]eyond|[Uu]nder|[Oo]ver|[Ff]rom|[Bb]etween|[Ww]ithin"
+# its unit follow as a list. After "between" the next value is the end of a range, not of a list.
+CONDITION = re.compile(r"\b([Aa]t|[Aa]bove|[Bb]elow|[Bb]eyond|[Uu]nder|[Oo]ver|[Ff]rom|[Bb]etween|[Ww]ithin"
                        r"|[Uu]p to|[Ff]or|[Aa]fter|[Bb]efore|than|[Nn]ear)\s+" + VALUE_PATTERN)
 LIST_NEXT = re.compile(r"(?:,\s*|\s+(?:and|or)\s+)" + VALUE_PATTERN)
 # the first number of a range "a to b"
@@ -126,7 +126,8 @@ CITATION_ENTRY = re.compile(r"doi:|(?:(?:[A-ZÀ-Ý][^\s,;()]*|and|et|al․|of|de
                             r"\d+(?:,\s*[A-Z]?\d+)?\s+\(\d{4}[a-z]?\)")
 FENCE = re.compile(r"^(`{3,}|~{3,})")
 HTML_LINE = re.compile(r"^</?[A-Za-z][\w-]*(?:\s[^>]*)?/?>")
-LINK_DEFINITION = re.compile(r"^\[[^\]]+\]:\s*\S")
+# a definition of a reference link: a label that is no footnote, one target and an optional title
+LINK_DEFINITION = re.compile(r"^\[(?!\^)[^\]]+\]:\s*(?:<[^>]*>|\S+)(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^)]*\)))?\s*$")
 # three "of" in a row, each pair joined by one or two words that are not a conjunction or a verb of the list
 LINK_WORD = r"(?!(?:and|or|is|are|was|were|than|as)\b)[^\s,;:()]+"
 OF_CHAIN = re.compile(rf"\bof(?:\s+{LINK_WORD}){{1,2}}\s+of(?:\s+{LINK_WORD}){{1,2}}\s+of\b")
@@ -209,11 +210,13 @@ def blocks(lines):
             fence, previous = marker.group(1), None
             continue
         if math:
-            math = not stripped.endswith("$$")
+            math = "$$" not in stripped
             continue
-        if stripped.startswith("$$"):
-            # a block of math, which closes on this line when it also ends with $$
-            math, previous = not (len(stripped) >= 4 and stripped.endswith("$$")), None
+        if stripped.startswith("$$") and stripped.count("$$") == 1:
+            math, previous = True, None     # a block of math opens
+            continue
+        if stripped.startswith("$$") and stripped.endswith("$$") and stripped.count("$$") == 2:
+            previous = None                 # a block of math on one line
             continue
         if comment or stripped.startswith("<!--"):
             comment, previous = "-->" not in stripped, None
@@ -261,7 +264,7 @@ def values(sentence):
 
     def condition(found):
         following = LIST_NEXT.match(text, found.end())
-        if following and following.group(1) == found.group(1):
+        if found.group(1).lower() != "between" and following and following.group(1) == found.group(2):
             return found.group(0)       # the first value of a list
         return " "
 
