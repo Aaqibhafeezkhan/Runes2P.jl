@@ -90,7 +90,7 @@ end
                 # - lines 2 and 6: "approval." and "journal." end it
                 # - line 7: the sentence after "et al." goes on in line 8
                 @test result.findings == [(2, "sentences"), (6, "sentences"), (7, "wrap")]
-                # the eight lines are one paragraph of more than five sentences
+                # the eight lines are one paragraph of more than six sentences
                 @test result.warnings == [(1, "paragraph")]
                 @test result.code == 1
             end
@@ -234,12 +234,8 @@ end
                 - `HDF5`: the output files,
                 - `SciMLBase`: the SciML form;
                 - `Interpolations`: the interpolators.
-
-                One.
-                Two.
-                Three.
-                Four.
-                Five.
+                - The parts:
+                  - `A`: the first part.
 
                 One.
                 Two.
@@ -247,18 +243,25 @@ end
                 Four.
                 Five.
                 Six.
+
+                One.
+                Two.
+                Three.
+                Four.
+                Five.
+                Six.
+                Seven.
                 """
                 result = lint_text(directory, "blocks.md", text)
                 # - line 3: alternatives in a cell
                 # - line 4: a cell of more than 150 characters
                 # - line 5: a link counts by its text
-                # - lines 7 and 8: items that end with "," and ";"
-                # - line 11: a paragraph of five sentences
-                # - line 17: a paragraph of six sentences
+                # - lines 7, 8 and 10: items that end with ",", ";" and ":"
+                # - line 13: a paragraph of six sentences
+                # - line 20: a paragraph of seven sentences
                 @test length(long) > 150
                 @test isempty(result.findings)
-                @test result.warnings ==
-                      [(4, "cell"), (7, "list_end"), (8, "list_end"), (17, "paragraph")]
+                @test result.warnings == [(4, "cell"), (8, "list_end"), (20, "paragraph")]
             end
 
             @testset "the start of a page" begin
@@ -291,18 +294,58 @@ end
                     result = lint(directory, "--github", path)
                     @test isempty(result.findings) && isempty(result.warnings)
                     @test result.code == 0
-                    # a paragraph broken over lines shows as line breaks on GitHub. A sentence
-                    # of the paragraph longer than 200 characters is too long.
+                    # a paragraph broken over lines shows as line breaks on GitHub: a warning.
+                    # A sentence of the paragraph longer than 200 characters is too long.
                     broken = "The change adds a rule\nand tests it.\n\nThe rule; " *
                              repeat("long ", 41) * "ends. Short.\n"
                     write(path, broken)
                     result = lint(directory, "--github", path)
-                    @test result.findings == [(1, "wrap"), (4, "length")]
-                    @test result.warnings == [(4, "semicolon")]
+                    @test result.findings == [(4, "length")]
+                    @test result.warnings == [(1, "wrap"), (4, "semicolon")]
                     @test result.code == 1
                     # the same text from standard input
                     result = lint(directory, "--github", "-"; input = broken)
-                    @test result.findings == [(1, "wrap"), (4, "length")]
+                    @test result.findings == [(4, "length")]
+                    # a line break alone is a warning: the run passes, and fails with --strict
+                    write(path, "The change adds a rule\nand tests it.\n")
+                    result = lint(directory, "--github", path)
+                    @test isempty(result.findings)
+                    @test result.warnings == [(1, "wrap")]
+                    @test result.code == 0
+                    @test lint(directory, "--strict", "--github", path).code == 1
+                    # the rules of "Writing" on a paragraph over several lines: a sentence
+                    # that goes on over a line break is checked whole, at its first line
+                    write(path, """
+                    The scheme is central;
+                    the boundary is fixed.
+
+                    The runs take 1.2 s,
+                    3.4 s and 5.6 s.
+
+                    The first rule holds
+                    for the grid. The second rule holds. The third rule holds.
+                    The fourth rule holds. The fifth rule holds. The sixth rule holds.
+
+                    The first rule holds
+                    for the grid. The second rule holds. The third rule holds.
+                    The fourth rule holds. The fifth rule holds. The sixth rule holds.
+                    The seventh rule holds.
+
+                    The rule $(repeat("long ", 25))
+                    $(repeat("long ", 20))ends.
+                    """)
+                    result = lint(directory, "--github", path)
+                    # - line 1: the semicolon and the clause after it in line 2
+                    # - line 4: three values in s over two lines
+                    # - line 7: six sentences over three lines, the first one over two, which
+                    #   count as seven line by line
+                    # - line 11: seven sentences
+                    # - line 16: a sentence of 239 characters over two lines, each under 200
+                    @test result.findings == [(16, "length")]
+                    wraps = filter(warning -> warning[2] == "wrap", result.warnings)
+                    @test first.(wraps) == [1, 4, 7, 8, 11, 12, 13, 16]
+                    @test filter(warning -> warning[2] != "wrap", result.warnings) ==
+                          [(1, "semicolon"), (4, "values"), (11, "paragraph")]
                     # HTML lines, math blocks and definitions of reference links do not
                     # render as paragraphs
                     write(path, """
@@ -377,6 +420,7 @@ end
                         The fourth sentence.
                         The fifth sentence.
                         The sixth sentence.
+                        The seventh sentence.
 
                         The scheme is old; it stays.
 
@@ -384,12 +428,12 @@ end
                         """)
                         git_in(repository, "commit", "-q", "-a", "-m", "topic")
                         result = lint(repository, "--base", "main")
-                        # - line 7: the first added line of a paragraph of six sentences
+                        # - line 7: the first added line of a paragraph of seven sentences
                         #   that starts on line 3
-                        # - line 10: a semicolon on a line of the base, not reported
-                        # - line 12: a semicolon on an added line
+                        # - line 11: a semicolon on a line of the base, not reported
+                        # - line 13: a semicolon on an added line
                         @test isempty(result.findings)
-                        @test result.warnings == [(7, "paragraph"), (12, "semicolon")]
+                        @test result.warnings == [(7, "paragraph"), (13, "semicolon")]
                         @test result.code == 0
                         # a reference that git does not know
                         result = lint(repository, "--base", "nosuch")

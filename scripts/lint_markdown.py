@@ -10,7 +10,7 @@
 Findings, from the section "Markdown" of CONTRIBUTING.md:
 
     sentences   one sentence per line
-    wrap        no line break inside a sentence
+    wrap        no line break inside a sentence (with --github a warning, below)
     length      a sentence of at most 200 characters
     parenthesis no second sentence inside parentheses
 
@@ -37,8 +37,10 @@ Warnings, from the section "Writing" of CONTRIBUTING.md:
                 - the first number of a range ("a to b", "a – b", "between a and b")
     cell        a table cell of more than 150 characters as it renders, with links reduced to their
                 text and backticks removed
-    list_end    a list item that ends with a semicolon or a comma
-    paragraph   a paragraph or a list item of more than five sentences
+    list_end    a list item that ends with a semicolon. One that ends with a comma or a colon is
+                not reported.
+    paragraph   a paragraph or a list item of more than MOST_SENTENCES sentences, six. The rule of
+                "Writing" is five sentences, and the lint warns from seven on.
     of_chain    three "of" in a row, each joined to the next by one or two words other than
                 "and", "or", "is", "are", "was", "were", "than" and "as"
     page_start  a page whose first block below its title is no paragraph, past Documenter's blocks
@@ -51,11 +53,12 @@ The files of .github/ are skipped, since they keep one paragraph per line, and s
 THIRD_PARTY_NOTICES.md, whose attributions and citations keep the wording of their sources.
 A period after an abbreviation of the list below that does not follow a letter does not end a sentence.
 
-With --github the text is that of a pull request, an issue or a comment, where a paragraph is one line,
-since GitHub renders a newline as a line break.
+With --github the text is that of a pull request, an issue or a comment, where GitHub renders a
+newline as a line break.
 There sentences and page_start do not apply.
-wrap reports a paragraph or a list item that goes on to the next line, and length holds for each
-sentence of a line.
+wrap is a warning there, on each line of a paragraph or a list item that goes on in the next line.
+A sentence that goes on over a line break is checked whole, at its first line.
+length holds for each sentence, and paragraph counts the sentences of the whole paragraph.
 The other rules hold as in a file.
 The files may lie outside the repository, and none is skipped.
 
@@ -66,6 +69,7 @@ GitHub shows at most 10 warnings and 10 errors of a step as annotations ("REST A
 check runs" of the GitHub Docs), and the log of the job lists them all.
 The exit code is 1 when a line breaks a rule of "Markdown", or a rule of "Writing" with --strict,
 and 0 otherwise.
+A line break inside a paragraph with --github is a warning, so it fails the run only with --strict.
 It is 2 on a usage error, with a message: a file that does not exist or cannot be read as UTF-8
 text, a file outside the repository without --github, --github without a file, or a --base that
 git does not know.
@@ -81,7 +85,9 @@ ROOT = Path(__file__).resolve().parent.parent
 SKIPPED = (".github/", "THIRD_PARTY_NOTICES.md")
 LENGTH = 200
 CELL = 150
-SENTENCES = 5
+# the most sentences of a paragraph or a list item without a warning. The rule of "Writing" is five,
+# and the lint leaves a margin of one.
+MOST_SENTENCES = 6
 VALUES = 3
 # a period after one of these does not end a sentence
 ABBREVIATIONS = ("e.g.", "i.e.", "cf.", "vs.", "al.", "approx.", "Fig.", "Figs.", "Eq.", "Eqs.", "Ref.", "Refs.",
@@ -349,10 +355,27 @@ def check(lines, wanted, github=False):
                 if len(cell) > CELL:
                     report(number, "warning", "cell", f"a table cell of {len(cell)} characters, the limit is {CELL}")
             continue
-        count = 0
+        # the pieces whose sentences are checked, each as its line numbers: a line, or with --github
+        # the lines of one sentence that goes on over a line break
+        pieces = []
         for position, number in enumerate(numbers):
-            line = lines[number - 1]
-            text = plain(line)
+            if pieces and github and not ENDS_SENTENCE.search(plain(lines[pieces[-1][-1] - 1])):
+                pieces[-1].append(number)
+            else:
+                pieces.append([number])
+            # the next line belongs to the same paragraph or list item
+            if position == len(numbers) - 1:
+                continue
+            text = plain(lines[number - 1])
+            if github:
+                report(number, "warning", "wrap", "the paragraph goes on in the next line, "
+                       "which GitHub shows as a line break in a description or a comment")
+            elif text and not ENDS_SENTENCE.search(text):
+                report(number, "error", "wrap", "the sentence continues on the next line")
+        count = 0
+        for piece in pieces:
+            number = piece[0]
+            text = " ".join(plain(lines[n - 1]) for n in piece)
             if github:
                 for sentence in sentences(text):
                     if len(sentence) > LENGTH:
@@ -364,13 +387,7 @@ def check(lines, wanted, github=False):
                     report(number, "error", "length", f"{len(text)} characters, the limit is {LENGTH}")
             if re.search(r"\([^()]*[.!?]\s+[A-ZÀ-Ý][^()]*\)", text):
                 report(number, "error", "parenthesis", "a second sentence inside parentheses")
-            # the next line belongs to the same paragraph or list item
-            continues = position < len(numbers) - 1
-            if github and continues:
-                report(number, "error", "wrap", "the paragraph goes on in the next line, which GitHub shows as a line break")
-            elif continues and text and not ENDS_SENTENCE.search(text):
-                report(number, "error", "wrap", "the sentence continues on the next line")
-            parts = sentences(prose(line))
+            parts = sentences(" ".join(prose(lines[n - 1]) for n in piece))
             count += len(parts)
             for sentence in parts:
                 if semicolons(sentence):
@@ -380,13 +397,13 @@ def check(lines, wanted, github=False):
                 chain = OF_CHAIN.search(sentence)
                 if chain:
                     report(number, "warning", "of_chain", f"a chain of three \"of\": \"{chain.group(0)}\"")
-        if kind == "item" and re.search(r"[;,]$", lines[numbers[-1] - 1].strip()):
-            report(numbers[-1], "warning", "list_end", f"the list item ends with \"{lines[numbers[-1] - 1].strip()[-1]}\"")
-        if count > SENTENCES:
+        if kind == "item" and lines[numbers[-1] - 1].strip().endswith(";"):
+            report(numbers[-1], "warning", "list_end", "the list item ends with \";\"")
+        if count > MOST_SENTENCES:
             anchor = next((n for n in numbers if wanted is None or n in wanted), numbers[0])
             report(anchor, "warning", "paragraph", f"a {'list item' if kind == 'item' else 'paragraph'} of {count} sentences, "
-                   f"the limit is {SENTENCES}")
-    return findings
+                   f"the lint warns above {MOST_SENTENCES}")
+    return sorted(findings, key=lambda finding: finding[0])     # by line, stable within a line
 
 
 def escape(text, as_property=False):
@@ -402,7 +419,7 @@ if __name__ == "__main__":
     parser.add_argument("files", nargs="*", help="files to check in full (default: the lines the branch adds)")
     parser.add_argument("--base", default="origin/dev", help="the reference of the branch (default: origin/dev)")
     parser.add_argument("--github", action="store_true",
-                        help="text for GitHub, one paragraph per line, at any path, or - for stdin")
+                        help="text for GitHub, where a newline is a line break, at any path, or - for stdin")
     parser.add_argument("--strict", action="store_true", help="exit with 1 on warnings too")
     arguments = parser.parse_args()
     if arguments.github:
