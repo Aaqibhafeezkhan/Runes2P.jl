@@ -49,6 +49,35 @@ The layout is immutable.
 [`copy_unknowns!`](@ref) carries a state by name to a layout with another order or other unknowns, as a resumed run does.
 [`unknown_scales`](@ref) gives the reference scale of every entry, which the tolerances and the row scales build on.
 
+### Units of the unknowns
+
+An unknown carries no unit.
+Its values are plain numbers in the units of this table.
+The constructors and equations of the package give their unknowns the default names below.
+A keyword sets another name, such as `total_energy` of [`total_energy_equation`](@ref) for `:total_electron_energy`.
+
+| Unknown | Holds | Unit |
+|---|---|---|
+| `:electric_field` | the parallel electric field | V/m |
+| `:poloidal_flux` | the poloidal flux divided by the major radius | V s/m |
+| `:edge_poloidal_flux`, `:wall_poloidal_flux` | that flux at the edge and at the wall | V s/m |
+| `:total_current_density` | the total current density | A/m² |
+| `:ohmic_current_density` | the ohmic current density | A/m² |
+| `:plasma_current` | the plasma current | A |
+| `:cold_electron_temperature` | the temperature of the cold electrons | eV |
+| `:cold_electron_density` | the density of the cold electrons | m⁻³ |
+| `:cold_thermal_energy` | the thermal energy density of the cold electrons | J/m³ |
+| `:total_electron_energy` | the energy density ``W_\mathrm{tot}`` of the [fully kinetic mode](energy-current.md#The-total-energy-in-the-fully-kinetic-mode) | J/m³ |
+| `:ion_densities` | the densities of the ion charge states | m⁻³ |
+| `:ion_thermal_energy` | the thermal energy density of each ion species | J/m³ |
+| `:runaway_density` | the density of the fluid runaways | m⁻³ |
+| `:total_electron_density` | the density of the free and the bound electrons | m⁻³ |
+
+A distribution and the density of the hot electrons have no default name.
+The caller names them, as the examples name the distribution `:f`.
+The density of the hot electrons is in m⁻³.
+A distribution is in m⁻³ per unit of momentum volume ([Notes on the units](../getting-started.md#Notes-on-the-units)).
+
 ## Equations
 
 An [`Equation`](@ref) names its unknown ``x``, its kind and its terms.

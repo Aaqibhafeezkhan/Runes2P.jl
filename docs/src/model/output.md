@@ -65,6 +65,8 @@ The `settings` group, the `layout` group and the record parts of a checkpoint ar
 - A boolean becomes a byte with the attribute `bool`, read back as a boolean.
 - Strings, numbers, arrays of numbers and lists of strings become datasets.
 
+A record stores no unit with its numbers.
+
 The reader returns every group as a record, so a list of records reads back as a record keyed by the names and a list of arrays as one keyed `"1"`, `"2"`, ….
 [`read_settings`](@ref) returns the record of [`run_settings`](@ref) as written, type for type, and [`settings_hash`](@ref) of it equals the hash written.
 
@@ -134,7 +136,9 @@ The group `unknowns` has one entry per unknown, named by it, with the saved time
 
 The shapes are those Julia reads.
 A C-order reader such as h5py or h5dump sees the dimensions reversed, with time first.
-The values are those of the state vector, in the units of each unknown, not divided by its `scale` (a reference magnitude).
+
+The values are those of the state vector, in the units of each unknown ([Units of the unknowns](unknowns.md#Units-of-the-unknowns)), not divided by its `scale` (a reference magnitude).
+The file stores no unit with the values.
 The dataset `time` is in seconds.
 In memory, [`unknown_view`](@ref) views one unknown of a saved state of a [`TimeSolution`](@ref).
 
