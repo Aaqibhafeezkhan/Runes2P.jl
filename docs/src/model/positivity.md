@@ -92,7 +92,8 @@ The limiter ``\psi(r)`` makes the scheme nonlinear in ``f``:
 - `:ospre`: the OSPRE limiter of Waterson and Deconinck, ``\psi = 1.5\, r (r + 1)/(r^2 + r + 1)``, applied for every ``r`` as DREAM writes it, which makes it negative for ``-1 < r < 0``.
 - `:van_albada`: ``\psi = (r^2 + r)/(r^2 + 1)`` for ``r > 0`` and zero otherwise (G. D. van Albada, B. van Leer and W. W. Roberts, Astronomy and Astrophysics 108, 76 (1982), bibcode 1982A&A...108...76V).
 
-`:muscl`, `:smart` and `:van_albada` have ``\psi = 0`` for ``r \le 0``, so at an extremum their face value is upwind and first order; `:tcdf` and `:ospre` keep a nonzero ``\psi`` there.
+`:muscl`, `:smart` and `:van_albada` have ``\psi = 0`` for ``r \le 0``, so at an extremum their face value is upwind and first order.
+`:tcdf` and `:ospre` keep a nonzero ``\psi`` there.
 Where ``f`` is smooth the limiters are second order.
 Its step has no M-matrix property, so non-negativity is not guaranteed.
 The tests check it in particular runs.
@@ -131,18 +132,25 @@ A positivity-preserving limiter keeps the converged discrete solution non-negati
 In the tail, where ``f`` is near zero, an iterate that passes both tests of [`NewtonSolver`](@ref) can still hold small negative entries.
 They lie far inside the tolerance of the unknown, so the residual and the update do not see them.
 In the relaxation run of `test/test_flux_limiters.jl`, TCDF leaves 5 such entries, down to ``10^{-25}`` of the maximum.
+
 `polish_negatives` of [`NewtonSolver`](@ref) takes one more Newton iteration when an iterate that passes both tests has negative entries in a polished kinetic unknown, at most once per step, and that removes them there.
-A scheme whose converged solution has negative entries, such as central interpolation or SMART, keeps them; with `polish_negatives = true` it pays the iteration on each such step.
+A scheme whose converged solution has negative entries, such as central interpolation or SMART, keeps them.
+With `polish_negatives = true` that scheme pays the iteration on each step that ends with negative entries.
 The step statistics count the steps that took it (`polished_for_negatives` of [`SolverStatistics`](@ref)).
 
 | `polish_negatives` | Polished unknowns | Cost |
 |---|---|---|
-| `:auto`, the default | those whose Fokker-Planck terms all use, in p and ξ, a scheme of [`POLISHED_SCHEMES`](@ref): upwind, exponential fitting, TCDF, OSPRE, van Albada | one iteration on a solve that leaves negative entries; after [`POLISH_MISSES`](@ref) solves in a row whose extra iteration left them, the unknown is no longer polished for the rest of the run and the log has a warning |
+| `:auto`, the default | those whose Fokker-Planck terms all use, in p and ξ, a scheme of [`POLISHED_SCHEMES`](@ref) | one iteration on a solve that leaves negative entries, until the unknown is no longer polished (below) |
 | `true` | every kinetic unknown | one iteration on every step with negative entries, for the whole run |
 | `false` | none, as DREAM | none |
 
+The schemes of [`POLISHED_SCHEMES`](@ref) are upwind, exponential fitting, TCDF, OSPRE and van Albada.
+Under `:auto`, after [`POLISH_MISSES`](@ref) solves in a row whose extra iteration left negative entries, the unknown is no longer polished for the rest of the run.
+The log then has a warning.
+
 Upwind and exponential fitting give an M-matrix and keep a non-negative distribution non-negative, as long as the central cross diffusion keeps the off-diagonal couplings non-negative (above).
-TCDF, OSPRE and van Albada stayed non-negative in the tests, without such a guarantee; a run in which one of them does not is the one in which `:auto` turns itself off.
+TCDF, OSPRE and van Albada stayed non-negative in the tests, without such a guarantee.
+`:auto` turns itself off only in a run in which one of them does not stay non-negative.
 For results free of negative entries that the iteration leaves, keep the polish on with one of these schemes.
 `true` polishes the other schemes too, at the cost of an iteration on almost every step: in the relaxation run of `test/test_flux_limiters.jl` SMART takes 98 Newton iterations instead of 57 over 40 steps.
 
