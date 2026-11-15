@@ -17,7 +17,8 @@ Every physics value is cited next to it in the code, and the results are checked
 ## History of the repository
 
 The development began in a private repository.
-The history here keeps one commit per development step; the earlier commits do not pass their tests, since the reference data, the documentation and the final naming arrive with the last commit.
+The history here keeps one commit per development step.
+The earlier commits do not pass their tests, since the reference data, the documentation and the final naming arrive with the last commit.
 
 ## Installation
 

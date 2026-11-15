@@ -36,7 +36,7 @@ A coefficient is zero for a state that its class lacks.
 
 Checks:
 
-- `test/test_adas.jl`: the reader on synthetic tables, the interpolation against values of GSL, the extrapolations and the derivatives;
+- `test/test_adas.jl`: the reader on synthetic tables, the interpolation against values of GSL, the extrapolations and the derivatives.
 - `test/test_adas_cache.jl`: the reader against the tables that DREAM compiles from the same files, where the cache exists.
 
 ## Ionization energies
@@ -65,10 +65,10 @@ The sum over the charge states of a species is zero, so each species is conserve
 
 Checks:
 
-- `test/test_ion_rates.jl`: the conservation, the Jacobian and the coronal equilibrium computed three ways;
-- `test/test_ion_rates_dream.jl`: the charge states of DREAM's fluid mode with deposited deuterium and argon at prescribed temperatures;
+- `test/test_ion_rates.jl`: the conservation, the Jacobian and the coronal equilibrium computed three ways.
+- `test/test_ion_rates_dream.jl`: the charge states of DREAM's fluid mode with deposited deuterium and argon at prescribed temperatures.
 - `test/test_independent_references.jl`: the coronal balance of argon against published balances with other atomic data:
-  - P. Mazzotta et al., Astronomy and Astrophysics Supplement Series 133, 403 (1998), [doi:10.1051/aas:1998330](https://doi.org/10.1051/aas:1998330);
+  - P. Mazzotta et al., Astronomy and Astrophysics Supplement Series 133, 403 (1998), [doi:10.1051/aas:1998330](https://doi.org/10.1051/aas:1998330).
   - P. Bryans et al., The Astrophysical Journal 691, 1540 (2009), [doi:10.1088/0004-637X/691/2/1540](https://doi.org/10.1088/0004-637X/691/2/1540).
 
 ## Kinetic ionization
@@ -122,20 +122,23 @@ CHIANTI's fits are nonrelativistic, and their high-energy limit is the nonrelati
 Each shell and each transition of the autoionization is evaluated at ``u = β^2/β_I^2``, with ``β_I`` the speed of an electron of kinetic energy ``I``.
 Each gains the relativistic rise ``(4π a_0^2 \mathrm{Ry}/E_v)\, M^2 [-\ln(1 - β^2) - β^2]`` of ``σ_B`` with the weight ``1 - 1/u``, which is zero at the threshold.
 [`ChiantiIonization`](@ref) derives ``M^2`` from the fit, and ``C_B`` from the condition that ``σ_B`` equals the continued fit at ``E_m``, [`CHIANTI_MATCHING_ENERGY`](@ref), 100 keV.
-Above ``2 E_m`` the cross section is ``σ_B``; a cubic weight in ``\ln E`` joins the two between ``E_m/2`` and ``2 E_m`` ([`CHIANTI_MATCHING_WIDTH`](@ref), 2), so the cross section and its slope are continuous.
+
+Above ``2 E_m`` the cross section is ``σ_B``.
+A cubic weight in ``\ln E`` joins the continued fit and ``σ_B`` between ``E_m/2`` and ``2 E_m`` ([`CHIANTI_MATCHING_WIDTH`](@ref), 2), so the cross section and its slope are continuous.
 The matching energy, the width and the weight ``1 - 1/u`` are choices of this package.
-The ``M^2`` of the direct shells is Dere's computed Bethe limit, not fitted to measurements; the allowed transitions of the autoionization add the limit of their collision strengths.
+The ``M^2`` of the direct shells is Dere's computed Bethe limit, not fitted to measurements.
+The allowed transitions of the autoionization add the limit of their collision strengths.
 
 Checks:
 
 - `test/test_chianti_ionization.jl`:
-  - the table against CHIANTI's files, the threshold, the continuity at the matching, the derivative through ForwardDiff and the fallback to DREAM's form;
-  - the argon ions against the relativistic distorted-wave calculations of R. Bao and B. Li, Atomic Data and Nuclear Data Tables 159, 101663 (2024), [doi:10.1016/j.adt.2024.101663](https://doi.org/10.1016/j.adt.2024.101663);
+  - the table against CHIANTI's files, the threshold, the continuity at the matching, the derivative through ForwardDiff and the fallback to DREAM's form.
+  - the argon ions against the relativistic distorted-wave calculations of R. Bao and B. Li, Atomic Data and Nuclear Data Tables 159, 101663 (2024), [doi:10.1016/j.adt.2024.101663](https://doi.org/10.1016/j.adt.2024.101663).
 - `test/test_independent_references.jl`:
-  - hydrogen against the measurements of M. B. Shah et al., Journal of Physics B 20, 3501 (1987), [doi:10.1088/0022-3700/20/14/022](https://doi.org/10.1088/0022-3700/20/14/022);
-  - argon against the measurements of H. C. Straub et al., Physical Review A 52, 1115 (1995), [doi:10.1103/PhysRevA.52.1115](https://doi.org/10.1103/PhysRevA.52.1115);
-  - against relativistic Bethe asymptotes from 0.1 to 10 MeV: Shah's fit for hydrogen, F. F. Rieke and W. Prepejchal, Physical Review A 6, 1507 (1972), [doi:10.1103/PhysRevA.6.1507](https://doi.org/10.1103/PhysRevA.6.1507), for argon and neon;
-- `test/test_kinetic_ionization.jl`: the Maxwellian averages of the cross sections against the SCD coefficients at low density, and the relativistic term of `:bethe` against the large-energy limit of the Burgess–Chidichimo formula;
+  - hydrogen against the measurements of M. B. Shah et al., Journal of Physics B 20, 3501 (1987), [doi:10.1088/0022-3700/20/14/022](https://doi.org/10.1088/0022-3700/20/14/022).
+  - argon against the measurements of H. C. Straub et al., Physical Review A 52, 1115 (1995), [doi:10.1103/PhysRevA.52.1115](https://doi.org/10.1103/PhysRevA.52.1115).
+  - against relativistic Bethe asymptotes from 0.1 to 10 MeV: Shah's fit for hydrogen, F. F. Rieke and W. Prepejchal, Physical Review A 6, 1507 (1972), [doi:10.1103/PhysRevA.6.1507](https://doi.org/10.1103/PhysRevA.6.1507), for argon and neon.
+- `test/test_kinetic_ionization.jl`: the Maxwellian averages of the cross sections against the SCD coefficients at low density, and the relativistic term of `:bethe` against the large-energy limit of the Burgess–Chidichimo formula.
 - `test/test_kinetic_ionization_dream.jl`: the rates of DREAM's fully kinetic mode, with `:dream`, a threshold of 3 thermal momenta and the fluid rate of DREAM's pairing.
 
 Dere's fit of hydrogen rests on Shah's data, and Straub's data are among those of his fit of argon.
@@ -156,20 +159,27 @@ I_{\mathrm{fluid}} = \frac{I - A_>}{1 - f_>} .
 
 With the closure ``n_{\mathrm{cold}} = n_M (1 - f_>)`` and the kinetic rate ``n_M A_>`` of a Maxwellian ``f`` of density ``n_M``, the two add up to the ADAS rate ``n_M I`` for every threshold.
 
-The coefficient has no floor, since a floor would break that sum.
-Its denominator has a guard, set by the grid, for a threshold in the first momentum cell.
-The part below such a threshold comes from the envelope within that cell, and it tends to 0 as the threshold nears the cell's lower face.
-There [`Runes2P.threshold_split`](@ref) takes ``1 - f_>`` as the weight of that cell, with a warning: at 5 thermal momenta or more, nearly the whole Maxwellian lies in that cell, below the threshold.
-The sum then holds only to within that part; a finer first momentum cell, or a threshold of more thermal momenta, restores it.
-It is negative where the cross sections give more ionization above the threshold than ADAS gives for the whole Maxwellian.
-It can turn negative when the threshold lies below the ionization energy of a populated state: then all of its ionization lies above the threshold.
+The fluid coefficient has no floor, since a floor would break that sum.
+The fluid coefficient is negative where the cross sections give more ionization above the threshold than ADAS gives for the whole Maxwellian.
+The fluid coefficient can be negative for a threshold below the ionization energy of a populated state, since then all of the ionization of that state lies above the threshold.
+
+A threshold in the first momentum cell, below its upper face, is not resolved by the grid.
+The part of the Maxwellian below such a threshold then comes from the envelope within that cell, not from the shape of the Maxwellian.
+That part tends to 0 as the threshold nears the lower face of the cell, while the fluid coefficient divides by it.
+For such a threshold [`Runes2P.threshold_split`](@ref) takes as ``1 - f_>`` the weight of the first momentum cell.
+The sum of the kinetic and the fluid rates then equals the ADAS rate only to within the weight of that cell.
+
+At 5 thermal momenta or more, a threshold in the first cell leaves nearly the whole Maxwellian in that cell, below the threshold.
+A warning, once per session, names the radius and the temperature of such a threshold.
+A finer first momentum cell, or a threshold of more thermal momenta, resolves it.
+
 The split takes a threshold ``p_0 = k\, p_{\mathrm{th}}``, with the thermal momentum ``p_{\mathrm{th}} = \sqrt{2T/m_e c^2}`` (``T`` in energy units) of the temperature unknown ([`ThermalMomentum`](@ref)), so that the fluid coefficient follows the temperature.
-It refuses factors ``k`` below [`MINIMUM_SPLIT_THRESHOLD_FACTORS`](@ref): 7 with `:chianti`, 5 with `:dream` and `:bethe`, a choice of this package.
+The split refuses factors ``k`` below [`MINIMUM_SPLIT_THRESHOLD_FACTORS`](@ref): 7 with `:chianti`, 5 with `:dream` and `:bethe`, a choice of this package.
 [`RadiatedPowerTerm`](@ref) with `kinetic_ionization` takes the binding energy of the cold electrons at the same split coefficient.
 
 Checks:
 
-- `test/test_kinetic_ionization.jl`: a Maxwellian ``f`` ionizes at the ADAS rate for every threshold, and DREAM's pairing counts the tail twice;
+- `test/test_kinetic_ionization.jl`: a Maxwellian ``f`` ionizes at the ADAS rate for every threshold, and DREAM's pairing counts the tail twice.
 - `test/test_independent_references.jl`: the split of a Maxwellian on the grid against the continuous integrals.
 
 ### Energy of the kinetic ionization
@@ -181,11 +191,12 @@ With `bound_friction = :ionization_split` of [`CollisionSettings`](@ref), that f
 The system refuses this friction unless its threshold factor and its cross-section form are those of the kinetic ionization.
 
 The secondaries join the cold electrons through the closure of the cold density.
-[`SecondaryHeatingTerm`](@ref) gives their energy to the cold electrons; without it they are born at zero energy.
+[`SecondaryHeatingTerm`](@ref) gives their energy to the cold electrons.
+Without it the secondaries are born at zero energy.
 Two spectra of the secondaries are available:
 
 - `:beb` ([`beb_mean_secondary_energy`](@ref)), the binary-encounter-Bethe spectrum of Y.-K. Kim and M. E. Rudd, Physical Review A 50, 3954 (1994), [doi:10.1103/PhysRevA.50.3954](https://doi.org/10.1103/PhysRevA.50.3954).
-  It takes the ionization energy of each state as its binding energy and has no fitted parameter;
+  It takes the ionization energy of each state as its binding energy and has no fitted parameter.
 - `:opal` ([`mean_secondary_energy`](@ref)), the spectrum of C. B. Opal, W. K. Peterson and E. C. Beaty, The Journal of Chemical Physics 55, 4100 (1971), [doi:10.1063/1.1676707](https://doi.org/10.1063/1.1676707).
   It takes the widths of [`SECONDARY_SPECTRUM_WIDTHS`](@ref), measured on neutral gases.
 
@@ -219,9 +230,9 @@ The losses of the electrons of ``f`` by bremsstrahlung and synchrotron radiation
 Checks:
 
 - `test/test_radiation.jl`:
-  - the radiated power against sums of the tabulated coefficients of synthetic tables in both modes;
-  - Gould's bremsstrahlung against the NRL Plasma Formulary (A. S. Richardson, NRL/PU/6770--19-652, Naval Research Laboratory, 2019);
-- `test/test_ion_energy_dream.jl`: the charge states and the temperature of DREAM's fluid mode with dynamic ions, where the radiated power and the binding energy read the charge states of the run;
+  - the radiated power against sums of the tabulated coefficients of synthetic tables in both modes.
+  - Gould's bremsstrahlung against the NRL Plasma Formulary (A. S. Richardson, NRL/PU/6770--19-652, Naval Research Laboratory, 2019).
+- `test/test_ion_energy_dream.jl`: the charge states and the temperature of DREAM's fluid mode with dynamic ions, where the radiated power and the binding energy read the charge states of the run.
 - `test/test_independent_references.jl`:
-  - the energy of a closed neon plasma with ionizing charge states;
+  - the energy of a closed neon plasma with ionizing charge states.
   - Gould's relativistic correction against the cross section 4BN of H. W. Koch and J. W. Motz, Reviews of Modern Physics 31, 920 (1959), [doi:10.1103/RevModPhys.31.920](https://doi.org/10.1103/RevModPhys.31.920).

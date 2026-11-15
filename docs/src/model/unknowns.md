@@ -40,9 +40,9 @@ The scalar unknowns form one block after the radius blocks.
 
 Code reaches the entries only through the layout, never through offsets of its own:
 
-- [`unknown_id`](@ref) turns a name into the integer id used in inner loops;
-- [`radial_view`](@ref), [`kinetic_view`](@ref) and [`scalar_view`](@ref) give type-stable views, also of vectors of dual numbers;
-- [`kinetic_array`](@ref) and [`unknown_values`](@ref) present an unknown as a 3D array or as its values over the radii to the operators;
+- [`unknown_id`](@ref) turns a name into the integer id used in inner loops.
+- [`radial_view`](@ref), [`kinetic_view`](@ref) and [`scalar_view`](@ref) give type-stable views, also of vectors of dual numbers.
+- [`kinetic_array`](@ref) and [`unknown_values`](@ref) present an unknown as a 3D array or as its values over the radii to the operators.
 - [`unknown_range`](@ref), [`radius_block_range`](@ref) and [`scalar_block_range`](@ref) give index ranges, which the block preconditioners use.
 
 The layout is immutable.
@@ -102,7 +102,7 @@ A few properties decide how a term enters the system and its Jacobian:
 | Property | Values | Effect |
 |---|---|---|
 | [`treatment`](@ref) | `:implicit`, `:explicit` | an explicit term is evaluated at the previous time level and is absent from the Jacobian |
-| [`coupling`](@ref) | `:sparse`, `:matrix_free` | a sparse block is stored ([`sparsity!`](@ref)); a matrix-free one enters through [`jacobian_vector_product!`](@ref) |
+| [`coupling`](@ref) | `:sparse`, `:matrix_free` | a stored sparse block ([`sparsity!`](@ref)), or matrix-free, applied through [`jacobian_vector_product!`](@ref) |
 | [`jacobian_assembly`](@ref) | `:automatic`, `:direct` | colored forward-mode AD of `rhs!`, or the term's own entries ([`add_jacobian!`](@ref)) |
 | [`jacobian_kind`](@ref) | `:exact`, `:approximate` | an approximate stored block comes with [`jacobian_correction_product!`](@ref) |
 | [`is_linear`](@ref) | `false`, `true` | a linear system with an exact Newton matrix accepts a Newton step on the update test alone, without the residual test (see [Time stepping and solvers](time-stepping.md)) |
@@ -113,7 +113,9 @@ A row that holds every cell of a radius, such as a density moment, would take on
 Such terms assemble their block directly, and the coloring sees the other terms alone.
 The flux through the momentum interface ([`InterfaceParticleFluxTerm`](@ref), [`InterfaceEnergyFluxTerm`](@ref)) reads the cells at the face of both grids and the field in one row, and assembles that row directly for the same reason.
 A term whose rows read all charge states of a radius builds its block by one dual-number pass over a reduced layout ([`Runes2P.add_local_jacobian!`](@ref), [`Runes2P.local_layout`](@ref)).
-The knock-on term with an implicit primary ([`KnockOnTerm`](@ref)) is matrix-free, since its block is dense per radius; with a lagged primary it assembles a sparse block directly.
+
+The knock-on term with an implicit primary ([`KnockOnTerm`](@ref)) is matrix-free, since its block is dense per radius.
+With a lagged primary the knock-on term assembles a sparse block directly.
 
 A term defined outside the package adds methods to these functions under their qualified names, `Runes2P.rhs!(out, term::MyTerm, ...)`.
 
@@ -133,14 +135,15 @@ F(u) = M \frac{u - u_\mathrm{ref}}{h} - \mathrm{rhs}(u, t) = 0
 
 with [`residual!`](@ref).
 The explicit terms are evaluated at the start state, and [`prepare_step!`](@ref) sees the start state before every evaluation.
-For backward Euler ``h = \Delta t`` and ``u_\mathrm{ref}`` is the start state; for the variable-step BDF2 of [`StepController`](@ref) ``h = c\,\Delta t`` and ``u_\mathrm{ref}`` is a combination of the two last states, with ``c`` set by the ratio of the last two steps.
+For backward Euler ``h = \Delta t`` and ``u_\mathrm{ref}`` is the start state.
+For the variable-step BDF2 of [`StepController`](@ref) ``h = c\,\Delta t`` and ``u_\mathrm{ref}`` is a combination of the two last states, with ``c`` set by the ratio of the last two steps.
 Newton's method ([`NewtonSolver`](@ref)) uses the Jacobian ``M/h - \partial \mathrm{rhs}/\partial u`` (see [Time stepping and solvers](time-stepping.md)).
 
 The stored part of ``\partial \mathrm{rhs}/\partial u`` ([`jacobian!`](@ref)) has three sources:
 
-- the terms with automatic assembly, by colored forward-mode AD ([`jacobian_colors`](@ref) counts the passes);
-- the terms with direct assembly, by their own entries;
-- the plasma columns of the terms whose coefficients follow unknowns ([`add_plasma_columns!`](@ref)).
+- The terms with automatic assembly add their entries by colored forward-mode AD ([`jacobian_colors`](@ref) counts the passes).
+- The terms with direct assembly add their own entries.
+- The terms whose coefficients follow unknowns add their plasma columns ([`add_plasma_columns!`](@ref)).
 
 [`jacobian_operator`](@ref) adds the matrix-free terms and the corrections of approximate blocks, so the operator is the exact Jacobian.
 The structure ([`jacobian_sparsity`](@ref), [`jacobian_prototype`](@ref)) is fixed when the system is built.
@@ -159,20 +162,21 @@ A [`Tolerance`](@ref) passes an entry when
 ```
 
 with ``g = 0`` without a group part.
-[`tolerance`](@ref) gives the default values; a radial unknown with several groups, such as the ion densities, takes a group part for the Newton iteration, so a trace species is converged on its own density.
+[`tolerance`](@ref) gives the default values.
+A radial unknown with several groups, such as the ion densities, takes a group part for the Newton iteration, so a trace species is converged on its own density.
 The system holds separate tolerances for Newton and for the error control of the time steps.
 
 ### Construction checks
 
-The constructor refuses a system in which
+The constructor refuses a system in these cases:
 
-- an unknown has no equation or more than one;
-- a term reads a name that is not in the layout, or fails its own check against the layout;
-- an algebraic row has no implicit term that reads its unknown;
-- a constraint has no scale, or no other equation reads its unknown implicitly;
-- a `TimeDerivative(of)` pairs unknowns of different kind or sizes, or nothing determines the row's unknown;
-- the time derivative of one unknown appears in two rows;
-- a tolerance with a group part belongs to an unknown other than a radial one.
+- An unknown has no equation, or more than one.
+- A term reads a name that is not in the layout, or fails its own check against the layout.
+- An algebraic row has no implicit term that reads its unknown.
+- A constraint has no scale, or no other equation reads its unknown implicitly.
+- A `TimeDerivative(of)` pairs unknowns of different kind or sizes, or nothing determines the row's unknown.
+- The time derivative of one unknown appears in two rows.
+- A tolerance with a group part belongs to an unknown other than a radial one.
 
 The algebraic block is not checked for numerical regularity.
 
@@ -208,11 +212,12 @@ The keyword `lagged` of [`FokkerPlanckTerm`](@ref) names the part of the plasma 
 
 | `lagged` | Taken at the start of the step | Stored Jacobian |
 |---|---|---|
-| `:all` | the whole plasma | no plasma columns; with the plasma fixed for the step, the block in ``f`` is the term's whole derivative (exact unless `jacobian` selects an approximation) |
+| `:all` | the whole plasma | no plasma columns (below) |
 | `:ions` (default) | the ion charge states | the columns of the temperature and, when the source reads it, the density |
 | `()` | nothing | the columns of the temperature, the density when the source reads it, and the charge states |
 | `(:ion_densities,)` | the named ion unknown, as `:ions` | the columns of the temperature and, when the source reads it, the density |
 
+With `lagged = :all` the plasma is fixed for the step, so the block in ``f`` is the term's whole derivative, exact unless `jacobian` selects an approximation.
 The default `:ions` is a choice of this package (see [Choices of this package](../choices.md)).
 A term that lags the ions is of first order under BDF2.
 The kinetic ionization and a corrected conductivity read the charge states of the iterate, so within a step the ions enter at two states, a difference of first order in the step.
@@ -280,7 +285,7 @@ A mismatch gives a result that is wrong without an error, so [`EquationSystem`](
 A row that holds the time derivative of ``W_\mathrm{tot} = W_\mathrm{cold} + W_\mathrm{hot}`` charges every unlisted change of ``W_\mathrm{hot}`` to the cold electrons.
 For each distribution in ``W_\mathrm{hot}`` the system therefore requires in that row:
 
-- the sinks of its collisions where they have any ([`KineticEnergyLossTerm`](@ref) with `part = :sinks`), over the region of the energy moment;
+- the sinks of its collisions where they have any ([`KineticEnergyLossTerm`](@ref) with `part = :sinks`), over the region of the energy moment.
 - the energy that leaves through ``p_\mathrm{max}``, as [`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` or as [`InterfaceEnergyFluxTerm`](@ref) of the interface to the runaway grid.
 
 Each of these terms takes a negative coefficient.
