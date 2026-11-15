@@ -249,17 +249,35 @@ Where following one would make a passage harder to read, the passage wins.
 - GitHub renders headings and tables in pull requests, issues and comments.
   The description of a pull request has a heading for each part, as the template `.github/PULL_REQUEST_TEMPLATE.md` gives.
   A part is not one long paragraph.
-  GitHub renders a newline as a line break, so a paragraph of such text is one line.
+  GitHub renders a newline as a line break, so a paragraph of such text breaks its lines only where the reader should see a break.
 
 ## Markdown
 
 These rules hold for the markdown files of the repository, except those of `.github/` and `THIRD_PARTY_NOTICES.md`.
-The files of `.github/` keep one paragraph per line, as the text of pull requests and issues does.
+The files of `.github/` keep one paragraph per line, since their text goes into pull requests and issues, where a newline shows as a line break.
 
 - A line holds one sentence.
 - No line break falls inside a sentence.
 - A sentence has at most 200 characters.
   A longer one is split into shorter sentences or into a list of sentences.
 - No second sentence stands inside parentheses.
-- `python3 scripts/lint_markdown.py <file> ...` checks these rules.
-  It skips fenced code blocks, tables, headings, quotes, comments and horizontal rules.
+- `python3 scripts/lint_markdown.py <file> ...` checks these rules, and a break of one fails it.
+  Without files it checks the lines that the branch adds against `origin/dev`, or against the reference given with `--base`.
+  It skips fenced code blocks, `$$` math blocks, headings, quotes, comments, lines that start with an HTML tag, definitions of reference links and horizontal rules.
+  It skips tables for these rules.
+- The lint also reports the rules of the section "Writing" that a script can check, as warnings that do not fail it.
+  They are a semicolon between two clauses, three values of a unit in a sentence, a long table cell and a list item that ends with ";".
+  They are also a paragraph of seven or more sentences, a chain of three "of" and a page that does not start with a sentence.
+  The docstring of the script defines each one.
+  With `--strict` the warnings fail the lint too.
+- The exit code is 1 when the lint fails and 0 when it passes.
+  It is 2 on a usage error, with a message.
+  Such an error is a file that does not exist or is no UTF-8 text, a file outside the repository without `--github`, `--github` without a file, or a `--base` that git does not know.
+- In CI the lint runs on the lines that a pull request adds, and on every tracked markdown file after a push to `dev` or `main`.
+  The script writes each finding and each warning as an annotation on its line.
+  GitHub shows at most 10 warnings and 10 errors of a step as annotations, and the log of the job lists them all.
+- `--github` checks a text for GitHub, where a newline shows as a line break in a description or a comment.
+  A line break inside a paragraph is then a warning, and the limit of 200 characters holds for each sentence, also one that goes on over a line break.
+  The warning `page_start`, a page that does not start with a sentence, does not apply there.
+  The file may lie outside the repository, and `-` reads standard input.
+  Before a pull request is opened, `python3 scripts/lint_markdown.py --github pr.md` checks the draft of its description in `pr.md`.
