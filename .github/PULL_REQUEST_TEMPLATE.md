@@ -1,11 +1,21 @@
-Pull requests target `dev`; delete this line.
+Pull requests target `dev`. Delete this line.
 
-**Built:** <!-- What the pull request adds or changes. -->
+## Built
 
-**Results:** <!-- What it shows: comparisons, convergence, timings. -->
+<!-- What the pull request adds or changes. -->
 
-**Tests:** <!-- The tests added or run, and their result. -->
+## Results
 
-**Decisions:** <!-- Choices made, with their reasons; a choice of this package gets its row on the docs page "Choices of this package". -->
+<!-- What it shows: comparisons, convergence, timings. -->
 
-**Open:** <!-- What is left, and the questions for review. -->
+## Tests
+
+<!-- The tests added or run, and their result. -->
+
+## Decisions
+
+<!-- Choices made, with their reasons. A choice of this package gets its row on the docs page "Choices of this package". -->
+
+## Open
+
+<!-- What is left, and the questions for review. -->
