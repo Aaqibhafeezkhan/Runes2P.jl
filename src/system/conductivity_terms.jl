@@ -301,13 +301,13 @@ end
 """
     ConductivityTerm(electric_field, model::ConductivityModel; coefficient=1)
 
-`coefficient` times `σ(r, t) E(r)` with the conductivity of `model` and the radial unknown
-`electric_field`, added to the row of a radial unknown with one component: Ohm's law of a
-fluid, `0 = σ E − j_ohm`, or the correction of the ohmic current of a fully kinetic run,
-`0 = j(f, all p) − j_hot + E (σ − σ_kinetic) − j_ohm` (DREAM's `j_ohm` with
-`correctedConductivity`). The conductivity is that of the plasma of the evaluation. It is
-kept until the plasma values of a radius change, or the coefficients of the operator of
-`kinetic = :discrete_operator`. The term is linear in the field.
+`coefficient` times `σ(r, t) E(r)` [A/m²] with the conductivity [S/m] of `model` and the
+radial unknown `electric_field` [V/m], added to the row of a radial unknown with one
+component: Ohm's law of a fluid, `0 = σ E − j_ohm`, or the correction of the ohmic current
+of a fully kinetic run, `0 = j(f, all p) − j_hot + E (σ − σ_kinetic) − j_ohm` (DREAM's
+`j_ohm` with `correctedConductivity`). The conductivity is that of the plasma of the
+evaluation. It is kept until the plasma values of a radius change, or the coefficients of
+the operator of `kinetic = :discrete_operator`. The term is linear in the field.
 """
 struct ConductivityTerm{M <: ConductivityModel} <: EquationTerm
     electric_field::Symbol

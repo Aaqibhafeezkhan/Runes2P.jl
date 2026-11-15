@@ -193,7 +193,8 @@ end
 """
     effective_critical_field(model::CollisionModel, ir; dual=nothing)
 
-The effective critical field of the collisions of `model` as they are, without the settings of
+The effective critical field [V/m] and the momentum (units of `mₑc`) of the largest
+advection of the collisions of `model` as they are, without the settings of
 [`runaway_fluid_settings`](@ref): the method behind the one of a plasma, and the way to the
 limits with other collisions (a constant Coulomb logarithm in the tests). `dual`, a model of
 the same plasma in dual numbers, gives the derivatives.
@@ -264,9 +265,10 @@ end
 """
     avalanche_critical_momentum(model::CollisionModel, ir, field_frequency; dual=nothing)
 
-`p⋆` of the collisions of `model` as they are, without [`runaway_fluid_settings`](@ref): the
-method behind the one of a plasma. `dual`, a model of the same plasma in dual numbers, or a
-field frequency in dual numbers, gives the derivatives.
+`p⋆` (units of `mₑc`) of the collisions of `model` as they are, without
+[`runaway_fluid_settings`](@ref), at the field frequency `field_frequency` [s⁻¹]: the method
+behind the one of a plasma. `dual`, a model of the same plasma in dual numbers, or a field
+frequency in dual numbers, gives the derivatives.
 """
 function avalanche_critical_momentum(plain::CollisionModel, ir::Integer, field_frequency; dual = nothing)
     function G(model, p, w)
@@ -335,9 +337,11 @@ end
                                 momentum_dual=nothing)
 
 The growth rate of the collisions of `field_model` (for the effective critical field) and
-`momentum_model` (for `p⋆`) as they are, without [`runaway_fluid_settings`](@ref): the method
-behind the one of a plasma, and the way to the limits with other collisions. The field is that
-of the plasma of the models; the models in dual numbers give the derivatives.
+`momentum_model` (for `p⋆`) as they are, without [`runaway_fluid_settings`](@ref): the
+method behind the one of a plasma, and the way to the limits with other collisions, for the
+total electron density `total_density` [m⁻³]. The field is that of the plasma of the models;
+the models in dual numbers give the derivatives. It returns the rate [s⁻¹], the effective
+critical field [V/m] and `p⋆` (units of `mₑc`), as the method of a plasma.
 """
 function fluid_avalanche_growth_rate(
         field_model::CollisionModel, momentum_model::CollisionModel, ir::Integer,

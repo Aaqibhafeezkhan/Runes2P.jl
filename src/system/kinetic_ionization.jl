@@ -317,12 +317,13 @@ end
 """
     fluid_ionization_coefficient(adas, fraction, coefficient)
 
-The ionization coefficient of the cold electrons below the threshold of a kinetic
-ionization: `(I − A_>)/(1 − f_>)`, the ADAS coefficient `I` of the whole
-Maxwellian less its part above the threshold, `A_>`, per electron below it, with the
-fraction `f_>` of the Maxwellian above the threshold ([`threshold_split`](@ref)). With the
-closure `n_cold = n_M (1 − f_>)` and the kinetic rate `n_M A_>` of a Maxwellian `f` of
-density `n_M`, the two add up to `n_M I` for every threshold the grid resolves.
+The ionization coefficient [m³/s] of the cold electrons below the threshold of a kinetic
+ionization: `(I − A_>)/(1 − f_>)`, the ADAS coefficient `I` (`adas`, in m³/s) of the whole
+Maxwellian less its part above the threshold, `A_>` (`coefficient`, in m³/s), per electron
+below it, with the fraction `f_>` of the Maxwellian above the threshold
+([`threshold_split`](@ref)). With the closure `n_cold = n_M (1 − f_>)` and the kinetic rate
+`n_M A_>` of a Maxwellian `f` of density `n_M`, the two add up to `n_M I` for every
+threshold the grid resolves.
 
 The coefficient has no floor on its value. Its denominator is bounded by the grid:
 [`threshold_split`](@ref) takes `1 − f_>` as the weight of the first momentum cell where the

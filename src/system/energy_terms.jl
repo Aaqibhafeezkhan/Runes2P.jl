@@ -84,9 +84,9 @@ end
                         temperature=:cold_electron_temperature, density=:cold_electron_density)
 
 Set the energy of the cold electrons in the state `u` from its temperature and density,
-`W = 3/2 e n T` at every radius. DREAM's order of the initial values: the temperature from
-the input, the density from its row, and then the energy (`T_cold.cpp`, `n_cold.cpp`). The
-density must already hold its value.
+`W = 3/2 e n T` [J/m³] at every radius. DREAM's order of the initial values: the temperature
+from the input, the density from its row, and then the energy (`T_cold.cpp`, `n_cold.cpp`).
+The density must already hold its value.
 """
 function set_thermal_energy!(
         u::AbstractVector, layout::UnknownLayout; energy::Symbol = :cold_thermal_energy,
