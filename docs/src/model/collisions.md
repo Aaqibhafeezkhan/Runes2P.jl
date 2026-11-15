@@ -54,8 +54,8 @@ The default `lagged = :ions` is a choice of this package (see [Choices of this p
 The frequencies are those of DREAM's `CollisionFrequency` classes, with the partial screening of L. Hesslow et al., J. Plasma Phys. 84, 905840605 (2018), doi:10.1017/S0022377818001113.
 The `mode` of [`CollisionSettings`](@ref) sets the target electrons:
 
-- `:full`: relativistic Maxwellian targets at the cold-electron temperature, with the thermal factors of Pike and Rose and the energy diffusion ``ν_\parallel``;
-- `:superthermal`: cold targets, no energy diffusion;
+- `:full`: relativistic Maxwellian targets at the cold-electron temperature, with the thermal factors of Pike and Rose and the energy diffusion ``ν_\parallel``.
+- `:superthermal`: cold targets, no energy diffusion.
 - `:ultra_relativistic`: cold targets, no energy diffusion, and the limit ``v \to c`` of the prefactors.
 
 The thermal factors are those of O. J. Pike and S. J. Rose, Phys. Rev. E 89, 053107 (2014), doi:10.1103/PhysRevE.89.053107.
@@ -81,8 +81,8 @@ With `screened_diffusion = :zero` the energy diffusion takes the free-electron p
 
 [`coulomb_logarithm`](@ref) gives the logarithm of electron-electron and electron-ion collisions in three models:
 
-- `:thermal`: ``\ln Λ_T = 14.9 - \tfrac12 \ln\bigl(n/(10^{20}\,\mathrm{m^{-3}})\bigr) + \ln(T/\mathrm{keV})`` ([`thermal_coulomb_logarithm`](@ref));
-- `:relativistic`: the momentum-independent ``\ln Λ_c = 14.6 + \tfrac12 \ln\bigl((T/\mathrm{eV})/(n/(10^{20}\,\mathrm{m^{-3}}))\bigr)`` ([`relativistic_coulomb_logarithm`](@ref));
+- `:thermal`: ``\ln Λ_T = 14.9 - \tfrac12 \ln\bigl(n/(10^{20}\,\mathrm{m^{-3}})\bigr) + \ln(T/\mathrm{keV})`` ([`thermal_coulomb_logarithm`](@ref)).
+- `:relativistic`: the momentum-independent ``\ln Λ_c = 14.6 + \tfrac12 \ln\bigl((T/\mathrm{eV})/(n/(10^{20}\,\mathrm{m^{-3}}))\bigr)`` ([`relativistic_coulomb_logarithm`](@ref)).
 - `:energy_dependent`: ``\ln Λ = \ln Λ_T + \tfrac{1}{k} \ln(1 + x^k)`` with ``k = 5``, ``x = \sqrt{2(γ - 1)}/p_T`` for electrons and ``x = 2p/p_T`` for ions, ``p_T = \sqrt{2Θ}``.
 
 These are eqs. 2.7 to 2.10 of Hesslow et al. (2018), as in DREAM's `CoulombLogarithm.cpp`.
@@ -92,8 +92,8 @@ These are eqs. 2.7 to 2.10 of Hesslow et al. (2018), as in DREAM's `CoulombLogar
 
 The `screening` of [`CollisionSettings`](@ref) sets how the bound electrons of partially ionized ions act on a fast electron:
 
-- `:complete`: the bound electrons are invisible, and an ion scatters with its net charge ``Z_{0j}``;
-- `:none`: the bound electrons are targets like free ones, and an ion scatters with its nuclear charge ``Z_j``;
+- `:complete`: the bound electrons are invisible, and an ion scatters with its net charge ``Z_{0j}``.
+- `:none`: the bound electrons are targets like free ones, and an ion scatters with its nuclear charge ``Z_j``.
 - `:partial`: the model of Hesslow et al. (2018), between the two.
 
 Partial screening adds the Bethe stopping on the bound electrons, ``h_j``, with the mean excitation energy ``I_j`` of the charge state ([`mean_excitation_energy`](@ref)).
@@ -154,7 +154,7 @@ The stopping is on by default, where DREAM leaves it out, a choice of this packa
 
 `bremsstrahlung_diffusion` decides whether the energy diffusion of the `:full` mode takes the radiative stopping as well:
 
-- `:none` (the default): the stopping is a pure drag, as in the model of M. Hoppe et al., Comput. Phys. Commun. 268, 108098 (2021), doi:10.1016/j.cpc.2021.108098, eqs. 8, 9, 14 and 15;
+- `:none` (the default): the stopping is a pure drag, as in the model of M. Hoppe et al., Comput. Phys. Commun. 268, 108098 (2021), doi:10.1016/j.cpc.2021.108098, eqs. 8, 9, 14 and 15.
 - `:dream`: DREAM's code, whose ``ν_\parallel`` rescales the whole ``ν_s``.
 
 With `:none` a Maxwellian at the bulk temperature loses its bremsstrahlung power, which tends to Gould's formula at low temperature ([`GOULD_BREMSSTRAHLUNG_PREFACTOR`](@ref)).

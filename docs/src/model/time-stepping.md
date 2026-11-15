@@ -24,9 +24,9 @@ with ``u_\mathrm{ref} = u_n``.
 The two-step BDF2 of the step controller passes another reference and an effective step ([Step controller](#Step-controller)).
 The terms of the system enter the step in three groups:
 
-- implicit terms with a stored Jacobian, evaluated at ``u``;
-- implicit matrix-free terms, evaluated at ``u`` and entering the Jacobian only through products ([`jacobian_operator`](@ref));
-- explicit terms, evaluated at ``u_n`` and absent from the Jacobian.
+- Implicit terms with a stored Jacobian are evaluated at ``u``.
+- Implicit matrix-free terms are evaluated at ``u`` and enter the Jacobian only through products ([`jacobian_operator`](@ref)).
+- Explicit terms are evaluated at ``u_n`` and are absent from the Jacobian.
 
 A term can also lag part of its residual to the start of the step, which [`prepare_step!`](@ref) sets from ``u_n``.
 The ion densities in the collisions of a [`FokkerPlanckTerm`](@ref) (`lagged`) and the primary distribution of a [`KnockOnTerm`](@ref) (`treatment = :explicit_primary`) are lagged this way.
@@ -55,7 +55,7 @@ On an algebraic row it is the residual relative to ``s_i``.
 
 An iterate is accepted when two tests pass:
 
-- the update: every entry satisfies ``|\delta_i| \le a_i + r_i\,|u_i|`` with the Newton [`Tolerance`](@ref) of its unknown ([`tolerance`](@ref));
+- the update: every entry satisfies ``|\delta_i| \le a_i + r_i\,|u_i|`` with the Newton [`Tolerance`](@ref) of its unknown ([`tolerance`](@ref)).
 - the residual: ``\max_i |W F|_i`` is at most `residual_tolerance`.
 
 The `group` part of a [`Tolerance`](@ref) adds `group` times the sum of the charge-state densities of the species at the radius, so that a trace impurity is converged on its own scale.
@@ -64,13 +64,7 @@ An unknown with an infinite absolute tolerance is left out of both tests.
 
 Two waivers of the residual test exist, each flagged in the [`NewtonResult`](@ref) and the [`SolverStatistics`](@ref):
 
-- the residual floor: on a stiff step the terms of a row cancel to many digits, and round-off holds the residual above `residual_tolerance`.
-  A step whose update passes is accepted when every row above `residual_tolerance` is within its round-off bound ``|F_i| \le c\,\varepsilon \sum_j |(\partial F/\partial u)_{ij}\, u_j|``, scaled by the row's weight, with ``c = 1`` ([Choices of this package](../choices.md)).
-  Each term of a row carries a rounding error of about ``\varepsilon`` times its size, so no iterate brings the row lower.
-  The bound comes from the stored Jacobian and is used only when that holds every implicit term exactly.
-  The bound estimates the size of each term by its linearization and leaves the explicit terms out, so it errs low.
-  Where the bound is not available or a row is above it, the step is accepted once the residual stops decreasing, as before; that can take a few iterations more, since the residual at the floor wanders.
-  Both are flagged as `residual_floor`.
+- the residual floor: on a stiff step, round-off holds the residual above `residual_tolerance` ([The residual floor](#The-residual-floor)).
 - the linear step: a system linear in the state ([`is_linear`](@ref)) is solved by the first iteration and accepted at the second, on the update test alone (`linear_step`, `linear_acceptance`).
 
 Both waivers need an exact Newton matrix and a linear solve accurate to `floor_linear_tolerance`.
@@ -84,6 +78,21 @@ A limiter has then converged further in the tail cells near zero ([Positivity](p
 For a system linear in the state the stored Jacobian depends only on the end time and the length of the step.
 With `reuse_linear_matrix` it is assembled and factorized once per step and kept for the later iterations and for a repeated step.
 An update of the setup discards it ([`invalidate_jacobian!`](@ref)).
+
+#### The residual floor
+
+On a stiff step the terms of a row cancel to many digits, and round-off holds the residual above `residual_tolerance`.
+Each term of a row carries a rounding error of about ``\varepsilon`` times its size, so no iterate brings the row much below that round-off level.
+The round-off bound of a row is ``|F_i| \le c\,\varepsilon \sum_j |(\partial F/\partial u)_{ij}\, u_j|``, scaled by the row's weight, with ``c = 1`` ([Choices of this package](../choices.md)).
+A step whose update passes is accepted in two cases, both flagged as `residual_floor`:
+
+1. The bound is available, and every row above `residual_tolerance` is within its bound.
+2. The bound is not available or a row is above it, and the residual has stopped decreasing.
+
+The bound comes from the stored Jacobian.
+It needs an exact stored Jacobian and a system without matrix-free terms.
+The bound estimates the size of each term by its linearization and leaves the explicit terms out, so it errs low.
+The second case can take a few iterations more, since the residual at the floor wanders.
 
 ### Lower limits and line search
 
@@ -116,13 +125,15 @@ It takes the field-particle term ([`low_rank_jacobian`](@ref)) exactly and refus
 It needs the package Pardiso.jl: `using Pardiso` in the script loads it, and MKL comes with Pardiso.jl as an artifact.
 Then `NewtonSolver(linear_solver = MKLPardiso())` solves with PARDISO on one thread, and `MKLPardiso(threads = 8)` on eight.
 Its pivot order differs from UMFPACK's, so its converged states differ from those of [`SparseLU`](@ref) within the Newton tolerance.
-PARDISO perturbs a small pivot instead of failing, so a solve whose relative residual exceeds 1e-6 fails with `:singular_matrix`, as a zero pivot does with [`SparseLU`](@ref), and the step is retried shorter.
+PARDISO perturbs a small pivot instead of failing, so a solve whose relative residual exceeds 1e-6 fails with `:singular_matrix`, as a zero pivot does with [`SparseLU`](@ref), and the step is retried shorter ([Choices](../choices.md#Linear-solvers)).
 After a failed solve the next factorization computes the ordering and the matching again from its own matrix.
-On the disruption case with the runaway grid at full size it factorizes and solves in 72 ms at one thread and 17 ms at eight, where UMFPACK takes 108 ms ([Choices of this package](../choices.md)).
+Its timings against UMFPACK on the disruption case are on the page [Performance and accuracy](../performance.md#The-linear-solvers).
 
 [`GMRES`](@ref) solves with the operator ``W (M/h - J) S`` in which ``J`` holds the stored Jacobian and the matrix-free terms.
 With right preconditioning the residual it minimizes is the true residual of the scaled system.
-Its `relative_tolerance` must be at or below the `floor_linear_tolerance` of the [`NewtonSolver`](@ref), or neither waiver can apply; the Newton workspace warns otherwise.
+Its `relative_tolerance` must be at or below the `floor_linear_tolerance` of the [`NewtonSolver`](@ref), or neither waiver can apply.
+The Newton workspace warns otherwise.
+
 `operator = :exact` adds the corrections of approximate Jacobian blocks to every product ([`jacobian_correction_product!`](@ref)), so the iteration is Newton and the approximate block only preconditions.
 `operator = :stored` keeps the stored matrix, a quasi-Newton iteration.
 The default restart length of 50 is a choice of this package ([Choices of this package](../choices.md)).
@@ -162,8 +173,12 @@ A failed step is retried with half the time step, the shorter steps continue to 
 The error of an unknown is ``\|u_\mathrm{full} - u_\mathrm{half}\|_2 / (a + r\,\|u_\mathrm{full}\|_2)``, with ``u_\mathrm{half}`` the result of the two half steps and the norms taken over all entries of the unknown at every radius.
 The error of the step is the largest over the unknowns, and the step is accepted at an error of at most 1.
 An unknown at zero with no absolute tolerance stays out of that largest error, but fails the step when it moves between the full and the half steps, as in DREAM.
-The next step follows from the largest error of the other unknowns, as in DREAM; when that error is zero, the step is retried with half its length ([Choices of this package](../choices.md)).
-Its tolerances are the `time_step_tolerances` of the [`EquationSystem`](@ref); an unknown without one gets `relative_tolerance` and no absolute part, and an unknown with both tolerances zero is left out.
+
+The next step follows from the largest error of the unknowns other than those at zero with no absolute tolerance, as in DREAM.
+When that error is zero, the step is retried with half its length ([Choices of this package](../choices.md)).
+The tolerances of [`StepDoubling`](@ref) are the `time_step_tolerances` of the [`EquationSystem`](@ref).
+An unknown without one gets `relative_tolerance` and no absolute part.
+An unknown with both tolerances zero is left out.
 
 ### Step controller
 
@@ -177,32 +192,16 @@ On the rows with a time derivative, where ``M\,(u_n - u_{n-1}) = h_{n-1}\,\mathr
 The first step of a run, and the first after an update that changed the setup by a jump, has no history and takes its estimate from one step doubling.
 An update whose change is continuous in time keeps the history and discards only the stored Jacobian: a [`RechesterRosenbluthUpdate`](@ref) whose level has no [`forced_time_points`](@ref), any function other than a [`PiecewiseConstant`](@ref).
 
-The estimate is taken on every entry of every unknown, also on an unknown whose row holds no time derivative of its own.
-That is an unknown of an [`Algebraic`](@ref) or a [`Constraint`](@ref) equation, or one whose row holds the time derivative of another unknown (`TimeDerivative(of)`).
-For such an unknown ``P`` is the linear extrapolation of its own two last values, and the estimate is
-
-```math
-\mathrm{err} = \tfrac12\,(u - P) \approx \tfrac14\,h\,(h + h_{n-1})\,u''.
-```
-
-It measures the curvature of the path of the unknown in time: the local error that backward Euler would make on a differential unknown with that path, ``h^2 u''/2`` at constant steps.
-It is not the error of the equation of the unknown, which the Newton solve meets to its tolerance.
-Nor is it the error that the differential unknowns carry into it.
-The doubling of a first step measures that carried error on the unknown of an [`Algebraic`](@ref) equation: the difference of the values its equation gives at the end states of the full and the half steps.
-The unknown of a [`Constraint`](@ref) is the mean rate over a step.
-Its doubling difference is the change of that rate between the full step and the second half step, ``h\,S'/4`` for a rate ``S``, of first order in the step.
-The estimate is twice that difference, ``h\,S'/2``.
-With `order = 2` the estimate of such an unknown measures the third derivative of its path.
-Such an unknown counts in the largest error and can set the step.
-A [`Tolerance`](@ref) with all parts zero in `time_step_tolerances` leaves it out.
+The estimate is taken on every entry of every unknown, also on an unknown whose row holds no time derivative of its own ([Unknowns without a time derivative of their own](#Unknowns-without-a-time-derivative-of-their-own)).
 
 The error of an unknown is the root mean square of the estimate over ``a + r\,|u|`` per entry:
 
-- an unknown without its own [`Tolerance`](@ref) gets `relative_tolerance` and the absolute part `relative_tolerance` times its scale, a floor for entries near zero;
-- the charge states of an ion species are measured against the density of their species ([`component_groups`](@ref));
-- a kinetic unknown also holds its density and current density above the momentum `tail_cut` at every radius ([`density`](@ref), [`current_density`](@ref) with a [`MomentumRegion`](@ref)).
+- An unknown without its own [`Tolerance`](@ref) gets `relative_tolerance` and the absolute part `relative_tolerance` times its scale, a floor for entries near zero.
+- The charge states of an ion species are measured against the density of their species ([`component_groups`](@ref)).
+- A kinetic unknown also holds its density and current density above the momentum `tail_cut` at every radius ([`density`](@ref), [`current_density`](@ref) with a [`MomentumRegion`](@ref)).
 
-The values of a distribution in its hot tail lie far below the absolute tolerance of the cell error, `relative_tolerance` times the scale, so the cells alone leave the tail uncontrolled; the tail moments control it.
+The values of a distribution in its hot tail lie far below the absolute tolerance of the cell error, `relative_tolerance` times the scale, so the cells alone leave the tail uncontrolled.
+The tail moments control it.
 Their absolute tolerance is `tail_floor` times the density of the electrons on all kinetic grids at the radius, which stays a floor for a runaway grid whose electrons all lie above the cut.
 
 The next step follows the PI controller of K. Gustafsson, M. Lundh and G. Söderlind, BIT 28, 270 (1988), doi:10.1007/BF01934091:
@@ -232,6 +231,33 @@ The default `order = 1` is backward Euler, which DREAM uses.
 The estimate assumes that every term is implicit.
 An explicit or lagged term contributes ``h\,h_{n-1}\,u''/2`` in place of ``h^2 u''/2``, a factor ``h_{n-1}/h`` that the limits of the step ratio bound.
 
+#### Unknowns without a time derivative of their own
+
+An unknown whose row holds no time derivative of its own is an unknown of an [`Algebraic`](@ref) or a [`Constraint`](@ref) equation, or one whose row holds the time derivative of another unknown (`TimeDerivative(of)`).
+For such an unknown, ``P`` is the linear extrapolation of its own two last values, and the estimate is
+
+```math
+\mathrm{err} = \tfrac12\,(u - P) \approx \tfrac14\,h\,(h + h_{n-1})\,u''.
+```
+
+It measures the curvature of the path of the unknown in time: the local error that backward Euler would make on a differential unknown with that path, ``h^2 u''/2`` at constant steps.
+It is not the error of the equation of the unknown, which the Newton solve meets to its tolerance.
+Nor is it the error that the differential unknowns carry into it.
+With `order = 2` the estimate of such an unknown measures the third derivative of its path.
+
+Such an unknown counts in the error of the step, the largest over the unknowns, and can set the step.
+A [`Tolerance`](@ref) with all parts zero in `time_step_tolerances` leaves it out.
+
+#### The first step of an unknown without a time derivative
+
+The first step of a run, and the first after an update that changed the setup by a jump, takes its estimate from one step doubling.
+On the unknown of an [`Algebraic`](@ref) equation, the doubling measures the error that the differential unknowns carry into it.
+Its doubling difference is the difference of the values its equation gives at the end states of the full and the half steps.
+
+The unknown of a [`Constraint`](@ref) is the mean rate over a step.
+Its doubling difference is the change of that rate between the full step and the second half step, ``h\,S'/4`` for a rate ``S``, of first order in the step.
+As for every unknown, the estimate is twice the doubling difference, ``h\,S'/2``.
+
 ## Legs
 
 [`Leg`](@ref)s describe the time points of a run in pieces, each with its steps and its saved states.
@@ -248,19 +274,20 @@ The step that follows uses the new setup.
   The diffusion is that of A. B. Rechester and M. N. Rosenbluth, Phys. Rev. Lett. 40, 38 (1978), doi:10.1103/PhysRevLett.40.38.
 
 An update that reports a changed setup discards the stored Jacobian.
-A jump also discards the history of the step controller; a change continuous in time (`changes_continuously`, a `RechesterRosenbluthUpdate` without forced time points) keeps it.
+A jump also discards the history of the step controller.
+A change continuous in time (`changes_continuously`, a `RechesterRosenbluthUpdate` without forced time points) keeps it.
 A time at which an update or a term switches ([`forced_time_points`](@ref)) must be a time point of the run, and [`check_update`](@ref) refuses an update that does not fit the system.
 The state of every update is saved with every saved state and checkpoint, and restored on resume.
 
 ## Checkpoints, segments and the stop
 
 A run that does not fit one allocation is a chain of segments.
-After each accepted step the loop does, in order:
+After each accepted step the loop takes these steps, in order:
 
-1. the saves at the end of the step;
-2. the stop test of the [`StopCondition`](@ref): the wall time left or a stop file ([`stop_reason`](@ref));
-3. a checkpoint ([`CheckpointSettings`](@ref)) when its interval has passed, at a stop and at the last time point;
-4. the interval updates for the next step.
+1. It makes the saves at the end of the step.
+2. It runs the stop test of the [`StopCondition`](@ref): the wall time left or a stop file ([`stop_reason`](@ref)).
+3. It writes a checkpoint ([`CheckpointSettings`](@ref)) when its interval has passed, at a stop and at the last time point.
+4. It applies the interval updates for the next step.
 
 A checkpoint writes the output of the segment first and the checkpoint file after it, each by [`write_atomically`](@ref).
 It holds the state, the states of the updates, the record of the stepper and a summary of the run ([`StoredState`](@ref)).

@@ -10,11 +10,28 @@ The test suite: its layout, its tiers and groups, how to run it, and the rules f
 | `groups.toml` | the groups of test files, each with its tier |
 | `helpers.jl` | the module `TestHelpers`: definitions that several test files use |
 | `example_cases.jl` | setups built from DREAM's examples, shared by the tests |
-| `example_disruption.jl` | the system of DREAM's disruption case in its fully kinetic and superthermal modes, with or without DREAM's runaway grid: the phases, started from DREAM's state or from Runes2P's own initialization (DREAM's runs 0 to 2), the comparison of a run with DREAM, and the budgets of its closures with their bounds; used by `test_disruption_dream.jl`, `test_disruption_initialization_dream.jl`, `test_disruption_chain_dream.jl`, `test_disruption_superthermal_dream.jl`, `test_disruption_runaway.jl`, `test_disruption_runaway_dream.jl` and `test_mkl_pardiso.jl` |
+| `example_disruption.jl` | the system of DREAM's disruption case |
 | `test_*.jl` | the test files |
 | `*_helpers.jl` | a file that one test file includes, not a test file of its own |
 | `Artifacts.toml` | the reference data of the comparison tests, one lazy artifact per set: DREAM's output written by the cases of `reference/dream/cases/`, and GSL's values of `reference/gsl/` |
 | `Project.toml`, `Manifest.toml` | the test environment |
+
+`example_disruption.jl` holds four parts of the disruption case.
+
+- The system in the fully kinetic and the superthermal mode, with or without DREAM's runaway grid.
+- The phases, started from DREAM's state or from Runes2P's own initialization, which stands for DREAM's first three runs (0 to 2) of the case.
+- The comparison of a run with DREAM.
+- The budgets: the balances of particles and energy that the assembled system must close, with their bounds.
+
+| Test files that use `example_disruption.jl` |
+|---|
+| `test_disruption_dream.jl` |
+| `test_disruption_initialization_dream.jl` |
+| `test_disruption_chain_dream.jl` |
+| `test_disruption_superthermal_dream.jl` |
+| `test_disruption_runaway.jl` |
+| `test_disruption_runaway_dream.jl` |
+| `test_mkl_pardiso.jl` |
 
 ## Tiers and groups
 
@@ -111,8 +128,8 @@ The grids of the tests have 120 to 1 540 unknowns.
 
 What is still compiled per case:
 
-- `integrate`, `rhs!`, the Jacobian operator and keyword calls, once per type of `EquationSystem`;
-- a Jacobian that a test file takes itself with `ForwardDiff.jacobian` of a closure, once per closure.
+- `integrate`, `rhs!`, the Jacobian operator and keyword calls, once per type of `EquationSystem`.
+- A Jacobian that a test file takes itself with `ForwardDiff.jacobian` of a closure, once per closure.
 
 ## Rules for a test file
 

@@ -17,7 +17,8 @@ Every physics value is cited next to it in the code, and the results are checked
 ## History of the repository
 
 The development began in a private repository.
-The history here keeps one commit per development step; the earlier commits do not pass their tests, since the reference data, the documentation and the final naming arrive with the last commit.
+The history here keeps one commit per development step.
+The earlier commits do not pass their tests, since the reference data, the documentation and the final naming arrive with the last commit.
 
 ## Installation
 
@@ -42,7 +43,8 @@ julia --project=examples examples/cooling.jl scheme=van_albada solver=gmres
 julia --project=examples examples/avalanche.jl treatment=implicit solver=gmres
 ```
 
-The scripts and their switches are described in [`examples/README.md`](examples/README.md) and on the docs page [Getting started](docs/src/getting-started.md).
+The scripts are listed in [`examples/README.md`](examples/README.md).
+The docs page [Getting started](docs/src/getting-started.md) describes them and their switches.
 
 ## Tests
 
