@@ -17,22 +17,25 @@ Findings, from the section "Markdown" of CONTRIBUTING.md:
 Warnings, from the section "Writing" of CONTRIBUTING.md:
 
     semicolon   a semicolon followed by more text of the sentence, in prose outside code, math, URLs
-                and HTML entities; one before a citation (a year in parentheses or a doi in the text
-                after it) is not reported, and table cells, where it may separate alternatives, are
-                not checked
-    values      three or more values of one unit in a sentence: numbers with a unit of the list
-                UNITS, and numbers in scientific notation or with a decimal point as one kind;
-                integers without a unit, citations, dates, versions, numbers in parentheses such as
-                equation numbers, numbers joined by + = − ×, a number after a word of a condition
-                ("at 120 eV") and the first number of a range ("a to b") do not count
-    cell        a table cell of more than 150 characters as it renders: links reduced to their text,
-                backticks removed
+                and HTML entities. One before a citation (a year in parentheses or a doi in the
+                text after it) is not reported. Table cells, where it may separate alternatives,
+                are not checked.
+    values      three or more values of one unit in a sentence. Numbers with a unit of the list
+                UNITS count by their unit. Numbers in scientific notation or with a decimal point
+                count as one kind. These do not count:
+                - integers without a unit, citations, dates and versions
+                - numbers in parentheses, such as equation numbers
+                - numbers joined by + = − ×
+                - a number after a word of a condition ("at 120 eV")
+                - the first number of a range ("a to b")
+    cell        a table cell of more than 150 characters as it renders, with links reduced to their
+                text and backticks removed
     list_end    a list item that ends with a semicolon or a comma
     paragraph   a paragraph or a list item of more than five sentences
     of_chain    three "of" in a row, each joined to the next by one or two words other than
                 "and", "or", "is", "are", "was", "were", "than" and "as"
     page_start  a page whose first block below its title is no paragraph, past Documenter's blocks
-                `@meta` and `@setup`; not with --github
+                `@meta` and `@setup`. It does not apply with --github.
 
 Code blocks, headings, quotes, comments and horizontal rules are skipped, and so are tables except
 for the rule cell.
@@ -42,15 +45,21 @@ A period after an abbreviation of the list below that does not follow a letter d
 
 With --github the text is that of a pull request, an issue or a comment, where a paragraph is one line,
 since GitHub renders a newline as a line break.
-There sentences does not apply, wrap reports a paragraph or a list item that goes on to the next line,
-and length holds for each sentence of a line; the other rules hold as in a file.
+There sentences and page_start do not apply.
+wrap reports a paragraph or a list item that goes on to the next line, and length holds for each
+sentence of a line.
+The other rules hold as in a file.
 The files may lie outside the repository, and none is skipped.
 
 Each finding and each warning is one line, `file:line: rule: message` and `file:line: warning: rule: message`.
 Under GitHub Actions (GITHUB_ACTIONS=true) each one of a file is also written as a workflow command,
 which GitHub shows as an annotation on the line.
+GitHub shows only the first 10 warnings and the first 10 errors of a step as annotations, and the
+log of the job lists them all.
 The exit code is 1 when a line breaks a rule of "Markdown", or a rule of "Writing" with --strict,
 and 0 otherwise.
+It is 2 on a usage error, such as a file outside the repository without --github, or --github
+without a file.
 """
 import argparse
 import os
@@ -189,7 +198,7 @@ def blocks(lines):
 
 
 def cells(line):
-    """The cells of a table row as they render: code and math masked before the split on `|`."""
+    """The cells of a table row as they render: code spans and escaped bars masked before the split on `|`."""
     spans = re.findall(r"``+.*?``+|`[^`]*`", line)
     masked = line.strip().strip("|")
     for index, span in enumerate(spans):

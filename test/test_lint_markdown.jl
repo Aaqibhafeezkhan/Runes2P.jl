@@ -70,10 +70,11 @@ end
                 in its second part.
                 """
                 result = lint_text(directory, "abbreviations.md", text)
-                # lines 1 and 3 to 5: an abbreviation before a capital does not end the sentence,
-                # also in emphasis (line 4) and where two of them share a prefix (line 5);
-                # lines 2 and 6: "approval." and "journal." do; line 7: the sentence after
-                # "et al." goes on in line 8
+                # - lines 1 and 3 to 5: an abbreviation before a capital does not end the
+                #   sentence, also in emphasis (line 4) and where two of them share a prefix
+                #   (line 5)
+                # - lines 2 and 6: "approval." and "journal." end it
+                # - line 7: the sentence after "et al." goes on in line 8
                 @test result.findings == [(2, "sentences"), (6, "sentences"), (7, "wrap")]
                 # the eight lines are one paragraph of more than five sentences
                 @test result.warnings == [(1, "paragraph")]
@@ -111,13 +112,20 @@ end
                 The tolerances are set to 1e-6, 1e-8 and 1e-10.
                 """
                 result = lint_text(directory, "prose.md", text)
-                # line 1: a semicolon joins two clauses; line 3: in code; line 5: before a
-                # citation; line 7: in math and in an entity; line 9: three values in s; line
-                # 11: a condition and two values of other units; line 13: equation numbers,
-                # a date and versions; line 15: three numbers in scientific notation; line 17:
-                # equation numbers and a range; line 19: a chain of three "of"; line 21: "and"
-                # breaks the chain; line 23: numbers in math; line 25: a formula and a range;
-                # line 27: "to" before a list of three values states no range
+                # - line 1: a semicolon joins two clauses
+                # - line 3: a semicolon in code
+                # - line 5: a semicolon before a citation
+                # - line 7: semicolons in math and in an entity
+                # - line 9: three values in s
+                # - line 11: a condition and two values of other units
+                # - line 13: equation numbers, a date and versions
+                # - line 15: three numbers in scientific notation
+                # - line 17: equation numbers and a range
+                # - line 19: a chain of three "of"
+                # - line 21: "and" breaks the chain
+                # - line 23: numbers in math
+                # - line 25: a formula and a range
+                # - line 27: "to" before a list of three values states no range
                 @test isempty(result.findings)
                 @test result.warnings ==
                       [(1, "semicolon"), (9, "values"), (15, "values"),
@@ -155,9 +163,12 @@ end
                 Six.
                 """
                 result = lint_text(directory, "blocks.md", text)
-                # line 3: alternatives in a cell; line 4: a cell of more than 150 characters;
-                # line 5: a link counts by its text; lines 7 and 8: items that end with "," and
-                # ";"; line 11: five sentences; line 17: six
+                # - line 3: alternatives in a cell
+                # - line 4: a cell of more than 150 characters
+                # - line 5: a link counts by its text
+                # - lines 7 and 8: items that end with "," and ";"
+                # - line 11: a paragraph of five sentences
+                # - line 17: a paragraph of six sentences
                 @test length(long) > 150
                 @test isempty(result.findings)
                 @test result.warnings ==
@@ -174,17 +185,17 @@ end
 
             @testset "text for GitHub" begin
                 mktempdir() do outside
-                    paragraph = "The change adds a rule. It is tested. Its docs are in CONTRIBUTING.md.\n\n## Tests\n\n- One item. Another sentence.\n"
+                    description = "The change adds a rule. It is tested. Its docs are in CONTRIBUTING.md.\n\n## Tests\n\n- One item. Another sentence.\n"
                     path = joinpath(outside, "pr.md")
-                    write(path, paragraph)
+                    write(path, description)
                     # a file outside the repository is refused without --github
                     @test lint(directory, path).code == 2
                     # several sentences on a line are the rule there
                     result = lint(directory, "--github", path)
                     @test isempty(result.findings) && isempty(result.warnings)
                     @test result.code == 0
-                    # a paragraph broken over lines shows as line breaks on GitHub; a sentence
-                    # of the paragraph longer than 200 characters is too long
+                    # a paragraph broken over lines shows as line breaks on GitHub. A sentence
+                    # of the paragraph longer than 200 characters is too long.
                     broken = "The change adds a rule\nand tests it.\n\nThe rule; " *
                              repeat("long ", 41) * "ends. Short.\n"
                     write(path, broken)

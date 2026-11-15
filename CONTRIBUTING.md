@@ -267,8 +267,13 @@ The files of `.github/` keep one paragraph per line, as the text of pull request
   They are also a paragraph of more than five sentences, a chain of three "of" and a page that does not start with a sentence.
   The docstring of the script defines each one.
   With `--strict` the warnings fail the lint too.
-- In CI the lint runs on the lines that a pull request adds, and its warnings show as annotations on those lines.
+- The exit code is 1 when the lint fails and 0 when it passes.
+  It is 2 on a usage error, such as a file outside the repository without `--github`.
+- In CI the lint runs on the lines that a pull request adds, and on every tracked markdown file after a push to `dev` or `main`.
+  The script writes each finding and each warning as an annotation on its line.
+  GitHub shows only the first 10 warnings and the first 10 errors of a step as annotations, and the log of the job lists them all.
 - `--github` checks a text for GitHub, where a paragraph is one line.
   A line break inside a paragraph is then a break of the rules, and the limit of 200 characters holds for each sentence.
+  The warning `page_start`, a page that does not start with a sentence, does not apply there.
   The file may lie outside the repository, and `-` reads standard input.
   Before a pull request is opened, `python3 scripts/lint_markdown.py --github pr.md` checks the draft of its description in `pr.md`.
