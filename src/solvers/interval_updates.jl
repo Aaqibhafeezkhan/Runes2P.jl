@@ -46,8 +46,9 @@ Knock-on cutoff that follows the plasma `plasma_at(t)` at the time `t` [s], or a
 the start of each step (a system whose bulk reads the temperature from an unknown refuses a
 prescribed temperature here): at the start of the run and after every accepted step the
 cutoff of each radius of `operator` is set to a face of the knock-on momentum grid. The
-cutoff per radius, in units of `mₑc`, is the state of the update. `critical_momentum_at(plasma, ir)` gives the
-runaway threshold, a momentum in units of `mₑc`.
+cutoff per radius, in units of `mₑc`, is the state of the update.
+`critical_momentum_at(plasma, ir)` gives the runaway threshold, a momentum in units of
+`mₑc`.
 
 `coulomb_logarithm` is the Coulomb logarithm of the collisions of the run, the field of the
 same name of [`CollisionSettings`](@ref), whose default `:thermal` it shares. The default

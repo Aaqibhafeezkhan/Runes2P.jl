@@ -107,18 +107,17 @@ P = n_e \\sum_{i, Z_0} n_{i, Z_0} \\left(L_{i, Z_0} + B_{i, Z_0}\\right)
 ```
 
 with the coefficients `L` and `B` [W m³] of each charge state, the electron density `n_e`
-and temperature from the unknowns `density` and
-`temperature`, and the densities of the charge states `n_{i,Z_0}` from the ions of
-`plasma`, a [`PlasmaState`](@ref) or a function of time that returns one, or from the
-radial unknown `ions` of the charge-state densities of the species of `plasma`
-([`ion_densities_unknown`](@ref)). The species are named by their element
-(`"Ar"`, `"D"`), whose ADF11 tables are read from `directory` when the term is built
-([`read_adas`](@ref)). A `plasma` that is a function of time gives these species at the
-time `initial_time` [s]. With `ions` the term assembles its Jacobian with the columns of the
+and temperature from the unknowns `density` and `temperature`, and the densities of the
+charge states `n_{i,Z_0}` from the ions of `plasma`, a [`PlasmaState`](@ref) or a function
+of time that returns one, or from the radial unknown `ions` of the charge-state densities of
+the species of `plasma` ([`ion_densities_unknown`](@ref)). The species are named by their
+element (`"Ar"`, `"D"`), whose ADF11 tables are read from `directory` when the term is built
+([`read_adas`](@ref)). A `plasma` that is a function of time gives these species at the time
+`initial_time` [s]. With `ions` the term assembles its Jacobian with the columns of the
 charge states ([`add_local_jacobian!`](@ref)). With `kinetic_ionization`, the
-[`KineticIonizationTerm`](@ref) of the split of [`IonRateTerm`](@ref), the binding energy
-of the ionization is that of the cold electrons below its threshold, at the fluid
-coefficient of [`fluid_ionization_coefficient`](@ref).
+[`KineticIonizationTerm`](@ref) of the split of [`IonRateTerm`](@ref), the binding energy of
+the ionization is that of the cold electrons below its threshold, at the fluid coefficient
+of [`fluid_ionization_coefficient`](@ref).
 
 - `radiation = :recombination` (the default, a choice of this package; see the docs page
   *Choices of this package*): the line radiation `L = PLT + PRB` with the recombination

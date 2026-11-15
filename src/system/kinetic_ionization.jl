@@ -18,14 +18,14 @@ K_j = \\frac{1}{V'} \\sum_{\\text{cells}} e(p)\\, v σ_j(p)\\, 𝒱' Δp Δξ\\,
 ```
 
 with the ionization rate `K_j` [s⁻¹] of the charge state `j`, the cross sections
-[`ionization_cross_section`](@ref) of the form
-`ionization_cross_section_form` (`:chianti`, the default, CHIANTI's parameters continued
-relativistically, with DREAM's form for the elements CHIANTI's table lacks; `:dream`,
-DREAM's form and fits; or `:bethe`, DREAM's form with its relativistic term divided by `β²`,
-refitted), tabulated at the cell centres of the momentum grid of each radius (DREAM
-tabulates the grid of radius 0 alone), and the envelope `e(p)` of the
-[`MomentumRegion`](@ref) `region`: the hot electrons above a threshold that may follow the
-temperature unknown, or the whole grid without a region. Each species is conserved.
+[`ionization_cross_section`](@ref) of the form `ionization_cross_section_form` (`:chianti`,
+the default, CHIANTI's parameters continued relativistically, with DREAM's form for the
+elements CHIANTI's table lacks; `:dream`, DREAM's form and fits; or `:bethe`, DREAM's form
+with its relativistic term divided by `β²`, refitted), tabulated at the cell centres of the
+momentum grid of each radius (DREAM tabulates the grid of radius 0 alone), and the envelope
+`e(p)` of the [`MomentumRegion`](@ref) `region`: the hot electrons above a threshold that
+may follow the temperature unknown, or the whole grid without a region. Each species is
+conserved.
 
 Paired with an [`IonRateTerm`](@ref) through its `kinetic_ionization` keyword, the electrons
 below the threshold ionize at the fluid coefficient of

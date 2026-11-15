@@ -229,11 +229,11 @@ the fields `residual_norms`, `update_norms` and `step_lengths`. `exact_jacobian`
 whether the Newton matrix is the exact Jacobian (no term with an approximate stored
 block, or a linear solver whose operator restores it, [`GMRES`](@ref)`(operator=:exact)`),
 and `linear` whether the system is linear in the state and the matrix exact, so the first
-iteration solves a step and the second confirms it. For such a system `assembled_time`
-and `assembled_step` [s] are the end time and the length of the step whose stored Jacobian
+iteration solves a step and the second confirms it. For such a system `assembled_time` and
+`assembled_step` are the end time [s] and the length [s] of the step whose stored Jacobian
 and Newton matrix are kept (`NaN`: none kept, see [`invalidate_jacobian!`](@ref));
-`jacobian_assemblies` counts the assemblies of the stored Jacobian since the workspace
-was made.
+`jacobian_assemblies` counts the assemblies of the stored Jacobian since the workspace was
+made.
 """
 struct NewtonWorkspace{T, S <: EquationSystem, L, C}
     system::S
