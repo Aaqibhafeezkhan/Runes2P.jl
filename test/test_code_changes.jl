@@ -19,6 +19,8 @@ const SCRIPT = joinpath(dirname(@__DIR__), "scripts", "code_changes.jl")
 # the file of `DOCSTRINGS_READ_BY_TESTS` in the script, copied by hand: a change of that list
 # fails this test, which then takes the new file
 const DOCSTRING_READ_BY_A_TEST = "src/physics/ionization_chianti_fits.jl"
+# the file of `DOCS_READ_BY_TESTS` in the script, copied the same way
+const DOCS_READ_BY_A_TEST = "docs/src/model/unknowns.md"
 
 function git(repo, arguments...)
     identity_flags = ["-c", "user.name=Test", "-c", "user.email=test@example.com",
@@ -57,6 +59,8 @@ end
 const FORK = Dict(
     "README.md" => "# Package\n\nThe first line.\n",
     "docs/src/example.jl" => "x = 1\n",
+    "docs/src/page.md" => "# Page\n\nThe text.\n",
+    DOCS_READ_BY_A_TEST => "# Unknowns\n\n| Unknown | Unit |\n|---|---|\n| `:E` | V/m |\n",
     "docs/make.jl" => "# the build\nmakedocs()\n",
     "src/docstring.jl" => "\"\"\"\n    f(x)\n\nThe input.\n\"\"\"\nf(x) = x\n",
     "src/comment.jl" => "# twice the input\ng(x) = 2x\n",
@@ -78,11 +82,12 @@ const FORK = Dict(
     DOCSTRING_READ_BY_A_TEST => "\"The fits.\"\nconst FITS = 1\n",
     "src/mixed.jl" => "# the scale\nscale() = 1\n")
 
-# no code: markdown, docs/src/, and comments, docstrings and layout of Julia files outside
-# test/; src/moved_on.jl has a comment change here and a code change on `origin/dev`
+# no code: markdown, docs/src/ with a page that no test reads, and comments, docstrings and
+# layout of Julia files outside test/; src/moved_on.jl has a comment change here and a code change on `origin/dev`
 const NO_CODE = Dict(
     "README.md" => "# Package\n\nThe first line, changed.\n",
     "docs/src/example.jl" => "x = 2\n",
+    "docs/src/page.md" => "# Page\n\nThe text, changed.\n",
     "docs/make.jl" => "# the build of the docs\nmakedocs()\n",
     "src/docstring.jl" => "\"\"\"\n    f(x)\n\nThe input, unchanged.\n\"\"\"\nf(x) = x\n",
     "src/comment.jl" => "# two times the input\ng(x) = 2x\n",
@@ -96,7 +101,7 @@ const NO_CODE = Dict(
 # code: test/, non-Julia files outside docs/src/ (a comment change, which the parse of
 # Project.toml and of the data file as Julia would drop), a Julia file that does not parse,
 # an interpolating docstring, the docstring of a field, a file whose docstring a test reads,
-# and code next to a comment change
+# a page of the documentation that a test reads, and code next to a comment change
 const CODE = Dict(
     "test/test_a.jl" => "\"\"\"\n    helper()\n\nA helper of the tests.\n\"\"\"\nhelper() = 1\n",
     "Project.toml" => "# the package itself\nname = \"Package\"\n",
@@ -107,6 +112,7 @@ const CODE = Dict(
     "src/interpolated.jl" => "const NAME = \"p\"\n\"\"\"\n    i(x)\n\nThe value of \$NAME.\n\"\"\"\ni(x) = x\n",
     "src/field.jl" => "struct S\n    \"the only field\"\n    a::Int\nend\n",
     DOCSTRING_READ_BY_A_TEST => "\"The fits of the rates.\"\nconst FITS = 1\n",
+    DOCS_READ_BY_A_TEST => "# Unknowns\n\n| Unknown | Unit |\n|---|---|\n| `:E` | kV/m |\n",
     "src/mixed.jl" => "# the scale factor\nscale() = 2\n")
 
 # the files of `code` that change code: those of CODE, the deleted file, and both sides of
