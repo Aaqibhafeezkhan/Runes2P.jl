@@ -139,7 +139,7 @@ export effective_critical_field, avalanche_critical_momentum, fluid_avalanche_gr
        critical_field_advection,
        runaway_fluid_settings, SYNCHROTRON_RATE_PER_FIELD_SQUARED
 export ScalarUnknown, RadialUnknown, KineticUnknown, LowerLimit, UnknownLayout
-export unknown_id, unknown_names, unknown, unknown_range, radius_block_range,
+export unknown_id, unknown_names, unknown, unknown_unit, unknown_range, radius_block_range,
        scalar_block_range
 export radial_view, kinetic_view, scalar_view, unknown_view, unknown_scales, describe,
        copy_unknowns!

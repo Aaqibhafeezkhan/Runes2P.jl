@@ -48,49 +48,100 @@ end
 _lower_limit(nonnegative::Bool) = nonnegative ? LowerLimit() : nothing
 _lower_limit(limit::LowerLimit) = limit
 
+# The units of the unknowns that the package names by default, in the ASCII form written
+# to the output file. The table "Units of the unknowns" of docs/src/model/unknowns.md lists
+# the same pairs. A kinetic unknown, a distribution per unit of momentum volume with the
+# momentum in m_e c, is in m^-3 whatever its name. A scalar or radial unknown of any other
+# name has no unit.
+const DEFAULT_UNKNOWN_UNITS = Dict{Symbol, String}(
+    :electric_field => "V/m",
+    :poloidal_flux => "V s/m",
+    :edge_poloidal_flux => "V s/m",
+    :wall_poloidal_flux => "V s/m",
+    :total_current_density => "A/m^2",
+    :ohmic_current_density => "A/m^2",
+    :plasma_current => "A",
+    :cold_electron_temperature => "eV",
+    :cold_electron_density => "m^-3",
+    :cold_thermal_energy => "J/m^3",
+    :total_electron_energy => "J/m^3",
+    :ion_densities => "m^-3",
+    :ion_thermal_energy => "J/m^3",
+    :runaway_density => "m^-3",
+    :total_electron_density => "m^-3")
+const KINETIC_UNKNOWN_UNIT = "m^-3"
+
+# the unit of the default name `name`, an error for a name outside the table
+_default_unit(name::Symbol) = DEFAULT_UNKNOWN_UNITS[name]
+
+# whether `unit` can be the unit of an unknown: ASCII without control characters, which
+# the output file stores as a string attribute
+_valid_unit(unit::AbstractString) = isascii(unit) && !any(iscntrl, unit)
+
+# the unit `unit` of the unknown `name`, refused unless it is valid
+function _checked_unit(unit::AbstractString, name::Symbol)
+    _valid_unit(unit) ||
+        throw(ArgumentError("the unit $(repr(unit)) of the unknown $name must be ASCII without " *
+                            "control characters: write exponents as in \"m^-3\""))
+    return String(unit)
+end
+
+# the unit of an unknown: the one given, or the default of its name
+_unit(unit::AbstractString, name::Symbol) = _checked_unit(unit, name)
+_unit(::Nothing, name::Symbol) = get(DEFAULT_UNKNOWN_UNITS, name, "")
+
 """
-    ScalarUnknown(name; scale=1, nonnegative=false)
+    ScalarUnknown(name; scale=1, nonnegative=false, unit=nothing)
 
 Unknown with one value for the whole system (e.g. `:plasma_current`). `scale` is its
-reference magnitude; `nonnegative` declares a [`LowerLimit`](@ref).
+reference magnitude; `nonnegative` declares a [`LowerLimit`](@ref). `unit` is the unit of
+its values as a string, such as `"A"`, which the output file stores. It is ASCII without
+control characters. Without one, an unknown of a default name takes the unit of the table
+in the section "Units of the unknowns" of the docs page "Unknowns and the equation
+system", and any other the empty string.
 """
 struct ScalarUnknown
     name::Symbol
     scale::Float64
+    unit::String
     lower_limit::Union{Nothing, LowerLimit}
 end
-function ScalarUnknown(name::Symbol; scale::Real = 1.0, nonnegative::Union{
-        Bool, LowerLimit} = false)
-    ScalarUnknown(name, Float64(scale), _lower_limit(nonnegative))
+function ScalarUnknown(name::Symbol; scale::Real = 1.0,
+        nonnegative::Union{Bool, LowerLimit} = false,
+        unit::Union{Nothing, AbstractString} = nothing)
+    ScalarUnknown(name, Float64(scale), _unit(unit, name), _lower_limit(nonnegative))
 end
 
 """
-    RadialUnknown(name; components=1, scale=1, nonnegative=false, groups=nothing)
+    RadialUnknown(name; components=1, scale=1, nonnegative=false, groups=nothing, unit=nothing)
 
 Unknown with `components` values at each radius (e.g. `:electric_field`, or
 `:ion_densities` with one component per charge state). `groups` splits the components into
 consecutive ranges, such as the charge states of each ion species
 ([`component_groups`](@ref)). An unknown that declares groups, even a single one, takes by
 default the tolerances relative to the sum over each group ([`tolerance`](@ref),
-[`StepController`](@ref)).
+[`StepController`](@ref)). `unit` is the unit of its values, as of a
+[`ScalarUnknown`](@ref).
 """
 struct RadialUnknown
     name::Symbol
     components::Int
     scale::Float64
+    unit::String
     lower_limit::Union{Nothing, LowerLimit}
     groups::Vector{UnitRange{Int}}
     grouped::Bool   # whether `groups` was given, rather than the one group of all components
 end
 function RadialUnknown(name::Symbol; components::Integer = 1, scale::Real = 1.0,
-        nonnegative::Union{Bool, LowerLimit} = false, groups = nothing)
+        nonnegative::Union{Bool, LowerLimit} = false, groups = nothing,
+        unit::Union{Nothing, AbstractString} = nothing)
     components >= 1 || throw(ArgumentError("a radial unknown needs at least one component"))
     grouped = groups !== nothing
     groups = grouped ? UnitRange{Int}[g for g in groups] : [1:Int(components)]
     _splits(groups, components) ||
         throw(ArgumentError("the groups of $name must split its components 1:$components into consecutive ranges"))
-    return RadialUnknown(
-        name, Int(components), Float64(scale), _lower_limit(nonnegative), groups, grouped)
+    return RadialUnknown(name, Int(components), Float64(scale), _unit(unit, name),
+        _lower_limit(nonnegative), groups, grouped)
 end
 
 # whether the ranges split 1:n into consecutive nonempty ranges
@@ -119,22 +170,28 @@ component_groups(u::RadialUnknown) = u.groups
 _grouped(u) = u isa RadialUnknown && u.grouped
 
 """
-    KineticUnknown(name, grid; scale=1, nonnegative=false)
+    KineticUnknown(name, grid; scale=1, nonnegative=false, unit=nothing)
 
 Distribution function on the kinetic grid `grid`, one value per momentum cell at each
 radius (e.g. `:hot_tail_distribution`). The momentum grid may differ between radii.
 A distribution is normally declared without a lower limit: negative values produced by
-the discretization belong to the scheme, not to the Newton steps.
+the discretization belong to the scheme, not to the Newton steps. `unit` is the unit of
+its values as a string, ASCII without control characters. Without one, it is `"m^-3"`
+whatever the name, for a density per unit of momentum volume with the momentum in
+``m_e c``.
 """
 struct KineticUnknown{T}
     name::Symbol
     grid::KineticGrid{T}
     scale::Float64
+    unit::String
     lower_limit::Union{Nothing, LowerLimit}
 end
 function KineticUnknown(name::Symbol, grid::KineticGrid; scale::Real = 1.0,
-        nonnegative::Union{Bool, LowerLimit} = false)
-    KineticUnknown(name, grid, Float64(scale), _lower_limit(nonnegative))
+        nonnegative::Union{Bool, LowerLimit} = false,
+        unit::Union{Nothing, AbstractString} = nothing)
+    kinetic_unit = unit === nothing ? KINETIC_UNKNOWN_UNIT : _checked_unit(unit, name)
+    KineticUnknown(name, grid, Float64(scale), kinetic_unit, _lower_limit(nonnegative))
 end
 
 const Unknown = Union{ScalarUnknown, RadialUnknown, KineticUnknown}
@@ -284,6 +341,17 @@ Declaration of an unknown ([`ScalarUnknown`](@ref), [`RadialUnknown`](@ref) or
 """
 unknown(layout::UnknownLayout, id::Integer) = layout.unknowns[id]
 unknown(layout::UnknownLayout, name::Symbol) = layout.unknowns[unknown_id(layout, name)]
+
+"""
+    unknown_unit(layout, id_or_name)
+
+Unit of the values of an unknown, the string that the output file stores with it: the
+`unit` of its declaration, or its default (the section "Units of the unknowns" of the docs
+page "Unknowns and the equation system"). The empty string marks an unknown without a
+unit.
+"""
+unknown_unit(layout::UnknownLayout, id::Integer) = unknown(layout, id).unit
+unknown_unit(layout::UnknownLayout, name::Symbol) = unknown(layout, name).unit
 
 """
     kinetic_grid(layout, id)

@@ -168,14 +168,15 @@ function build_initialization(start, electric_field; scheme::Symbol = :tcdf,
         [
             ion_densities_unknown(BACKGROUND),
             RadialUnknown(:cold_electron_density; scale = 1e19), RadialUnknown(
-                :hot_electron_density; scale = 1e17),
+                :hot_electron_density; scale = 1e17, unit = "m^-3"),
             RadialUnknown(:runaway_density; scale = 1e15), RadialUnknown(:total_electron_density; scale = 1e20),
-            RadialUnknown(:free_electron_density; scale = 1e19), RadialUnknown(:particle_source; scale = 1e24),
+            RadialUnknown(:free_electron_density; scale = 1e19, unit = "m^-3"), RadialUnknown(
+                :particle_source; scale = 1e24, unit = "m^-3 s^-1"),
             RadialUnknown(:cold_electron_temperature; scale = 100.0),
             RadialUnknown(:cold_thermal_energy; scale = 1e4),
             RadialUnknown(:ohmic_current_density; scale = 1e6), RadialUnknown(
-                :hot_electron_current_density; scale = 1e5),
-            RadialUnknown(:runaway_current_density; scale = 1e5),
+                :hot_electron_current_density; scale = 1e5, unit = "A/m^2"),
+            RadialUnknown(:runaway_current_density; scale = 1e5, unit = "A/m^2"),
             KineticUnknown(:f, grid; scale = 1e19)])
     layout = UnknownLayout(radial, unknowns)
     # Faraday's law gives way to the prescribed field; the other induction rows stay
@@ -642,14 +643,15 @@ function build(start; scheme::Symbol = :tcdf, compat::Symbol = :dream,
             RadialUnknown(:ion_thermal_energy; components = length(COMPOSITION),
                 scale = 1e4, nonnegative = true),
             RadialUnknown(:cold_electron_density; scale = 1e19), RadialUnknown(
-                :hot_electron_density; scale = 1e17),
+                :hot_electron_density; scale = 1e17, unit = "m^-3"),
             RadialUnknown(:runaway_density; scale = 1e15), RadialUnknown(:total_electron_density; scale = 1e20),
-            RadialUnknown(:free_electron_density; scale = 1e19), RadialUnknown(:particle_source; scale = 1e24),
+            RadialUnknown(:free_electron_density; scale = 1e19, unit = "m^-3"), RadialUnknown(
+                :particle_source; scale = 1e24, unit = "m^-3 s^-1"),
             RadialUnknown(:cold_electron_temperature; scale = 100.0),
             RadialUnknown(:cold_thermal_energy; scale = 1e4),
             RadialUnknown(:ohmic_current_density; scale = 1e6), RadialUnknown(
-                :hot_electron_current_density; scale = 1e5),
-            RadialUnknown(:runaway_current_density; scale = 1e5),
+                :hot_electron_current_density; scale = 1e5, unit = "A/m^2"),
+            RadialUnknown(:runaway_current_density; scale = 1e5, unit = "A/m^2"),
             KineticUnknown(:f, grid; scale = 1e19)])
     # DREAM builds the particle source only with the full collision frequencies
     # (src/Settings/Equations/f_hot.cpp:163-197)

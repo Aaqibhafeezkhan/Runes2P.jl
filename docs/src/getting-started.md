@@ -111,7 +111,7 @@ The shared helpers of the scripts are in `examples/common.jl`: the switches, a M
 
 The inputs of a run are in SI units, except temperatures and particle energies in eV and momenta in units of ``m_e c``, with ``m_e`` the electron mass and ``c`` the speed of light.
 One setting is in minutes, `guard_minutes` of [`ProgressLog`](@ref).
-The code checks no unit, so a value in another unit gives a wrong result without an error.
+The code checks almost no unit, so a value in another unit usually gives a wrong result without an error.
 The table lists the units by group, for the inputs and for the results of the functions it names.
 
 | Group | Quantity | Unit |
@@ -152,7 +152,8 @@ The table lists the units by group, for the inputs and for the results of the fu
 | atomic data | coefficients of the radiated power | W m³ |
 
 The units of the unknowns that the package names by default are on the page [Unknowns and the equation system](model/unknowns.md#Units-of-the-unknowns).
-The output files and the settings record store no unit with their values ([Unknowns](model/output.md#Unknowns), [Records](model/output.md#Records)).
+The output files store the unit of every unknown, of the times and of the grid faces ([Unknowns](model/output.md#Unknowns)).
+The settings record stores no unit with its values ([Records](model/output.md#Records)).
 
 ### Notes on the units
 

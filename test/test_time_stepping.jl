@@ -337,14 +337,16 @@ end
         rad = RadialGrid(uniform_r_faces(2, 0.5))
         mom = MomentumGrid(uniform_p_faces(5, 0.0, 2.0), uniform_xi_faces(3))
         g = cylindrical_grid(mom, rad)
+        # a declared unit, a default one and the empty one of a name outside the defaults
         layout = UnknownLayout(rad,
             [ScalarUnknown(:plasma_current; scale = 2.0),
                 RadialUnknown(:ion_densities; components = 2, nonnegative = true),
-                KineticUnknown(:hot_tail_distribution, g)])
+                KineticUnknown(:hot_tail_distribution, g),
+                RadialUnknown(:temperature; unit = "keV"), RadialUnknown(:source)])
         decay(name) = Equation(name, TimeDerivative(), LinearTerm(name; coefficient = -1.0))
         system = EquationSystem(layout,
             [decay(:plasma_current), decay(:ion_densities),
-                decay(:hot_tail_distribution)])
+                decay(:hot_tail_distribution), decay(:temperature), decay(:source)])
         u0 = collect(1.0:length(layout))
         solution = integrate(system, u0, [0.0, 0.1, 0.2])
         file = tempname() * ".h5"
@@ -362,16 +364,37 @@ end
                   unknown_view(solution.states[:, 2], layout, :ion_densities, 1)
             @test read(h5["unknowns/plasma_current"]) == solution.states[end, :]
             @test read(h5["layout/order"]) ==
-                  ["plasma_current", "ion_densities", "hot_tail_distribution"]
+                  ["plasma_current", "ion_densities",
+                "hot_tail_distribution", "temperature", "source"]
+            # the unit of every unknown, of the times and of the faces of the grids
+            unit(object) = read(attributes(object)["unit"])
+            @test unit(h5["unknowns/plasma_current"]) == "A"
+            @test unit(h5["unknowns/ion_densities"]) == "m^-3"
+            @test unit(h5["unknowns/hot_tail_distribution"]) == "m^-3"
+            @test unit(h5["unknowns/temperature"]) == "keV"
+            @test unit(h5["unknowns/source"]) == ""
+            @test unit(h5["time"]) == "s"
+            @test read(h5["layout/unknowns/temperature/unit"]) == "keV"
+            @test read(h5["layout/unknowns/source/unit"]) == ""
+            @test unit(h5["layout/r_faces"]) == "m"
             @test read(h5["layout/layout_version"]) == 2
             grid_name = read(h5["layout/unknowns/hot_tail_distribution/grid"])
             @test read(h5["layout/grids/$grid_name/momentum_grid/p_faces"]) == mom.p_faces
+            @test unit(h5["layout/grids/$grid_name/momentum_grid/p_faces"]) == "m_e c"
+            @test unit(h5["layout/grids/$grid_name/momentum_grid/xi_faces"]) == "1"
             @test read(h5["layout/unknowns/ion_densities/lower_limit_tolerance"]) == 0.0
             @test read(h5["solver_statistics/time"]) == [0.1, 0.2]
             @test read(h5["solver_statistics/status"]) == ["converged", "converged"]
             @test read(h5["solver_statistics/newton_iterations"]) ==
                   solution.statistics.newton_iterations
         end
+        # the units read back, the declared one and the empty one included
+        back = read_output(file).layout
+        for name in unknown_names(layout)
+            @test unknown_unit(back, name) == unknown_unit(layout, name)
+        end
+        @test unknown_unit(back, :temperature) == "keV"
+        @test unknown_unit(back, :source) == ""
         rm(file)
 
         # per-radius grids: one dataset per radius
@@ -385,7 +408,20 @@ end
         h5open(file) do h5
             @test size(read(h5["unknowns/hot_tail_distribution/radius_1"])) == (5, 3, 2)
             @test size(read(h5["unknowns/hot_tail_distribution/radius_2"])) == (4, 3, 2)
+            # the group and each dataset of a radius carry the unit, and so do the faces of
+            # every radius
+            unit(object) = read(attributes(object)["unit"])
+            @test unit(h5["unknowns/hot_tail_distribution"]) == "m^-3"
+            @test unit(h5["unknowns/hot_tail_distribution/radius_1"]) == "m^-3"
+            @test unit(h5["unknowns/hot_tail_distribution/radius_2"]) == "m^-3"
+            grid_name = read(h5["layout/unknowns/hot_tail_distribution/grid"])
+            for ir in 1:2
+                faces = h5["layout/grids/$grid_name/momentum_grids/radius_$ir"]
+                @test unit(faces["p_faces"]) == "m_e c"
+                @test unit(faces["xi_faces"]) == "1"
+            end
         end
+        @test unknown_unit(read_output(file).layout, :hot_tail_distribution) == "m^-3"
         rm(file)
     end
 end
