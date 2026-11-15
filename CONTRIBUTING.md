@@ -199,6 +199,8 @@ The formatter sets the layout only, so the reviews check these rules, helped by 
 These rules hold for the pages of `docs/src/`, the README files, docstrings and comments where they hold prose, the descriptions of pull requests, and the text of issues and of their comments.
 They hold for this file and for new entries of `CHANGELOG.md` too.
 New and changed text follows these rules.
+The rules serve the reader.
+Where following one would make a passage harder to read, the passage wins.
 
 - A sentence makes one statement.
   A second clause may join it where it gives the reason, the consequence or the exception of the first, or where it shares its subject.
