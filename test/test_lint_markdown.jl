@@ -103,6 +103,12 @@ end
                 The moment is that of a part of the collisions of the term.
 
                 The sum of the moments and of the rates of the grid stays.
+
+                The weights are ``a = 1.5``, ``b = 2.5`` and ``c = 3.5`` in math.
+
+                The two steps take 70.6 + 7.0 = 77.6 ms, and 4.0e-5 to 4.1e-5 of the density leaves.
+
+                The tolerances are set to 1e-6, 1e-8 and 1e-10.
                 """
                 result = lint_text(directory, "prose.md", text)
                 # line 1: a semicolon joins two clauses; line 3: in code; line 5: before a
@@ -110,12 +116,14 @@ end
                 # 11: a condition and two values of other units; line 13: equation numbers,
                 # a date and versions; line 15: three numbers in scientific notation; line 17:
                 # equation numbers and a range; line 19: a chain of three "of"; line 21: "and"
-                # breaks the chain
+                # breaks the chain; line 23: numbers in math; line 25: a formula and a range;
+                # line 27: "to" before a list of three values states no range
                 @test isempty(result.findings)
                 @test result.warnings ==
-                      [(1, "semicolon"), (9, "values"), (15, "values"), (19, "of_chain")]
+                      [(1, "semicolon"), (9, "values"), (15, "values"),
+                    (19, "of_chain"), (27, "values")]
                 @test result.code == 0
-                @test occursin("0 findings in 1 file, 4 warnings\n", result.text)
+                @test occursin("0 findings in 1 file, 5 warnings\n", result.text)
                 # with --strict a warning fails the run
                 @test lint(directory, "--strict", joinpath(directory, "prose.md")).code == 1
             end

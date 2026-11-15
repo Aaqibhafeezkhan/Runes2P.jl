@@ -23,7 +23,8 @@ Warnings, from the section "Writing" of CONTRIBUTING.md:
     values      three or more values of one unit in a sentence: numbers with a unit of the list
                 UNITS, and numbers in scientific notation or with a decimal point as one kind;
                 integers without a unit, citations, dates, versions, numbers in parentheses such as
-                equation numbers, and a number after a word of a condition ("at 120 eV") do not count
+                equation numbers, numbers joined by + = − ×, a number after a word of a condition
+                ("at 120 eV") and the first number of a range ("a to b") do not count
     cell        a table cell of more than 150 characters as it renders: links reduced to their text,
                 backticks removed
     list_end    a list item that ends with a semicolon or a comma
@@ -77,11 +78,16 @@ UNITS = ("eV", "keV", "MeV", "GeV", "K", "s", "ms", "µs", "μs", "ns", "min", "
          "m⁻¹", "m²", "m³", "T", "V", "V/m", "A", "kA", "MA", "W", "MW", "J", "MJ", "Pa", "%", "GB", "MB",
          "kB", "Hz", "rad")
 NUMBER = r"(?<![\w.^⁻])[-−+]?\d+(?:\.\d+)?(?:[eE][-−+]?\d+|\s?[×x]\s?10[⁻⁺]?[⁰¹²³⁴⁵⁶⁷⁸⁹]+)?"
-VALUE = re.compile(NUMBER + r"(?:\s?(" + "|".join(re.escape(u) for u in sorted(UNITS, key=len, reverse=True))
-                   + r")(?![\w⁻⁰¹²³⁴⁵⁶⁷⁸⁹/]))?")
-# a number that follows one of these words states a condition, not a value
-CONDITION = re.compile(r"\b(?:[Aa]t|[Aa]bove|[Bb]elow|[Bb]eyond|[Uu]nder|[Oo]ver|[Ff]rom|to|[Bb]etween|[Ww]ithin"
-                       r"|[Uu]p to|[Ff]or|[Aa]fter|[Bb]efore|than|[Nn]ear)\s+" + NUMBER)
+VALUE_PATTERN = (NUMBER + r"(?:\s?(" + "|".join(re.escape(u) for u in sorted(UNITS, key=len, reverse=True))
+                 + r")(?![\w⁻⁰¹²³⁴⁵⁶⁷⁸⁹/]))?")
+VALUE = re.compile(VALUE_PATTERN)
+# numbers joined by an operator are a formula, not values
+FORMULA = re.compile(VALUE_PATTERN + r"(?:\s*[-+=−×]\s+" + VALUE_PATTERN + ")+")
+# a number that follows one of these words states a condition, not a value, and so does the first
+# number of a range "a to b"
+CONDITION = re.compile(r"\b(?:[Aa]t|[Aa]bove|[Bb]elow|[Bb]eyond|[Uu]nder|[Oo]ver|[Ff]rom|[Bb]etween|[Ww]ithin"
+                       r"|[Uu]p to|[Ff]or|[Aa]fter|[Bb]efore|than|[Nn]ear)\s+" + NUMBER
+                       + "|" + VALUE_PATTERN + r"\s+(?:to|–)\s+(?=[-−+]?\d)")
 # what is not a value: dates, versions, numbers in parentheses (equation numbers, years), a file and
 # line, a doi, and the numbers of equations, figures, tables and sections
 NOT_VALUES = re.compile(r"\d{4}-\d{2}-\d{2}|\bv?\d+(?:\.\d+){2,}\b|\bv\d+(?:\.\d+)*|\(\s*[\d.]+[a-z]?\s*\)"
@@ -201,7 +207,7 @@ def cells(line):
 def values(sentence):
     """The units of which a sentence holds three or more values, with their counts."""
     text = CITATION.sub(" ", re.sub(r"\d+, [A-Z]?\d+ \(\d{4}[a-z]?\)", " ", sentence))
-    text = NOT_VALUES.sub(" ", CONDITION.sub(" ", text))
+    text = CONDITION.sub(" ", FORMULA.sub(" ", NOT_VALUES.sub(" ", text)))
     counts = {}
     for found in VALUE.finditer(text):
         unit = found.group(1)
