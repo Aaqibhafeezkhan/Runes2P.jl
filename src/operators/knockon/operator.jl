@@ -22,8 +22,9 @@ using LinearOperators: LinearOperator
 Energy and pitch kernels for one cutoff momentum, together with the production each
 momentum pair `(i, k)` sends to each slice of the ξ* table. The entries of pair `(i, k)`
 are `pair_start[i, k]:pair_stop[i, k]` (empty when the pair produces no knock-ons); entry
-`t` puts the weight `entry_weight[t]` on table slice `entry_slice[t]`, and the weights of
-a pair sum to `energy.rates[i, k]`, so the production is exactly the energy kernel's.
+`t` puts the weight `entry_weight[t]` [m³/s] on table slice `entry_slice[t]`, and the
+weights of a pair sum to `energy.rates[i, k]`, so the production is exactly the energy
+kernel's.
 
 With `xi_star_mode = :interval` the weights come from the Møller flux
 integrated over the receiving interval against the hat functions `φ_m` of the table,
