@@ -93,8 +93,10 @@ function _write_unknown(group, layout::UnknownLayout, states::AbstractMatrix, id
         for ir in 1:radial_cell_count(layout)
             np, nxi = layout.shapes[id, ir]
             per_radius["radius_$ir"] = reshape(states[unknown_range(layout, id, ir), :], np, nxi, nt)
+            attributes(per_radius["radius_$ir"])["unit"] = u.unit
         end
     end
+    attributes(group[name])["unit"] = u.unit
     return nothing
 end
 
@@ -152,9 +154,11 @@ function _read_layout(group)
     return UnknownLayout(radial, unknowns; scalars)
 end
 
-# the unknown `name` of the layout group `group` from its entry `entry`
+# the unknown `name` of the layout group `group` from its entry `entry`. A file of the
+# format 0.0.4 or older has no unit, and the unknown takes the default of its name
 function _read_unknown(group, entry, name, radial::RadialGrid)
     kind, scale = read(entry["kind"]), read(entry["scale"])
+    unit = haskey(entry, "unit") ? read(entry["unit"]) : nothing
     limit = if haskey(entry, "lower_limit_tolerance")
         reference = if haskey(entry, "lower_limit_reference")
             Symbol(read(entry["lower_limit_reference"]))
@@ -171,7 +175,7 @@ function _read_unknown(group, entry, name, radial::RadialGrid)
         false
     end
     if kind == "scalar"
-        return ScalarUnknown(Symbol(name); scale, nonnegative = limit)
+        return ScalarUnknown(Symbol(name); scale, nonnegative = limit, unit)
     elseif kind == "radial"
         components = read(entry["components"])
         groups = if haskey(entry, "group_starts")
@@ -181,10 +185,11 @@ function _read_unknown(group, entry, name, radial::RadialGrid)
         else
             nothing
         end
-        return RadialUnknown(Symbol(name); components, scale, nonnegative = limit, groups)
+        return RadialUnknown(
+            Symbol(name); components, scale, nonnegative = limit, groups, unit)
     else
         grid = _read_kinetic_grid(group["grids"][read(entry["grid"])], radial)
-        return KineticUnknown(Symbol(name), grid; scale, nonnegative = limit)
+        return KineticUnknown(Symbol(name), grid; scale, nonnegative = limit, unit)
     end
 end
 
@@ -297,12 +302,31 @@ function _write_root(file, settings::AbstractDict)
     return file
 end
 
+# the units of the faces of the grids, as attributes `unit` of their datasets in the root
+# group `layout`
+const GRID_FACE_UNITS = Dict("r_faces" => "m", "p_faces" => "m_e c", "xi_faces" => "1")
+
+# the attribute `unit` on every dataset of faces in the group `group` and its subgroups
+function _write_grid_units(group)
+    for name in keys(group)
+        object = group[name]
+        if object isa HDF5.Group
+            _write_grid_units(object)
+        elseif haskey(GRID_FACE_UNITS, name)
+            attributes(object)["unit"] = GRID_FACE_UNITS[name]
+        end
+    end
+    return group
+end
+
 # A segment that has not saved a state yet has no `time` and no `unknowns`: HDF5 keeps
 # no shape of an array without entries.
 function _write_states(file, layout::UnknownLayout, times::AbstractVector, states::AbstractMatrix)
     _write_record(file, "layout", describe(layout))
+    _write_grid_units(file["layout"])
     isempty(times) && return file
     file["time"] = collect(times)
+    attributes(file["time"])["unit"] = "s"
     unknowns = create_group(file, "unknowns")
     for id in eachindex(layout.unknowns)
         _write_unknown(unknowns, layout, states, id)

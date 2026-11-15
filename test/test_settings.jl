@@ -620,8 +620,8 @@ _is_plain(x) = false
         @test environment["cpu_threads"] == Sys.CPU_THREADS
         @test occursin(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4}$", environment["start_time"])
         @test _is_plain(environment)
-        @test OUTPUT_FORMAT_VERSION == v"0.0.4"
-        @test Runes2P.output_format_version() == "0.0.4"
+        @test OUTPUT_FORMAT_VERSION == v"0.0.5"
+        @test Runes2P.output_format_version() == "0.0.5"
     end
 
     @testset "output file" begin
@@ -633,7 +633,7 @@ _is_plain(x) = false
         write_output(file, solution)
         h5open(file) do h5
             @test sort(collect(keys(attributes(h5)))) == DOCUMENTED_ROOT_ATTRIBUTES
-            @test read(attributes(h5)["format_version"]) == "0.0.4"
+            @test read(attributes(h5)["format_version"]) == "0.0.5"
             @test VersionNumber(read(attributes(h5)["format_version"])) ==
                   OUTPUT_FORMAT_VERSION
             @test read(attributes(h5)["runes2p_commit"]) == code_version()["commit"]
@@ -655,6 +655,18 @@ _is_plain(x) = false
                   (2, 4)
             @test read(h5["settings/grids/grid_1/momentum_grid/p_faces"]) ==
                   case.mom.p_faces
+            # records of the settings carry no unit; the root group `layout` does, on its
+            # faces and in the entries of the unknowns
+            @test !haskey(attributes(h5["settings/grids/grid_1/momentum_grid/p_faces"]), "unit")
+            @test !haskey(attributes(h5["settings/layout/r_faces"]), "unit")
+            @test all(!haskey(h5["settings/layout/unknowns/$name"], "unit")
+            for name in keys(h5["settings/layout/unknowns"]))
+            @test read(attributes(h5["layout/r_faces"])["unit"]) == "m"
+            @test read(attributes(h5["layout/grids/grid_1/momentum_grid/p_faces"])["unit"]) ==
+                  "m_e c"
+            @test read(attributes(h5["layout/grids/grid_1/momentum_grid/xi_faces"])["unit"]) ==
+                  "1"
+            @test read(attributes(h5["layout/grids/grid_1/r_faces"])["unit"]) == "m"
             @test read(h5["settings/solver/line_search"]) === 0x01
             @test read(h5["settings/code/commit"]) == code_version()["commit"]
         end
@@ -677,7 +689,7 @@ _is_plain(x) = false
         write_output(file, by_hand)
         h5open(file) do h5
             @test !haskey(h5, "settings")
-            @test read(attributes(h5)["format_version"]) == "0.0.4"
+            @test read(attributes(h5)["format_version"]) == "0.0.5"
             @test read(attributes(h5)["runes2p_commit"]) == code_version()["commit"]
         end
         @test isempty(read_settings(file))

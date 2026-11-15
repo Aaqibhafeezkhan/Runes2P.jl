@@ -103,7 +103,8 @@ function ion_densities_unknown(
     name = ions
     groups = [species_components(c, s) for s in 1:length(c)]
     return RadialUnknown(name; components = component_count(c), scale, groups,
-        nonnegative = LowerLimit(tolerance = limit_tolerance, reference = :group))
+        nonnegative = LowerLimit(tolerance = limit_tolerance, reference = :group),
+        unit = _default_unit(:ion_densities))
 end
 
 """

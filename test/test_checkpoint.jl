@@ -954,4 +954,90 @@ using HDF5
         @test !any(stats.polished_for_negatives)
         rm(file)
     end
+
+    @testset "files of the format 0.0.4, without units" begin
+        # declared units that differ from the defaults, so that a file read without them
+        # shows the defaults
+        rad = RadialGrid(uniform_r_faces(2, 0.5))
+        grid = cylindrical_grid(MomentumGrid(uniform_p_faces(5, 0.0, 2.0), uniform_xi_faces(3)), rad)
+        function unit_case()
+            layout = UnknownLayout(rad,
+                [ScalarUnknown(:plasma_current; scale = 2.0, unit = "MA"),
+                    RadialUnknown(:cold_electron_temperature; scale = 10.0),
+                    RadialUnknown(:T; unit = "eV"),
+                    KineticUnknown(:f, grid; unit = "")])
+            decay(name) = Equation(name, TimeDerivative(), LinearTerm(name; coefficient = -1.0))
+            system = EquationSystem(layout, [decay(name) for name in unknown_names(layout)])
+            return (; system, layout, u0 = collect(1.0:length(layout)),
+                times = collect(0.0:0.1:0.5))
+        end
+        # a file of the format 0.0.4: no attribute `unit` and no key `unit` in the layout
+        function strip_units!(object)
+            if haskey(attributes(object), "unit")
+                delete_attribute(object, "unit")
+            end
+            object isa Union{HDF5.File, HDF5.Group} || return object
+            for name in collect(keys(object))
+                if name == "unit"
+                    delete_object(object, name)
+                else
+                    strip_units!(object[name])
+                end
+            end
+            return object
+        end
+        function make_old!(file)
+            h5open(file, "r+") do h5
+                strip_units!(h5)
+                delete_attribute(h5, "format_version")
+                attributes(h5)["format_version"] = "0.0.4"
+            end
+            return file
+        end
+        defaults = Dict(
+            :plasma_current => "A", :cold_electron_temperature => "eV", :T => "",
+            :f => "m^-3")
+
+        case = unit_case()
+        checkpoint = CheckpointSettings("units"; directory = _checkpoint_directory(), interval = 0)
+        whole = integrate(case.system, case.u0, case.times; checkpoint)
+        output = make_old!(Runes2P.segment_file(checkpoint, 1))
+        h5open(output) do h5
+            @test !haskey(attributes(h5["unknowns/f"]), "unit")
+            @test !haskey(h5["layout/unknowns/T"], "unit")
+        end
+        back = read_output(output)
+        @test back.states == whole.states
+        for (name, unit) in defaults
+            @test unknown_unit(back.layout, name) == unit
+        end
+        @test [unknown_unit(whole.layout, name) for name in (:plasma_current, :T, :f)] ==
+              ["MA", "eV", ""]
+
+        # the resume from the checkpoint before the last, with the setup unchanged: the setup
+        # hash does not hold the units, so no section has changed
+        previous = make_old!(Runes2P.previous_checkpoint_file(checkpoint))
+        stored = read_checkpoint(previous)
+        @test stored.time == case.times[end - 1]
+        @test unknown_unit(stored.layout, :plasma_current) == "A"
+        case = unit_case()
+        resumed = @test_logs integrate(case.system, case.u0, case.times; resume = stored)
+        @test resumed.settings["segment"]["settings_changed"] === false
+        @test resumed.settings["setup_hash"] == whole.settings["setup_hash"]
+        @test resumed.times == [case.times[end]]
+        @test resumed.states[:, end] == whole.states[:, end]
+        @test unknown_unit(resumed.layout, :plasma_current) == "MA"
+
+        # a file of a format newer than this Runes2P reads is refused
+        newer = VersionNumber(OUTPUT_FORMAT_VERSION.major, OUTPUT_FORMAT_VERSION.minor,
+            OUTPUT_FORMAT_VERSION.patch + 1)
+        for file in (output, previous)
+            h5open(file, "r+") do h5
+                delete_attribute(h5, "format_version")
+                attributes(h5)["format_version"] = string(newer)
+            end
+            @test_throws "newer than this Runes2P reads" read_state(file)
+        end
+        @test_throws "newer than this Runes2P reads" read_output(output)
+    end
 end

@@ -201,12 +201,20 @@ function induction_unknowns(
         names::InductionNames = InductionNames())
     current_scale = π * last(rg.r_faces)^2 * current_density_scale
     flux_scale = Constants.VACUUM_PERMEABILITY * current_scale
-    return [RadialUnknown(names.electric_field; scale = electric_field_scale),
-        RadialUnknown(names.poloidal_flux; scale = flux_scale),
-        RadialUnknown(names.total_current_density; scale = current_density_scale),
-        ScalarUnknown(names.plasma_current; scale = current_scale),
-        ScalarUnknown(names.edge_poloidal_flux; scale = flux_scale),
-        ScalarUnknown(names.wall_poloidal_flux; scale = flux_scale)]
+    # the units of the default names, so that a renamed unknown keeps its unit
+    return [
+        RadialUnknown(names.electric_field; scale = electric_field_scale,
+            unit = _default_unit(:electric_field)),
+        RadialUnknown(names.poloidal_flux; scale = flux_scale,
+            unit = _default_unit(:poloidal_flux)),
+        RadialUnknown(names.total_current_density; scale = current_density_scale,
+            unit = _default_unit(:total_current_density)),
+        ScalarUnknown(names.plasma_current; scale = current_scale,
+            unit = _default_unit(:plasma_current)),
+        ScalarUnknown(names.edge_poloidal_flux; scale = flux_scale,
+            unit = _default_unit(:edge_poloidal_flux)),
+        ScalarUnknown(names.wall_poloidal_flux; scale = flux_scale,
+            unit = _default_unit(:wall_poloidal_flux))]
 end
 
 """

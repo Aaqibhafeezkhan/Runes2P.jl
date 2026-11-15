@@ -404,7 +404,8 @@ end
 # a copy of the radial unknown `u` for a local layout
 function _local_unknown(u::RadialUnknown)
     groups = u.grouped ? u.groups : nothing
-    return RadialUnknown(u.name; components = u.components, scale = u.scale, groups)
+    return RadialUnknown(
+        u.name; components = u.components, scale = u.scale, groups, unit = u.unit)
 end
 
 # the state of the dependencies and the row of a term in the local layout, with the partials

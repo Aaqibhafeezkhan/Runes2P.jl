@@ -45,13 +45,14 @@ Output and checkpoint files share one root:
 | `runes2p_tree_clean` | attribute | `1` when the tracked files of the checkout were unchanged |
 | `settings` | group | the record of the run ([`run_settings`](@ref)) |
 | `layout` | group | the layout of the unknowns, with its grids |
-| `time` | dataset | the saved times |
-| `unknowns` | group | one entry per unknown |
+| `time` | dataset | the saved times, with the attribute `unit` `"s"` |
+| `unknowns` | group | one entry per unknown, with the attribute `unit` |
 | `solver_statistics` | group | the statistics of the attempted steps (output files only) |
 | `update_states` | group | the states of the interval updates (output files only) |
 | `checkpoint` | group | the stepper and the counters (checkpoint files only) |
 
 The version counts up with every change of the format.
+The format 0.0.5 adds the attribute `unit` to the unknowns, to `time` and to the faces of the grids in `layout`.
 [`read_output`](@ref) and [`read_state`](@ref) refuse a file whose `format_version` is older than 0.0.1 or newer than [`OUTPUT_FORMAT_VERSION`](@ref).
 A segment without a saved state has no `time`, no `unknowns` and no datasets under `update_states`.
 
@@ -66,6 +67,7 @@ The `settings` group, the `layout` group and the record parts of a checkpoint ar
 - Strings, numbers, arrays of numbers and lists of strings become datasets.
 
 A record stores no unit with its numbers.
+The one exception is the root group `layout` (below), whose datasets of grid faces carry the attribute `unit`.
 
 The reader returns every group as a record, so a list of records reads back as a record keyed by the names and a list of arrays as one keyed `"1"`, `"2"`, ….
 [`read_settings`](@ref) returns the record of [`run_settings`](@ref) as written, type for type, and [`settings_hash`](@ref) of it equals the hash written.
@@ -110,6 +112,8 @@ A resumed segment adds `resumed_from` (the file), `resumed_from_segment`, `previ
 The root group `layout` is the [`describe`](@ref) record of the [`UnknownLayout`](@ref) with its grids inline under `grids`, so it does not depend on the settings group.
 The record carries `layout_version = 2`.
 A reader rebuilds the layout from it and the kinetic grids with [`cylindrical_grid`](@ref) from the stored faces.
+Each entry of an unknown holds its `unit`, which the `layout` section of the settings does not hold, so the setup hash does not depend on the units.
+The datasets `r_faces`, `p_faces` and `xi_faces` carry the attribute `unit`: `"m"`, `"m_e c"` and `"1"` for the dimensionless pitch.
 A resume matches the unknowns by name with [`copy_unknowns!`](@ref), which refuses a stored unknown on other momentum grids: the distribution is not remapped between grids.
 
 Some entries are recorded only when they are set, and the reader takes a default where one is missing:
@@ -120,6 +124,7 @@ Some entries are recorded only when they are set, and the reader takes a default
 | `lower_limit_value` | the value is not zero | `0.0` |
 | `lower_limit_reference` | the limit has a reference | no reference |
 | `group_starts` of a radial unknown | it declares component groups, also a single one | one group of all components, not declared |
+| `unit` of an unknown | always, from the format 0.0.5 | the default unit of its name ([Units of the unknowns](unknowns.md#Units-of-the-unknowns)) |
 
 Two entries of the settings record follow the same rule: `ions` of the `plasma_unknowns` of a [`PlasmaFromUnknowns`](@ref), absent for prescribed ions, and `group` of a [`Tolerance`](@ref), absent for group 0.
 
@@ -138,8 +143,11 @@ The shapes are those Julia reads.
 A C-order reader such as h5py or h5dump sees the dimensions reversed, with time first.
 
 The values are those of the state vector, in the units of each unknown ([Units of the unknowns](unknowns.md#Units-of-the-unknowns)), not divided by its `scale` (a reference magnitude).
-The file stores no unit with the values.
-The dataset `time` is in seconds.
+Each entry carries the unit of its unknown as the string attribute `unit` ([`unknown_unit`](@ref)), such as `"V/m"` or `"m^-3"`.
+The group of an unknown on per-radius grids carries it, and so does each of its datasets `radius_<ir>`.
+The attribute is empty for an unknown without a unit.
+A file of the format 0.0.4 or older has no attribute `unit`, and its reader gives each unknown the default unit of its name.
+The dataset `time` is in seconds, and its attribute `unit` is `"s"`.
 In memory, [`unknown_view`](@ref) views one unknown of a saved state of a [`TimeSolution`](@ref).
 
 ## Solver statistics and update states

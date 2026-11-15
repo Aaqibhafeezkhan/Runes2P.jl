@@ -13,8 +13,10 @@ using LinearAlgebra: BLAS
 
 Version of the output file format, written as the string `"major.minor.patch"` in the
 root attribute `format_version`. It counts up with every change of the file's content.
+Since 0.0.5 every entry of the group `unknowns` carries its unit in the attribute `unit`
+([`write_output`](@ref)).
 """
-const OUTPUT_FORMAT_VERSION = v"0.0.4"
+const OUTPUT_FORMAT_VERSION = v"0.0.5"
 
 "The format version as written to files, `\"major.minor.patch\"`."
 output_format_version() = string(OUTPUT_FORMAT_VERSION)
@@ -247,15 +249,19 @@ end
 Plain record of the layout: the order of the unknowns and per unknown its kind, scale,
 position, sizes per radius, components, grid and lower limit. With a `context` the grids
 are named in it (the `layout` section of the settings, next to their `grids` section).
-Without one, the record holds the records of its grids under `grids` and is
-self-contained: it is the root group `layout` of the output and checkpoint files, which
-a resume reads to match the unknowns by name ([`copy_unknowns!`](@ref)) and to rebuild
-the grids (`layout_version` 2).
+Without one, the record holds the records of its grids under `grids` and the `unit` of
+each unknown, and is self-contained: it is the root group `layout` of the output and
+checkpoint files, which a resume reads to match the unknowns by name
+([`copy_unknowns!`](@ref)) and to rebuild the grids (`layout_version` 2). The units stay
+out of the settings, so that the setup hash does not depend on them.
 """
 function describe(layout::UnknownLayout)
     context = DescriptionContext()
     record = describe(layout, context)
     record["grids"] = describe(context)
+    for u in layout.unknowns
+        record["unknowns"][String(u.name)]["unit"] = u.unit
+    end
     return record
 end
 

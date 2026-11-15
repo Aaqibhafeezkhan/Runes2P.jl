@@ -101,6 +101,8 @@ The header of `docs/make.jl` gives the command of a live local preview.
   Comments and docstrings state what the code does and why, not how it came to be (section "Writing", below).
 - Code, comments and docstrings do not refer to issues, pull requests or commits.
 - Longer reasons go on the pages of the documentation, not into comments.
+- An unknown that the package declares or names by default carries its unit, in the table `DEFAULT_UNKNOWN_UNITS` of `src/system/layout.jl` and in the table of [Units of the unknowns](docs/src/model/unknowns.md#units-of-the-unknowns).
+  The output file stores the unit of every unknown.
 - A value or default that neither DREAM's examples nor a cited reference fixes is marked "a choice of this package" where it is set.
   It gets a row on the docs page [Choices of this package](docs/src/choices.md).
 - Performance and accuracy are weighed together.

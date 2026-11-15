@@ -1846,7 +1846,10 @@ back by [`read_settings`](@ref)), the [`describe`](@ref) record of the layout un
 `(components, r, t)`, kinetic on a shared grid `(p, xi, r, t)`, on per-radius grids a group
 with one `(p, xi, t)` dataset per radius named `radius_<ir>`), and the
 [`SolverStatistics`](@ref) under `solver_statistics` with their own time array, and the
-states of the interval updates per saved time under `update_states`. `atomic = true` writes
+states of the interval updates per saved time under `update_states`. The string attribute
+`unit` holds the unit of every entry of `unknowns` ([`unknown_unit`](@ref), empty for an
+unknown without one), of `time` (`"s"`) and of the faces of the grids under `layout`
+(`"m"`, `"m_e c"` and `"1"`). `atomic = true` writes
 to a temporary file that is renamed onto `filename` ([`write_atomically`](@ref)).
 [`read_output`](@ref) reads the file back. Defined by the package extension
 `Runes2PHDF5Ext`, which loads with HDF5 (`using HDF5`).

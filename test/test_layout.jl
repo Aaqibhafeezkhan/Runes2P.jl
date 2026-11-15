@@ -114,10 +114,68 @@ using ForwardDiff: Dual
         @test entries["ion_densities"]["components"] == 3
         @test entries["wall_current"]["kind"] == "scalar"
         @test d["r_faces"] == rad.r_faces
+        @test entries["plasma_current"]["unit"] == "A"
+        @test entries["wall_current"]["unit"] == ""
+        # the form of the settings differs only by the grids and the units, so the setup
+        # hash does not depend on the units
         context = DescriptionContext()
         without_grids = describe(layout, context)
-        @test without_grids == delete!(copy(d), "grids")
+        expected = delete!(copy(d), "grids")
+        expected["unknowns"] = Dict(name => delete!(copy(entry), "unit")
+        for (name, entry) in entries)
+        @test without_grids == expected
+        @test all(!haskey(entry, "unit") for entry in values(without_grids["unknowns"]))
         @test describe(context) == d["grids"]
+    end
+
+    @testset "units" begin
+        # the default units of the package, pinned against the table of the docs page, whose
+        # column "In the file" holds the strings written to the output file
+        page = read(joinpath(@__DIR__, "..", "docs", "src", "model", "unknowns.md"), String)
+        section = split(split(page, "### Units of the unknowns")[2], "\n## ")[1]
+        documented = Dict{Symbol, String}()
+        for line in split(section, '\n')
+            startswith(line, "| `:") || continue
+            cells = strip.(split(strip(line, '|'), '|'))
+            for m in eachmatch(r"`:(\w+)`", cells[1])
+                documented[Symbol(m[1])] = strip(cells[end], '`')
+            end
+        end
+        @test length(documented) == 15
+        @test documented == Runes2P.DEFAULT_UNKNOWN_UNITS
+        @test all(isascii, values(Runes2P.DEFAULT_UNKNOWN_UNITS))
+        radial = RadialGrid(uniform_r_faces(2, 0.5))
+        grid = cylindrical_grid(MomentumGrid(uniform_p_faces(3, 0.0, 1.0), uniform_xi_faces(2)), radial)
+        for (name, unit) in documented
+            @test ScalarUnknown(name).unit == unit
+            @test RadialUnknown(name).unit == unit
+            # a distribution is in m^-3 whatever its name
+            @test KineticUnknown(name, grid).unit == "m^-3"
+        end
+        @test KineticUnknown(:f, grid).unit == "m^-3"
+        @test KineticUnknown(:f, grid; unit = "").unit == ""
+        # another name has no unit unless it is declared
+        @test RadialUnknown(:temperature).unit == ""
+        @test RadialUnknown(:temperature; unit = "eV").unit == "eV"
+        @test ScalarUnknown(:plasma_current; unit = "MA").unit == "MA"
+        @test unknown_unit(layout, :electric_field) == "V/m"
+        @test unknown_unit(layout, f_re) == "m^-3"
+        @test unknown_unit(layout, Iw) == ""
+        # the helpers keep the unit of the default name under another name
+        names = InductionNames(electric_field = :E, plasma_current = :Ip)
+        induction = UnknownLayout(radial, induction_unknowns(radial; names))
+        @test unknown_unit(induction, :E) == "V/m"
+        @test unknown_unit(induction, :Ip) == "A"
+        @test unknown_unit(induction, :poloidal_flux) == "V s/m"
+        @test unknown_unit(induction, :wall_poloidal_flux) == "V s/m"
+        @test unknown_unit(induction, :total_current_density) == "A/m^2"
+        ion_unknown = ion_densities_unknown(IonComposition(["D" => 1]); ions = :n_i)
+        @test ion_unknown.unit == "m^-3"
+        # a local layout keeps the unit
+        local_ions = UnknownLayout(radial, [ion_unknown, RadialUnknown(:T; unit = "keV")])
+        reduced = Runes2P.local_layout(local_ions, [2, 1])
+        @test unknown_unit(reduced, :n_i) == "m^-3"
+        @test unknown_unit(reduced, :T) == "keV"
     end
 
     @testset "code does not depend on the order" begin
