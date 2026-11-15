@@ -135,7 +135,7 @@ The group `unknowns` has one entry per unknown, named by it, with the saved time
 The shapes are those Julia reads.
 A C-order reader such as h5py or h5dump sees the dimensions reversed, with time first.
 The values are those of the state vector, in the units of each unknown ([Units of the unknowns](unknowns.md#Units-of-the-unknowns)), not divided by its `scale` (a reference magnitude).
-The file stores no units.
+The file stores no unit with the values.
 The dataset `time` is in seconds.
 In memory, [`unknown_view`](@ref) views one unknown of a saved state of a [`TimeSolution`](@ref).
 

@@ -111,14 +111,13 @@ The shared helpers of the scripts are in `examples/common.jl`: the switches, a M
 
 The inputs of a run are in SI units, except temperatures and particle energies in eV and momenta in units of ``m_e c``, with ``m_e`` the electron mass and ``c`` the speed of light.
 The code checks no unit, so a value in another unit gives a wrong result without an error.
-The table lists the units by group, and the notes below it explain the distribution, the flux, the energies and the external data.
+The table lists the units by group, and the notes below it explain the distribution, the flux, the thermal energy, the radial totals and the external data.
 
 | Group | Quantity | Unit |
 |---|---|---|
 | plasma | temperatures of [`PlasmaState`](@ref) and of the temperature unknowns | eV |
 | plasma | electron and ion densities | m⁻³ |
-| plasma | effective charge ``Z_\mathrm{eff}`` | dimensionless |
-| plasma | ion masses (`masses` of [`IonEnergyExchangeTerm`](@ref)) | kg |
+| plasma | ion masses ([`ion_mass`](@ref), `masses` of [`IonEnergyExchangeTerm`](@ref)) | kg |
 | grids | momentum faces, momentum cutoffs, limits of a [`MomentumRegion`](@ref) | ``m_e c`` |
 | grids | pitch ``\xi`` | dimensionless |
 | grids | pitch-angle separation of [`biuniform_theta_xi_faces`](@ref) | rad |
@@ -130,9 +129,7 @@ The table lists the units by group, and the notes below it explain the distribut
 | distribution and moments | density moment ([`density`](@ref)) | m⁻³ |
 | distribution and moments | current moment ([`current_density`](@ref)) | A/m² |
 | fields and currents | electric field | V/m |
-| fields and currents | electric field in multiples of [`critical_field`](@ref) | dimensionless |
 | fields and currents | magnetic field | T |
-| fields and currents | relative perturbation ``\delta B/B`` of the field | dimensionless |
 | fields and currents | current density | A/m² |
 | fields and currents | plasma current | A |
 | fields and currents | poloidal flux per major radius | V s/m |
@@ -140,12 +137,13 @@ The table lists the units by group, and the notes below it explain the distribut
 | energies | particle energies, ionization energies, widths of the secondary spectrum | eV |
 | energies | thermal energy densities | J/m³ |
 | energies | powers | W/m³ |
-| energies | diffusivities | m²/s |
+| transport | diffusivities | m²/s |
+| transport | relative perturbation ``\delta B/B`` of the magnetic field | dimensionless |
 | atomic data | rate coefficients of ionization, recombination and charge exchange | m³/s |
 | atomic data | coefficients of the radiated power | W m³ |
 
 The units of the unknowns that the package names by default are on the page [Unknowns and the equation system](model/unknowns.md#Units-of-the-unknowns).
-The output files and the settings record carry no units ([Output files](model/output.md)).
+The output files and the settings record store no unit with their values ([Output files](model/output.md)).
 
 ### Notes on the units
 
@@ -157,8 +155,8 @@ The poloidal flux is DREAM's, the flux divided by the major radius, and so it is
 
 A thermal energy density is ``W = \tfrac32 e\, n T`` in J/m³, with ``e`` the elementary charge, although the temperature ``T`` is in eV ([`THERMAL_ENERGY_FACTOR`](@ref)).
 
-[`total_particles`](@ref) and [`radial_particle_content`](@ref) sum ``n V' \Delta r`` over the radii, with the spatial Jacobian ``V' = r`` of a cylinder and the radial cell width ``\Delta r``.
-These totals are the electrons per metre of the cylinder divided by ``2\pi``, in m⁻¹.
+[`radial_particle_content`](@ref) gives ``n V' \Delta r`` at each radius, with the spatial Jacobian ``V' = r`` of a cylinder and the radial cell width ``\Delta r``.
+Its sum over the radii, [`total_particles`](@ref), is the number of electrons per metre of the cylinder divided by ``2\pi``, in m⁻¹.
 
 The atomic data in other units are converted by the package.
 [`read_adf11`](@ref) converts the densities of an ADAS file from cm⁻³ to m⁻³ and its coefficients from cm³ to m³ ([ADAS rate coefficients](model/atomic-data.md#ADAS-rate-coefficients)).

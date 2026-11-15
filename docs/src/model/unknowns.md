@@ -69,6 +69,7 @@ The constructors and equations of the package give their unknowns the default na
 | `:ion_densities` | the densities of the ion charge states | m⁻³ |
 | `:ion_thermal_energy` | the thermal energy density of each ion species | J/m³ |
 | `:runaway_density` | the density of the fluid runaways | m⁻³ |
+| `:total_electron_density` | the density of the free and the bound electrons | m⁻³ |
 
 A distribution and the density of the hot electrons have no default name, and the caller names them, as the examples name the distribution `:f`.
 A distribution is in m⁻³ ([Units](../getting-started.md#Units)).
