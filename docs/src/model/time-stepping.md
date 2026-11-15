@@ -116,9 +116,9 @@ It takes the field-particle term ([`low_rank_jacobian`](@ref)) exactly and refus
 It needs the package Pardiso.jl: `using Pardiso` in the script loads it, and MKL comes with Pardiso.jl as an artifact.
 Then `NewtonSolver(linear_solver = MKLPardiso())` solves with PARDISO on one thread, and `MKLPardiso(threads = 8)` on eight.
 Its pivot order differs from UMFPACK's, so its converged states differ from those of [`SparseLU`](@ref) within the Newton tolerance.
-PARDISO perturbs a small pivot instead of failing, so a solve whose relative residual exceeds 1e-6 fails with `:singular_matrix`, as a zero pivot does with [`SparseLU`](@ref), and the step is retried shorter.
+PARDISO perturbs a small pivot instead of failing, so a solve whose relative residual exceeds 1e-6 fails with `:singular_matrix`, as a zero pivot does with [`SparseLU`](@ref), and the step is retried shorter ([Choices](../choices.md#Linear-solvers)).
 After a failed solve the next factorization computes the ordering and the matching again from its own matrix.
-On the disruption case with the runaway grid at full size it factorizes and solves in 72 ms at one thread and 17 ms at eight, where UMFPACK takes 108 ms ([Choices of this package](../choices.md)).
+Its timings against UMFPACK on the disruption case are on the page [Performance and accuracy](../performance.md#The-linear-solvers).
 
 [`GMRES`](@ref) solves with the operator ``W (M/h - J) S`` in which ``J`` holds the stored Jacobian and the matrix-free terms.
 With right preconditioning the residual it minimizes is the true residual of the scaled system.
