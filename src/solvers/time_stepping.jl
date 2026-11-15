@@ -1565,9 +1565,9 @@ function _start_segment!(
 end
 
 # A warning for every unknown in `copied` whose unit stored in the file of `stored` and the
-# unit of its declaration in `layout` are both set and differ. The units stay outside the
-# setup hash, and the values are copied as they are. A file of the format 0.0.4 or older
-# stores no unit and gets no warning.
+# unit of its declaration in `layout` are both nonempty and differ. The units stay outside
+# the setup hash, and the values are copied as they are. A file of the format 0.0.4 or
+# older stores no unit and gets no warning.
 function _warn_changed_units(layout::UnknownLayout, stored::StoredState, copied)
     for name in sort(copied)
         stored_unit = get(stored.units, name, "")

@@ -83,7 +83,8 @@ const FORK = Dict(
     "src/mixed.jl" => "# the scale\nscale() = 1\n")
 
 # no code: markdown, docs/src/ with a page that no test reads, and comments, docstrings and
-# layout of Julia files outside test/; src/moved_on.jl has a comment change here and a code change on `origin/dev`
+# layout of Julia files outside test/; src/moved_on.jl has a comment change here and a
+# code change on `origin/dev`
 const NO_CODE = Dict(
     "README.md" => "# Package\n\nThe first line, changed.\n",
     "docs/src/example.jl" => "x = 2\n",

@@ -164,10 +164,11 @@ function _read_layout(group, filename)
     return UnknownLayout(radial, unknowns; scalars), units
 end
 
-# The unit that the entry `entry` of the unknown `name` stores, or nothing. A file of the
-# format 0.0.4 or older stores none. A unit that is not an ASCII string without control
-# characters, which another tool may have written, is dropped with a warning, so that the
-# file stays readable.
+# The unit that the entry `entry` of the unknown `name` in `layout` stores, or nothing. The
+# attribute `unit` of its entry of `unknowns` is for other readers of the file and is not
+# read. A file of the format 0.0.4 or older stores none. A unit that is not an ASCII string
+# without control characters, which another tool may have written, is dropped with a
+# warning, so that the file stays readable.
 function _read_unit(entry, name, filename)
     haskey(entry, "unit") || return nothing
     unit = read(entry["unit"])
@@ -551,10 +552,19 @@ end
 # The layout of joined segments: the layout `layout` of the first segment, with the unit of
 # each unknown from the latest segment that stores one (`units`, one dictionary per
 # segment), the empty unit included. A segment of the format 0.0.4 or older stores none, so
-# a first segment of that format does not hide the units of the later ones.
-function _joined_layout(layout::UnknownLayout, units)
+# a first segment of that format does not hide the units of the later ones. A warning names
+# each unknown for which two segments of `filenames` store different nonempty units.
+function _joined_layout(layout::UnknownLayout, units, filenames)
     unknowns = Runes2P.Unknown[]
     for u in layout.unknowns
+        stored = [k for k in eachindex(units) if !isempty(get(units[k], u.name, ""))]
+        changed = findfirst(j -> units[stored[j]][u.name] != units[stored[1]][u.name],
+            eachindex(stored))
+        if changed !== nothing
+            a, b = stored[1], stored[changed]
+            @warn "the unknown $(u.name) is stored in $(repr(units[a][u.name])) in $(filenames[a]) " *
+                  "and in $(repr(units[b][u.name])) in $(filenames[b]): its values are joined unchanged"
+        end
         latest = findlast(segment_units -> haskey(segment_units, u.name), units)
         unit = latest === nothing ? u.unit : units[latest][u.name]
         push!(unknowns, _with_unit(u, unit))
@@ -647,7 +657,7 @@ function Runes2P.read_output(filenames::AbstractString...)
     else
         reduce(hcat, columns)
     end
-    layout = _joined_layout(first_part.layout, [part.units for part in read_parts])
+    layout = _joined_layout(first_part.layout, [part.units for part in read_parts], filenames)
     return TimeSolution(layout, times, states, statistics, last(parts).settings,
         Dict(name => reduce(hcat, parts) for (name, parts) in updates if !isempty(parts)))
 end

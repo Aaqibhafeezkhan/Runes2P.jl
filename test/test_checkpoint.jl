@@ -720,11 +720,12 @@ using HDF5
         # a state without the record of the stepper resumes at a time point only
         without = StoredState(
             stored.time, stored.state, stored.layout, stored.update_states, stored.settings,
-            stored.segment, stored.saved_count, stored.summary, Dict{String, Any}(), stored.source)
+            stored.segment, stored.saved_count, stored.summary,
+            Dict{String, Any}(), stored.source, stored.units)
         @test_throws ArgumentError integrate(system, [0.2], times; resume = without)
         at_point = StoredState(
             0.24, whole.states[:, 2], stored.layout, stored.update_states, stored.settings,
-            stored.segment, 2, stored.summary, Dict{String, Any}(), stored.source)
+            stored.segment, 2, stored.summary, Dict{String, Any}(), stored.source, stored.units)
         last_step = @test_logs integrate(
             system, [0.2], times; save_times = [0.0, 0.24, 0.26], resume = at_point)
         @test last_step.states == whole.states[:, 3:3]
@@ -732,7 +733,8 @@ using HDF5
         # a stored time outside the time points is refused
         outside = StoredState(
             0.5, stored.state, stored.layout, stored.update_states, stored.settings,
-            stored.segment, stored.saved_count, stored.summary, stored.stepper, stored.source)
+            stored.segment, stored.saved_count, stored.summary,
+            stored.stepper, stored.source, stored.units)
         @test_throws ArgumentError integrate(system, [0.2], times; resume = outside)
     end
 
@@ -844,7 +846,8 @@ using HDF5
         # not a state to resume from without the record of the stepper
         between = StoredState(
             1.5e-4, stored.state, stored.layout, stored.update_states, stored.settings,
-            stored.segment, stored.saved_count, stored.summary, Dict{String, Any}(), stored.source)
+            stored.segment, stored.saved_count, stored.summary,
+            Dict{String, Any}(), stored.source, stored.units)
         @test_throws ArgumentError integrate(case.system, case.u0, case.times; resume = between)
 
         # one file read back is the solution written
@@ -1073,7 +1076,7 @@ using HDF5
         old_first = read_output(Runes2P.segment_file(chain, 1))
         @test [unknown_unit(old_first.layout, name) for name in (:plasma_current, :T, :f)] ==
               ["A", "", "m^-3"]
-        joined = read_output(chain)
+        joined = @test_logs read_output(chain)
         @test joined.times == whole.times
         @test joined.states == whole.states
         @test [unknown_unit(joined.layout, name) for name in unknown_names(joined.layout)] ==
@@ -1081,6 +1084,29 @@ using HDF5
         @test unknown_unit(joined.layout, :f) == ""
         @test joined.layout.offsets == whole.layout.offsets
         @test joined.layout.scalar_offsets == whole.layout.scalar_offsets
+        # the join warns where two segments store different nonempty units, "eV" and then
+        # "keV" for T, and takes the later unit. Equal units give no warning.
+        changed = CheckpointSettings("units_changed"; directory = _checkpoint_directory(),
+            interval = 0)
+        equal = CheckpointSettings("units_equal"; directory = _checkpoint_directory(),
+            interval = 0)
+        for chain in (changed, equal)
+            case = unit_case()
+            integrate(case.system, case.u0, case.times[1:3]; checkpoint = chain)
+        end
+        case = unit_case(temperature_unit = "keV")
+        @test_logs (:warn, r"declared in \"keV\"") (:warn, r"changed settings") integrate(
+            case.system, case.u0, case.times; checkpoint = changed, resume = true)
+        case = unit_case()
+        @test_logs (:warn, r"changed settings") integrate(
+            case.system, case.u0, case.times; checkpoint = equal, resume = true)
+        first_file, second_file = Runes2P.segment_files(changed)
+        message = "the unknown T is stored in \"eV\" in $first_file and in \"keV\" in " *
+                  "$second_file: its values are joined unchanged"
+        joined = @test_logs (:warn, message) read_output(changed)
+        @test unknown_unit(joined.layout, :T) == "keV"
+        joined = @test_logs read_output(equal)
+        @test unknown_unit(joined.layout, :T) == "eV"
 
         # the resume from the checkpoint before the last, with the setup unchanged: the setup
         # hash does not hold the units, so no section has changed, and the old file stores

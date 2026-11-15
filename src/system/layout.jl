@@ -81,7 +81,8 @@ _valid_unit(unit::AbstractString) = isascii(unit) && !any(iscntrl, unit)
 # the unit `unit` of the unknown `name`, refused unless it is valid
 function _checked_unit(unit::AbstractString, name::Symbol)
     _valid_unit(unit) ||
-        throw(ArgumentError("the unit $(repr(unit)) of the unknown $name must be ASCII without control characters"))
+        throw(ArgumentError("the unit $(repr(unit)) of the unknown $name must be ASCII without " *
+                            "control characters: write exponents as in \"m^-3\""))
     return String(unit)
 end
 
@@ -175,8 +176,9 @@ Distribution function on the kinetic grid `grid`, one value per momentum cell at
 radius (e.g. `:hot_tail_distribution`). The momentum grid may differ between radii.
 A distribution is normally declared without a lower limit: negative values produced by
 the discretization belong to the scheme, not to the Newton steps. `unit` is the unit of
-its values as a string, ASCII without control characters. Without one, it is `"m^-3"` whatever the name, for a density per
-unit of momentum volume with the momentum in ``m_e c``.
+its values as a string, ASCII without control characters. Without one, it is `"m^-3"`
+whatever the name, for a density per unit of momentum volume with the momentum in
+``m_e c``.
 """
 struct KineticUnknown{T}
     name::Symbol

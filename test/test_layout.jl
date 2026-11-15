@@ -185,6 +185,7 @@ using ForwardDiff: Dual
             @test_throws "of the unknown f must be ASCII" KineticUnknown(:f, grid; unit)
             @test_throws ArgumentError KineticUnknown(:f, grid; unit)
         end
+        @test_throws "write exponents as in \"m^-3\"" RadialUnknown(:n; unit = "m⁻³")
         @test RadialUnknown(:T; unit = "m^-3 s^-1").unit == "m^-3 s^-1"
     end
 

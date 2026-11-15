@@ -13,8 +13,9 @@ Until the first release, every change is listed under "Unreleased", with the sub
   The output file stores the unit as the attribute `unit` of every entry of `unknowns`, of `time` and of the grid faces in `layout`, and `OUTPUT_FORMAT_VERSION` is 0.0.5 for it.
   A file of the format 0.0.4 or older reads with the default units, and the setup hash does not change.
   A unit is ASCII without control characters, and the constructors refuse another one with an `ArgumentError`.
-  A resume warns for an unknown whose unit stored in the file and declared unit are both set and differ, and `StoredState` carries the stored units as `units`.
+  A resume warns for an unknown whose unit stored in the file and declared unit are both nonempty and differ, and `StoredState` carries the stored units as `units`.
   Joined segments take the unit of each unknown from the latest segment that stores one.
+  The join warns for an unknown for which two segments store different nonempty units.
 - `MKLPardiso` solves the Newton systems with Intel MKL PARDISO; its solves come with the extension `Runes2PMKLPardisoExt`, loaded by `using Pardiso` ([#243](https://github.com/osrep/Runes2P.jl/pull/243)).
   It takes the systems of `SparseLU`, the field-particle term by the same Woodbury update, and runs threaded with `threads`; `refinement_steps` sets PARDISO's refinement steps.
   A solve whose relative residual exceeds 1e-6 fails with `:singular_matrix`, as a zero pivot does with `SparseLU`, and the next factorization computes a new ordering and matching ([#255](https://github.com/osrep/Runes2P.jl/pull/255)).

@@ -97,7 +97,8 @@ carries between steps, [`FixedSteps`](@ref); empty for a state read from an outp
 whose time is then a time point of the run), the file it came from and the `units` that
 the file stores, by unknown. A file of the format 0.0.4 or older stores no unit, and its
 `units` are empty, while its `layout` holds the default units. Without `units`, the
-constructor takes those of `layout`. [`read_checkpoint`](@ref) and [`read_state`](@ref)
+constructor takes those of `layout`. A caller who rebuilds a state read from a file passes
+the `units` of that state. [`read_checkpoint`](@ref) and [`read_state`](@ref)
 return one.
 """
 struct StoredState{T}
@@ -217,7 +218,9 @@ function read_state end
 
 The [`TimeSolution`](@ref) of one output file, or of the segments of a run in order, joined.
 The layout is rebuilt from the file's layout record. The joined layout is that of the first
-segment, with the unit of each unknown from the latest segment that stores one. Of a segment
+segment, with the unit of each unknown from the latest segment that stores one. Where two
+segments store different nonempty units for one unknown, a warning names the unknown, the
+two units and the two files, and the values are joined unchanged. Of a segment
 that went on after its last checkpoint and was followed by another, the states and
 statistics after the start of the following segment are left out, since that segment repeats
 them. The settings are those of the last file. Segments in the wrong order, or whose joined

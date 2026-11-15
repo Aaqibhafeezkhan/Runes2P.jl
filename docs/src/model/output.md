@@ -160,7 +160,8 @@ Each entry carries the unit of its unknown as the string attribute `unit` ([`unk
 The group of an unknown on per-radius grids carries it, and so does each of its datasets `radius_<ir>`.
 The attribute is empty for an unknown without a unit.
 A file of the format 0.0.4 or older has no attribute `unit`, and its reader gives each unknown its default unit ([Units of the unknowns](unknowns.md#Units-of-the-unknowns)).
-A unit stored in a file that is not an ASCII string without control characters, as another tool may write, is dropped with a warning, and the unknown takes its default unit.
+The reader of Runes2P takes the unit of an unknown from its entry in `layout`, and the attribute on its entry of `unknowns` is for other readers of the file.
+A unit in `layout` that is not an ASCII string without control characters, as another tool may write, is dropped with a warning, and the unknown takes its default unit.
 
 ## Solver statistics and update states
 
@@ -225,6 +226,7 @@ The count matters because a rejected attempt is recorded at the time it aimed at
 The joined solution carries the settings of the last file.
 Its layout is that of the first segment, and each unknown takes the unit of the latest segment that stores one, the empty unit included.
 A first segment of the format 0.0.4 or older then does not hide the units of the later segments.
+Where two segments store different nonempty units for one unknown, the join warns with the unknown, the two units and the two files, and it joins the values unchanged.
 
 The higher segments of an earlier run under the same name and with the same setup pass these checks.
 This is why a run refuses to start while segment files of its name with higher numbers than its segment exist ([`CheckpointSettings`](@ref)).
