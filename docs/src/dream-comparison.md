@@ -12,7 +12,7 @@ The file and line citations of DREAM's source refer to commit `93d27e1` unless t
 
 | ✅ implemented | 🚧 partial | ➖ not implemented | features |
 |---|---|---|---|
-| 75 | 17 | 47 | 139 |
+| 76 | 17 | 47 | 140 |
 
 The tables follow the groups of DREAM's settings (`py/DREAM/Settings`).
 The column "DREAM" names the setting, class or unknown.
@@ -276,8 +276,8 @@ A run is an [`EquationSystem`](@ref) of the terms the caller chooses, so a mode 
 
 ## The disruption case
 
-DREAM's disruption case of `examples/Disruptions/generate.py` compares the two codes in whole runs: at the reduced size of the tests, and in the whole quenches of scenarios 1 and 4 at full size.
-The comparison has a page of its own, [The disruption case](disruption-case.md).
+The page [The disruption case](disruption-case.md) compares the two codes in whole runs of DREAM's disruption case of `examples/Disruptions/generate.py`.
+It covers the reduced size of the tests and the whole quenches of scenarios 1 and 4 at full size.
 
 ## What Runes2P has that DREAM does not
 

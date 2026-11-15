@@ -4,7 +4,8 @@
 CurrentModule = Runes2P
 ```
 
-This page compares Runes2P with DREAM in DREAM's disruption case, at the reduced size of the tests and in the whole quenches of scenarios 1 and 4 at full size.
+This page compares Runes2P with DREAM in DREAM's disruption case.
+The tests compare with DREAM release v26.5, whose outputs of the case are reference sets of the page [Reference data](reference-data.md).
 
 The reference case is DREAM's disruption of `examples/Disruptions/generate.py`, scenario 1, in a cylinder.
 Its case script is `reference/dream/cases/disruption_kinetic.py` ([Reference data](reference-data.md)).
