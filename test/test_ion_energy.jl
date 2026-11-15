@@ -236,6 +236,24 @@
         @test_throws "both sides" EquationSystem(layout, lonely; initial_state = state(900.0, 200.0))
         @test_throws ArgumentError IonEnergyExchangeTerm(plasma; side = :other)
         @test_throws DimensionMismatch IonEnergyExchangeTerm(plasma; side = :ions, masses = [1.0])
+        # the masses are in kg: a mass in atomic mass units or in grams, an electron mass, a
+        # negative mass, Inf and NaN are refused. The proton and uranium, the lightest mass of
+        # ion_mass and the heaviest of its standard table, pass.
+        in_u = [2.014, 20.18]
+        message = "of ion species 1 (D) lies outside the range 1.0e-27 kg to 1.0e-24 kg"
+        @test_throws message IonEnergyExchangeTerm(plasma; side = :ions, masses = in_u)
+        neon_mass = 20.18 * u_mass
+        for wrong in (1e3 * Constants.PROTON_MASS, 9.1e-31, -Constants.PROTON_MASS, Inf, NaN)
+            @test_throws "of ion species 1 (D)" IonEnergyExchangeTerm(plasma; side = :ions,
+                masses = [wrong, neon_mass])
+        end
+        @test_throws "of ion species 2 (Ne)" IonEnergyExchangeTerm(plasma; side = :ions,
+            masses = [Constants.PROTON_MASS, 1e3 * neon_mass])
+        uranium = ion_mass(IonSpecies("U", 92, 1, [1e19]))
+        @test uranium == 238.02891 * u_mass
+        light_heavy = IonEnergyExchangeTerm(plasma; side = :ions,
+            masses = [Constants.PROTON_MASS, uranium])
+        @test light_heavy.masses == [Constants.PROTON_MASS, uranium]
         three = UnknownLayout(radial,
             [RadialUnknown(:cold_electron_temperature),
                 RadialUnknown(:cold_electron_density),
