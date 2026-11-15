@@ -120,9 +120,16 @@ DREAM has no floor, so a comparison that follows DREAM below 0.5 eV sets a lower
 | Choice | Value |
 |---|---|
 | pitch grid of [`runaway_grid`](@ref) | [`biuniform_theta_xi_faces`](@ref)`(20, 12, 0.9)`: 12 cells uniform in ``\theta \in [0, 0.9]`` rad and 8 up to ``\pi`` |
+| pitch rule of the moments, in [`pitch_moment_weights`](@ref) and [`current_density`](@ref) | `pitch_rule = :linear`: ``f`` linear across a pitch cell |
 
 The cells are finest near ``\xi = 1``, the direction of the runaway beam.
 The pitch grid of the runaway grid is the same at all radii and independent of that of the hot-tail grid ([Grids](model/grids.md)).
+
+With `:linear` the mean pitch of a beam narrower than the last pitch cell can exceed 1 ([Mean pitch of a beam on a coarse pitch grid](model/grids.md#Mean-pitch-of-a-beam-on-a-coarse-pitch-grid)).
+In the disruption case with a runaway grid the beams stay far from that regime.
+In scenario 4 the largest mean pitch of `f_re` is 0.9908 with `:linear` and 0.9880 with `:cell_center`.
+Its narrowest beam ``f \propto e^{\kappa\xi}`` has ``\kappa`` of at most about 540, and the mean pitch exceeds 1 on the grid of 15 pitch cells of that comparison from ``\kappa`` of about 1700.
+DREAM's rule, ``f`` constant over a pitch cell, is `pitch_rule = :cell_center` ([Defaults that differ](dream-comparison.md#Defaults-that-differ)).
 
 ## Knock-on cutoff
 
@@ -231,7 +238,7 @@ Its options and their values are in the table, with one note per row below it.
 | runaway grid (`--runaway-grid`) | the default grid of the table of runaway grids below |
 | runaway grid of the measurement of scenario 4 at full size ([The disruption case](disruption-case.md#The-whole-quench-of-scenario-4)) | `--re-pmax 200 --re-np-coarse 40 --re-nxi 15 --re-nxi-sep 10` |
 | advection scheme of `f_re` | that of `f_hot` (`--scheme`) in both phases |
-| absolute tolerance of `f_re` | 1e5 in every run after the conductivity, the absolute tolerance of `f_hot` in the ionization and the quench |
+| absolute tolerance of `f_re` | 1e5 m⁻³ in every run after the conductivity, the absolute tolerance of `f_hot` in the ionization and the quench |
 | window of phase 2 of the test | `--window-start 170 --window-steps 10`, the default of `--window-steps` ([The window of the test](#The-window-of-the-test)) |
 
 - Scenario: the DREAM paper runs scenarios 1 and 4.
@@ -253,7 +260,8 @@ Its options and their values are in the table, with one note per row below it.
 - Advection scheme: the scheme of `f_hot` on `f_re`, with its switch to upwind in phase 2 where `generate.py` makes it, keeps one scheme across the interface.
   DREAM's own default for `f_re` is the centred scheme.
 - Absolute tolerance: `generate.py` sets no absolute tolerance for `f_re`, and DREAM sets none either (`ToleranceSettings.py`).
-  The case gives `f_re` the 1e5 of `f_hot`.
+  The case gives `f_re` the 1e5 m⁻³ of `f_hot`.
+  DREAM's output gives both distributions in m⁻³, since the momentum is in units of ``m_e c`` and the volume of momentum space has then no unit.
 
 The runaway grids have a fine segment above the hot-tail `p_max` of 0.8 and a geometric segment above the fine one.
 The momenta are in units of ``m_e c``.
