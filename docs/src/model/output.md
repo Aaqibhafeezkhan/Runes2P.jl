@@ -46,20 +46,20 @@ Output and checkpoint files share one root:
 | `settings` | group | the record of the run ([`run_settings`](@ref)) |
 | `layout` | group | the layout of the unknowns, with its grids |
 | `time` | dataset | the saved times, with the attribute `unit` `"s"` |
-| `unknowns` | group | one entry per unknown, with the attribute `unit` |
+| `unknowns` | group | one entry per unknown, each with the attribute `unit` |
 | `solver_statistics` | group | the statistics of the attempted steps (output files only) |
 | `update_states` | group | the states of the interval updates (output files only) |
 | `checkpoint` | group | the stepper and the counters (checkpoint files only) |
 
 The version counts up with every change of the format.
-The format 0.0.5 adds the units listed below.
 [`read_output`](@ref) and [`read_state`](@ref) refuse a file whose `format_version` is older than 0.0.1 or newer than [`OUTPUT_FORMAT_VERSION`](@ref).
 A segment without a saved state has no `time`, no `unknowns` and no datasets under `update_states`.
 
-A file of the format 0.0.5 stores units in three places:
+A file of the format 0.0.5 stores units in these places:
 
 - Each entry of `unknowns` carries the unit of its unknown as the string attribute `unit` (below).
-- In the group `layout`, the entry of each unknown holds its `unit`, and the datasets of the grid faces carry the attribute `unit` (below).
+- In the group `layout`, the entry of each unknown holds its unit as the dataset `unit` (below).
+- The datasets of the grid faces in `layout` carry the attribute `unit` (below).
 - The dataset `time` carries the attribute `unit`, which is `"s"`.
 
 No other entry carries a unit.

@@ -80,7 +80,7 @@ An unknown declared by the caller under another name takes its unit from the key
 
 A distribution and the density of the hot electrons have no default name.
 The caller names them, as the examples name the distribution `:f`.
-The density of the hot electrons is in m⁻³, which its declaration passes as `unit = "m^-3"`.
+The density of the hot electrons is in m⁻³, which the caller's declaration passes as `unit = "m^-3"`.
 A distribution is in m⁻³ per unit of momentum volume ([Notes on the units](../getting-started.md#Notes-on-the-units)), hence the default unit of a [`KineticUnknown`](@ref).
 
 ## Equations

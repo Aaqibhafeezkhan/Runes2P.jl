@@ -152,7 +152,7 @@ The table lists the units by group, for the inputs and for the results of the fu
 | atomic data | coefficients of the radiated power | W m³ |
 
 The units of the unknowns that the package names by default are on the page [Unknowns and the equation system](model/unknowns.md#Units-of-the-unknowns).
-The output files store the unit of every unknown, of the times and of the grid faces as attributes ([Unknowns](model/output.md#Unknowns)).
+The output files store the unit of every unknown, of the times and of the grid faces ([Unknowns](model/output.md#Unknowns)).
 The settings record stores no unit with its values ([Records](model/output.md#Records)).
 
 ### Notes on the units
