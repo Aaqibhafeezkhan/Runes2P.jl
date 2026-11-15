@@ -297,8 +297,9 @@ end
 """
     parallel_momentum(op::FieldParticleOperator, f)
 
-Parallel momentum `Σ m_ij f_ij` of `f` per radius, in units of `mₑc` times the density
-unit of `f` times the radial volume element (the moment the operator conserves).
+Parallel momentum `Σ m_ij f_ij` of `f` per radius (the moment the operator conserves): the
+parallel momentum per volume times the spatial Jacobian `V' = r`, in units of `mₑc` per m²
+for `f` in m⁻³.
 """
 function parallel_momentum(op::FieldParticleOperator, f::AbstractArray{<:Any, 3})
     [sum(op.momentum_weights[ir] .* view(f, :, :, ir))

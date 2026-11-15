@@ -83,9 +83,9 @@ end
 """
     free_electron_energy_transfer_term(source::FokkerPlanckTerm)
 
-The power that the electrons of the unknown of `source` give to the free cold electrons by
-collisions: [`KineticEnergyLossTerm`](@ref) with `part = :free_electrons`, the transfer from
-the runaway grid to the cold electrons.
+The power [W/m³] that the electrons of the unknown of `source` give to the free cold
+electrons by collisions: [`KineticEnergyLossTerm`](@ref) with `part = :free_electrons`, the
+transfer from the runaway grid to the cold electrons.
 """
 function free_electron_energy_transfer_term(source::FokkerPlanckTerm)
     KineticEnergyLossTerm(source; part = :free_electrons)

@@ -106,17 +106,18 @@ temperature (which holds the time derivative of their energy), at every radius:
 P = n_e \\sum_{i, Z_0} n_{i, Z_0} \\left(L_{i, Z_0} + B_{i, Z_0}\\right)
 ```
 
-with the electron density `n_e` and temperature from the unknowns `density` and
-`temperature`, and the densities of the charge states `n_{i,Z_0}` from the ions of
-`plasma`, a [`PlasmaState`](@ref) or a function of time that returns one, or from the
-radial unknown `ions` of the charge-state densities of the species of `plasma`
-([`ion_densities_unknown`](@ref)). The species are named by their element
-(`"Ar"`, `"D"`), whose ADF11 tables are read from `directory` when the term is built
-([`read_adas`](@ref)). With `ions` the term assembles its Jacobian with the columns of the
+with the coefficients `L` and `B` [W m³] of each charge state, the electron density `n_e`
+and temperature from the unknowns `density` and `temperature`, and the densities of the
+charge states `n_{i,Z_0}` from the ions of `plasma`, a [`PlasmaState`](@ref) or a function
+of time that returns one, or from the radial unknown `ions` of the charge-state densities of
+the species of `plasma` ([`ion_densities_unknown`](@ref)). The species are named by their
+element (`"Ar"`, `"D"`), whose ADF11 tables are read from `directory` when the term is built
+([`read_adas`](@ref)). A `plasma` that is a function of time gives these species at the time
+`initial_time` [s]. With `ions` the term assembles its Jacobian with the columns of the
 charge states ([`add_local_jacobian!`](@ref)). With `kinetic_ionization`, the
-[`KineticIonizationTerm`](@ref) of the split of [`IonRateTerm`](@ref), the binding energy
-of the ionization is that of the cold electrons below its threshold, at the fluid
-coefficient of [`fluid_ionization_coefficient`](@ref).
+[`KineticIonizationTerm`](@ref) of the split of [`IonRateTerm`](@ref), the binding energy of
+the ionization is that of the cold electrons below its threshold, at the fluid coefficient
+of [`fluid_ionization_coefficient`](@ref).
 
 - `radiation = :recombination` (the default, a choice of this package; see the docs page
   *Choices of this package*): the line radiation `L = PLT + PRB` with the recombination
@@ -125,8 +126,8 @@ coefficient of [`fluid_ionization_coefficient`](@ref).
   ([`ionization_energy`](@ref)). DREAM's mode with recombination takes `I(Z_0)` in the gain
   from its second radial cell on.
 - `radiation = :dream`: DREAM's default, `L = PLT`, the ionization loss alone, and the
-  bremsstrahlung of Gould with a relativistic correction, `C √T (Σ n Z_0² + (a Σ n Z_0²
-  + κ n_e) T/mₑc²) n_e`, `C = 1.69e-38 W m³ eV^{-1/2}`
+  bremsstrahlung of Gould with a relativistic correction,
+  `C √T (Σ n Z_0² + (a Σ n Z_0² + κ n_e) T/mₑc²) n_e`, `C = 1.69e-38 W m³ eV^{-1/2}`
   ([`GOULD_BREMSSTRAHLUNG_PREFACTOR`](@ref)). With `bremsstrahlung_corrections = :gould`
   (default) `a = 11/24` and `κ = 5(44 − 3π²)/(24√2)`, Gould's values after his erratum and by
   his own eqs. (18) and (22) ([`GOULD_ION_CORRECTION`](@ref),
@@ -341,10 +342,10 @@ end
 """
     radiated_power(term::RadiatedPowerTerm, u, layout, t)
 
-The two parts of the power of [`RadiatedPowerTerm`](@ref) at the state `u`, per radius
-[W/m³]: `radiation`, which leaves the plasma (line radiation, recombination radiation and
-bremsstrahlung), and `binding`, the binding energy that the ions take on ionization, net of
-what recombination returns, which stays in the plasma.
+The two parts of the power of [`RadiatedPowerTerm`](@ref) at the state `u` and the time `t`
+[s], per radius [W/m³]: `radiation`, which leaves the plasma (line radiation, recombination
+radiation and bremsstrahlung), and `binding`, the binding energy that the ions take on
+ionization, net of what recombination returns, which stays in the plasma.
 """
 function radiated_power(term::RadiatedPowerTerm, u, layout, t)
     plasma = _term_plasma(

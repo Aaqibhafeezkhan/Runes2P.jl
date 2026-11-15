@@ -155,7 +155,7 @@ end
 """
     source_shape(term::ParticleSourceTerm, ir, t=0)
 
-Shape of the source at the radius index `ir` and the time `t`: the particles per volume,
+Shape of the source at the radius index `ir` and the time `t` [s]: the particles per volume,
 second and phase-space volume that a magnitude of 1/(m³ s) adds to each cell. A term whose
 temperature is an unknown needs the state, `source_shape(term, ir, u, layout, t)`.
 """
@@ -295,12 +295,12 @@ condition of the operator at `p_max`, so the term and the operator count the sam
 particles. With a term that takes the electric field as an unknown, the flux holds the
 field of the state.
 
-- `weight = :density`: the particles per volume and second, `(1/V') Σ_j Δξ_j 𝒱' Γᵖ`. With
-  `TimeDerivative()` the row unknown is the density of the electrons above the grid, or a
-  fluid runaway density fed by the hot-tail grid.
-- `weight = :current`: the flux weighted with `e c ξ`, the current that the electrons carry
-  when they leave, at the speed of light. With `TimeDerivative()` the row unknown is the
-  current density of the electrons above the grid.
+- `weight = :density`: the particles per volume and second [m⁻³ s⁻¹],
+  `(1/V') Σ_j Δξ_j 𝒱' Γᵖ`. With `TimeDerivative()` the row unknown is the density of the
+  electrons above the grid, or a fluid runaway density fed by the hot-tail grid.
+- `weight = :current`: the flux weighted with `e c ξ`, the rate [A m⁻² s⁻¹] of the current
+  density that the electrons carry when they leave, at the speed of light. With
+  `TimeDerivative()` the row unknown is the current density of the electrons above the grid.
 - `weight = :energy`: the flux weighted with the kinetic energy `mₑc²(γ − 1)` of the last
   momentum cell [W/m³], the energy that the discrete energy moment of the grid loses with
   the electrons; the energy at the face itself differs by about Δp/(2p). With `coefficient = −1`
@@ -509,8 +509,8 @@ end
                          bulk_momentum=Inf)
 
 Source with the shape of a non-relativistic Maxwellian `exp(-p²/2Θ)`, `Θ = T/mₑc²`, at
-`temperature` [eV] (DREAM's `ParticleSourceTerm` uses the relativistic one), whose
-magnitude drives the density of the kinetic unknown `kinetic` back to `target_density` (a
+`temperature` [eV] (DREAM's `ParticleSourceTerm` uses the relativistic one), whose magnitude
+drives the density of the kinetic unknown `kinetic` back to `target_density` [m⁻³] (a
 number, or one value per radius) at the rate `rate` [1/s]:
 
     S(p, ξ) = rate (n_target - n(f)) f_M(p) / n_M,
@@ -521,10 +521,11 @@ with `f_M` the Maxwellian on `grid` and `n_M` its density, so the source adds
 into the runaway region, which is what the published Dreicer rates assume; with
 `rate = 1/Δt` a step restores the particles the previous step lost.
 
-`n(f)` counts the cells below `bulk_momentum`, and `n_target` is the density of the bulk
-there. The bound matters: with the whole grid counted, particles moving from the bulk into
-the runaway tail leave the total unchanged, the source sees no deficit, and the bulk still
-drains. Set it below the critical momentum and above the thermal momentum.
+`n(f)` counts the cells below `bulk_momentum` (in units of `mₑc`), and `n_target` is the
+density of the bulk there. The bound matters: with the whole grid counted, particles moving
+from the bulk into the runaway tail leave the total unchanged, the source sees no deficit,
+and the bulk still drains. Set it below the critical momentum and above the thermal
+momentum.
 
 The term is `:explicit` (evaluated at the previous time level), so the density moment it
 reads adds nothing to the Jacobian and the sparsity stays local. This is a device for

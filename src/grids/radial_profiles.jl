@@ -36,9 +36,11 @@ _is_radial_profile(value) = !(value isa Real) && !(value isa AbstractVector)
     PlasmaState(radial_grid; cold_electron_temperature, ions, electric_field, magnetic_field,
                 cold_electron_density=nothing)
 
-The plasma state with profiles given in any form of [`radial_values`](@ref), evaluated on the
-cell centres of `radial_grid` (a `RadialGrid` or a `KineticGrid`). Ion densities on points
-of their own take the forms `IonSpecies(name, Z, Z0, profile, radial_grid)` and
+The plasma state with profiles given in any form of [`radial_values`](@ref), evaluated on
+the cell centres of `radial_grid` (a `RadialGrid` or a `KineticGrid`): the temperature [eV],
+the electric field [V/m], the magnetic field [T] and the cold-electron density [m⁻³]. Ion
+densities on points of their own take the forms
+`IonSpecies(name, Z, Z0, profile, radial_grid)` and
 `IonSpecies(name, Z, profiles, radial_grid)`. The state holds the evaluated values, so its
 record holds them too.
 """
@@ -95,7 +97,7 @@ end
 """
     PiecewiseConstant(values, switch_times)
 
-Function of time that holds `values[k]` from `switch_times[k-1]` up to `switch_times[k]`
+Function of time that holds `values[k]` from `switch_times[k-1]` up to `switch_times[k]` [s]
 (`values[1]` before the first switch time, the last value from the last switch time on).
 At a switch time it has the value of the interval that starts there. `values` are numbers
 or vectors. For example, a level of δB/B for the first millisecond and a hundredth of it
@@ -140,8 +142,8 @@ end
     forced_time_points(update)
     forced_time_points(function_of_time)
 
-Times at which the setup of an update changes abruptly. [`integrate`](@ref) requires those
-inside the run to be among its time points. Empty by default, the switch times of a
+Times [s] at which the setup of an update changes abruptly. [`integrate`](@ref) requires
+those inside the run to be among its time points. Empty by default, the switch times of a
 [`PiecewiseConstant`](@ref).
 """
 forced_time_points(x) = Float64[]

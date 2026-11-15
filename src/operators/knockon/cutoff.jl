@@ -46,10 +46,12 @@ end
 """
     critical_momentum(electric_field, critical_electric_field)
 
-Critical momentum `1/√(E/E_c - 1)` in units of `mₑc` (relativistic test particle, no pitch
-scattering or radiation), `Inf` for `E ≤ E_c`. DREAM's effective critical momentum
-(`fluid.pCrit`) includes screening and pitch-angle scattering and is larger; a caller with
-a better estimate passes it to [`cutoff_window`](@ref) directly.
+Critical momentum `1/√(E/E_c - 1)` in units of `mₑc`, for the field `electric_field` (`E`)
+and the critical field `critical_electric_field` (`E_c`) (relativistic test particle, no
+pitch scattering or radiation), `Inf` for `E ≤ E_c`. The two fields are in the same unit,
+V/m in the package, and only their ratio enters. DREAM's effective critical momentum
+(`fluid.pCrit`) includes screening and pitch-angle scattering and is larger; a caller with a
+better estimate passes it to [`cutoff_window`](@ref) directly.
 """
 function critical_momentum(electric_field, critical_electric_field)
     if electric_field > critical_electric_field
@@ -62,10 +64,11 @@ end
 """
     cutoff_window(thermal_p, critical_p; thermal_factor=4)
 
-Admissible range `(lower, upper) = (thermal_factor · thermal_p, critical_p)` of the
-knock-on cutoff momentum: above the thermal momentum by a safety factor, below the
-critical momentum. The window is empty when `lower ≥ upper`. The factor `thermal_factor = 4`
-is a choice of this package (see the docs page *Choices of this package*).
+Admissible range `(lower, upper) = (thermal_factor · thermal_p, critical_p)` of the knock-on
+cutoff momentum, all in units of `mₑc`: above the thermal momentum by a safety factor, below
+the critical momentum. The window is empty when `lower ≥ upper`. The factor
+`thermal_factor = 4` is a choice of this package (see the docs page *Choices of this
+package*).
 """
 function cutoff_window(thermal_p, critical_p; thermal_factor = 4)
     (lower = thermal_factor * thermal_p, upper = critical_p)
@@ -75,16 +78,16 @@ end
     choose_cutoff(p_faces, lower, upper; current_cutoff=nothing)
 
 Cutoff momentum on a momentum-grid face (`p_faces`) inside the window `[lower, upper)`,
-returned as `(p_cutoff, inside_window)`. A `current_cutoff` that is a face of the grid and
-still inside the window is kept, so the kernels are rebuilt only when the window moves
-past it; a value that is not a face (another grid's cutoff) is replaced. Otherwise the
-face closest (in log p) to `√(lower·upper)` is taken, with `lower` raised to the smallest
-positive face when it lies below it (the smallest face `≥ lower` when `upper = Inf`),
-which leaves room for the bounds to move in either direction. If no
-positive face lies inside the window (window closed or narrower than a cell), the largest
-positive face below `upper` is returned (keeping knock-ons above the critical momentum,
-at the cost of the lower bound), or the smallest positive face if none is below `upper`,
-with `inside_window = false`.
+returned as `(p_cutoff, inside_window)`, all momenta in units of `mₑc`. A `current_cutoff`
+that is a face of the grid and still inside the window is kept, so the kernels are rebuilt
+only when the window moves past it; a value that is not a face (another grid's cutoff) is
+replaced. Otherwise the face closest (in log p) to `√(lower·upper)` is taken, with `lower`
+raised to the smallest positive face when it lies below it (the smallest face `≥ lower` when
+`upper = Inf`), which leaves room for the bounds to move in either direction. If no positive
+face lies inside the window (window closed or narrower than a cell), the largest positive
+face below `upper` is returned (keeping knock-ons above the critical momentum, at the cost
+of the lower bound), or the smallest positive face if none is below `upper`, with
+`inside_window = false`.
 
 Snapping to faces also keeps the cutoff off the interior of a cell, so the energy kernel
 has no partial cell at the cutoff.
@@ -142,7 +145,8 @@ end
     cutoff_target(temperature, critical_p; no_ceiling_factor=10)
 
 Knock-on cutoff by the following rule (a choice of this package; see the docs page *Choices
-of this package*), returned as `(p_cutoff, energy, policy)`:
+of this package*), returned as `(p_cutoff, energy, policy)` with `p_cutoff` in units of
+`mₑc` and `energy` [eV], for the critical momentum `critical_p` in units of `mₑc`:
 
 - with a runaway threshold (`critical_p` finite), the logarithmic midpoint in energy
   between the thermal energy, which is the temperature [eV], and the kinetic energy at
@@ -179,12 +183,12 @@ end
     choose_cutoff_face(p_faces, target, lower, upper; current_cutoff=nothing)
 
 The face of the momentum grid for a cutoff with the target `target`, inside the open
-window `(lower, upper)`, returned as `(p_cutoff, inside_window)`: the face nearest to the
-target in the logarithm of the energy. A `current_cutoff` that is a face inside the
-window is kept while the target lies between its two neighbouring faces, so a target that
-hovers between two faces does not rebuild the kernels at every time point; the cutoff
-is then at most one cell from the target. Without a face inside the window, the face
-nearest to the target is taken and `inside_window` is false.
+window `(lower, upper)`, returned as `(p_cutoff, inside_window)`, all momenta in units of
+`mₑc`: the face nearest to the target in the logarithm of the energy. A `current_cutoff`
+that is a face inside the window is kept while the target lies between its two neighbouring
+faces, so a target that hovers between two faces does not rebuild the kernels at every time
+point; the cutoff is then at most one cell from the target. Without a face inside the window,
+the face nearest to the target is taken and `inside_window` is false.
 """
 function choose_cutoff_face(
         p_faces::AbstractVector{T}, target::Real, lower::Real, upper::Real;

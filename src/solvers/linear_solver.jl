@@ -19,9 +19,9 @@ terms. A solver implements
   change), `row_weights` and `scales` are the vectors `W` and `S`, which the Newton
   iteration updates in place;
 - `solve!(x, cache, matrix, b, u, t, dt, iteration)`: solve with the matrix at the state
-  `u`, time `t` and step `dt`, in Newton iteration `iteration` of the step; returns
-  `:ok`, `:singular_matrix` or `:linear_solve_failed` (an iterative solve that did not
-  reach its tolerance);
+  `u`, time `t` [s] and step `dt` [s], in Newton iteration `iteration` of the step; returns
+  `:ok`, `:singular_matrix` or `:linear_solve_failed` (an iterative solve that did not reach
+  its tolerance);
 - `requires_stored_jacobian(solver)`: whether every implicit term must be in the stored
   matrix, apart from matrix-free terms with a low-rank Jacobian
   ([`has_low_rank_jacobian`](@ref)), which the solver adds by a Woodbury update;

@@ -338,11 +338,11 @@ end
     set_ion_thermal_energy!(u, layout, plasma, temperature; ion_energy=:ion_thermal_energy, ions=nothing, t=0.0)
 
 Set the thermal energy of every ion species in the state `u`, `W = 3/2 e N T` with the total
-density `N` of the species in `plasma` at time `t` and the temperature `temperature` [eV]:
-a number, one value per species, or a matrix of species × radii (DREAM's initial `W_i` from
-`T_i`, `T_i.cpp`). With `ions`, the radial unknown of the charge states, `N` is that of the
-state `u`, as the energy exchange reads it: after [`deposit_neutrals!`](@ref) the prescribed
-densities no longer hold.
+density `N` of the species in `plasma` at the time `t` [s] and the temperature
+`temperature` [eV]: a number, one value per species, or a matrix of species × radii (DREAM's
+initial `W_i` from `T_i`, `T_i.cpp`). With `ions`, the radial unknown of the charge states,
+`N` is that of the state `u`, as the energy exchange reads it: after
+[`deposit_neutrals!`](@ref) the prescribed densities no longer hold.
 """
 function set_ion_thermal_energy!(
         u::AbstractVector, layout::UnknownLayout, plasma, temperature;
@@ -389,9 +389,10 @@ end
 """
     ion_temperatures(u, layout, plasma; ion_energy=:ion_thermal_energy, ions=nothing, t=0.0)
 
-The temperature [eV] of every ion species at every radius (species × radii), `T = W/(3/2 e
-N)`, from the state `u`; `NaN` where a species has no density. With `ions` the densities `N`
-are those of that unknown of `u`, as in [`set_ion_thermal_energy!`](@ref).
+The temperature [eV] of every ion species at every radius (species × radii),
+`T = W/(3/2 e N)`, from the state `u` and the densities of `plasma` at the time `t` [s];
+`NaN` where a species has no density. With `ions` the densities `N` are those of that
+unknown of `u`, as in [`set_ion_thermal_energy!`](@ref).
 """
 function ion_temperatures(u::AbstractVector, layout::UnknownLayout, plasma;
         ion_energy::Symbol = :ion_thermal_energy,

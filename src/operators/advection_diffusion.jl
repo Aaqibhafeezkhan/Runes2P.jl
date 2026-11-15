@@ -14,8 +14,9 @@ Flux-form advection-diffusion operator on a `KineticGrid`,
 ```
 
 with coefficients given on the faces of each direction (`advection_p` is ``A^p``,
-`diffusion_p_xi` is ``D^{p\\xi}``, and so on). Particle conservation is exact up to the fluxes
-through the outer boundaries.
+`diffusion_p_xi` is ``D^{p\\xi}``, and so on). With `p` in units of `mₑc`, the coefficients
+in `p` and `ξ` are in s⁻¹, `advection_r` in m/s and `diffusion_r_r` in m²/s. Particle
+conservation is exact up to the fluxes through the outer boundaries.
 
 The pitch grid may differ between radii, with the same cell counts and
 the same p faces at all radii. The pitch cells of a radial face are then the overlap cells
@@ -52,13 +53,13 @@ Boundary conditions:
   takes `p_lower_boundary`.
 - First radial face: no flux.
 - `p = p_min > 0` (`p_lower_boundary`): `:zero_flux`, or `:prescribed` with the flux `Γᵖ`
-  through the face given in `op.p_flux_at_lower_boundary[j, ir]` (positive into the
-  domain, independent of `f`), or `:interface`: the face is shared with the grid of
-  another kinetic unknown below (a runaway grid above a hot-tail grid), the operator adds
-  no flux through it, and a [`MomentumInterfaceTerm`](@ref) in the equation system carries
-  the flux between the two grids. `p_lower_boundary` applies to a grid with `p_min > 0`
-  only: on a grid from `p = 0`, `:prescribed` and `:interface` are refused, and the
-  boundary there is `p_zero_boundary`.
+  through the face given in `op.p_flux_at_lower_boundary[j, ir]` [m⁻³ s⁻¹] (positive into
+  the domain, independent of `f`), or `:interface`: the face is shared with the grid of
+  another kinetic unknown below (a runaway grid above a hot-tail grid), the operator adds no
+  flux through it, and a [`MomentumInterfaceTerm`](@ref) in the equation system carries the
+  flux between the two grids. `p_lower_boundary` applies to a grid with `p_min > 0` only: on
+  a grid from `p = 0`, `:prescribed` and `:interface` are refused, and the boundary there is
+  `p_zero_boundary`.
 - `ξ = ±1`: no flux.
 - `p = p_max` (`p_upper_boundary`): `:outflow`, advective outflow only (`Aᵖ > 0`); or
   `:f_zero`, outflow into a ghost cell with `f = 0` one cell spacing beyond the last
@@ -886,8 +887,8 @@ operator takes no flux through `p = 0` there. A face with an `:interface` bounda
 under `p_lower_boundary = :interface`, the last face under `p_upper_boundary = :interface`)
 reads zero: this operator carries no flux there, and [`interface_flux`](@ref) gives the flux
 between the grids.
-`electric_field` (one value per radius) is the field of an operator that takes it as an
-argument ([`apply!`](@ref)).
+`electric_field` (one value per radius, in V/m) is the field of an operator that takes it as
+an argument ([`apply!`](@ref)).
 """
 function momentum_flux(op::AdvectionDiffusion, f::AbstractArray{<:Any, 3}, face::Integer,
         ir::Integer = 1; electric_field = nothing)

@@ -390,7 +390,7 @@ evaluated once; the frequencies are then evaluated at any momentum with
 [`parallel_diffusion_frequency`](@ref). The Coulomb logarithm is evaluated in each call,
 since the energy-dependent model depends on the momentum.
 
-With `faces`, one vector of momentum faces per radius as
+With `faces`, one vector of momentum faces per radius in units of `mₑc` as
 [`set_fokker_planck_coefficients!`](@ref) gives them, the factors that depend on the momentum
 and the charge state alone are tabulated once per momentum grid, at its faces and cell
 centres: the bremsstrahlung cross section, and the Bethe stopping and the bound-electron
@@ -777,11 +777,12 @@ end
 """
     slowing_down_frequency(model, ir, p)
 
-Slowing-down frequency `ν_s` [s⁻¹] at radius index `ir` and momentum `p`; the collisional
-friction is `Aᵖ = -p ν_s`. With `bremsstrahlung = :stopping_power` it adds, per charge state
-of density `n` and nuclear charge `Z`, `n Z² α r₀² c φ(p) γ/p` with the cross section `φ` of
-[`bremsstrahlung_cross_section`](@ref), as DREAM's `src/Equations/SlowingDownFrequency.cpp:204-207`
-and `:236` (where DREAM's `φ` differs by its integer division, see there).
+Slowing-down frequency `ν_s` [s⁻¹] at radius index `ir` and momentum `p` (in units of
+`mₑc`); the collisional friction is `Aᵖ = -p ν_s`. With `bremsstrahlung = :stopping_power`
+it adds, per charge state of density `n` and nuclear charge `Z`, `n Z² α r₀² c φ(p) γ/p`
+with the cross section `φ` of [`bremsstrahlung_cross_section`](@ref), as DREAM's
+`src/Equations/SlowingDownFrequency.cpp:204-207` and `:236` (where DREAM's `φ` differs by
+its integer division, see there).
 """
 function slowing_down_frequency(model::CollisionModel, ir, p)
     _collisional_slowing_down(model, ir, p) + _radiative_slowing_down(model, ir, p)
@@ -830,8 +831,8 @@ end
 """
     deflection_frequency(model, ir, p)
 
-Pitch-angle scattering (deflection) frequency `ν_D` [s⁻¹]; the collisional pitch diffusion is
-`Dᵠᵠ = ν_D (1 - ξ²)/2`.
+Pitch-angle scattering (deflection) frequency `ν_D` [s⁻¹] at radius index `ir` and momentum
+`p` (in units of `mₑc`); the collisional pitch diffusion is `Dᵠᵠ = ν_D (1 - ξ²)/2`.
 """
 function deflection_frequency(model::CollisionModel, ir, p)
     return _deflection_frequency(model, ir, p)
@@ -873,9 +874,10 @@ end
 """
     parallel_diffusion_frequency(model, ir, p)
 
-Parallel (energy) diffusion frequency `ν_∥` [s⁻¹], `Dᵖᵖ = ν_∥`; nonzero only in `:full`
-mode. With `screened_diffusion = :maxwellian` it is `Θγ` times the collisional part of `ν_s`,
-and with `bremsstrahlung_diffusion = :dream` times the whole `ν_s` ([`CollisionSettings`](@ref)).
+Parallel (energy) diffusion frequency `ν_∥` [s⁻¹] at radius index `ir` and momentum `p`
+(in units of `mₑc`), `Dᵖᵖ = ν_∥`; nonzero only in `:full` mode. With
+`screened_diffusion = :maxwellian` it is `Θγ` times the collisional part of `ν_s`, and with
+`bremsstrahlung_diffusion = :dream` times the whole `ν_s` ([`CollisionSettings`](@ref)).
 """
 function parallel_diffusion_frequency(model::CollisionModel, ir, p)
     z = zero(p * model.scaled_bessel_k0[ir])
@@ -920,15 +922,15 @@ end
 """
     p3_slowing_down_frequency_at_zero(model, ir)
 
-`lim_{p→0} p³ ν_s`, which sets the particle flux through `p = 0`. As DREAM's
-`SlowingDownFrequency::GetP3NuSAtZero`, the value uses the prefactor `4π r₀² c` in every
-mode. In `:ultra_relativistic` mode, where `ν_s ∝ 1/p` and the analytic limit is 0, it
-therefore returns the `:superthermal` value. The friction of that mode is the constant
-drift `Aᵖ = -4π r₀² c lnΛ n`, which brings electrons to `p = 0` in a finite time. With
-DREAM's value, on a grid that applies the flux through `p = 0`, they leave the grid at
-`p = 0`: the sink is `1/Δp₁²` times the inflow through the first interior face at equal
-`f`, so the first cell absorbs. With the analytic limit the first cell would collect them
-without bound.
+`lim_{p→0} p³ ν_s` [s⁻¹, with `p` in units of `mₑc`], which sets the particle flux through
+`p = 0`. As DREAM's `SlowingDownFrequency::GetP3NuSAtZero`, the value uses the prefactor
+`4π r₀² c` in every mode. In `:ultra_relativistic` mode, where `ν_s ∝ 1/p` and the analytic
+limit is 0, it therefore returns the `:superthermal` value. The friction of that mode is the
+constant drift `Aᵖ = -4π r₀² c lnΛ n`, which brings electrons to `p = 0` in a finite time.
+With DREAM's value, on a grid that applies the flux through `p = 0`, they leave the grid at
+`p = 0`: the sink is `1/Δp₁²` times the inflow through the first interior face at equal `f`,
+so the first cell absorbs. With the analytic limit the first cell would collect them without
+bound.
 
 DREAM's hot-tail grid applies the flux and lets electrons leave at `p = 0`; its runaway
 grid does not (`src/Settings/Equations/f_hot.cpp:96`, `src/Settings/Equations/f_re.cpp:87`,

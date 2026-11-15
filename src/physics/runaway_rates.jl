@@ -21,9 +21,10 @@ end
 """
     thermal_collision_time(density, temperature, coulomb_logarithm)
 
-Thermal electron collision time `τ_ee = β_th³ / (lnΛ_T n 4π r₀² c)` [s] with
-`β_th = √(2T/mₑc²)`, the time scale of the Connor-Hastie rate (DREAM
-`RunawayFluid::tauEETh`).
+Thermal electron collision time `τ_ee = β_th³ / (lnΛ_T n 4π r₀² c)` [s] for an electron
+density `density` (`n`) [m⁻³], a temperature `temperature` (`T`) [eV] and the thermal
+Coulomb logarithm `coulomb_logarithm` (`lnΛ_T`), with `β_th = √(2T/mₑc²)`, the time scale of
+the Connor-Hastie rate (DREAM `RunawayFluid::tauEETh`).
 """
 function thermal_collision_time(density, temperature, coulomb_logarithm)
     beta_thermal = thermal_momentum(temperature)
@@ -87,14 +88,15 @@ end
 """
     avalanche_growth_rate(total_density, critical_momentum)
 
-Avalanche growth rate `Γ = 4π r₀² c n_tot / p_c²` [s⁻¹] of a runaway population, the
-Rosenbluth-Putvinski estimate written with an explicit critical momentum `p_c` (in units
-of `mₑc`): every knock-on above `p_c` runs away, and the production per runaway is the
-Møller rate above `p_c`. For an infinitely energetic primary that rate is
+Avalanche growth rate `Γ = 4π r₀² c n_tot / p_c²` [s⁻¹] of a runaway population, for the
+total electron density `total_density` (`n_tot`) [m⁻³] of the targets. It is the
+Rosenbluth-Putvinski estimate written with an explicit critical momentum `p_c` (in units of
+`mₑc`): every knock-on above `p_c` runs away, and the production per runaway is the Møller
+rate above `p_c`. For an infinitely energetic primary that rate is
 `2π r₀² c n_tot / (γ_c − 1) = (γ_c + 1)/2 · 4π r₀² c n_tot / p_c²`
 ([`moller_total_rate`](@ref) with `p1 = Inf`; Embréus, Stahl and Fülöp, J. Plasma Phys. 84,
-905840102 (2018), doi:10.1017/S002237781700099X), so the formula keeps its leading term
-for `p_c ≪ 1`; at `p_c = 1` the exact rate is 21 % above the formula.
+905840102 (2018), doi:10.1017/S002237781700099X), so the formula keeps its leading term for
+`p_c ≪ 1`; at `p_c = 1` the exact rate is 21 % above the formula.
 
 `p_c` is the ambiguous part of the formula, so it is an argument, not computed here:
 [`critical_momentum`](@ref) gives the test-particle value `1/√(E/E_c - 1)` used by
@@ -127,10 +129,10 @@ end
 """
     free_critical_momentum(plasma, ir; coulomb_logarithm=:thermal)
 
-Critical momentum at radius `ir` from the Connor-Hastie critical field of the cold
-electrons (DREAM's `Ec_free`, `RunawayFluid.cpp`), [`critical_momentum`](@ref) of `|E|`.
-Screening and pitch-angle scattering raise the critical momentum, so this is a lower
-estimate.
+Critical momentum (in units of `mₑc`) at radius `ir` from the Connor-Hastie critical field
+of the cold electrons (DREAM's `Ec_free`, `RunawayFluid.cpp`), [`critical_momentum`](@ref)
+of `|E|`. Screening and pitch-angle scattering raise the critical momentum, so this is a
+lower estimate.
 
 `coulomb_logarithm` is the model of the Coulomb logarithm of the collisions, the field of
 the same name of [`CollisionSettings`](@ref), whose default it shares. As in DREAM
@@ -159,13 +161,14 @@ end
 """
     total_critical_momentum(plasma, ir; coulomb_logarithm=:thermal)
 
-Critical momentum at radius `ir` from the Connor-Hastie critical field of all electrons,
-free and bound, with the Coulomb logarithm of the free electrons (DREAM's `Ec_tot`,
-`RunawayFluid.cpp`), [`critical_momentum`](@ref) of `|E|`. `Inf` where the field is below
-that critical field. `coulomb_logarithm` chooses the logarithm as in
-[`free_critical_momentum`](@ref), by DREAM's rule (`RunawayFluid::CalculateDerivedQuantities`,
-`src/Equations/RunawayFluid.cpp:205-209`): the thermal one for `:thermal`, the default, and
-the relativistic one for `:energy_dependent` and `:relativistic`.
+Critical momentum (in units of `mₑc`) at radius `ir` from the Connor-Hastie critical field
+of all electrons, free and bound, with the Coulomb logarithm of the free electrons (DREAM's
+`Ec_tot`, `RunawayFluid.cpp`), [`critical_momentum`](@ref) of `|E|`. `Inf` where the field
+is below that critical field. `coulomb_logarithm` chooses the logarithm as in
+[`free_critical_momentum`](@ref), by DREAM's rule
+(`RunawayFluid::CalculateDerivedQuantities`, `src/Equations/RunawayFluid.cpp:205-209`): the
+thermal one for `:thermal`, the default, and the relativistic one for `:energy_dependent`
+and `:relativistic`.
 
 It is not DREAM's effective critical momentum (`other/fluid/pCrit`, Hesslow et al.), which
 takes the partial screening of the ions into account in the slowing down and the

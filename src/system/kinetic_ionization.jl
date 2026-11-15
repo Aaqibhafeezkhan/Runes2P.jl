@@ -17,14 +17,15 @@ electrons of the kinetic unknown `kinetic` on `grid`, in the rows of the ion den
 K_j = \\frac{1}{V'} \\sum_{\\text{cells}} e(p)\\, v σ_j(p)\\, 𝒱' Δp Δξ\\, f,
 ```
 
-with the cross sections [`ionization_cross_section`](@ref) of the form
-`ionization_cross_section_form` (`:chianti`, the default, CHIANTI's parameters continued
-relativistically, with DREAM's form for the elements CHIANTI's table lacks; `:dream`,
-DREAM's form and fits; or `:bethe`, DREAM's form with its relativistic term divided by `β²`,
-refitted), tabulated at the cell centres of the momentum grid of each radius (DREAM
-tabulates the grid of radius 0 alone), and the envelope `e(p)` of the
-[`MomentumRegion`](@ref) `region`: the hot electrons above a threshold that may follow the
-temperature unknown, or the whole grid without a region. Each species is conserved.
+with the ionization rate `K_j` [s⁻¹] of the charge state `j`, the cross sections
+[`ionization_cross_section`](@ref) of the form `ionization_cross_section_form` (`:chianti`,
+the default, CHIANTI's parameters continued relativistically, with DREAM's form for the
+elements CHIANTI's table lacks; `:dream`, DREAM's form and fits; or `:bethe`, DREAM's form
+with its relativistic term divided by `β²`, refitted), tabulated at the cell centres of the
+momentum grid of each radius (DREAM tabulates the grid of radius 0 alone), and the envelope
+`e(p)` of the [`MomentumRegion`](@ref) `region`: the hot electrons above a threshold that
+may follow the temperature unknown, or the whole grid without a region. Each species is
+conserved.
 
 Paired with an [`IonRateTerm`](@ref) through its `kinetic_ionization` keyword, the electrons
 below the threshold ionize at the fluid coefficient of
@@ -124,9 +125,9 @@ end
 """
     kinetic_ionization_rates(term::KineticIonizationTerm, u, layout, t, ir)
 
-The rate coefficients `K` [1/s] of all charge states at radius `ir`, the moments of `f`
-of the state `u` with `v σ` above the threshold of the region, one per component of the ion
-densities.
+The rate coefficients `K` [1/s] of all charge states at radius `ir`, the moments of `f` of
+the state `u` at the time `t` [s] with `v σ` above the threshold of the region, one per
+component of the ion densities.
 """
 function kinetic_ionization_rates(term::KineticIonizationTerm, u, layout, t, ir)
     f = kinetic_view(u, layout, unknown_id(layout, term.kinetic), ir)
@@ -317,12 +318,13 @@ end
 """
     fluid_ionization_coefficient(adas, fraction, coefficient)
 
-The ionization coefficient of the cold electrons below the threshold of a kinetic
-ionization: `(I − A_>)/(1 − f_>)`, the ADAS coefficient `I` of the whole
-Maxwellian less its part above the threshold, `A_>`, per electron below it, with the
-fraction `f_>` of the Maxwellian above the threshold ([`threshold_split`](@ref)). With the
-closure `n_cold = n_M (1 − f_>)` and the kinetic rate `n_M A_>` of a Maxwellian `f` of
-density `n_M`, the two add up to `n_M I` for every threshold the grid resolves.
+The ionization coefficient [m³/s] of the cold electrons below the threshold of a kinetic
+ionization: `(I − A_>)/(1 − f_>)`, the ADAS coefficient `I` (`adas`, in m³/s) of the whole
+Maxwellian less its part above the threshold, `A_>` (`coefficient`, in m³/s), per electron
+below it, with the fraction `f_>` of the Maxwellian above the threshold
+([`threshold_split`](@ref)). With the closure `n_cold = n_M (1 − f_>)` and the kinetic rate
+`n_M A_>` of a Maxwellian `f` of density `n_M`, the two add up to `n_M I` for every
+threshold the grid resolves.
 
 The coefficient has no floor on its value. Its denominator is bounded by the grid:
 [`threshold_split`](@ref) takes `1 − f_>` as the weight of the first momentum cell where the
@@ -456,20 +458,20 @@ the cold density; without this term it is born at zero energy.
 package*) takes the binary-encounter-Bethe spectrum of Kim and Rudd with the ionization
 energy of each charge state as its binding energy ([`beb_mean_secondary_energy`](@ref)),
 which needs no width; `spectrum = :opal` the spectrum of Opal et al. with the widths
-`widths`, the neutral element's for every charge state. The friction of the Fokker-Planck
-term on bound electrons takes the energy of the ionization from `f` already, so in the total
-energy of the electrons the term moves the energy of the secondaries from that sink to the
-cold electrons. That holds where the friction takes the energy. With the default screening
-window of the collisions (`screening_window = :excitation_energy`) the friction on bound
-electrons is zero from the ionization potential up to the mean excitation energy of the
-state (about 190 eV for Ar⁰, more for the higher states): there `f` ionizes without paying,
-and this term adds the energy of the secondaries on top. `screening_window = :dream` narrows
-that band, and `bound_friction = :ionization_split` of [`CollisionSettings`](@ref) closes
-it: `f` then pays the ionization potential and the energy of the secondaries for every
-ionization above the threshold, and this term returns the energy of the secondaries to the
-cold electrons. DREAM has no such term: `kinetic_ionization` alone is DREAM's model. The
-region of `kinetic_ionization` sets `E_c`; its threshold follows the temperature unknown
-`temperature` or is fixed.
+`widths` [eV], the neutral element's for every charge state. The friction of the
+Fokker-Planck term on bound electrons takes the energy of the ionization from `f` already,
+so in the total energy of the electrons the term moves the energy of the secondaries from
+that sink to the cold electrons. That holds where the friction takes the energy. With the
+default screening window of the collisions (`screening_window = :excitation_energy`) the
+friction on bound electrons is zero from the ionization potential up to the mean excitation
+energy of the state (about 190 eV for Ar⁰, more for the higher states): there `f` ionizes
+without paying, and this term adds the energy of the secondaries on top.
+`screening_window = :dream` narrows that band, and `bound_friction = :ionization_split` of
+[`CollisionSettings`](@ref) closes it: `f` then pays the ionization potential and the energy
+of the secondaries for every ionization above the threshold, and this term returns the
+energy of the secondaries to the cold electrons. DREAM has no such term:
+`kinetic_ionization` alone is DREAM's model. The region of `kinetic_ionization` sets `E_c`;
+its threshold follows the temperature unknown `temperature` or is fixed.
 """
 struct SecondaryHeatingTerm{K <: KineticIonizationTerm} <: EquationTerm
     kinetic_ionization::K
@@ -656,14 +658,15 @@ end
                             widths=SECONDARY_SPECTRUM_WIDTHS, spectrum=:beb)
 
 The energy [W/m³ per radius] that the kinetic ionization `kinetic_ionization` takes from `f`
-at the state `u`, in two parts:
+at the state `u` and the time `t` [s], in two parts:
 
 - `potential`: the ionization potentials, `e Σ I_j K_j n_j`, stored in the ions and released
   at recombination (the gain of `RadiatedPowerTerm(...; radiation = :recombination)`);
 - `secondaries`: the kinetic energy of the secondary electrons, which
-  [`SecondaryHeatingTerm`](@ref) with its default `cut = :none` gives to the cold electrons; with
-  `spectrum = :opal`, `nothing` when an element of the composition has no width of the
-  secondary spectrum ([`SECONDARY_SPECTRUM_WIDTHS`](@ref)), since `potential` needs none.
+  [`SecondaryHeatingTerm`](@ref) with its default `cut = :none` gives to the cold electrons;
+  with `spectrum = :opal` and the widths `widths` [eV], `nothing` when an element of the
+  composition has no width of the secondary spectrum ([`SECONDARY_SPECTRUM_WIDTHS`](@ref)),
+  since `potential` needs none.
 
 Both are part of the sink of `f` through the friction on bound electrons
 ([`KineticEnergyLossTerm`](@ref) with `part = :sinks`), so an energy diagnostic that books

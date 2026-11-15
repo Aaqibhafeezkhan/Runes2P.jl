@@ -38,7 +38,8 @@ end
 """
     IonSpecies(name, Z, Z0, density)
 
-Species in a single charge state `Z0` with density profile `density` (vector over radius).
+Species in a single charge state `Z0` with density profile `density` [m⁻³] (vector over
+radius).
 """
 function IonSpecies(name::AbstractString, Z::Integer, Z0::Integer, density::AbstractVector{T}) where {T <:
                                                                                                       Real}
@@ -175,7 +176,7 @@ radial_cell_count(plasma::PlasmaState) = length(plasma.cold_electron_temperature
 """
     with_electric_field(plasma, electric_field)
 
-The plasma state with another electric field (one value per radius), e.g. the field of
+The plasma state with another electric field [V/m] (one value per radius), e.g. the field of
 the state of a run in place of a prescribed one.
 """
 function with_electric_field(plasma::PlasmaState, electric_field::AbstractVector)
@@ -194,7 +195,8 @@ end
 """
     free_electron_density(ions, ir)
 
-`Σ Z0 n_{Z0}` over all ion charge states (DREAM `GetFreeElectronDensityFromQuasiNeutrality`).
+`Σ Z0 n_{Z0}` [m⁻³] over all ion charge states (DREAM
+`GetFreeElectronDensityFromQuasiNeutrality`).
 """
 function free_electron_density(ions, ir)
     free_density = zero(eltype(first(ions).charge_state_densities))
@@ -210,7 +212,7 @@ free_electron_density(plasma::PlasmaState, ir) = free_electron_density(plasma.io
 """
     bound_electron_density(plasma, ir)
 
-`Σ (Z - Z0) n_{Z0}` over all ion charge states.
+`Σ (Z - Z0) n_{Z0}` [m⁻³] over all ion charge states.
 """
 function bound_electron_density(plasma::PlasmaState, ir)
     bound_density = zero(eltype(plasma.cold_electron_temperature))

@@ -7,7 +7,7 @@
 
 Source of the [`PlasmaState`](@ref) that the coefficients of a term are built from.
 [`plasma_values`](@ref)`(source, u, layout, t)` gives the state at the state vector `u` of
-the system and the time `t`. [`PrescribedPlasma`](@ref) is a plasma prescribed as a
+the system and the time `t` [s]. [`PrescribedPlasma`](@ref) is a plasma prescribed as a
 function of time, [`PlasmaFromUnknowns`](@ref) takes the cold-electron temperature and
 density from unknowns of the system.
 """
@@ -17,8 +17,8 @@ abstract type PlasmaSource end
     plasma_values(source::PlasmaSource, u, layout, t)
 
 The [`PlasmaState`](@ref) of `source` at the state `u` of the system with the layout
-`layout`, and the time `t`. A prescribed source ignores `u` and `layout`, which may then be
-`nothing`.
+`layout`, and the time `t` [s]. A prescribed source ignores `u` and `layout`, which may then
+be `nothing`.
 """
 function plasma_values end
 
@@ -26,7 +26,7 @@ function plasma_values end
     PrescribedPlasma(plasma_at)
 
 A [`PlasmaSource`](@ref) prescribed in time: `plasma_at` is a [`PlasmaState`](@ref) or a
-function of time that returns one. The state of the last time is kept, since the
+function of the time [s] that returns one. The state of the last time is kept, since the
 evaluations of a term at one time share it. A `PlasmaState` given directly is constant for
 the whole run, and a term reads it once.
 """

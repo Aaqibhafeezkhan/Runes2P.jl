@@ -229,11 +229,11 @@ the fields `residual_norms`, `update_norms` and `step_lengths`. `exact_jacobian`
 whether the Newton matrix is the exact Jacobian (no term with an approximate stored
 block, or a linear solver whose operator restores it, [`GMRES`](@ref)`(operator=:exact)`),
 and `linear` whether the system is linear in the state and the matrix exact, so the first
-iteration solves a step and the second confirms it. For such a system `assembled_time`
-and `assembled_step` are the end time and the length of the step whose stored Jacobian
+iteration solves a step and the second confirms it. For such a system `assembled_time` and
+`assembled_step` are the end time [s] and the length [s] of the step whose stored Jacobian
 and Newton matrix are kept (`NaN`: none kept, see [`invalidate_jacobian!`](@ref));
-`jacobian_assemblies` counts the assemblies of the stored Jacobian since the workspace
-was made.
+`jacobian_assemblies` counts the assemblies of the stored Jacobian since the workspace was
+made.
 """
 struct NewtonWorkspace{T, S <: EquationSystem, L, C}
     system::S
@@ -660,14 +660,14 @@ end
 """
     newton_solve!(u, u_old, workspace::NewtonWorkspace, t, dt; reference=u_old)
 
-Solve the backward-Euler step from `u_old` to time `t` with step `dt`, starting from the
-guess in `u` and overwriting it. `reference` replaces `u_old` in the time derivative
+Solve the backward-Euler step from `u_old` to time `t` [s] with step `dt` [s], starting from
+the guess in `u` and overwriting it. `reference` replaces `u_old` in the time derivative
 alone ([`residual!`](@ref)): BDF2 passes its combination of the two last states with its
-effective step. Returns a [`NewtonResult`](@ref); on failure `u` holds
-the last iterate. Never throws for a failed iteration: a singular matrix, a non-finite
-residual, Jacobian or update, a `DomainError` from a term (evaluation outside the physical
-domain), a linear solve that did not converge, a failed line search, an entry below its lower limit at convergence and the
-iteration limit are reported through the status, for the time stepper to handle.
+effective step. Returns a [`NewtonResult`](@ref); on failure `u` holds the last iterate.
+Never throws for a failed iteration: a singular matrix, a non-finite residual, Jacobian or
+update, a `DomainError` from a term (evaluation outside the physical domain), a linear solve
+that did not converge, a failed line search, an entry below its lower limit at convergence
+and the iteration limit are reported through the status, for the time stepper to handle.
 """
 function newton_solve!(
         u::AbstractVector, u_old::AbstractVector, ws::NewtonWorkspace, t, dt;

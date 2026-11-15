@@ -49,7 +49,7 @@ field_in_coefficients = false)` or from a plasma without a field, knows its plas
   `p_max` as well: the response is that of the bulk on the hot-tail grid, and
   the flux into the runaway grid at a small field is far below the current of the bulk.
 - `pitch_rule` is that of the current moment ([`current_density`](@ref)).
-- `density` is the density of the equilibrium per radius, the electrons that carry the
+- `density` is the density [m⁻³] of the equilibrium per radius, the electrons that carry the
   current, by default the cold density of the plasma of the operator. It differs from the
   cold density of the collision coefficients in the limit of the Lorentz gas, which has no
   electron-electron collisions. In a fully kinetic run the current of `f_hot` over all
@@ -192,9 +192,10 @@ end
     ConductivityModel(plasma; reference=:braams_karney, kinetic=:none, operator=nothing,
                       pitch_rule=:linear)
 
-The conductivity `σ(r, t) = σ_reference − σ_kinetic` of a term `σ E` in the equation of
-the ohmic current ([`ConductivityTerm`](@ref)). `plasma` is a [`PlasmaState`](@ref) or a
-function of time that returns one. `model(t)` gives the conductivity per radius.
+The conductivity `σ(r, t) = σ_reference − σ_kinetic` of a term `σ E` in the equation of the
+ohmic current ([`ConductivityTerm`](@ref)). `plasma` is a [`PlasmaState`](@ref) or a
+function of time that returns one. `model(t)` gives the conductivity [S/m] per radius at the
+time `t` [s].
 
 - `reference = :braams_karney`: [`braams_karney_conductivity`](@ref), which is DREAM's
   conductivity of Sauter and Redl in cylindrical geometry.
@@ -300,13 +301,13 @@ end
 """
     ConductivityTerm(electric_field, model::ConductivityModel; coefficient=1)
 
-`coefficient` times `σ(r, t) E(r)` with the conductivity of `model` and the radial unknown
-`electric_field`, added to the row of a radial unknown with one component: Ohm's law of a
-fluid, `0 = σ E − j_ohm`, or the correction of the ohmic current of a fully kinetic run,
-`0 = j(f, all p) − j_hot + E (σ − σ_kinetic) − j_ohm` (DREAM's `j_ohm` with
-`correctedConductivity`). The conductivity is that of the plasma of the evaluation. It is
-kept until the plasma values of a radius change, or the coefficients of the operator of
-`kinetic = :discrete_operator`. The term is linear in the field.
+`coefficient` times `σ(r, t) E(r)` [A/m²] with the conductivity [S/m] of `model` and the
+radial unknown `electric_field` [V/m], added to the row of a radial unknown with one
+component: Ohm's law of a fluid, `0 = σ E − j_ohm`, or the correction of the ohmic current
+of a fully kinetic run, `0 = j(f, all p) − j_hot + E (σ − σ_kinetic) − j_ohm` (DREAM's
+`j_ohm` with `correctedConductivity`). The conductivity is that of the plasma of the
+evaluation. It is kept until the plasma values of a radius change, or the coefficients of
+the operator of `kinetic = :discrete_operator`. The term is linear in the field.
 """
 struct ConductivityTerm{M <: ConductivityModel} <: EquationTerm
     electric_field::Symbol
@@ -384,7 +385,7 @@ end
     conductivity_at(term::ConductivityTerm, t)
     conductivity_at(term::ConductivityTerm, u, layout, t)
 
-The conductivity of the term per radius [S/m] at the time `t` and the state `u` of the
+The conductivity of the term per radius [S/m] at the time `t` [s] and the state `u` of the
 system (`nothing` for a prescribed plasma).
 """
 conductivity_at(term::ConductivityTerm, t) = conductivity_at(term, nothing, nothing, t)

@@ -1,8 +1,8 @@
 """
     RadialGrid{T}
 
-Radial grid defined by its strictly increasing faces, the first at or above 0 (a first
-face above 0 leaves the core out), with the spatial Jacobian `V'(r)` at cell centres and
+Radial grid defined by its strictly increasing faces [m], the first at or above 0 (a first
+face above 0 leaves the core out), with the spatial Jacobian `V'(r)` [m] at cell centres and
 faces (DREAM `VpVol`). For a cylinder `V'(r) = r`, the derivative `dV/dr` of the volume
 per unit length `V = π r²`, divided by 2π.
 """
@@ -36,7 +36,8 @@ radial_cell_count(grid::RadialGrid) = length(grid.r_centers)
 """
     uniform_r_faces(cell_count, minor_radius)
 
-Faces of a uniform radial grid on `[0, minor_radius]` with `cell_count` cells.
+Faces [m] of a uniform radial grid on `[0, minor_radius]` with `cell_count` cells, for the
+minor radius `minor_radius` [m].
 """
 function uniform_r_faces(cell_count::Integer, minor_radius::Real)
     collect(range(0.0, float(minor_radius); length = cell_count + 1))

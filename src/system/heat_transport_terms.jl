@@ -19,7 +19,7 @@ takes the density and the temperature interpolated linearly between the two cell
 - a diffusivity `D` [m²/s], `χ = 3/2 e D n` (DREAM's
   `src/Equations/Fluid/HeatTransportDiffusion.cpp:85-87`): `diffusion`
   a radial profile ([`radial_values`](@ref) on the faces), or `diffusion_at` a function of
-  time that returns one;
+  the time [s] that returns one;
 - the heat diffusivity of Rechester and Rosenbluth in stochastic field lines (A. B.
   Rechester and M. N. Rosenbluth, Phys. Rev. Lett. 40, 38 (1978),
   doi:10.1103/PhysRevLett.40.38; DREAM's
@@ -29,16 +29,15 @@ takes the density and the temperature interpolated linearly between the two cell
   χ = 3\\sqrt{2π}\\, e\\, c\\, q R_0 (δB/B)^2\\, n \\sqrt{Θ} (1 − 5Θ/8),\\qquad Θ = T/m_ec^2,
   ```
   the energy moment of the kinetic diffusion `π q R₀ |v_∥| (δB/B)²` of
-  [`add_rechester_rosenbluth_diffusion!`](@ref) on a Maxwellian of uniform density. The
-  part of that moment in `∂_r n` is dropped, as in DREAM, whose derivation assumes
+  [`add_rechester_rosenbluth_diffusion!`](@ref) on a Maxwellian of uniform density. The part
+  of that moment in `∂_r n` is dropped, as in DREAM, whose derivation assumes
   `∂n_cold/∂r = 0` because the cold electrons are not transported
-  (`doc/notes/heat-transport.tex:236-245`). `delta_b_over_b` is a
-  profile, or `delta_b_over_b_at` a function of time such as the
-  [`PiecewiseConstant`](@ref) transport history of a [`RechesterRosenbluthUpdate`](@ref).
-  The same object in both keeps the kinetic and the heat transport on one level. The
-  major radius `R₀` and the safety factor `q` are inputs, as for the kinetic operator. The
-  default `q = 1` is DREAM's, which fixes it (`HeatTransportRechesterRosenbluth.cpp:98-100`,
-  marked as a TODO there).
+  (`doc/notes/heat-transport.tex:236-245`). `delta_b_over_b` is a profile, or
+  `delta_b_over_b_at` a function of the time [s] such as the [`PiecewiseConstant`](@ref)
+  transport history of a [`RechesterRosenbluthUpdate`](@ref). The same object in both keeps
+  the kinetic and the heat transport on one level. The major radius `R₀` [m] and the safety
+  factor `q` are inputs, as for the kinetic operator. The default `q = 1` is DREAM's, which
+  fixes it (`HeatTransportRechesterRosenbluth.cpp:98-100`, marked as a TODO there).
 
 A [`PiecewiseConstant`](@ref) level takes, in the step that ends at a switch time, the value
 before the switch ([`level_over_step`](@ref)).
@@ -219,9 +218,10 @@ end
 """
     heat_flux_through_edge(term::HeatTransportTerm, u, layout, t)
 
-The heat that leaves through the edge of the plasma [W per unit of `∫ V' dr`, as the
-volume integral of the term], `−V' χ ∂_r T` at `r = a`: zero with `edge = :zero_flux`.
-The volume integral of the term is minus this flux.
+The heat that leaves through the edge of the plasma at the time `t` [s], `−V' χ ∂_r T` at
+`r = a` [W/m]: zero with `edge = :zero_flux`. With the spatial Jacobian `V' = r` of a
+cylinder, it is the heat per second through the edge per metre of the cylinder divided by
+2π. The volume integral `Σ V' Δr` of the term, in the same unit, is minus this flux.
 """
 function heat_flux_through_edge(term::HeatTransportTerm, u, layout, t)
     rg = layout.radial_grid

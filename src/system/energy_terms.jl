@@ -6,7 +6,9 @@
 
 `coefficient` times the product of the radial unknowns `first` and `second`, each with one
 component, at every radius, added to the row of a radial unknown with one component
-(DREAM's `DiagonalQuadraticTerm`). Not linear in the state.
+(DREAM's `DiagonalQuadraticTerm`). Not linear in the state. The term takes the unit of its
+row, so `coefficient` has the unit of the row over the product of the units of `first` and
+`second`.
 """
 struct ProductTerm <: EquationTerm
     first::Symbol
@@ -84,9 +86,9 @@ end
                         temperature=:cold_electron_temperature, density=:cold_electron_density)
 
 Set the energy of the cold electrons in the state `u` from its temperature and density,
-`W = 3/2 e n T` at every radius. DREAM's order of the initial values: the temperature from
-the input, the density from its row, and then the energy (`T_cold.cpp`, `n_cold.cpp`). The
-density must already hold its value.
+`W = 3/2 e n T` [J/m³] at every radius. DREAM's order of the initial values: the temperature
+from the input, the density from its row, and then the energy (`T_cold.cpp`, `n_cold.cpp`).
+The density must already hold its value.
 """
 function set_thermal_energy!(
         u::AbstractVector, layout::UnknownLayout; energy::Symbol = :cold_thermal_energy,
@@ -207,7 +209,8 @@ end
     total_energy_equation(kinetic, grid; region, total_energy=:total_electron_energy,
                           energy=:cold_thermal_energy)
 
-The algebraic equation of the total energy of the electrons in the fully kinetic mode:
+The algebraic equation of the total energy `W_tot` [J/m³] of the electrons in the fully
+kinetic mode:
 
 ```math
 W_\\mathrm{tot} = W_\\mathrm{cold} + \\sum_{p > p_0} m_e c^2 (γ − 1) f\\, ΔV,
