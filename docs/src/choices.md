@@ -95,6 +95,7 @@ The default hot region of [`ThermalMomentum`](@ref) takes 7 for every form.
 |---|---|---|
 | continuation of the ADAS coefficients outside the tables, in [`adas_coefficient`](@ref), [`IonRateTerm`](@ref) and [`RadiatedPowerTerm`](@ref) | `extrapolation = :dream` | the default behaviour matches DREAM, a code used by researchers in the field |
 | radiation mode of [`RadiatedPowerTerm`](@ref) | `radiation = :recombination` | - |
+| range of the ion masses that [`IonEnergyExchangeTerm`](@ref) accepts | `MINIMUM_ION_MASS = 1e-27` to `MAXIMUM_ION_MASS = 1e-24`, in kg | a guard against masses in other units |
 
 Inside the tables the interpolation is bicubic in ``\log_{10}`` of the coefficient over ``\log_{10} n`` and ``\log_{10} T``.
 `extrapolation = :dream` continues the bilinear interpolation of ``\log_{10}`` of the coefficient in ``\log_{10} n`` and ``\log_{10} T`` from the edge cell, as DREAM's `ADASRateInterpolator` does.
@@ -105,6 +106,10 @@ The radiation takes the ADAS classes PLT (line radiation) and PRB (recombination
 `radiation = :dream` is DREAM's default: PLT, the ionization loss and the bremsstrahlung of R. J. Gould, The Astrophysical Journal 238, 1026 (1980), [doi:10.1086/158068](https://doi.org/10.1086/158068).
 The erratum is The Astrophysical Journal 243, 677 (1981), [doi:10.1086/158634](https://doi.org/10.1086/158634).
 It reproduces DREAM's radiation with `bremsstrahlung_corrections = :dream`, which takes DREAM's coefficients of Gould's corrections.
+
+[`IonEnergyExchangeTerm`](@ref) refuses a mass of `masses` outside the range of the ion masses.
+The masses of [`ion_mass`](@ref) lie inside it in both tables.
+A mass in atomic mass units or in grams lies above it.
 
 ## Plasma from the unknowns
 

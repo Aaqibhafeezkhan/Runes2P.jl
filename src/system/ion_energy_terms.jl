@@ -102,11 +102,12 @@ struct IonEnergyExchangeTerm{S <: PrescribedPlasma} <: EquationTerm
 end
 
 # The bounds [kg] of the ion masses that IonEnergyExchangeTerm accepts, a guard against masses
-# in other units. The masses of ion_mass lie inside:
-# - the lightest, the proton, is 1.67e-27 kg in both tables.
-# - the heaviest of the standard table, uranium, is 3.95e-25 kg.
-# - DREAM's table gives 2.3 Z atomic mass units beyond Z = 40, 3.51e-25 kg at uranium, and
-#   stays inside up to Z = 261.
+# in other units (a choice of this package; see the docs page *Choices of this package*). The
+# masses of ion_mass lie inside:
+# - The lightest, the proton, is 1.67e-27 kg in both tables.
+# - The heaviest of the standard table, uranium, is 3.95e-25 kg.
+# - DREAM's table gives 2.3 Z atomic mass units beyond Z = 40, which is 3.51e-25 kg at uranium
+#   and stays inside up to Z = 261.
 # A mass in atomic mass units, in proton masses or in MeV/c² is at least 1 and so far above the
 # upper bound. A mass in grams is a number 1000 times larger, at least 1.67e-24, and also above.
 const MINIMUM_ION_MASS = 1e-27
@@ -136,11 +137,11 @@ function IonEnergyExchangeTerm(
     if length(mass_values) != length(species_list)
         throw(DimensionMismatch("need one mass per ion species ($(length(species_list))), got $(length(mass_values))"))
     end
-    for mass in mass_values
+    for (index, mass) in enumerate(mass_values)
         if !(MINIMUM_ION_MASS <= mass <= MAXIMUM_ION_MASS)
-            throw(ArgumentError("the ion mass $mass lies outside $MINIMUM_ION_MASS to " *
-                                "$MAXIMUM_ION_MASS kg: the masses are in kg " *
-                                "(one atomic mass unit is $ATOMIC_MASS_UNIT kg)"))
+            throw(ArgumentError("the mass $mass of ion species $index ($(species_list[index].name)) " *
+                                "lies outside the range $MINIMUM_ION_MASS kg to $MAXIMUM_ION_MASS kg: " *
+                                "the masses are in kg (one atomic mass unit is $ATOMIC_MASS_UNIT kg)"))
         end
     end
     return IonEnergyExchangeTerm(
