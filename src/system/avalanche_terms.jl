@@ -228,8 +228,8 @@ the rate `Γ` [s⁻¹]
 \\qquad Γ = Γ_\\mathrm{fluid} \\text{ otherwise},
 ```
 
-`a = exponent = −2` (DREAM's value), the Rosenbluth-Putvinski rate [s⁻¹] of the knock-ons
-above `p_cutoff` (units of `mₑc`), `Γ_ext = n_tot`
+`a = exponent = −2` (DREAM's value), the Rosenbluth-Putvinski rate `Γ_ext` [s⁻¹] of the
+knock-ons above `p_cutoff` (units of `mₑc`), `Γ_ext = n_tot`
 [`rosenbluth_putvinski_rate`](@ref)`(p_cutoff)`, and DREAM's fluid growth rate [s⁻¹] with
 the effective critical field, [`fluid_avalanche_growth_rate`](@ref). The match makes the
 external rate, positive at every field, follow the fluid rate below the effective critical
