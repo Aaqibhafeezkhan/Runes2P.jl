@@ -4,7 +4,7 @@
 CurrentModule = Runes2P
 ```
 
-This page covers the installation, a first run with the examples, the settings of a run and its output files.
+This page covers the installation, a first run with the examples, the units of the inputs, the settings of a run and its output files.
 
 ## Installation
 
@@ -107,6 +107,63 @@ The three scripts build a run in the same order.
 
 The shared helpers of the scripts are in `examples/common.jl`: the switches, a Maxwell-Jüttner initial state normalized with [`density`](@ref), the report and the output.
 
+## Units
+
+The inputs of a run are in SI units, except temperatures and particle energies in eV and momenta in units of ``m_e c``, with ``m_e`` the electron mass and ``c`` the speed of light.
+The code checks no unit, so a value in another unit gives a wrong result without an error.
+The table lists the units by group, and the notes below it explain the distribution, the flux, the energies and the external data.
+
+| Group | Quantity | Unit |
+|---|---|---|
+| plasma | temperatures of [`PlasmaState`](@ref) and of the temperature unknowns | eV |
+| plasma | electron and ion densities | m⁻³ |
+| plasma | effective charge ``Z_\mathrm{eff}`` | dimensionless |
+| plasma | ion masses (`masses` of [`IonEnergyExchangeTerm`](@ref)) | kg |
+| grids | momentum faces, momentum cutoffs, limits of a [`MomentumRegion`](@ref) | ``m_e c`` |
+| grids | pitch ``\xi`` | dimensionless |
+| grids | pitch-angle separation of [`biuniform_theta_xi_faces`](@ref) | rad |
+| grids | radial faces, minor radius, wall radius, major radius | m |
+| time | times, time steps, save times | s |
+| time | wall times of [`CheckpointSettings`](@ref) and [`StopCondition`](@ref) | s |
+| time | `guard_minutes` of [`ProgressLog`](@ref) | min |
+| distribution and moments | distribution ``f`` | m⁻³ |
+| distribution and moments | density moment ([`density`](@ref)) | m⁻³ |
+| distribution and moments | current moment ([`current_density`](@ref)) | A/m² |
+| fields and currents | electric field | V/m |
+| fields and currents | electric field in multiples of [`critical_field`](@ref) | dimensionless |
+| fields and currents | magnetic field | T |
+| fields and currents | relative perturbation ``\delta B/B`` of the field | dimensionless |
+| fields and currents | current density | A/m² |
+| fields and currents | plasma current | A |
+| fields and currents | poloidal flux per major radius | V s/m |
+| fields and currents | conductivity | S/m |
+| energies | particle energies, ionization energies, widths of the secondary spectrum | eV |
+| energies | thermal energy densities | J/m³ |
+| energies | powers | W/m³ |
+| energies | diffusivities | m²/s |
+| atomic data | rate coefficients of ionization, recombination and charge exchange | m³/s |
+| atomic data | coefficients of the radiated power | W m³ |
+
+The units of the unknowns that the package names by default are on the page [Unknowns and the equation system](model/unknowns.md#Units-of-the-unknowns).
+The output files and the settings record carry no units ([Output files](model/output.md)).
+
+### Notes on the units
+
+The distribution ``f`` is a density per unit of momentum volume, with the momentum in units of ``m_e c``.
+So ``f`` is in m⁻³, and its density moment at a radius is ``n = \int 2\pi p^2 f \, \mathrm{d}p \, \mathrm{d}\xi`` ([`density`](@ref)).
+DREAM labels its distributions in m⁻³ by the same convention (DREAM's `src/Settings/Constants.cpp`).
+
+The poloidal flux is DREAM's, the flux divided by the major radius, and so it is in V s/m ([Pairing of rows and unknowns](model/unknowns.md#Pairing-of-rows-and-unknowns)).
+
+A thermal energy density is ``W = \tfrac32 e\, n T`` in J/m³, with ``e`` the elementary charge, although the temperature ``T`` is in eV ([`THERMAL_ENERGY_FACTOR`](@ref)).
+
+[`total_particles`](@ref) and [`radial_particle_content`](@ref) sum ``n V' \Delta r`` over the radii, with the spatial Jacobian ``V' = r`` of a cylinder and the radial cell width ``\Delta r``.
+These totals are the electrons per metre of the cylinder divided by ``2\pi``, in m⁻¹.
+
+The atomic data in other units are converted by the package.
+[`read_adf11`](@ref) converts the densities of an ADAS file from cm⁻³ to m⁻³ and its coefficients from cm³ to m³ ([ADAS rate coefficients](model/atomic-data.md#ADAS-rate-coefficients)).
+The fits of CHIANTI ([`CHIANTI_IONIZATION_FITS`](@ref)) keep the units of their files, and the cross sections computed from them are in m² ([`chianti_cross_section`](@ref)).
+
 ## Switches
 
 A script takes `name=value` arguments, and every switch has a default.
@@ -115,13 +172,18 @@ The switches of `common.jl` are shared, and a script's header names the defaults
 | Switches | Values | Sets |
 |---|---|---|
 | `grid=` | `uniform` (default), `biuniform`, `tanh`, `biuniform_270` | the momentum faces ([notes](#Notes-on-the-grids-and-schemes)) |
-| `np=`, `p_max=` | integer, number | the momentum cells and the extent |
-| `np_low=`, `p_sep=` | integer, number | the cells below the split of the biuniform and tanh grids, and its position |
+| `np=`, `p_max=` | integer, ``m_e c`` | the momentum cells and the extent |
+| `np_low=`, `p_sep=` | integer, ``m_e c`` | the cells below the split of the biuniform and tanh grids, and its position |
 | `pitch=` | `uniform` (default), `theta` (biuniform in the pitch angle) | the pitch faces |
 | `nxi=` | integer | the pitch cells |
 | `nxi_low=`, `theta_sep=` | integer, radians | the cells of `pitch=theta` within `theta_sep=` of ``\xi = 1`` |
 | `T=`, `n=`, `B=` | eV, m⁻³, T | the deuterium plasma |
 | `n_ar=` | m⁻³ | neutral argon added to the plasma (`relaxation.jl`) |
+| `T0=` | eV | the temperature of the initial Maxwell-Jüttner distribution of `relaxation.jl`, the plasma temperature by default |
+| `p_star=` | ``m_e c`` | the momentum above which `relaxation.jl` reports the density fraction |
+| `T_final=` | eV | the final temperature of `cooling.jl`, which starts at `T=` |
+| `nr=` | integer | the radii of `cooling.jl` |
+| `dbb=` | dimensionless | ``\delta B/B`` of the radial diffusion of `cooling.jl` with `nr=` above one |
 | `E=` or `e_over_ec=` | V/m, or multiples of [`critical_field`](@ref) at the [`thermal_coulomb_logarithm`](@ref) | the electric field |
 | `mode=` | `full` (default of `relaxation.jl` and `cooling.jl`), `superthermal`, `ultra_relativistic` | the collision frequency mode ([`CollisionSettings`](@ref)) |
 | `screening=` | `partial` (default), `complete`, `none` | the screening |
@@ -154,7 +216,7 @@ The switches of `common.jl` are shared, and a script's header names the defaults
 ### Notes on the grids and schemes
 
 These notes belong to the rows `grid=`, `scheme=`, `jacobian=` and `pmax_boundary=` of the table above.
-Momenta are in units of ``m_e c`` ([Grids](model/grids.md)).
+Momenta are in units of ``m_e c`` ([Units](#Units)).
 
 `grid=biuniform_270` is a fully kinetic hot-tail grid and a choice of this package ([Choices of this package](choices.md)).
 It ignores the other grid switches.
@@ -221,7 +283,7 @@ Its own switches are these.
 | Switch | Sets |
 |---|---|
 | `treatment=` | the time level of the knock-on term ([`avalanche.jl`](#avalanche.jl)) |
-| `cutoff=` | the knock-on cutoff momentum |
+| `cutoff=` | the knock-on cutoff momentum, in units of ``m_e c`` |
 | `np=`, `np_low=` | the momentum cells, and those below the fixed split at ``p = 0.7`` |
 | `nxi=` | the cells of its own pitch grid, finer towards ``\xi = 1`` |
 | `e_over_ec=` | the field in multiples of the critical field of the total electron density |
