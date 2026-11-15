@@ -37,7 +37,7 @@ The scripts are described in [The examples](#The-examples), and the arguments su
 ## The examples
 
 Each script solves one kinetic equation for the electron distribution ``f(p, \xi, r)`` and runs without arguments.
-Its header lists its default values and further command lines.
+Its header lists its default values, the sources of these values and further command lines.
 
 | Script | What it integrates | What it reports |
 |---|---|---|
@@ -52,6 +52,7 @@ Its header lists its default values and further command lines.
 - The operator is that of [`fokker_planck_operator`](@ref).
 - `p_star=` adds the fraction of the density above that momentum at every save.
 - The plasma values are choices of this package ([Choices of this package](choices.md)).
+- By default the field lies between the critical and the Dreicer field ([Choices of this package](choices.md)).
 
 ### `cooling.jl`
 
@@ -64,6 +65,7 @@ Its header lists its default values and further command lines.
 - The plasma is that of `reference/dream/cases/cooling_positivity.py`, cooled over 2 ms where that case takes 1 ms.
 - The radial values are those of DREAM's SPI example.
 - The grid and the time step are a choice of this package.
+- With the default scheme, check the loss through `p_max` against a finer `np=` ([Exponential fitting](model/positivity.md#Exponential-fitting)).
 
 ### `avalanche.jl`
 
@@ -112,7 +114,7 @@ The switches of `common.jl` are shared, and a script's header names the defaults
 
 | Switches | Values | Sets |
 |---|---|---|
-| `grid=` | `uniform` (default), `biuniform`, `tanh`, `biuniform_270` | the momentum faces |
+| `grid=` | `uniform` (default), `biuniform`, `tanh`, `biuniform_270` | the momentum faces ([notes](#Notes-on-the-grids-and-schemes)) |
 | `np=`, `p_max=` | integer, number | the momentum cells and the extent |
 | `np_low=`, `p_sep=` | integer, number | the cells below the split of the biuniform and tanh grids, and its position |
 | `pitch=` | `uniform` (default), `theta` (biuniform in the pitch angle) | the pitch faces |
@@ -126,16 +128,16 @@ The switches of `common.jl` are shared, and a script's header names the defaults
 | `lnlambda=` | `thermal` (default), `energy_dependent`, `relativistic` | the Coulomb logarithm |
 | `ion_size_table=` | `hesslow` (default), `dream` | the table of ion sizes |
 | `synchrotron=` | `true`, `false` (default) | the synchrotron loss of `relaxation.jl` |
-| `scheme=`, `p_scheme=`, `xi_scheme=` | `exponential_fitting` (default), `central`, `upwind`, `quick`, `upwind_second_order`, `van_albada`, `tcdf`, `muscl`, `smart`, `ospre` | the interpolation scheme in both directions or in one ([`AdvectionDiffusion`](@ref)) |
-| `jacobian=` | `exact` (default), `frozen_limiter`, `upwind`, `central`, `exponential_fitting` | the stored Jacobian of a limiter ([`FokkerPlanckTerm`](@ref)) |
-| `pmax_boundary=` | `f_zero` (default), `constant_flux`, `extrapolated_flux` (needs a `p_scheme=` other than the default), `extrapolated_flux_consistent`, `outflow` | the boundary at `p_max` ([`AdvectionDiffusion`](@ref)) |
-| `nonnegative=` | `true`, `false` (default) | a [`LowerLimit`](@ref) ``f \ge 0`` on the unknown (`relaxation.jl`, `cooling.jl`) |
-| `solver=` | `lu` (default), `gmres` | [`SparseLU`](@ref), or [`GMRES`](@ref) on the Newton operator |
-| `preconditioner=` | `lu` (default), `ilu` | [`RadiusBlockLU`](@ref) or [`RadiusBlockILU`](@ref) for GMRES |
+| `scheme=`, `p_scheme=`, `xi_scheme=` | `exponential_fitting` (default), `central`, `upwind`, `quick`, `upwind_second_order`, `van_albada`, `tcdf`, `muscl`, `smart`, `ospre` | the interpolation scheme in both directions or in one ([`AdvectionDiffusion`](@ref), [notes](#Notes-on-the-grids-and-schemes)) |
+| `jacobian=` | `exact` (default), `frozen_limiter`, `upwind`, `central`, `exponential_fitting` | the stored Jacobian of a limiter ([`FokkerPlanckTerm`](@ref), [notes](#Notes-on-the-grids-and-schemes)) |
+| `pmax_boundary=` | `f_zero` (default), `constant_flux`, `extrapolated_flux` (needs a `p_scheme=` other than the default), `extrapolated_flux_consistent`, `outflow` | the boundary at `p_max` ([`AdvectionDiffusion`](@ref), [notes](#Notes-on-the-grids-and-schemes)) |
+| `nonnegative=` | `true`, `false` (default) | a [`LowerLimit`](@ref) ``f \ge 0`` on the unknown (`relaxation.jl`, `cooling.jl`, [Lower limits](#Lower-limits)) |
+| `solver=` | `lu` (default), `gmres` | the monolithic sparse LU of [`SparseLU`](@ref), or [`GMRES`](@ref) on the Newton operator |
+| `preconditioner=` | `lu` (default), `ilu` | the factorization of the stored matrix per radius for GMRES, [`RadiusBlockLU`](@ref) or [`RadiusBlockILU`](@ref) ([notes](#Notes-on-the-solver)) |
 | `ilu_drop=` | number | the drop tolerance of [`RadiusBlockILU`](@ref) |
-| `refresh=` | `every_step` (default), `every_iteration`, `on_demand` | when the preconditioner is factorized again |
-| `operator=` | `exact` (default), `stored` | the Newton operator of GMRES |
-| `restart=` | integer | the restart length of GMRES |
+| `refresh=` | `every_step` (default), `every_iteration`, `on_demand` | when the preconditioner is factorized again ([notes](#Notes-on-the-solver)) |
+| `operator=` | `exact` (default), `stored` | the Newton operator of GMRES ([notes](#Notes-on-the-solver)) |
+| `restart=` | integer | the restart length of GMRES ([notes](#Notes-on-the-solver)) |
 | `max_iterations=`, `residual_tolerance=` | integer, number | the Newton iterations and the residual tolerance of [`NewtonSolver`](@ref) |
 | `line_search=` | boolean | the backtracking line search of [`NewtonSolver`](@ref) |
 | `dt=`, `t_end=` | s, s | the time points of [`integrate`](@ref) |
@@ -143,18 +145,71 @@ The switches of `common.jl` are shared, and a script's header names the defaults
 | `output=` | file name | the HDF5 output, written with [`write_output`](@ref) |
 | `checkpoint=`, `checkpoint_dir=` | name, directory | the [`CheckpointSettings`](@ref) of a run of that name |
 | `checkpoint_interval=` | s | the wall time between checkpoints, 1800 s by default |
-| `resume=` | boolean | the continuation from the last checkpoint, when there is one |
-| `overwrite=` | boolean | whether a run may replace the segment files of an earlier one |
-| `stop_file=`, `wall_budget=`, `slack=` | file name, s, s | the [`StopCondition`](@ref) of a segment |
-| `log=` | `stdout` or a file name | the [`ProgressLog`](@ref) |
+| `resume=` | `true`, `false` (default) | the continuation from the last checkpoint, when there is one |
+| `overwrite=` | `true`, `false` (default) | whether a run may replace the segment files of an earlier one |
+| `stop_file=`, `wall_budget=`, `slack=` | file name, s, s | the [`StopCondition`](@ref) of a segment ([The stop of a segment](#The-stop-of-a-segment)) |
+| `log=` | `stdout` or a file name | the [`ProgressLog`](@ref), appended to the named file |
 | `request_file=` | file name | the file whose appearance asks the log for an entry |
 
-`grid=biuniform_270` is a fully kinetic hot-tail grid of 270 momentum cells to ``p = 2.5``.
-It has 15 pitch cells, ignores the other grid switches and is a choice of this package ([Choices of this package](choices.md)).
-The default scheme, exponential fitting, is a choice of this package too.
-Its properties, the other schemes and DREAM's default are on the page [Positivity and flux limiters](model/positivity.md).
+### Notes on the grids and schemes
 
-The examples precondition GMRES with [`RadiusBlockLU`](@ref) and restart it after 30 iterations, unlike the defaults of [`GMRES`](@ref).
+These notes belong to the rows `grid=`, `scheme=`, `jacobian=` and `pmax_boundary=` of the table above.
+Momenta are in units of ``m_e c`` ([Grids](model/grids.md)).
+
+`grid=biuniform_270` is a fully kinetic hot-tail grid and a choice of this package ([Choices of this package](choices.md)).
+It ignores the other grid switches.
+
+| `grid=biuniform_270` | Value |
+|---|---|
+| momentum cells | 270 |
+| of them below ``p = 0.07`` | 70 |
+| upper end | ``p = 2.5`` |
+| pitch cells | 15 |
+| of them within 0.5 rad of ``\xi = 1`` | 10 |
+
+The schemes up to `upwind_second_order` are linear in ``f``.
+The rest are flux limiters, which are nonlinear.
+The default scheme, exponential fitting, is a choice of this package.
+Its properties and the other schemes are on the page [Positivity and flux limiters](model/positivity.md).
+
+DREAM's default is `AD_INTERP_CENTRED` (DREAM's `py/DREAM/Settings/Equations/DistributionFunction.py`).
+`scheme=central` matches it ([Defaults that differ](dream-comparison.md#Defaults-that-differ)).
+DREAM's other choices include the flux limiters ([Comparison with DREAM](dream-comparison.md#Kinetic-options)).
+
+The stored Jacobian, or stored matrix, is the Jacobian of the implicit terms that have a stored Jacobian, which the solver assembles ([The step](model/time-stepping.md#The-step)).
+[`SparseLU`](@ref) factorizes the Newton matrix built from it, and the preconditioners of [`GMRES`](@ref) factorize the stored matrix in blocks ([Linear solvers and preconditioners](model/time-stepping.md#Linear-solvers-and-preconditioners)).
+
+- `jacobian=exact` takes the exact Jacobian by automatic differentiation.
+- `jacobian=frozen_limiter` freezes the limiter at the iterate (DREAM `AD_INTERP_JACOBIAN_LINEAR`).
+- `jacobian=upwind`, `central` and `exponential_fitting` take the Jacobian of that linear scheme.
+  `upwind` is DREAM `AD_INTERP_JACOBIAN_UPWIND`.
+
+| `pmax_boundary=` | DREAM |
+|---|---|
+| `f_zero` | `BC_F_0` |
+| `constant_flux` | `BC_PHI_CONST` |
+| `extrapolated_flux` | `BC_DPHI_CONST` as DREAM's code has it |
+| `extrapolated_flux_consistent` | `BC_DPHI_CONST` as DREAM defines it |
+| `outflow` | — |
+
+`extrapolated_flux_consistent` extrapolates the flux with the ``\mathcal{V}'`` and the flux of each face, as DREAM's definition of `BC_DPHI_CONST` states ([Comparison with DREAM](dream-comparison.md#Extrapolated-flux-at-the-highest-momentum)).
+`outflow` lets only the advection leave the grid, and [`AdvectionDiffusion`](@ref) names no DREAM condition for it.
+
+### Notes on the solver
+
+These notes belong to the rows `preconditioner=`, `refresh=`, `restart=` and `operator=` of the table above.
+The examples set three keywords of [`GMRES`](@ref) differently from its defaults.
+
+| Switch | Keyword of [`GMRES`](@ref) | Default of the examples | Default of [`GMRES`](@ref) |
+|---|---|---|---|
+| `preconditioner=` | `preconditioner` | [`RadiusBlockLU`](@ref) | [`FluidSchurLU`](@ref) |
+| `refresh=` | `preconditioner_refresh` | `:every_step` | `:every_iteration` |
+| `restart=` | `restart_length` | 30 | 50 |
+
+`operator=` matters only for a term whose block of the stored Jacobian approximates its Jacobian ([`jacobian_kind`](@ref)), such as a limiter with a `jacobian=` other than `exact`.
+Without such terms the two values are the same.
+With `operator=exact` the approximate block only preconditions the exact Newton operator.
+`operator=stored` iterates with the stored matrix, a quasi-Newton iteration as in DREAM.
 
 ### The switches of `avalanche.jl`
 
@@ -168,21 +223,36 @@ Its own switches are these.
 | `treatment=` | the time level of the knock-on term ([`avalanche.jl`](#avalanche.jl)) |
 | `cutoff=` | the knock-on cutoff momentum |
 | `np=`, `np_low=` | the momentum cells, and those below the fixed split at ``p = 0.7`` |
-| `nxi=` | the cells of its own pitch grid, which grows geometrically |
+| `nxi=` | the cells of its own pitch grid, finer towards ``\xi = 1`` |
 | `e_over_ec=` | the field in multiples of the critical field of the total electron density |
 
 ### Lower limits
 
-With `nonnegative=true`, a Newton step that would push an entry already at zero below it fails with `:below_lower_limit` ([`LowerLimit`](@ref), [`NewtonSolver`](@ref)).
+`nonnegative=true` declares a [`LowerLimit`](@ref) of value 0 and tolerance 0 on ``f``.
+[`NewtonSolver`](@ref) shortens the Newton update so that no limited entry loses more than the fraction `max_reduction` of its distance to its limit in one iteration.
+The default `max_reduction = 0.9` is DREAM's value ([Lower limits of the Newton step](model/positivity.md#Lower-limits-of-the-Newton-step)).
+
+A step that would push an entry already at its limit further down fails with `:below_lower_limit`.
 [`FixedSteps`](@ref) then retries the step with half the time step.
+DREAM skips such entries instead.
+
 At a low temperature on a wide grid, the Maxwell-Jüttner tail underflows to exact zeros, so such a run rejects and halves many steps.
 Shorter steps do not remove a round-off negative update of an entry at zero.
 A positive tolerance of the [`LowerLimit`](@ref) does.
+No switch of the examples sets the tolerance or `max_reduction`.
 
-### Slurm jobs
+### The stop of a segment
 
-In a Slurm job with checkpoints, the segment stops before the end of the job without further switches.
-[`StopCondition`](@ref) takes `SLURM_JOB_END_TIME` as its end.
+A segment stops after an accepted step when the file of `stop_file=` exists ([`StopCondition`](@ref), [Checkpoints, segments and the stop](model/time-stepping.md#Checkpoints,-segments-and-the-stop)).
+It also stops when the wall-clock time left until its end is less than a margin.
+That end is the end of `wall_budget=` or the end of the Slurm job.
+The margin is the longest accepted step of the segment so far, plus the longest write of a checkpoint with its output, plus `slack=` seconds.
+`wall_budget=` counts its seconds from the start of the timed run, after the warm-up over the first three time points ([What every script prints](#What-every-script-prints)).
+
+In a Slurm job, [`StopCondition`](@ref) takes `SLURM_JOB_END_TIME` as the end of the job.
+A run with `checkpoint=` stops before the end of the job without further switches.
+Without `checkpoint=`, the end of the job counts only when `stop_file=` or `wall_budget=` is given.
+With `wall_budget=` in a Slurm job, the earlier of the end of `wall_budget=` and the end of the job counts.
 
 ## The settings of a run
 
