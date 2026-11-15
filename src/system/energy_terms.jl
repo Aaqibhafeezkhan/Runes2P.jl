@@ -6,7 +6,9 @@
 
 `coefficient` times the product of the radial unknowns `first` and `second`, each with one
 component, at every radius, added to the row of a radial unknown with one component
-(DREAM's `DiagonalQuadraticTerm`). Not linear in the state.
+(DREAM's `DiagonalQuadraticTerm`). Not linear in the state. The term takes the unit of its
+row, so `coefficient` has the unit of the row over the product of the units of `first` and
+`second`.
 """
 struct ProductTerm <: EquationTerm
     first::Symbol
@@ -207,7 +209,8 @@ end
     total_energy_equation(kinetic, grid; region, total_energy=:total_electron_energy,
                           energy=:cold_thermal_energy)
 
-The algebraic equation of the total energy of the electrons in the fully kinetic mode:
+The algebraic equation of the total energy `W_tot` [J/m³] of the electrons in the fully
+kinetic mode:
 
 ```math
 W_\\mathrm{tot} = W_\\mathrm{cold} + \\sum_{p > p_0} m_e c^2 (γ − 1) f\\, ΔV,

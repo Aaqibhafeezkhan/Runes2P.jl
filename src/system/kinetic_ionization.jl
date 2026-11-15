@@ -17,7 +17,8 @@ electrons of the kinetic unknown `kinetic` on `grid`, in the rows of the ion den
 K_j = \\frac{1}{V'} \\sum_{\\text{cells}} e(p)\\, v σ_j(p)\\, 𝒱' Δp Δξ\\, f,
 ```
 
-with the cross sections [`ionization_cross_section`](@ref) of the form
+with the ionization rate `K_j` [s⁻¹] of the charge state `j`, the cross sections
+[`ionization_cross_section`](@ref) of the form
 `ionization_cross_section_form` (`:chianti`, the default, CHIANTI's parameters continued
 relativistically, with DREAM's form for the elements CHIANTI's table lacks; `:dream`,
 DREAM's form and fits; or `:bethe`, DREAM's form with its relativistic term divided by `β²`,

@@ -19,7 +19,7 @@ takes the density and the temperature interpolated linearly between the two cell
 - a diffusivity `D` [m²/s], `χ = 3/2 e D n` (DREAM's
   `src/Equations/Fluid/HeatTransportDiffusion.cpp:85-87`): `diffusion`
   a radial profile ([`radial_values`](@ref) on the faces), or `diffusion_at` a function of
-  time that returns one;
+  the time [s] that returns one;
 - the heat diffusivity of Rechester and Rosenbluth in stochastic field lines (A. B.
   Rechester and M. N. Rosenbluth, Phys. Rev. Lett. 40, 38 (1978),
   doi:10.1103/PhysRevLett.40.38; DREAM's
@@ -33,9 +33,9 @@ takes the density and the temperature interpolated linearly between the two cell
   of that moment in `∂_r n` is dropped, as in DREAM, whose derivation assumes
   `∂n_cold/∂r = 0` because the cold electrons are not transported
   (`doc/notes/heat-transport.tex:236-245`). `delta_b_over_b` is a profile, or
-  `delta_b_over_b_at` a function of time such as the [`PiecewiseConstant`](@ref) transport
-  history of a [`RechesterRosenbluthUpdate`](@ref). The same object in both keeps the
-  kinetic and the heat transport on one level. The major radius `R₀` [m] and the safety
+  `delta_b_over_b_at` a function of the time [s] such as the [`PiecewiseConstant`](@ref)
+  transport history of a [`RechesterRosenbluthUpdate`](@ref). The same object in both keeps
+  the kinetic and the heat transport on one level. The major radius `R₀` [m] and the safety
   factor `q` are inputs, as for the kinetic operator. The default `q = 1` is DREAM's, which
   fixes it (`HeatTransportRechesterRosenbluth.cpp:98-100`, marked as a TODO there).
 

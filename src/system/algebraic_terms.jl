@@ -7,7 +7,8 @@
 must have the same kind and sizes (e.g. `-1` times an unknown in its own algebraic
 equation, or a decay rate). `coefficient` is a number, or one number per radius for a
 radial or kinetic unknown: a conductivity in Ohm's law `0 = σ E − j`. The vector is
-referenced, so an update of the run may change its values between the intervals.
+referenced, so an update of the run may change its values between the intervals. The term
+takes the unit of its row, so `coefficient` has the unit of the row over that of `unknown`.
 """
 struct LinearTerm{C <: Union{Float64, Vector{Float64}}} <: EquationTerm
     unknown::Symbol
@@ -78,10 +79,10 @@ end
     PrescribedValueTerm(values)
 
 A prescribed value added to the row of a radial unknown with one component or of a scalar
-unknown: a number, one number per radius, or a function of time that returns either. For a
-radial unknown the function may also return a callable of r, such as an interpolator:
-it is evaluated on the cell centres once per time, and a profile on points of
-its own that is constant in time is `t -> profile`. With
+unknown: a number, one number per radius, or a function of the time [s] that returns either.
+The values take the unit of the row. For a radial unknown the function may also return a
+callable of r, such as an interpolator: it is evaluated on the cell centres once per time,
+and a profile on points of its own that is constant in time is `t -> profile`. With
 `LinearTerm(name; coefficient = -1)` in an algebraic equation it holds the unknown at the
 prescribed value, `0 = value(t) - unknown`, which makes a prescribed profile an unknown of
 the system: a prescribed electric field `E(r, t)` that the kinetic terms read from the
