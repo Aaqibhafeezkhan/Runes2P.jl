@@ -34,9 +34,15 @@ The channels of this row:
 [`RunawayFluidEnergyTransferTerm`](@ref) is DREAM's heating by runaways without a runaway grid, the power ``e c\, E_c\, n_\mathrm{re}``: runaways at the speed of light against the friction of the critical field ``E_c``, with the Coulomb logarithm at ``p = 20\, m_e c``.
 With a runaway grid, [`free_electron_energy_transfer_term`](@ref) takes its place: the energy moment of the electron-electron collisions of that grid.
 
-The channels other than [`SecondaryHeatingTerm`](@ref) are those of DREAM's equation of ``T_\mathrm{cold}`` (`src/Settings/Equations/T_cold.cpp`, DREAM v26.5), and [`RadiatedPowerTerm`](@ref) takes DREAM's radiation with `radiation = :dream` and `bremsstrahlung_corrections = :dream`.
-DREAM adds the collisional transfer from a runaway grid in every mode.
-With a hot-tail grid, DREAM adds the collisional transfer from the hot-tail distribution, except in its fully kinetic mode (`collfreq_mode` FULL), where it leaves the transfer out.
+The channels other than [`SecondaryHeatingTerm`](@ref) are those of DREAM's equation of ``T_\mathrm{cold}`` (`src/Settings/Equations/T_cold.cpp`, DREAM v26.5).
+With `radiation = :dream` and `bremsstrahlung_corrections = :dream`, [`RadiatedPowerTerm`](@ref) takes DREAM's radiation.
+DREAM adds the collisional transfer from a runaway grid in every mode, and from a hot-tail grid in every mode but one:
+
+| DREAM's mode | Transfer from the hot-tail distribution | Transfer from the runaway grid |
+|---|---|---|
+| fully kinetic (`collfreq_mode` FULL) | left out | added |
+| every other mode | added | added |
+
 [`FrictionEnergyTransferTerm`](@ref) is that transfer from the hot-tail distribution: the moment ``\frac{1}{V'} \sum_{ij} m_e c\, v_i p_i\, \nu_s(p_i) f_{ij} \mathcal{V}'_{ij} \Delta p_i \Delta\xi_j`` at the cell centres, with the superthermal frequencies on the cold electrons alone.
 As a moment of `f` it takes any scheme of the operator, and it counts the energy of an electron until it leaves the grid, also through ``p = 0`` under `p_zero_boundary = :outflow`.
 For a runaway grid it is DREAM's form of the transfer, the option next to Runes2P's [`free_electron_energy_transfer_term`](@ref) ([Comparison with DREAM](../dream-comparison.md#Defaults-that-differ)).
@@ -63,12 +69,12 @@ The row of the temperature then holds ``\mathrm{d}W_\mathrm{tot}/\mathrm{d}t``, 
 
 The row lists only the channels by which energy enters or leaves the electrons of the hot-tail grid:
 
-- the work of the field, ``E j_\mathrm{ohm} + E j_\mathrm{hot}`` (two [`ProductTerm`](@ref)s), where the ohmic current already leaves out the hot current, so each electron is counted once;
-- the radiation, the heat transport and the exchange with the ions, as in the row of the cold energy;
-- the heating by the secondaries of a kinetic ionization ([`SecondaryHeatingTerm`](@ref)), which moves their energy from the sinks to the cold electrons;
-- the sinks of the collisions of `f`: [`KineticEnergyLossTerm`](@ref) with `part = :sinks` and the hot region;
-- the outflow at ``p_\mathrm{max}``: [`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` and `coefficient = -1`;
-- the electrons that cross to a runaway grid: [`InterfaceEnergyFluxTerm`](@ref).
+- The work of the field is ``E j_\mathrm{ohm} + E j_\mathrm{hot}`` (two [`ProductTerm`](@ref)s), where the ohmic current already leaves out the hot current, so each electron is counted once.
+- The radiation, the heat transport and the exchange with the ions are as in the row of the cold energy.
+- The heating by the secondaries of a kinetic ionization ([`SecondaryHeatingTerm`](@ref)) moves their energy from the sinks to the cold electrons.
+- The sinks of the collisions of `f` are [`KineticEnergyLossTerm`](@ref) with `part = :sinks` and the hot region.
+- The outflow at ``p_\mathrm{max}`` is [`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` and `coefficient = -1`.
+- The channel of the electrons that cross to a runaway grid is [`InterfaceEnergyFluxTerm`](@ref).
 
 The collisional transfer from the hot electrons to the cold ones does not appear in the row.
 Neither do the electrons that cross the threshold, nor the threshold that moves with the temperature.
@@ -77,7 +83,8 @@ The time derivative acts on the energy of the hot region itself, so these exchan
 ### What the system enforces
 
 Every change of ``W_\mathrm{hot}`` that the row does not list is charged to the cold electrons.
-[`EquationSystem`](@ref) therefore checks the row against the equation of `f`; its docstring gives the conditions.
+[`EquationSystem`](@ref) therefore checks the row against the equation of `f`.
+The docstring of [`EquationSystem`](@ref) gives the conditions.
 
 - Collisions with sinks (synchrotron loss, bremsstrahlung stopping power, partial or no screening) remove energy from `f`, so the row needs the sinks term.
 - The electrons that leave a Fokker-Planck term with collisions at ``p_\mathrm{max}``, or cross its interface to a runaway grid, take their energy with them.
@@ -142,7 +149,8 @@ The secondaries join the cold electrons through the closure of the cold density,
 [`EquationSystem`](@ref) requires the heating by secondaries where the sinks of `f` are booked with this friction, with the same spectrum and `cut = :none`.
 With DREAM's `bound_friction = :bethe`, the friction does not hold the energy of each ionization, so the requirement does not apply ([`KineticEnergyLossTerm`](@ref)).
 Next to a [`KnockOnTerm`](@ref) on the bound electrons, [`SecondaryHeatingTerm`](@ref) with `cut = :none` counts the energy of the secondaries above the knock-on cutoff twice, since the knock-on term also puts them into `f`.
-Under the total energy the system refuses the knock-on term; in the row of the cold energy it does not check the pair.
+Under the total energy the system refuses the knock-on term.
+In the row of the cold energy the system does not check the pair.
 
 ## Currents and conductivity
 
@@ -158,17 +166,18 @@ The runaway current is the current moment of the runaway grid, or ``e c\, n_\mat
 
 The ohmic current takes a [`ConductivityTerm`](@ref) with a [`ConductivityModel`](@ref):
 
-- fluid electrons: ``j_\mathrm{ohm} = \sigma E``, with the conductivity of Braams and Karney ([`braams_karney_conductivity`](@ref)), which is DREAM's conductivity of Sauter and Redl in a cylinder;
+- fluid electrons: ``j_\mathrm{ohm} = \sigma E``, with the conductivity of Braams and Karney ([`braams_karney_conductivity`](@ref)), which is DREAM's conductivity of Sauter and Redl in a cylinder.
 - fully kinetic: ``j_\mathrm{ohm} = j(f) - j_\mathrm{hot} + E (\sigma - \sigma_\mathrm{kin})``, DREAM's corrected conductivity.
 
 The conductivity of Braams and Karney: B. J. Braams, C. F. F. Karney, Phys. Fluids B 1, 1355 (1989), doi:10.1063/1.858966.
 The conductivity of Sauter: O. Sauter, C. Angioni, Y. R. Lin-Liu, Phys. Plasmas 6, 2834 (1999), doi:10.1063/1.873240.
 The formulae of Redl: A. Redl et al., Phys. Plasmas 28, 022502 (2021), doi:10.1063/5.0012664.
 
-The test-particle operator does not conserve the momentum of the electron-electron collisions, so its conductivity is below ``\sigma``; the correction adds the difference.
+The test-particle operator does not conserve the momentum of the electron-electron collisions, so its conductivity is below ``\sigma``.
+The correction adds the difference.
 Two models of ``\sigma_\mathrm{kin}``:
 
-- `kinetic = :dream_fit`: DREAM's fit of the conductivity of its kinetic operator ([`test_particle_conductivity_fraction`](@ref));
+- `kinetic = :dream_fit`: DREAM's fit of the conductivity of its kinetic operator ([`test_particle_conductivity_fraction`](@ref)).
 - `kinetic = :discrete_operator`: the conductivity of the discrete operator of the run ([`kinetic_conductivity`](@ref)), by its linear response to a small field.
 
 With `:discrete_operator`, the steady state of a small field has the reference conductivity whatever the grid and the collision settings are.
