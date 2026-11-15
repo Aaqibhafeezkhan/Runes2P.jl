@@ -12,6 +12,7 @@ Until the first release, every change is listed under "Unreleased", with the sub
   An unknown of a default name takes the unit of the table "Units of the unknowns", a `KineticUnknown` `"m^-3"`, and any other unknown the empty string.
   The output file stores the unit as the attribute `unit` of every entry of `unknowns`, of `time` and of the grid faces in `layout`, and `OUTPUT_FORMAT_VERSION` is 0.0.5 for it.
   A file of the format 0.0.4 or older reads with the default units, and the setup hash does not change.
+- A unit of an unknown is checked where it is declared, at a resume and at a join of segments ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
   A unit is ASCII without control characters, and the constructors refuse another one with an `ArgumentError`.
   A resume warns for an unknown whose unit stored in the file and declared unit are both nonempty and differ, and `StoredState` carries the stored units as `units`.
   Joined segments take the unit of each unknown from the latest segment that stores one.

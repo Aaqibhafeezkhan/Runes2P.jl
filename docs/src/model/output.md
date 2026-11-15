@@ -224,6 +224,7 @@ Its states after the start time of the following segment are dropped.
 Its statistics are cut at the count of attempts the following segment resumed from (`attempts_before` of both), or at the start time where a count is missing.
 The count matters because a rejected attempt is recorded at the time it aimed at, which may lie beyond the checkpoint.
 The joined solution carries the settings of the last file.
+
 Its layout is that of the first segment, and each unknown takes the unit of the latest segment that stores one, the empty unit included.
 A first segment of the format 0.0.4 or older then does not hide the units of the later segments.
 Where two segments store different nonempty units for one unknown, the join warns with the unknown, the two units and the two files, and it joins the values unchanged.
