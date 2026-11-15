@@ -112,9 +112,10 @@ A resumed segment adds `resumed_from` (the file), `resumed_from_segment`, `previ
 The root group `layout` is the [`describe`](@ref) record of the [`UnknownLayout`](@ref) with its grids inline under `grids`, so it does not depend on the settings group.
 The record carries `layout_version = 2`.
 A reader rebuilds the layout from it and the kinetic grids with [`cylindrical_grid`](@ref) from the stored faces.
+A resume matches the unknowns by name with [`copy_unknowns!`](@ref), which refuses a stored unknown on other momentum grids: the distribution is not remapped between grids.
+
 Each entry of an unknown holds its `unit`, which the `layout` section of the settings does not hold, so the setup hash does not depend on the units.
 The datasets `r_faces`, `p_faces` and `xi_faces` carry the attribute `unit`: `"m"`, `"m_e c"` and `"1"` for the dimensionless pitch.
-A resume matches the unknowns by name with [`copy_unknowns!`](@ref), which refuses a stored unknown on other momentum grids: the distribution is not remapped between grids.
 
 Some entries are recorded only when they are set, and the reader takes a default where one is missing:
 
@@ -143,12 +144,13 @@ The shapes are those Julia reads.
 A C-order reader such as h5py or h5dump sees the dimensions reversed, with time first.
 
 The values are those of the state vector, in the units of each unknown ([Units of the unknowns](unknowns.md#Units-of-the-unknowns)), not divided by its `scale` (a reference magnitude).
+The dataset `time` is in seconds, and its attribute `unit` is `"s"`.
+In memory, [`unknown_view`](@ref) views one unknown of a saved state of a [`TimeSolution`](@ref).
+
 Each entry carries the unit of its unknown as the string attribute `unit` ([`unknown_unit`](@ref)), such as `"V/m"` or `"m^-3"`.
 The group of an unknown on per-radius grids carries it, and so does each of its datasets `radius_<ir>`.
 The attribute is empty for an unknown without a unit.
 A file of the format 0.0.4 or older has no attribute `unit`, and its reader gives each unknown the default unit of its name.
-The dataset `time` is in seconds, and its attribute `unit` is `"s"`.
-In memory, [`unknown_view`](@ref) views one unknown of a saved state of a [`TimeSolution`](@ref).
 
 ## Solver statistics and update states
 

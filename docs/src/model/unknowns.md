@@ -17,7 +17,7 @@ with a constant mass matrix ``M``, checks that the parts fit together, and suppl
 
 ## Unknowns
 
-An unknown has a name, a kind, a reference scale and optionally a [`LowerLimit`](@ref).
+An unknown has a name, a kind, a reference scale, a unit and optionally a [`LowerLimit`](@ref).
 
 | Kind | Values | Example |
 |---|---|---|

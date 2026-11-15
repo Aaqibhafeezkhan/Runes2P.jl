@@ -1001,6 +1001,11 @@ using HDF5
         case = unit_case()
         checkpoint = CheckpointSettings("units"; directory = _checkpoint_directory(), interval = 0)
         whole = integrate(case.system, case.u0, case.times; checkpoint)
+        # a checkpoint of the current format keeps the declared units
+        current = read_checkpoint(checkpoint)
+        @test unknown_unit(current.layout, :plasma_current) == "MA"
+        @test unknown_unit(current.layout, :f) == ""
+        @test unknown_unit(current.layout, :T) == "eV"
         output = make_old!(Runes2P.segment_file(checkpoint, 1))
         h5open(output) do h5
             @test !haskey(attributes(h5["unknowns/f"]), "unit")
