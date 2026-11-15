@@ -124,9 +124,9 @@ end
 """
     kinetic_ionization_rates(term::KineticIonizationTerm, u, layout, t, ir)
 
-The rate coefficients `K` [1/s] of all charge states at radius `ir`, the moments of `f`
-of the state `u` with `v σ` above the threshold of the region, one per component of the ion
-densities.
+The rate coefficients `K` [1/s] of all charge states at radius `ir`, the moments of `f` of
+the state `u` at the time `t` [s] with `v σ` above the threshold of the region, one per
+component of the ion densities.
 """
 function kinetic_ionization_rates(term::KineticIonizationTerm, u, layout, t, ir)
     f = kinetic_view(u, layout, unknown_id(layout, term.kinetic), ir)
@@ -456,20 +456,20 @@ the cold density; without this term it is born at zero energy.
 package*) takes the binary-encounter-Bethe spectrum of Kim and Rudd with the ionization
 energy of each charge state as its binding energy ([`beb_mean_secondary_energy`](@ref)),
 which needs no width; `spectrum = :opal` the spectrum of Opal et al. with the widths
-`widths`, the neutral element's for every charge state. The friction of the Fokker-Planck
-term on bound electrons takes the energy of the ionization from `f` already, so in the total
-energy of the electrons the term moves the energy of the secondaries from that sink to the
-cold electrons. That holds where the friction takes the energy. With the default screening
-window of the collisions (`screening_window = :excitation_energy`) the friction on bound
-electrons is zero from the ionization potential up to the mean excitation energy of the
-state (about 190 eV for Ar⁰, more for the higher states): there `f` ionizes without paying,
-and this term adds the energy of the secondaries on top. `screening_window = :dream` narrows
-that band, and `bound_friction = :ionization_split` of [`CollisionSettings`](@ref) closes
-it: `f` then pays the ionization potential and the energy of the secondaries for every
-ionization above the threshold, and this term returns the energy of the secondaries to the
-cold electrons. DREAM has no such term: `kinetic_ionization` alone is DREAM's model. The
-region of `kinetic_ionization` sets `E_c`; its threshold follows the temperature unknown
-`temperature` or is fixed.
+`widths` [eV], the neutral element's for every charge state. The friction of the
+Fokker-Planck term on bound electrons takes the energy of the ionization from `f` already,
+so in the total energy of the electrons the term moves the energy of the secondaries from
+that sink to the cold electrons. That holds where the friction takes the energy. With the
+default screening window of the collisions (`screening_window = :excitation_energy`) the
+friction on bound electrons is zero from the ionization potential up to the mean excitation
+energy of the state (about 190 eV for Ar⁰, more for the higher states): there `f` ionizes
+without paying, and this term adds the energy of the secondaries on top.
+`screening_window = :dream` narrows that band, and `bound_friction = :ionization_split` of
+[`CollisionSettings`](@ref) closes it: `f` then pays the ionization potential and the energy
+of the secondaries for every ionization above the threshold, and this term returns the
+energy of the secondaries to the cold electrons. DREAM has no such term:
+`kinetic_ionization` alone is DREAM's model. The region of `kinetic_ionization` sets `E_c`;
+its threshold follows the temperature unknown `temperature` or is fixed.
 """
 struct SecondaryHeatingTerm{K <: KineticIonizationTerm} <: EquationTerm
     kinetic_ionization::K
@@ -656,14 +656,15 @@ end
                             widths=SECONDARY_SPECTRUM_WIDTHS, spectrum=:beb)
 
 The energy [W/m³ per radius] that the kinetic ionization `kinetic_ionization` takes from `f`
-at the state `u`, in two parts:
+at the state `u` and the time `t` [s], in two parts:
 
 - `potential`: the ionization potentials, `e Σ I_j K_j n_j`, stored in the ions and released
   at recombination (the gain of `RadiatedPowerTerm(...; radiation = :recombination)`);
 - `secondaries`: the kinetic energy of the secondary electrons, which
-  [`SecondaryHeatingTerm`](@ref) with its default `cut = :none` gives to the cold electrons; with
-  `spectrum = :opal`, `nothing` when an element of the composition has no width of the
-  secondary spectrum ([`SECONDARY_SPECTRUM_WIDTHS`](@ref)), since `potential` needs none.
+  [`SecondaryHeatingTerm`](@ref) with its default `cut = :none` gives to the cold electrons;
+  with `spectrum = :opal` and the widths `widths` [eV], `nothing` when an element of the
+  composition has no width of the secondary spectrum ([`SECONDARY_SPECTRUM_WIDTHS`](@ref)),
+  since `potential` needs none.
 
 Both are part of the sink of `f` through the friction on bound electrons
 ([`KineticEnergyLossTerm`](@ref) with `part = :sinks`), so an energy diagnostic that books

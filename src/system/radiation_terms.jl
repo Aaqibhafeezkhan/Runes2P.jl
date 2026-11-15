@@ -125,8 +125,8 @@ coefficient of [`fluid_ionization_coefficient`](@ref).
   ([`ionization_energy`](@ref)). DREAM's mode with recombination takes `I(Z_0)` in the gain
   from its second radial cell on.
 - `radiation = :dream`: DREAM's default, `L = PLT`, the ionization loss alone, and the
-  bremsstrahlung of Gould with a relativistic correction, `C √T (Σ n Z_0² + (a Σ n Z_0²
-  + κ n_e) T/mₑc²) n_e`, `C = 1.69e-38 W m³ eV^{-1/2}`
+  bremsstrahlung of Gould with a relativistic correction,
+  `C √T (Σ n Z_0² + (a Σ n Z_0² + κ n_e) T/mₑc²) n_e`, `C = 1.69e-38 W m³ eV^{-1/2}`
   ([`GOULD_BREMSSTRAHLUNG_PREFACTOR`](@ref)). With `bremsstrahlung_corrections = :gould`
   (default) `a = 11/24` and `κ = 5(44 − 3π²)/(24√2)`, Gould's values after his erratum and by
   his own eqs. (18) and (22) ([`GOULD_ION_CORRECTION`](@ref),
@@ -341,10 +341,10 @@ end
 """
     radiated_power(term::RadiatedPowerTerm, u, layout, t)
 
-The two parts of the power of [`RadiatedPowerTerm`](@ref) at the state `u`, per radius
-[W/m³]: `radiation`, which leaves the plasma (line radiation, recombination radiation and
-bremsstrahlung), and `binding`, the binding energy that the ions take on ionization, net of
-what recombination returns, which stays in the plasma.
+The two parts of the power of [`RadiatedPowerTerm`](@ref) at the state `u` and the time `t`
+[s], per radius [W/m³]: `radiation`, which leaves the plasma (line radiation, recombination
+radiation and bremsstrahlung), and `binding`, the binding energy that the ions take on
+ionization, net of what recombination returns, which stays in the plasma.
 """
 function radiated_power(term::RadiatedPowerTerm, u, layout, t)
     plasma = _term_plasma(

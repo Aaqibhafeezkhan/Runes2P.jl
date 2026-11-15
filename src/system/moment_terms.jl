@@ -138,9 +138,10 @@ end
     DensityMomentTerm(kinetic; coefficient=1)
     DensityMomentTerm(kinetic, grid; coefficient=1, region=nothing)
 
-`coefficient` times the density `n(r) = (1/V') Σ 𝒱' Δp Δξ f` of the kinetic unknown
-`kinetic`, added to a radial row unknown with one component (e.g. a hot-electron density
-defined by an algebraic equation). Works with different momentum grids at different radii.
+`coefficient` times the density `n(r) = (1/V') Σ 𝒱' Δp Δξ f` [m⁻³ for f in m⁻³] of the
+kinetic unknown `kinetic`, added to a radial row unknown with one component (e.g. a
+hot-electron density defined by an algebraic equation). Works with different momentum grids
+at different radii.
 
 With `region`, a [`MomentumRegion`](@ref), the moment covers that part of the momentum
 grid: the hot electrons above the threshold of the hot region. The limit of the region at
@@ -405,12 +406,12 @@ end
 """
     CurrentMomentTerm(kinetic, grid; coefficient=1, pitch_rule=:linear, region=nothing)
 
-`coefficient` times the current density of the kinetic unknown `kinetic` on `grid`
-([`current_density`](@ref); `pitch_rule = :cell_center` is DREAM's `j_hot` moment), added
-to a radial row unknown with one component (the ohmic or hot-electron current defined by
-an algebraic equation). The pitch weights are built per radius when the term is created,
-so different momentum grids at different radii work; `grid` must be the unknown's grid
-(the same radii and momentum faces, checked when the system is built).
+`coefficient` times the current density [A/m² for f in m⁻³] of the kinetic unknown `kinetic`
+on `grid` ([`current_density`](@ref); `pitch_rule = :cell_center` is DREAM's `j_hot`
+moment), added to a radial row unknown with one component (the ohmic or hot-electron current
+defined by an algebraic equation). The pitch weights are built per radius when the term is
+created, so different momentum grids at different radii work; `grid` must be the unknown's
+grid (the same radii and momentum faces, checked when the system is built).
 
 With `region`, a [`MomentumRegion`](@ref), the moment covers that part of the momentum
 grid, with the limit of the region at the time of the evaluation: the

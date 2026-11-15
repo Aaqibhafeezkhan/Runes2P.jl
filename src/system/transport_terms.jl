@@ -5,14 +5,15 @@
 """
     RadialEdgeLossTerm(kinetic, operator; coefficient=1)
 
-`coefficient` times the particles per second that the kinetic unknown `kinetic` loses
-through the edge of the plasma by the radial transport of `operator`
-([`radial_particle_flux`](@ref) at the last radial face), added to a scalar row unknown.
-With `TimeDerivative()` the row unknown is the number of particles lost so far, integrated
-with the same time levels as the distribution, so that the content of the distribution
-plus the lost particles stays constant to round-off when nothing else changes the content.
-The term reads the coefficients of `operator` as they are, also when an update changes
-them during the run.
+`coefficient` times the rate [m⁻¹ s⁻¹] at which the kinetic unknown `kinetic` loses
+particles through the edge of the plasma by the radial transport of `operator`
+([`radial_particle_flux`](@ref) at the last radial face), added to a scalar row unknown: the
+electrons per second per metre of the cylinder, divided by 2π. With `TimeDerivative()` the
+row unknown is the content lost so far [m⁻¹], in the normalization of
+[`total_particles`](@ref), integrated with the same time levels as the distribution, so that
+the content of the distribution plus the lost particles stays constant to round-off when
+nothing else changes the content. The term reads the coefficients of `operator` as they are,
+also when an update changes them during the run.
 """
 struct RadialEdgeLossTerm{T} <: EquationTerm
     kinetic::Symbol

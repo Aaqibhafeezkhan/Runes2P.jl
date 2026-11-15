@@ -321,15 +321,14 @@ end
     add_plasma_columns!(J, term, u, layout, row, t)
 
 Add the plasma columns of a term with [`has_plasma_columns`](@ref) to `J` at the state `u`
-and the time `t`. A [`FokkerPlanckTerm`](@ref) builds its coefficients from the plasma with
-dual numbers in the temperature and the density of every radius ([`dual_plasma`](@ref)) and
-applies them to `f`: the partials are the derivatives of the residual through the scheme's
-own face weights, the Péclet number of exponential fitting included. The scheme is the
-operator's own, as is the residual, whatever `jacobian` selects for the block in `f`.
+and the time `t` [s]. A [`FokkerPlanckTerm`](@ref) builds its coefficients from the plasma
+with dual numbers in the temperature and the density of every radius ([`dual_plasma`](@ref))
+and applies them to `f`: the partials are the derivatives of the residual through the
+scheme's own face weights, the Péclet number of exponential fitting included. The scheme is
+the operator's own, as is the residual, whatever `jacobian` selects for the block in `f`.
 The coefficients in dual numbers are rebuilt when the plasma values of any radius differ
 from those of their last rebuild, as the coefficients of the residual
-([`refresh_coefficients!`](@ref)), so the terms that read them share one rebuild per
-state.
+([`refresh_coefficients!`](@ref)), so the terms that read them share one rebuild per state.
 """
 function add_plasma_columns!(J, term::FokkerPlanckTerm, u, layout, row, t)
     op, with_ions = _dual_coefficients!(term, u, layout, t)
@@ -641,7 +640,7 @@ end
 
 A [`FokkerPlanckTerm`](@ref) whose collision coefficients follow a plasma prescribed in
 time (such as a cooling plasma with `T(t)` prescribed): `plasma_at(t)` returns the
-[`PlasmaState`](@ref) at the time `t`. The same as
+[`PlasmaState`](@ref) at the time `t` [s]. The same as
 `FokkerPlanckTerm(unknown, operator; plasma = plasma_at, settings, synchrotron, jacobian,
 electric_field)`, which this function returns. The coefficients are rebuilt
 when the plasma values change ([`refresh_coefficients!`](@ref)).

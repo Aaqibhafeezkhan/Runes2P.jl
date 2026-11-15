@@ -67,7 +67,7 @@ iteration.
 control of the adaptive steppers ([`StepDoubling`](@ref), [`StepController`](@ref)).
 
 The construction evaluates the implicit `:sparse` terms once, at the state `initial_state`
-(the zero state by default) and the time `initial_time`, for the structure of the stored
+(the zero state by default) and the time `initial_time` [s], for the structure of the stored
 Jacobian. A [`KineticEnergyLossTerm`](@ref) of a source with `lagged = :all` that was never
 prepared is prepared there at `initial_state` ([`prepare_step!`](@ref)) before its block is
 assembled; one prepared before keeps its plasma. Set `initial_time` to the start of the run
@@ -409,8 +409,8 @@ end
 """
     rhs!(du, u, system::EquationSystem, t)
 
-Right-hand side of `M du/dt = rhs(u, t)` with all terms at `u` (the ODE form, as passed to
-a general integrator).
+Right-hand side of `M du/dt = rhs(u, t)` with all terms at `u` and the time `t` [s] (the ODE
+form, as passed to a general integrator).
 """
 function rhs!(du::AbstractVector, u::AbstractVector, system::EquationSystem, t)
     fill!(du, zero(eltype(du)))
@@ -427,11 +427,12 @@ end
 """
     residual!(F, u, u_old, system::EquationSystem, t, dt; reference=u_old)
 
-Backward-Euler residual `F = M (u - reference)/dt - rhs(u, t)`, with explicit terms at
-`u_old` and the terms prepared from `u_old` ([`prepare_step!`](@ref)). The reference is
-the start state for backward Euler; the two-step BDF2 of [`StepController`](@ref)`(order = 2)`
-passes its combination of the two last states and its effective step. `M` has one entry per row with a time derivative, in the column of the unknown
-whose derivative the row holds. Allocation free.
+Backward-Euler residual `F = M (u - reference)/dt - rhs(u, t)` at the time `t` [s] that ends
+the step of length `dt` [s], with explicit terms at `u_old` and the terms prepared from
+`u_old` ([`prepare_step!`](@ref)). The reference is the start state for backward Euler; the
+two-step BDF2 of [`StepController`](@ref)`(order = 2)` passes its combination of the two
+last states and its effective step. `M` has one entry per row with a time derivative, in the
+column of the unknown whose derivative the row holds. Allocation free.
 """
 function residual!(F::AbstractVector, u::AbstractVector, u_old::AbstractVector,
         system::EquationSystem, t, dt; reference::AbstractVector = u_old)
@@ -478,7 +479,7 @@ end
     fill_initial_values!(u, system, t; unknowns=nothing)
 
 Set the unknowns whose [`Equation`](@ref) has `initial_value = :from_equation` from their
-algebraic rows at the time `t`, entry by entry (DREAM's `INITRULE_EVAL_EQUATION`; the
+algebraic rows at the time `t` [s], entry by entry (DREAM's `INITRULE_EVAL_EQUATION`; the
 energy of the cold electrons from their temperature and density). A row
 `0 = c x + r(u)` that is linear in its own unknown `x` gives `x = −r/c`. The coefficient
 `c` comes from the row at `x = 0, s, 2s`, with `s` the scale of the unknown, so a row
@@ -671,8 +672,8 @@ pitch range ``\\Delta\\xi_\\mathrm{grid}`` of the grid, 2 on DREAM's grids from 
 
 - `shape = :xi_positive`: the last pitch cell, at the largest `ξ` of the grid (`INIT_XI_POSITIVE`);
 - `:xi_negative`: the first pitch cell, at the smallest `ξ` (`INIT_XI_NEGATIVE`);
-- `:forward`: the last pitch cell where the field `electric_field` (a profile as `density`) is
-  not negative, the first where it is (`INIT_FORWARD`, DREAM's default);
+- `:forward`: the last pitch cell where the field `electric_field` [V/m] (a profile as
+  `density`) is not negative, the first where it is (`INIT_FORWARD`, DREAM's default);
 - `:isotropic`: every pitch cell, with `f 𝒱'` uniform in `ξ` (`INIT_ISOTROPIC`).
 
 DREAM's analytic avalanche distribution (`INIT_AVALANCHE`) is not one of the shapes. The other
@@ -778,11 +779,11 @@ jacobian_colors(system::EquationSystem) = length(column_groups(system.preparatio
 """
     jacobian!(J, system::EquationSystem, u, t)
 
-Values of the stored Jacobian `∂rhs/∂u` of the implicit `:sparse` terms at `(u, t)`, into
-`J` (from [`jacobian_prototype`](@ref)), by colored forward-mode AD and by the entries of
-the terms that assemble their own block ([`jacobian_assembly`](@ref)); for terms with an
-approximate Jacobian ([`jacobian_kind`](@ref)) their stored block, not the derivative.
-Matrix-free and explicit terms are not included.
+Values of the stored Jacobian `∂rhs/∂u` of the implicit `:sparse` terms at `(u, t)`, with
+the time `t` [s], into `J` (from [`jacobian_prototype`](@ref)), by colored forward-mode AD
+and by the entries of the terms that assemble their own block ([`jacobian_assembly`](@ref));
+for terms with an approximate Jacobian ([`jacobian_kind`](@ref)) their stored block, not the
+derivative. Matrix-free and explicit terms are not included.
 """
 function jacobian!(J::SparseMatrixCSC, system::EquationSystem, u::AbstractVector, t)
     system.time[] = t
@@ -803,12 +804,12 @@ end
 """
     jacobian_operator(J, system::EquationSystem, u, t)
 
-`∂rhs/∂u` at `(u, t)` as a linear operator: the stored matrix `J` (from
-[`jacobian!`](@ref) at the same point) plus the products of the implicit matrix-free
+`∂rhs/∂u` at `(u, t)`, with the time `t` [s], as a linear operator: the stored matrix `J`
+(from [`jacobian!`](@ref) at the same point) plus the products of the implicit matrix-free
 terms and the corrections of the terms with an approximate stored block
-([`jacobian_correction_product!`](@ref)), so the operator is the exact Jacobian whatever
-the stored blocks hold. `u` is referenced, not copied. The products go through a buffer owned by the
-system, shared by all operators of the same system, so they must not be applied
+([`jacobian_correction_product!`](@ref)), so the operator is the exact Jacobian whatever the
+stored blocks hold. `u` is referenced, not copied. The products go through a buffer owned by
+the system, shared by all operators of the same system, so they must not be applied
 concurrently. The Newton-Krylov solver [`GMRES`](@ref) builds its own operator.
 """
 function jacobian_operator(J::SparseMatrixCSC{T}, system::EquationSystem, u::AbstractVector, t) where {T}

@@ -49,7 +49,7 @@ field_in_coefficients = false)` or from a plasma without a field, knows its plas
   `p_max` as well: the response is that of the bulk on the hot-tail grid, and
   the flux into the runaway grid at a small field is far below the current of the bulk.
 - `pitch_rule` is that of the current moment ([`current_density`](@ref)).
-- `density` is the density of the equilibrium per radius, the electrons that carry the
+- `density` is the density [m⁻³] of the equilibrium per radius, the electrons that carry the
   current, by default the cold density of the plasma of the operator. It differs from the
   cold density of the collision coefficients in the limit of the Lorentz gas, which has no
   electron-electron collisions. In a fully kinetic run the current of `f_hot` over all
@@ -192,9 +192,10 @@ end
     ConductivityModel(plasma; reference=:braams_karney, kinetic=:none, operator=nothing,
                       pitch_rule=:linear)
 
-The conductivity `σ(r, t) = σ_reference − σ_kinetic` of a term `σ E` in the equation of
-the ohmic current ([`ConductivityTerm`](@ref)). `plasma` is a [`PlasmaState`](@ref) or a
-function of time that returns one. `model(t)` gives the conductivity per radius.
+The conductivity `σ(r, t) = σ_reference − σ_kinetic` of a term `σ E` in the equation of the
+ohmic current ([`ConductivityTerm`](@ref)). `plasma` is a [`PlasmaState`](@ref) or a
+function of time that returns one. `model(t)` gives the conductivity [S/m] per radius at the
+time `t` [s].
 
 - `reference = :braams_karney`: [`braams_karney_conductivity`](@ref), which is DREAM's
   conductivity of Sauter and Redl in cylindrical geometry.
@@ -384,7 +385,7 @@ end
     conductivity_at(term::ConductivityTerm, t)
     conductivity_at(term::ConductivityTerm, u, layout, t)
 
-The conductivity of the term per radius [S/m] at the time `t` and the state `u` of the
+The conductivity of the term per radius [S/m] at the time `t` [s] and the state `u` of the
 system (`nothing` for a prescribed plasma).
 """
 conductivity_at(term::ConductivityTerm, t) = conductivity_at(term, nothing, nothing, t)

@@ -34,12 +34,12 @@ end
                                   electric_field=:electric_field, p_cutoff=0.01)
 
 DREAM's kinetic Rosenbluth-Putvinski avalanche source (`AVALANCHE_MODE_KINETIC`,
-`src/Equations/Kinetic/AvalancheSourceRP.cpp`, placed by `src/Settings/Equations/f_hot.cpp:116-127`)
-in the equation of the kinetic unknown `kinetic` on `grid`: the knock-on electrons that a
-fluid runaway density `n_re` above the grid creates on the electrons of the total density
-`n_tot` (free and bound), at every momentum cell above `p_cutoff` and at the pitch
-`ξ* = ±√((γ − 1)/(γ + 1))` that the momentum of a knock-on from a primary at the speed of
-light fixes, in the cell that holds it:
+`src/Equations/Kinetic/AvalancheSourceRP.cpp`, placed by
+`src/Settings/Equations/f_hot.cpp:116-127`) in the equation of the kinetic unknown `kinetic`
+on `grid`: the knock-on electrons that a fluid runaway density `n_re` above the grid creates
+on the electrons of the total density `n_tot` (free and bound), at every momentum cell above
+`p_cutoff` (units of `mₑc`) and at the pitch `ξ* = ±√((γ − 1)/(γ + 1))` that the momentum of
+a knock-on from a primary at the speed of light fixes, in the cell that holds it:
 
 ```math
 S_{ij} = n_\\mathrm{re} n_\\mathrm{tot}\\, r_0^2 c\\,
@@ -227,14 +227,15 @@ DREAM's `ExternalAvalancheTerm` (`src/Equations/Fluid/ExternalAvalancheTerm.cpp`
 ```
 
 `a = exponent = −2` (DREAM's value), the Rosenbluth-Putvinski rate of the knock-ons above
-`p_cutoff`, `Γ_ext = n_tot` [`rosenbluth_putvinski_rate`](@ref)`(p_cutoff)`, and DREAM's fluid
-growth rate with the effective critical field, [`fluid_avalanche_growth_rate`](@ref). The
-match makes the external rate, positive at every field, follow the fluid rate below the
-effective critical field, where it decays. DREAM takes `p_cutoff` as the upper momentum
-face of the hot-tail grid, `p_max` (`RunawaySourceTerms.cpp:44-46`), not the cutoff of the
-kinetic source ([`RosenbluthPutvinskiSourceTerm`](@ref)), and so must the case. One `p_cutoff`
-serves every radius, as in DREAM ("assume same momentum grid at all radii",
-`RunawaySourceTerms.cpp:41`): a grid whose `p_max` differs between radii needs a term per radius.
+`p_cutoff` (units of `mₑc`), `Γ_ext = n_tot`
+[`rosenbluth_putvinski_rate`](@ref)`(p_cutoff)`, and DREAM's fluid growth rate with the
+effective critical field, [`fluid_avalanche_growth_rate`](@ref). The match makes the
+external rate, positive at every field, follow the fluid rate below the effective critical
+field, where it decays. DREAM takes `p_cutoff` as the upper momentum face of the hot-tail
+grid, `p_max` (`RunawaySourceTerms.cpp:44-46`), not the cutoff of the kinetic source
+([`RosenbluthPutvinskiSourceTerm`](@ref)), and so must the case. One `p_cutoff` serves every
+radius, as in DREAM ("assume same momentum grid at all radii", `RunawaySourceTerms.cpp:41`):
+a grid whose `p_max` differs between radii needs a term per radius.
 
 The plasma of the rate is that of `plasma` (a [`PlasmaState`](@ref) or a function of time:
 the magnetic field, the composition) with the temperature `temperature`, the cold density

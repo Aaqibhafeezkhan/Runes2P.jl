@@ -6,7 +6,7 @@
 
 Knock-on source produced by the kinetic unknown `primary` on the kinetic row unknown
 (`operator` maps the primary grid to the row unknown's grid, per radius, see
-[`apply_at_radius!`](@ref)). `target_density` is the target (total electron) density:
+[`apply_at_radius!`](@ref)). `target_density` is the target (total electron) density [m⁻³]:
 the name of a radial unknown, or a vector with one value per radius. Works with different
 momentum grids at different radii.
 

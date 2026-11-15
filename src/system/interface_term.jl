@@ -424,9 +424,9 @@ end
 """
     interface_flux(term::MomentumInterfaceTerm, u, layout, ir, t=0)
 
-Particle flux per unit volume [m⁻³ s⁻¹] through the momentum interface at radius index
-`ir`, positive from the lower to the upper grid, for the state `u`: the rate at which the
-upper grid gains particles from the lower one, in the normalization of
+Particle flux per unit volume [m⁻³ s⁻¹] through the momentum interface at radius index `ir`,
+positive from the lower to the upper grid, for the state `u` at the time `t` [s]: the rate
+at which the upper grid gains particles from the lower one, in the normalization of
 [`density`](@ref) and [`momentum_flux`](@ref). With the interface above the critical
 momentum this is the runaway rate.
 """
