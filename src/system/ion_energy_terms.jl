@@ -74,7 +74,9 @@ order). The logarithm of electrons and ions is the thermal one, as DREAM's. Amon
 A system needs both sides on the same unknowns, so the exchange conserves energy; a system
 with one side alone is refused. The masses are those of [`ion_mass`](@ref) with `mass_table`
 (`:standard`, the standard atomic weights and the nuclei of the hydrogen isotopes, or
-`:dream`, DREAM's rule); `masses` overrides them per species.
+`:dream`, DREAM's rule). `masses`, when given, replaces them for all species: one mass in kg
+per species of `plasma`, in its order. A mass outside 1e-27 kg to 1e-24 kg is refused, which
+catches a mass given in atomic mass units or in grams.
 The densities of the ions come from the prescribed `plasma`, a [`PlasmaState`](@ref) or a
 function of time, or with `ions` from that radial unknown of the charge states, whose
 columns the term then assembles directly; a species of zero density is skipped.
@@ -98,6 +100,17 @@ struct IonEnergyExchangeTerm{S <: PrescribedPlasma} <: EquationTerm
     ions::Union{Nothing, Symbol}
     buffers::LocalTermBuffers
 end
+
+# The bounds [kg] of the ion masses that IonEnergyExchangeTerm accepts, a guard against masses
+# in other units. The masses of ion_mass lie inside:
+# - the lightest, the proton, is 1.67e-27 kg in both tables.
+# - the heaviest of the standard table, uranium, is 3.95e-25 kg.
+# - DREAM's table gives 2.3 Z atomic mass units beyond Z = 40, 3.51e-25 kg at uranium, and
+#   stays inside up to Z = 261.
+# A mass in atomic mass units, in proton masses or in MeV/c² is at least 1 and so far above the
+# upper bound. A mass in grams is a number 1000 times larger, at least 1.67e-24, and also above.
+const MINIMUM_ION_MASS = 1e-27
+const MAXIMUM_ION_MASS = 1e-24
 
 function IonEnergyExchangeTerm(
         plasma; side::Symbol, ion_energy::Symbol = :ion_thermal_energy,
@@ -123,8 +136,12 @@ function IonEnergyExchangeTerm(
     if length(mass_values) != length(species_list)
         throw(DimensionMismatch("need one mass per ion species ($(length(species_list))), got $(length(mass_values))"))
     end
-    if !all(>(0), mass_values)
-        throw(ArgumentError("the ion masses must be positive"))
+    for mass in mass_values
+        if !(MINIMUM_ION_MASS <= mass <= MAXIMUM_ION_MASS)
+            throw(ArgumentError("the ion mass $mass lies outside $MINIMUM_ION_MASS to " *
+                                "$MAXIMUM_ION_MASS kg: the masses are in kg " *
+                                "(one atomic mass unit is $ATOMIC_MASS_UNIT kg)"))
+        end
     end
     return IonEnergyExchangeTerm(
         source, side, ion_energy, temperature, density, ion_ion, ion_coulomb_logarithm,

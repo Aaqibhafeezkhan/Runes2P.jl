@@ -236,6 +236,17 @@
         @test_throws "both sides" EquationSystem(layout, lonely; initial_state = state(900.0, 200.0))
         @test_throws ArgumentError IonEnergyExchangeTerm(plasma; side = :other)
         @test_throws DimensionMismatch IonEnergyExchangeTerm(plasma; side = :ions, masses = [1.0])
+        # the masses are in kg: one in atomic mass units is refused, the proton and uranium,
+        # the lightest mass of ion_mass and the heaviest of its standard table, pass
+        in_u = [2.014, 20.18]
+        @test_throws "in kg" IonEnergyExchangeTerm(plasma; side = :ions, masses = in_u)
+        @test_throws ArgumentError IonEnergyExchangeTerm(plasma; side = :ions,
+            masses = [-Constants.PROTON_MASS, 20.18 * u_mass])
+        uranium = ion_mass(IonSpecies("U", 92, 1, [1e19]))
+        @test uranium == 238.02891 * u_mass
+        light_heavy = IonEnergyExchangeTerm(plasma; side = :ions,
+            masses = [Constants.PROTON_MASS, uranium])
+        @test light_heavy.masses == [Constants.PROTON_MASS, uranium]
         three = UnknownLayout(radial,
             [RadialUnknown(:cold_electron_temperature),
                 RadialUnknown(:cold_electron_density),

@@ -32,6 +32,9 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Changed
 
+- `IonEnergyExchangeTerm` refuses a mass of `masses` outside 1e-27 kg to 1e-24 kg with an `ArgumentError` that says the masses are in kg ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+  A mass in atomic mass units or in grams gave a wrong exchange without an error until now.
+  The masses of `ion_mass` lie inside, and the results of a run do not change.
 - A `KineticEnergyLossTerm` whose source lags the whole plasma (`lagged = :all`) throws an `ArgumentError` naming `prepare_step!` when it is evaluated on its own before any preparation ([#264](https://github.com/osrep/Runes2P.jl/pull/264)).
   Until now it read the plasma of the state.
   An `EquationSystem` prepares such a term at its initial state when it is built, unless the term was prepared before.
