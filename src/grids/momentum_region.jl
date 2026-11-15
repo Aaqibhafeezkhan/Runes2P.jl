@@ -9,7 +9,7 @@ Momentum limit that follows the cold-electron temperature: `factor` thermal mome
 `p₀ = factor √(2 T / mₑc²)` in units of `mₑc` at each radius (DREAM's hot region,
 `pThreshold = 7` in thermal units by default in its Python interface). `temperature` is
 the temperature in eV at each radius, or a function of time that returns the temperatures
-or a [`PlasmaState`](@ref). `limit(t)` gives the momenta at the time `t`.
+or a [`PlasmaState`](@ref). `limit(t)` gives the momenta at the time `t` [s].
 
 `temperature` may also be the name of the radial unknown of the temperature. The limit
 then follows the state, and the moments over the region hold the column of
@@ -113,7 +113,7 @@ _limit_values(limit, t) = limit(t)
 """
     momentum_limit(region, ir, t=0; radii=nothing)
 
-Limit of the region in units of `mₑc` at the radius index `ir` and the time `t`. With
+Limit of the region in units of `mₑc` at the radius index `ir` and the time `t` [s]. With
 `radii`, the number of radii of the grid, the length of a limit per radius is checked.
 """
 function momentum_limit(region::MomentumRegion, ir::Integer, t = 0.0; radii::Union{

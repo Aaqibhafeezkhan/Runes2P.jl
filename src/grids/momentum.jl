@@ -73,7 +73,8 @@ cell_count(grid::MomentumGrid) = momentum_cell_count(grid) * pitch_cell_count(gr
 """
     uniform_p_faces(cell_count, p_min, p_max)
 
-Faces of a uniform momentum grid with `cell_count` cells.
+Faces of a uniform momentum grid with `cell_count` cells, from `p_min` to `p_max` in units
+of `mₑc`.
 """
 function uniform_p_faces(cell_count::Integer, p_min::Real, p_max::Real)
     collect(range(float(p_min), float(p_max); length = cell_count + 1))
@@ -83,8 +84,9 @@ end
     biuniform_p_faces(cell_count, lower_cell_count, p_min, p_separation, p_max)
 
 Faces of a two-region uniform momentum grid: `lower_cell_count` cells on
-`[p_min, p_separation]` and `cell_count - lower_cell_count` cells on `[p_separation, p_max]`
-(DREAM `PBiUniformGridGenerator`).
+`[p_min, p_separation]` and `cell_count - lower_cell_count` cells on
+`[p_separation, p_max]`, with the momenta in units of `mₑc` (DREAM
+`PBiUniformGridGenerator`).
 """
 function biuniform_p_faces(cell_count::Integer, lower_cell_count::Integer, p_min::Real,
         p_separation::Real, p_max::Real)
@@ -111,15 +113,15 @@ the spacing is
     h(x) = h₁ + (h₂ - h₁) (1 + tanh((x - n₁ - 3w)/w))/2,   n₁ = lower_cell_count, w = transition_cells,
 
 and face `k` sits at `p_min + ∫₀ᵏ h`, with `h₁` and `h₂` chosen so that face `n₁` is at
-`p_separation` and the last face at `p_max`. The transition is centred three widths above
-the separation, so up to `p_separation` the spacing exceeds `h₁` by at most 0.25% of
-`h₂ - h₁` (the bulk keeps its resolution) and it grows over the next few `w` cells; the
-upper region needs at least `5w` cells. `transition_cells = 0` gives the biuniform grid
-exactly, and the faces approach it linearly in `w`. The default width, a twentieth of the
-cells, grows with the cell count, which keeps the grid map smooth under refinement; with a
-fixed width in cells the max-norm order stalls near 1.5 in the manufactured-solution test.
-Not available in DREAM, which has uniform, biuniform and custom momentum grids; a DREAM
-comparison passes these faces as a custom grid.
+`p_separation` and the last face at `p_max` (the momenta in units of `mₑc`). The transition
+is centred three widths above the separation, so up to `p_separation` the spacing exceeds
+`h₁` by at most 0.25% of `h₂ - h₁` (the bulk keeps its resolution) and it grows over the
+next few `w` cells; the upper region needs at least `5w` cells. `transition_cells = 0` gives
+the biuniform grid exactly, and the faces approach it linearly in `w`. The default width, a
+twentieth of the cells, grows with the cell count, which keeps the grid map smooth under
+refinement; with a fixed width in cells the max-norm order stalls near 1.5 in the
+manufactured-solution test. Not available in DREAM, which has uniform, biuniform and custom
+momentum grids; a DREAM comparison passes these faces as a custom grid.
 
 The biuniform grid converges at second order despite its jump: the local truncation
 error is O(1) at the jump cell only, and the global error stays second order
@@ -177,10 +179,10 @@ uniform_xi_faces(cell_count::Integer) = collect(range(-1.0, 1.0; length = cell_c
     biuniform_theta_xi_faces(cell_count, lower_cell_count, theta_separation)
 
 Faces of a two-region pitch grid, uniform in `θ = acos(ξ)`: `lower_cell_count` cells on
-`θ ∈ [0, theta_separation]` (near `ξ = 1`) and `cell_count - lower_cell_count` cells on
-`[theta_separation, π]`, returned as `ξ = cos θ` faces (DREAM `TYPE_BIUNIFORM_THETA`,
-`XiBiUniformThetaGridGenerator`). Refines towards `ξ = 1`, where runaway electrons
-concentrate.
+`θ ∈ [0, theta_separation]` with `theta_separation` in rad (near `ξ = 1`) and
+`cell_count - lower_cell_count` cells on `[theta_separation, π]`, returned as `ξ = cos θ`
+faces (DREAM `TYPE_BIUNIFORM_THETA`, `XiBiUniformThetaGridGenerator`). Refines towards
+`ξ = 1`, where runaway electrons concentrate.
 """
 function biuniform_theta_xi_faces(cell_count::Integer, lower_cell_count::Integer, theta_separation::Real)
     (1 <= lower_cell_count < cell_count) ||

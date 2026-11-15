@@ -114,8 +114,9 @@ end
 
 Cylindrical kinetic grid of the runaway electrons above `hot_tail_grid`, on the same radii:
 at every radius its first p face is the last p face of the hot-tail grid there, followed
-by `p_faces_above` (increasing, all above that face, the last one the `p_max` of the
-runaway grid), e.g. `uniform_p_faces(n, p, p_max)[2:end]` with `p` the hot-tail `p_max`.
+by `p_faces_above` in units of `mₑc` (increasing, all above that face, the last one the
+`p_max` of the runaway grid), e.g. `uniform_p_faces(n, p, p_max)[2:end]` with `p` the
+hot-tail `p_max`.
 Taking the first face from the hot-tail grid keeps the two grids on one face to the bit,
 which the [`MomentumInterfaceTerm`](@ref) between them requires.
 
@@ -225,30 +226,31 @@ end
 """
     phase_space_jacobian(grid, ir)
 
-Phase-space Jacobian `𝒱'` at radius index `ir`, at the cell centres, `(p cells, ξ cells)`.
-See also [`phase_space_jacobian_p_faces`](@ref), [`phase_space_jacobian_xi_faces`](@ref),
-[`phase_space_jacobian_r_faces`](@ref) and [`phase_space_jacobian_over_p2_at_zero`](@ref).
+Phase-space Jacobian `𝒱'` [m] at radius index `ir`, at the cell centres,
+`(p cells, ξ cells)`. See also [`phase_space_jacobian_p_faces`](@ref),
+[`phase_space_jacobian_xi_faces`](@ref), [`phase_space_jacobian_r_faces`](@ref) and
+[`phase_space_jacobian_over_p2_at_zero`](@ref).
 """
 phase_space_jacobian(grid::KineticGrid, ir::Integer) = grid.jacobian_centers[ir]
 
 """
     phase_space_jacobian_p_faces(grid, ir)
 
-Phase-space Jacobian `𝒱'` at radius index `ir` on the p faces, `(p cells + 1, ξ cells)`.
+Phase-space Jacobian `𝒱'` [m] at radius index `ir` on the p faces, `(p cells + 1, ξ cells)`.
 """
 phase_space_jacobian_p_faces(grid::KineticGrid, ir::Integer) = grid.jacobian_p_faces[ir]
 
 """
     phase_space_jacobian_xi_faces(grid, ir)
 
-Phase-space Jacobian `𝒱'` at radius index `ir` on the ξ faces, `(p cells, ξ cells + 1)`.
+Phase-space Jacobian `𝒱'` [m] at radius index `ir` on the ξ faces, `(p cells, ξ cells + 1)`.
 """
 phase_space_jacobian_xi_faces(grid::KineticGrid, ir::Integer) = grid.jacobian_xi_faces[ir]
 
 """
     phase_space_jacobian_over_p2_at_zero(grid, ir)
 
-Limit of ``\\mathcal{V}'/p^2`` at `p = 0` for each ξ cell at radius index `ir`.
+Limit of ``\\mathcal{V}'/p^2`` [m] at `p = 0` for each ξ cell at radius index `ir`.
 """
 function phase_space_jacobian_over_p2_at_zero(grid::KineticGrid, ir::Integer)
     grid.jacobian_over_p2_at_zero[ir]
@@ -277,7 +279,7 @@ end
 """
     phase_space_jacobian_r_faces(grid)
 
-Phase-space Jacobian on the radial faces, `(p cells, face pitch cells, radii + 1)`, with
+Phase-space Jacobian [m] on the radial faces, `(p cells, face pitch cells, radii + 1)`, with
 the pitch cells of a face those of [`radial_face_overlap`](@ref) (the pitch cells of the
 grid when the radii share their pitch grid) and zeros beyond the count of a face. Defined
 when the p faces are the same at all radii.
@@ -318,9 +320,10 @@ end
 """
     density(grid, f; region=nothing, t=0)
 
-Density moment `n(r) = (1/V') ∫ 𝒱' f dp dξ` at each radius, for `f` stored as a 3D array
-(the same cell counts at all radii). With `region`, a [`MomentumRegion`](@ref), the moment
-covers that part of the momentum grid, with the limit of the region at the time `t`.
+Density moment `n(r) = (1/V') ∫ 𝒱' f dp dξ` [m⁻³] at each radius, for `f` in m⁻³ stored as
+a 3D array (the same cell counts at all radii). With `region`, a [`MomentumRegion`](@ref),
+the moment covers that part of the momentum grid, with the limit of the region at the time
+`t` [s].
 """
 function density(grid::KineticGrid{T}, f::AbstractArray{S, 3}; region = nothing, t = 0.0) where {
         T, S}
@@ -398,7 +401,7 @@ DREAM: positive when the electrons move towards ξ = 1, the direction in which
 sign and the electron charge is folded into that convention. `𝒱'` and `p/γ` are taken at
 the cell centre; a pitch-dependent Jacobian (toroidal geometry) would enter the
 pitch weights. With `region`, a [`MomentumRegion`](@ref), the moment covers that part of
-the momentum grid, with the limit of the region at the time `t` (DREAM's `j_hot` of the
+the momentum grid, with the limit of the region at the time `t` [s] (DREAM's `j_hot` of the
 fully kinetic mode is the current above 7 thermal momenta).
 """
 function current_density(
@@ -439,8 +442,10 @@ end
 """
     total_particles(grid, f)
 
-Total particle content `Σ 𝒱' Δp Δξ Δr f`, conserved by a flux-form discretization, for `f`
-stored as a 3D array (the same cell counts at all radii).
+Total particle content `Σ 𝒱' Δp Δξ Δr f` [m⁻¹], conserved by a flux-form discretization, for
+`f` in m⁻³ stored as a 3D array (the same cell counts at all radii). With the spatial
+Jacobian `V' = r` of a cylinder in `𝒱'`, it is the number of electrons per metre of the
+cylinder divided by 2π.
 """
 function total_particles(grid::KineticGrid{T}, f::AbstractArray{S, 3}) where {T, S}
     size(f) == size(grid) || throw(DimensionMismatch("f must have the grid size"))
@@ -461,7 +466,7 @@ end
 """
     momentum_envelope(region, grid::KineticGrid, ir, t=0)
 
-Envelope of the region on the momentum cells of the radius index `ir` at the time `t`.
+Envelope of the region on the momentum cells of the radius index `ir` at the time `t` [s].
 """
 function momentum_envelope(region::MomentumRegion, grid::KineticGrid, ir::Integer, t = 0.0)
     momentum_envelope(region, momentum_grid(grid, ir),
