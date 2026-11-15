@@ -12,17 +12,17 @@ using SciMLBase: ODEFunction
 """
     ode_function(system::EquationSystem)
 
-`SciMLBase.ODEFunction` of `M du/dt = rhs(u, t)`: in-place right-hand side
-`f(du, u, p, t)`, the mass matrix, and the Jacobian-vector product `jvp(Jv, v, u, p, t)`
-(stored sparse Jacobian plus matrix-free terms). The sparse Jacobian itself (`jac`,
-`jac_prototype`) is included only when it is the whole Jacobian, i.e. when the system has
-no matrix-free and no explicit terms, and no term stores an approximate block (a frozen
-limiter, or the Jacobian of another scheme). In the ODE form explicit terms are part of `f` but
-not of the Jacobian, which then only approximates `∂f/∂u` (as DREAM's explicit knock-on
-term does). A system with a term that lags part of its residual to the start of the step
-([`lags_in_ode_form`](@ref)) gets neither `jac` nor `jvp`: in the ODE form the start of the
-step is the state itself, and the stored Jacobian leaves out the derivative of the lagged
-part. The solver then takes its own derivatives. The parameter `p` is ignored.
+`SciMLBase.ODEFunction` of `M du/dt = rhs(u, t)`: in-place right-hand side `f(du, u, p, t)`
+with the time `t` [s], the mass matrix, and the Jacobian-vector product
+`jvp(Jv, v, u, p, t)` (stored sparse Jacobian plus matrix-free terms). The sparse Jacobian
+itself (`jac`, `jac_prototype`) is included only when it is the whole Jacobian, i.e. when
+the system has no matrix-free and no explicit terms, and no term stores an approximate block
+(a frozen limiter, or the Jacobian of another scheme). In the ODE form explicit terms are
+part of `f` but not of the Jacobian, which then only approximates `∂f/∂u` (as DREAM's
+explicit knock-on term does). A system with a term that lags part of its residual to the
+start of the step ([`lags_in_ode_form`](@ref)) gets neither `jac` nor `jvp`: in the ODE form
+the start of the step is the state itself, and the stored Jacobian leaves out the derivative
+of the lagged part. The solver then takes its own derivatives. The parameter `p` is ignored.
 
 Cost: `jvp` assembles the whole stored Jacobian at `u` on every call (one AD pass per
 color, about 23 operator applications for the Fokker-Planck stencil) before the product.

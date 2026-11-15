@@ -13,9 +13,9 @@ One leg of a run, `duration` seconds long, in one of three keyword forms:
   away from zero, so that a tie the sum reaches exactly goes to the later step and one it
   falls just short of to the earlier (`Leg(T; steps = 5, saves = 2)` saves after the steps
   3 and 5);
-- steps of length `dt` with a saved state every `save_dt`, where `dt` and `save_dt` divide
-  the duration (to 1e-12 relative) and the saved states are those of the first form with
-  `duration / save_dt` saves;
+- steps of length `dt` [s] with a saved state every `save_dt` [s], where `dt` and `save_dt`
+  divide the duration (to 1e-12 relative) and the saved states are those of the first form
+  with `duration / save_dt` saves;
 - for a [`StepController`](@ref) alone, no prescribed steps and a saved state every
   `save_dt`, which divides the duration.
 
@@ -83,9 +83,9 @@ end
 """
     time_points(legs; start=0.0)
 
-The `times` and `save_times` of a run made of `legs` ([`Leg`](@ref)), one after the other
-from `start`, as a pair of vectors. Both begin with `start`. A prescribed-step leg adds
-its time points, with the saved ones among them; a controller leg adds only its end to
+The `times` and `save_times` [s] of a run made of `legs` ([`Leg`](@ref)), one after the
+other from `start` [s], as a pair of vectors. Both begin with `start`. A prescribed-step leg
+adds its time points, with the saved ones among them; a controller leg adds only its end to
 the time points and its save times in between, which a [`StepController`](@ref) makes
 ceilings of its steps. The end of each leg is `start` plus the durations so far, in one
 arithmetic for both vectors.

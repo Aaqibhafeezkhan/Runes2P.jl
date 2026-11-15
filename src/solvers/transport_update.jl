@@ -6,15 +6,16 @@
                               name="radial_transport")
 
 Radial diffusion of `operator` that follows the level of the magnetic perturbation in time:
-at the start of the run and after every accepted step, at the time `t` where that step ends,
-`operator.diffusion_r_r` is set to the Rechester-Rosenbluth coefficient of
+at the start of the run and after every accepted step, at the time `t` [s] where that step
+ends, `operator.diffusion_r_r` is set to the Rechester-Rosenbluth coefficient of
 `delta_b_over_b_at(t)` ([`add_rechester_rosenbluth_diffusion!`](@ref)): a number, one value
 per radial face, or a callable of r such as an interpolator, evaluated on the faces
-([`radial_face_values`](@ref)). A profile on points of its own that is constant in time is
-`t -> profile`. The safety factor takes the same forms and is evaluated once. Each step
-takes the level at its start, so a [`PiecewiseConstant`](@ref) whose switch times are among
-the time points gives every step from `t_k` to `t_{k+1}` the level at `t_k`. The levels of
-the faces are the state of the update, stored with the checkpoints and restored on resume.
+([`radial_face_values`](@ref)), with the major radius `major_radius` in m. A profile on
+points of its own that is constant in time is `t -> profile`. The safety factor takes the
+same forms and is evaluated once. Each step takes the level at its start, so a
+[`PiecewiseConstant`](@ref) whose switch times are among the time points gives every step
+from `t_k` to `t_{k+1}` the level at `t_k`. The levels of the faces are the state of the
+update, stored with the checkpoints and restored on resume.
 
 `operator` is the operator of the radial transport alone: the update owns its
 `diffusion_r_r`, and the operator declares radial transport (`radial_transport = true` of

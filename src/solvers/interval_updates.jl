@@ -11,7 +11,7 @@ every accepted step (`updates`), at the state and the time where that step ends.
 
 - `update_name(update)`: its name, unique among the updates of a run;
 - `apply_update!(update, u, layout, t)`: apply it for the steps that start at the time `t`
-  with the state `u`; returns whether the setup changed;
+  [s] with the state `u`; returns whether the setup changed;
 - `update_state(update)`: the numbers the update has set, as a vector, stored with every
   saved state and in every checkpoint;
 - `restore_update!(update, state)`: set the setup back to a stored state;
@@ -41,12 +41,13 @@ changes_continuously(update) = false
                         critical_momentum_at=total_critical_momentum,
                         coulomb_logarithm=:thermal, linked=[], electric_field=nothing)
 
-Knock-on cutoff that follows the plasma `plasma_at(t)`, or a [`PlasmaSource`](@ref) such as
-[`PlasmaFromUnknowns`](@ref), which it reads at the state of the start of each step (a
-system whose bulk reads the temperature from an unknown refuses a prescribed temperature
-here): at the start of the run and after every accepted step the cutoff of each radius of
-`operator` is set to a face of the knock-on momentum grid. The cutoff per radius is the
-state of the update. `critical_momentum_at(plasma, ir)` gives the runaway threshold.
+Knock-on cutoff that follows the plasma `plasma_at(t)` at the time `t` [s], or a
+[`PlasmaSource`](@ref) such as [`PlasmaFromUnknowns`](@ref), which it reads at the state of
+the start of each step (a system whose bulk reads the temperature from an unknown refuses a
+prescribed temperature here): at the start of the run and after every accepted step the
+cutoff of each radius of `operator` is set to a face of the knock-on momentum grid. The
+cutoff per radius is the state of the update. `critical_momentum_at(plasma, ir)` gives the
+runaway threshold, a momentum in units of `mₑc`.
 
 `coulomb_logarithm` is the Coulomb logarithm of the collisions of the run, the field of the
 same name of [`CollisionSettings`](@ref), whose default `:thermal` it shares. The default

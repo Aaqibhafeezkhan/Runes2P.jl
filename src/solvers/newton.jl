@@ -660,14 +660,14 @@ end
 """
     newton_solve!(u, u_old, workspace::NewtonWorkspace, t, dt; reference=u_old)
 
-Solve the backward-Euler step from `u_old` to time `t` with step `dt`, starting from the
-guess in `u` and overwriting it. `reference` replaces `u_old` in the time derivative
+Solve the backward-Euler step from `u_old` to time `t` [s] with step `dt` [s], starting from
+the guess in `u` and overwriting it. `reference` replaces `u_old` in the time derivative
 alone ([`residual!`](@ref)): BDF2 passes its combination of the two last states with its
-effective step. Returns a [`NewtonResult`](@ref); on failure `u` holds
-the last iterate. Never throws for a failed iteration: a singular matrix, a non-finite
-residual, Jacobian or update, a `DomainError` from a term (evaluation outside the physical
-domain), a linear solve that did not converge, a failed line search, an entry below its lower limit at convergence and the
-iteration limit are reported through the status, for the time stepper to handle.
+effective step. Returns a [`NewtonResult`](@ref); on failure `u` holds the last iterate.
+Never throws for a failed iteration: a singular matrix, a non-finite residual, Jacobian or
+update, a `DomainError` from a term (evaluation outside the physical domain), a linear solve
+that did not converge, a failed line search, an entry below its lower limit at convergence
+and the iteration limit are reported through the status, for the time stepper to handle.
 """
 function newton_solve!(
         u::AbstractVector, u_old::AbstractVector, ws::NewtonWorkspace, t, dt;
