@@ -108,7 +108,7 @@ The erratum is The Astrophysical Journal 243, 677 (1981), [doi:10.1086/158634](h
 It reproduces DREAM's radiation with `bremsstrahlung_corrections = :dream`, which takes DREAM's coefficients of Gould's corrections.
 
 [`IonEnergyExchangeTerm`](@ref) refuses a mass of `masses` outside the range of the ion masses.
-The masses of [`ion_mass`](@ref) lie inside it in both tables.
+The masses of [`ion_mass`](@ref) lie inside it for every element up to uranium, in both tables.
 A mass in atomic mass units or in grams lies above it.
 
 ## Plasma from the unknowns
