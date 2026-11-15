@@ -36,8 +36,8 @@ radial_cell_count(grid::RadialGrid) = length(grid.r_centers)
 """
     uniform_r_faces(cell_count, minor_radius)
 
-Faces of a uniform radial grid on `[0, minor_radius]` with `cell_count` cells, the minor
-radius in m.
+Faces [m] of a uniform radial grid on `[0, minor_radius]` with `cell_count` cells, for the
+minor radius `minor_radius` [m].
 """
 function uniform_r_faces(cell_count::Integer, minor_radius::Real)
     collect(range(0.0, float(minor_radius); length = cell_count + 1))

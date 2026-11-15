@@ -777,10 +777,10 @@ end
 """
     slowing_down_frequency(model, ir, p)
 
-Slowing-down frequency `ν_s` [s⁻¹] at radius index `ir` and momentum `p` (units of `mₑc`);
-the collisional friction is `Aᵖ = -p ν_s`. With `bremsstrahlung = :stopping_power` it adds,
-per charge state of density `n` and nuclear charge `Z`, `n Z² α r₀² c φ(p) γ/p` with the
-cross section `φ` of [`bremsstrahlung_cross_section`](@ref), as DREAM's
+Slowing-down frequency `ν_s` [s⁻¹] at radius index `ir` and momentum `p` (in units of
+`mₑc`); the collisional friction is `Aᵖ = -p ν_s`. With `bremsstrahlung = :stopping_power`
+it adds, per charge state of density `n` and nuclear charge `Z`, `n Z² α r₀² c φ(p) γ/p`
+with the cross section `φ` of [`bremsstrahlung_cross_section`](@ref), as DREAM's
 `src/Equations/SlowingDownFrequency.cpp:204-207` and `:236` (where DREAM's `φ` differs by
 its integer division, see there).
 """
@@ -832,7 +832,7 @@ end
     deflection_frequency(model, ir, p)
 
 Pitch-angle scattering (deflection) frequency `ν_D` [s⁻¹] at radius index `ir` and momentum
-`p` (units of `mₑc`); the collisional pitch diffusion is `Dᵠᵠ = ν_D (1 - ξ²)/2`.
+`p` (in units of `mₑc`); the collisional pitch diffusion is `Dᵠᵠ = ν_D (1 - ξ²)/2`.
 """
 function deflection_frequency(model::CollisionModel, ir, p)
     return _deflection_frequency(model, ir, p)
@@ -875,7 +875,7 @@ end
     parallel_diffusion_frequency(model, ir, p)
 
 Parallel (energy) diffusion frequency `ν_∥` [s⁻¹] at radius index `ir` and momentum `p`
-(units of `mₑc`), `Dᵖᵖ = ν_∥`; nonzero only in `:full` mode. With
+(in units of `mₑc`), `Dᵖᵖ = ν_∥`; nonzero only in `:full` mode. With
 `screened_diffusion = :maxwellian` it is `Θγ` times the collisional part of `ν_s`, and with
 `bremsstrahlung_diffusion = :dream` times the whole `ν_s` ([`CollisionSettings`](@ref)).
 """

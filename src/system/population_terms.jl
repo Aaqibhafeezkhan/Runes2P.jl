@@ -298,9 +298,9 @@ field of the state.
 - `weight = :density`: the particles per volume and second [m⁻³ s⁻¹],
   `(1/V') Σ_j Δξ_j 𝒱' Γᵖ`. With `TimeDerivative()` the row unknown is the density of the
   electrons above the grid, or a fluid runaway density fed by the hot-tail grid.
-- `weight = :current`: the flux weighted with `e c ξ` [A m⁻² s⁻¹], the current that the
-  electrons carry when they leave, at the speed of light. With `TimeDerivative()` the row
-  unknown is the current density of the electrons above the grid.
+- `weight = :current`: the flux weighted with `e c ξ`, the rate [A m⁻² s⁻¹] of the current
+  density that the electrons carry when they leave, at the speed of light. With
+  `TimeDerivative()` the row unknown is the current density of the electrons above the grid.
 - `weight = :energy`: the flux weighted with the kinetic energy `mₑc²(γ − 1)` of the last
   momentum cell [W/m³], the energy that the discrete energy moment of the grid loses with
   the electrons; the energy at the face itself differs by about Δp/(2p). With `coefficient = −1`
@@ -521,7 +521,7 @@ with `f_M` the Maxwellian on `grid` and `n_M` its density, so the source adds
 into the runaway region, which is what the published Dreicer rates assume; with
 `rate = 1/Δt` a step restores the particles the previous step lost.
 
-`n(f)` counts the cells below `bulk_momentum` (units of `mₑc`), and `n_target` is the
+`n(f)` counts the cells below `bulk_momentum` (in units of `mₑc`), and `n_target` is the
 density of the bulk there. The bound matters: with the whole grid counted, particles moving
 from the bulk into the runaway tail leave the total unchanged, the source sees no deficit,
 and the bulk still drains. Set it below the critical momentum and above the thermal

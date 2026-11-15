@@ -154,7 +154,7 @@ const SECONDARY_SPECTRUM_WIDTHS = Dict{String, Float64}(
 The mean kinetic energy [eV] of the secondary electron of an ionization with the ionization
 potential `I` by an electron of kinetic energy `E`, with the spectrum of Opal et al. of
 width `width` ([`SECONDARY_SPECTRUM_WIDTHS`](@ref)) up to the smaller of `(E − I)/2` (the
-slower of the two electrons is the secondary) and `cut`, all four in eV:
+slower of the two electrons is the secondary) and `cut`. All four are in eV. The mean is
 `(Ē/2) ln(1 + (E_top/Ē)²) / arctan(E_top/Ē)`. Zero below the threshold. This is the mean
 of the secondaries below the top, conditional on lying there. With `cut = Inf` it is the mean
 over every secondary, which [`SecondaryHeatingTerm`](@ref) with `spectrum = :opal` gives to the cold electrons and

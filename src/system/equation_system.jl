@@ -673,7 +673,8 @@ pitch range ``\\Delta\\xi_\\mathrm{grid}`` of the grid, 2 on DREAM's grids from 
 - `shape = :xi_positive`: the last pitch cell, at the largest `ξ` of the grid (`INIT_XI_POSITIVE`);
 - `:xi_negative`: the first pitch cell, at the smallest `ξ` (`INIT_XI_NEGATIVE`);
 - `:forward`: the last pitch cell where the field `electric_field` [V/m] (a profile as
-  `density`) is not negative, the first where it is (`INIT_FORWARD`, DREAM's default);
+  `density`, of which only the sign counts) is not negative, the first where it is
+  (`INIT_FORWARD`, DREAM's default);
 - `:isotropic`: every pitch cell, with `f 𝒱'` uniform in `ξ` (`INIT_ISOTROPIC`).
 
 DREAM's analytic avalanche distribution (`INIT_AVALANCHE`) is not one of the shapes. The other

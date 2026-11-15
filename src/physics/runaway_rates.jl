@@ -88,11 +88,11 @@ end
 """
     avalanche_growth_rate(total_density, critical_momentum)
 
-Avalanche growth rate `Γ = 4π r₀² c n_tot / p_c²` [s⁻¹] of a runaway population with the
-total electron density `total_density` (`n_tot`) [m⁻³], the Rosenbluth-Putvinski estimate
-written with an explicit critical momentum `p_c` (in units of `mₑc`): every knock-on above
-`p_c` runs away, and the production per runaway is the Møller rate above `p_c`. For an
-infinitely energetic primary that rate is
+Avalanche growth rate `Γ = 4π r₀² c n_tot / p_c²` [s⁻¹] of a runaway population, for the
+total electron density `total_density` (`n_tot`) [m⁻³] of the targets. It is the
+Rosenbluth-Putvinski estimate written with an explicit critical momentum `p_c` (in units of
+`mₑc`): every knock-on above `p_c` runs away, and the production per runaway is the Møller
+rate above `p_c`. For an infinitely energetic primary that rate is
 `2π r₀² c n_tot / (γ_c − 1) = (γ_c + 1)/2 · 4π r₀² c n_tot / p_c²`
 ([`moller_total_rate`](@ref) with `p1 = Inf`; Embréus, Stahl and Fülöp, J. Plasma Phys. 84,
 905840102 (2018), doi:10.1017/S002237781700099X), so the formula keeps its leading term for
@@ -129,10 +129,10 @@ end
 """
     free_critical_momentum(plasma, ir; coulomb_logarithm=:thermal)
 
-Critical momentum (units of `mₑc`) at radius `ir` from the Connor-Hastie critical field of
-the cold electrons (DREAM's `Ec_free`, `RunawayFluid.cpp`), [`critical_momentum`](@ref) of
-`|E|`. Screening and pitch-angle scattering raise the critical momentum, so this is a lower
-estimate.
+Critical momentum (in units of `mₑc`) at radius `ir` from the Connor-Hastie critical field
+of the cold electrons (DREAM's `Ec_free`, `RunawayFluid.cpp`), [`critical_momentum`](@ref)
+of `|E|`. Screening and pitch-angle scattering raise the critical momentum, so this is a
+lower estimate.
 
 `coulomb_logarithm` is the model of the Coulomb logarithm of the collisions, the field of
 the same name of [`CollisionSettings`](@ref), whose default it shares. As in DREAM
@@ -161,8 +161,8 @@ end
 """
     total_critical_momentum(plasma, ir; coulomb_logarithm=:thermal)
 
-Critical momentum (units of `mₑc`) at radius `ir` from the Connor-Hastie critical field of
-all electrons, free and bound, with the Coulomb logarithm of the free electrons (DREAM's
+Critical momentum (in units of `mₑc`) at radius `ir` from the Connor-Hastie critical field
+of all electrons, free and bound, with the Coulomb logarithm of the free electrons (DREAM's
 `Ec_tot`, `RunawayFluid.cpp`), [`critical_momentum`](@ref) of `|E|`. `Inf` where the field
 is below that critical field. `coulomb_logarithm` chooses the logarithm as in
 [`free_critical_momentum`](@ref), by DREAM's rule

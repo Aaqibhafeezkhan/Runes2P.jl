@@ -320,7 +320,7 @@ end
 """
     density(grid, f; region=nothing, t=0)
 
-Density moment `n(r) = (1/V') ∫ 𝒱' f dp dξ` [m⁻³] at each radius, for `f` in m⁻³ stored as
+Density moment `n(r) = (1/V') ∫ 𝒱' f dp dξ` [m⁻³] at each radius, for `f` [m⁻³] stored as
 a 3D array (the same cell counts at all radii). With `region`, a [`MomentumRegion`](@ref),
 the moment covers that part of the momentum grid, with the limit of the region at the time
 `t` [s].
@@ -443,7 +443,7 @@ end
     total_particles(grid, f)
 
 Total particle content `Σ 𝒱' Δp Δξ Δr f` [m⁻¹], conserved by a flux-form discretization, for
-`f` in m⁻³ stored as a 3D array (the same cell counts at all radii). With the spatial
+`f` [m⁻³] stored as a 3D array (the same cell counts at all radii). With the spatial
 Jacobian `V' = r` of a cylinder in `𝒱'`, it is the number of electrons per metre of the
 cylinder divided by 2π.
 """

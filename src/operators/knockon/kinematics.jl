@@ -33,9 +33,9 @@ end
 """
     momentum_at_xi_star(xi_s, p1)
 
-Knock-on momentum `p` (units of `mₑc`) with [`xi_star`](@ref)`(p, p1) = xi_s`, the inverse
-of `xi_star` in its first argument (`ξ*` grows monotonically with `p`): from ``\\xi_*^2 =
-(\\gamma_1 + 1)(\\gamma - 1) / ((\\gamma_1 - 1)(\\gamma + 1))``,
+Knock-on momentum `p` (in units of `mₑc`) with [`xi_star`](@ref)`(p, p1) = xi_s`, the
+inverse of `xi_star` in its first argument (`ξ*` grows monotonically with `p`): from
+``\\xi_*^2 = (\\gamma_1 + 1)(\\gamma - 1) / ((\\gamma_1 - 1)(\\gamma + 1))``,
 
 ```math
 \\gamma - 1 = \\frac{2 \\xi_*^2 (\\gamma_1 - 1)}{\\gamma_1 + 1 - \\xi_*^2 (\\gamma_1 - 1)}, \\qquad
@@ -82,9 +82,9 @@ end
 """
     moller_flux(p, p1)
 
-Antiderivative `S` [m³/s] of the Møller cross section in the knock-on momentum `p` (units of
-`mₑc`), `∂S/∂p = (p/γ) Σ`, i.e. `∂S/∂γ = Σ`. Integrating the knock-on source over a momentum
-cell reduces to differences of `S`.
+Antiderivative `S` [m³/s] of the Møller cross section in the knock-on momentum `p` (in units
+of `mₑc`), `∂S/∂p = (p/γ) Σ`, i.e. `∂S/∂γ = Σ`. Integrating the knock-on source over a
+momentum cell reduces to differences of `S`.
 
 Ported from DREAM `KnockOnUtilities.hpp` (`Kinematics::EvaluateMollerFlux`).
 """

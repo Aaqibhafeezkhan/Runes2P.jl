@@ -213,7 +213,7 @@ end
 
 Knock-on source on the grid `knockon` produced by primaries on the grid `primary`
 (the same grid for in-grid knock-on) colliding with stationary targets of density
-`n_tot` (the total electron density, in m⁻³):
+`n_tot` [m⁻³] (the total electron density):
 
 ```math
 \\begin{aligned}
@@ -234,7 +234,7 @@ production rate, with `total_rates` from the energy kernel:
 enters, so any constant normalization of `𝒱'` cancels (DREAM's cylindrical `Vprime` is
 `4π²` times Runes2P's).
 
-The cutoff momentum `p_cutoff[r]` (units of `mₑc`) may differ between radii and change in
+The cutoff momentum `p_cutoff[r]` (in units of `mₑc`) may differ between radii and change in
 time ([`set_cutoff!`](@ref)); each radius uses the kernels of its cutoff, and radii with
 equal cutoffs share them. Both grids must have the same radial grid. The operator is linear
 in `f` and in `n_tot`; DREAM evaluates it explicitly, from `f` at the previous time level,
@@ -390,10 +390,9 @@ pitch_kernel(op::KnockOnOperator, ir::Integer = 1) = op.kernels[ir].pitch
 
 Add `scale` times the knock-on source produced by the primary distribution `f[k, l, r]`
 to `df[i, j, r]` on the knock-on grid; `total_electron_density[r]` is the target density
-[m⁻³].
-`f` and `df` are 3D arrays, so both grids must have a shared momentum grid; for per-radius
-grids use [`apply_at_radius!`](@ref). Allocation free; not safe to call concurrently on
-the same operator (shared scratch).
+[m⁻³]. `f` and `df` are 3D arrays, so both grids must have a shared momentum grid; for
+per-radius grids use [`apply_at_radius!`](@ref). Allocation free; not safe to call
+concurrently on the same operator (shared scratch).
 """
 function apply!(
         df::AbstractArray{<:Any, 3}, op::KnockOnOperator, f::AbstractArray{<:Any, 3},

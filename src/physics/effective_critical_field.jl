@@ -78,7 +78,7 @@ U(p) = \\hat E ⟨ξ_0⟩_A − p ν_s(p) − p γ τ_s^{-1} ⟨1 − ξ_0^2⟩_
 A = \\frac{2 \\hat E}{p ν_D(p)},
 ```
 
-with the momentum `p` in units of `mₑc`, `Ê = e|E|/(mₑc)` (`field_frequency`, in s⁻¹), the
+with the momentum `p` in units of `mₑc`, `Ê = e|E|/(mₑc)` (`field_frequency`) [s⁻¹], the
 slowing-down and deflection frequencies of `model` (superthermal, with the bremsstrahlung
 stopping, [`runaway_fluid_settings`](@ref)), and the synchrotron time of the magnetic field
 of the plasma ([`SYNCHROTRON_RATE_PER_FIELD_SQUARED`](@ref)). In a cylinder the pitch
@@ -175,9 +175,9 @@ at every pitch of their distribution. The collisions are those of
 partially screened as `settings`, with the bremsstrahlung stopping and the synchrotron loss
 of the magnetic field of the plasma. DREAM solves to a relative 2e-3 in the field and 1e-3
 in the momentum with a secant step warm-started from the last call; this solves to 1e-13 and
-1e-10. Returns the field [V/m] and the momentum (units of `mₑc`) of the largest advection. A
-`plasma` in dual numbers ([`dual_plasma`](@ref)) gives the field with the exact derivatives:
-the envelope of the maximum, `dE_ceff/dx = −(∂U/∂x)/(∂U/∂E)` at that momentum.
+1e-10. Returns the field [V/m] and the momentum (in units of `mₑc`) of the largest
+advection. A `plasma` in dual numbers ([`dual_plasma`](@ref)) gives the field with the exact
+derivatives: the envelope of the maximum, `dE_ceff/dx = −(∂U/∂x)/(∂U/∂E)` at that momentum.
 """
 function effective_critical_field(
         plasma::PlasmaState, ir::Integer; settings::CollisionSettings = CollisionSettings())
@@ -193,7 +193,7 @@ end
 """
     effective_critical_field(model::CollisionModel, ir; dual=nothing)
 
-The effective critical field [V/m] and the momentum (units of `mₑc`) of the largest
+The effective critical field [V/m] and the momentum (in units of `mₑc`) of the largest
 advection of the collisions of `model` as they are, without the settings of
 [`runaway_fluid_settings`](@ref): the method behind the one of a plasma, and the way to the
 limits with other collisions (a constant Coulomb logarithm in the tests). `dual`, a model of
@@ -246,7 +246,7 @@ p^2 \\hat E_\\mathrm{eff} = \\sqrt{\\hat ν_s(p) (\\hat ν_D(p) + 4 \\hat ν_s(p
 \\hat ν_s = \\frac{p^3 ν_s}{γ^2}, \\quad \\hat ν_D = \\frac{p^3 ν_D}{γ},
 ```
 
-with `Ê_eff = e max(|E|, E_ceff)/(mₑc)` (`field_frequency`, in s⁻¹), `p⋆` in units of `mₑc`
+with `Ê_eff = e max(|E|, E_ceff)/(mₑc)` (`field_frequency`) [s⁻¹], `p⋆` in units of `mₑc`
 and the collisions of
 [`runaway_fluid_settings`](@ref)`(settings; role = :critical_momentum)` (no bremsstrahlung),
 in a cylinder, where the passing fraction is 1. Solved to 1e-12 relative (DREAM: 1e-3); with
@@ -265,7 +265,7 @@ end
 """
     avalanche_critical_momentum(model::CollisionModel, ir, field_frequency; dual=nothing)
 
-`p⋆` (units of `mₑc`) of the collisions of `model` as they are, without
+`p⋆` (in units of `mₑc`) of the collisions of `model` as they are, without
 [`runaway_fluid_settings`](@ref), at the field frequency `field_frequency` [s⁻¹]: the method
 behind the one of a plasma. `dual`, a model of the same plasma in dual numbers, or a field
 frequency in dual numbers, gives the derivatives.
@@ -316,8 +316,8 @@ Hesslow et al. 2019), in a cylinder:
 with the field `|E|` of the plasma, the [`effective_critical_field`](@ref) and the
 [`avalanche_critical_momentum`](@ref) at `Ê_eff`. It is negative below the effective
 critical field, linear in `|E|` there, and takes the sign of the field away. Returns the
-rate, the effective critical field [V/m] and `p⋆` (units of `mₑc`). Dual numbers in `plasma`
-(also in its `electric_field`) or in `total_density` give its exact derivatives.
+rate, the effective critical field [V/m] and `p⋆` (in units of `mₑc`). Dual numbers in
+`plasma` (also in its `electric_field`) or in `total_density` give its exact derivatives.
 """
 function fluid_avalanche_growth_rate(plasma::PlasmaState, ir::Integer, total_density;
         settings::CollisionSettings = CollisionSettings())
@@ -341,7 +341,7 @@ The growth rate of the collisions of `field_model` (for the effective critical f
 method behind the one of a plasma, and the way to the limits with other collisions, for the
 total electron density `total_density` [m⁻³]. The field is that of the plasma of the models;
 the models in dual numbers give the derivatives. It returns the rate [s⁻¹], the effective
-critical field [V/m] and `p⋆` (units of `mₑc`), as the method of a plasma.
+critical field [V/m] and `p⋆` (in units of `mₑc`), as the method of a plasma.
 """
 function fluid_avalanche_growth_rate(
         field_model::CollisionModel, momentum_model::CollisionModel, ir::Integer,

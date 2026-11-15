@@ -17,7 +17,7 @@ One leg of a run, `duration` seconds long, in one of three keyword forms:
   divide the duration (to 1e-12 relative) and the saved states are those of the first form
   with `duration / save_dt` saves;
 - for a [`StepController`](@ref) alone, no prescribed steps and a saved state every
-  `save_dt`, which divides the duration.
+  `save_dt` [s], which divides the duration.
 
 The last time point of a leg is its end, and it is saved. Any other combination of
 keywords, a positional form or a non-positive value throws an `ArgumentError` that names

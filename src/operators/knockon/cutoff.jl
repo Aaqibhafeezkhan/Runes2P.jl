@@ -47,8 +47,9 @@ end
     critical_momentum(electric_field, critical_electric_field)
 
 Critical momentum `1/√(E/E_c - 1)` in units of `mₑc`, for the field `electric_field` (`E`)
-and the critical field `critical_electric_field` (`E_c`) in V/m (relativistic test particle,
-no pitch scattering or radiation), `Inf` for `E ≤ E_c`. DREAM's effective critical momentum
+and the critical field `critical_electric_field` (`E_c`) (relativistic test particle, no
+pitch scattering or radiation), `Inf` for `E ≤ E_c`. The two fields are in the same unit,
+V/m in the package, and only their ratio enters. DREAM's effective critical momentum
 (`fluid.pCrit`) includes screening and pitch-angle scattering and is larger; a caller with a
 better estimate passes it to [`cutoff_window`](@ref) directly.
 """
@@ -145,7 +146,7 @@ end
 
 Knock-on cutoff by the following rule (a choice of this package; see the docs page *Choices
 of this package*), returned as `(p_cutoff, energy, policy)` with `p_cutoff` in units of
-`mₑc` and `energy` in eV, for the critical momentum `critical_p` in units of `mₑc`:
+`mₑc` and `energy` [eV], for the critical momentum `critical_p` in units of `mₑc`:
 
 - with a runaway threshold (`critical_p` finite), the logarithmic midpoint in energy
   between the thermal energy, which is the temperature [eV], and the kinetic energy at
@@ -183,12 +184,11 @@ end
 
 The face of the momentum grid for a cutoff with the target `target`, inside the open
 window `(lower, upper)`, returned as `(p_cutoff, inside_window)`, all momenta in units of
-`mₑc`: the face nearest to the
-target in the logarithm of the energy. A `current_cutoff` that is a face inside the
-window is kept while the target lies between its two neighbouring faces, so a target that
-hovers between two faces does not rebuild the kernels at every time point; the cutoff
-is then at most one cell from the target. Without a face inside the window, the face
-nearest to the target is taken and `inside_window` is false.
+`mₑc`: the face nearest to the target in the logarithm of the energy. A `current_cutoff`
+that is a face inside the window is kept while the target lies between its two neighbouring
+faces, so a target that hovers between two faces does not rebuild the kernels at every time
+point; the cutoff is then at most one cell from the target. Without a face inside the window,
+the face nearest to the target is taken and `inside_window` is false.
 """
 function choose_cutoff_face(
         p_faces::AbstractVector{T}, target::Real, lower::Real, upper::Real;
