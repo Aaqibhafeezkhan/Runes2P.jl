@@ -110,57 +110,74 @@ The shared helpers of the scripts are in `examples/common.jl`: the switches, a M
 ## Units
 
 The inputs of a run are in SI units, except temperatures and particle energies in eV and momenta in units of ``m_e c``, with ``m_e`` the electron mass and ``c`` the speed of light.
+One setting is in minutes, `guard_minutes` of [`ProgressLog`](@ref).
 The code checks no unit, so a value in another unit gives a wrong result without an error.
-The table lists the units by group, and the notes below it explain the distribution, the flux, the thermal energy, the radial totals and the external data.
+The table lists the units by group.
 
 | Group | Quantity | Unit |
 |---|---|---|
-| plasma | temperatures of [`PlasmaState`](@ref) and of the temperature unknowns | eV |
+| plasma | temperatures of [`PlasmaState`](@ref) and of the temperature unknown | eV |
 | plasma | electron and ion densities | m⁻³ |
-| plasma | ion masses ([`ion_mass`](@ref), `masses` of [`IonEnergyExchangeTerm`](@ref)) | kg |
-| grids | momentum faces, momentum cutoffs, limits of a [`MomentumRegion`](@ref) | ``m_e c`` |
+| plasma | ion masses: the result of [`ion_mass`](@ref), `masses` of [`IonEnergyExchangeTerm`](@ref) | kg |
+| plasma | charge numbers of [`IonSpecies`](@ref), effective charge, Coulomb logarithm | dimensionless |
+| grids | momentum faces, limits of a [`MomentumRegion`](@ref) | ``m_e c`` |
+| grids | `p_cutoff` of [`KnockOnOperator`](@ref) and [`RosenbluthPutvinskiSourceTerm`](@ref) | ``m_e c`` |
 | grids | pitch ``\xi`` | dimensionless |
 | grids | pitch-angle separation of [`biuniform_theta_xi_faces`](@ref) | rad |
 | grids | radial faces, minor radius, wall radius, major radius | m |
 | time | times, time steps, save times | s |
 | time | wall times of [`CheckpointSettings`](@ref) and [`StopCondition`](@ref) | s |
 | time | `guard_minutes` of [`ProgressLog`](@ref) | min |
-| distribution and moments | distribution ``f`` | m⁻³ |
+| distribution and moments | distribution ``f``, per momentum volume with ``p`` in ``m_e c`` ([notes](#Notes-on-the-units)) | m⁻³ |
 | distribution and moments | density moment ([`density`](@ref)) | m⁻³ |
 | distribution and moments | current moment ([`current_density`](@ref)) | A/m² |
 | fields and currents | electric field | V/m |
 | fields and currents | magnetic field | T |
 | fields and currents | current density | A/m² |
 | fields and currents | plasma current | A |
-| fields and currents | poloidal flux per major radius | V s/m |
+| fields and currents | poloidal flux divided by the major radius ([as in DREAM](model/unknowns.md#Pairing-of-rows-and-unknowns)) | V s/m |
 | fields and currents | conductivity | S/m |
-| energies | particle energies, ionization energies, widths of the secondary spectrum | eV |
-| energies | thermal energy densities | J/m³ |
-| energies | powers | W/m³ |
+| energies | particle energies, ionization energies | eV |
+| energies | widths of the secondary spectrum ([`SECONDARY_SPECTRUM_WIDTHS`](@ref)) | eV |
+| energies | thermal energy densities ([notes](#Notes-on-the-units)) | J/m³ |
+| energies | power densities | W/m³ |
+| rates | collision frequencies, such as [`slowing_down_frequency`](@ref) | s⁻¹ |
+| rates | avalanche growth rate ([`avalanche_growth_rate`](@ref)) | s⁻¹ |
+| rates | growth rate in the report of `avalanche.jl` | s⁻¹ |
+| rates | Dreicer rate ([`connor_hastie_rate`](@ref)) | m⁻³ s⁻¹ |
+| rates | `rate` of [`MaxwellianSourceTerm`](@ref) and [`LossRateTerm`](@ref) | s⁻¹ |
 | transport | diffusivities | m²/s |
 | transport | relative perturbation ``\delta B/B`` of the magnetic field | dimensionless |
 | atomic data | rate coefficients of ionization, recombination and charge exchange | m³/s |
 | atomic data | coefficients of the radiated power | W m³ |
 
 The units of the unknowns that the package names by default are on the page [Unknowns and the equation system](model/unknowns.md#Units-of-the-unknowns).
-The output files and the settings record store no unit with their values ([Output files](model/output.md)).
+The output files and the settings record store no unit with their values ([Unknowns](model/output.md#Unknowns), [Records](model/output.md#Records)).
 
 ### Notes on the units
 
-The distribution ``f`` is a density per unit of momentum volume, with the momentum in units of ``m_e c``.
-So ``f`` is in m⁻³, and its density moment at a radius is ``n = \int 2\pi p^2 f \, \mathrm{d}p \, \mathrm{d}\xi`` ([`density`](@ref)).
-DREAM labels its distributions in m⁻³ by the same convention (DREAM's `src/Settings/Constants.cpp`).
+These notes explain the distribution, the ion masses, the thermal energy densities, the radial totals and the atomic data that the package reads.
 
-The poloidal flux is DREAM's, the flux divided by the major radius, and so it is in V s/m ([Pairing of rows and unknowns](model/unknowns.md#Pairing-of-rows-and-unknowns)).
+The distribution ``f`` is a density per unit of momentum volume, with the momentum ``p`` in units of ``m_e c``.
+So ``f`` is in m⁻³.
+Its density moment at a radius is ``n = \int 2\pi p^2 f \, \mathrm{d}p \, \mathrm{d}\xi`` ([`density`](@ref)).
+The tests against DREAM read DREAM's `f_hot` and `f_re` without a conversion factor and compare them with ``f`` value by value.
 
-A thermal energy density is ``W = \tfrac32 e\, n T`` in J/m³, with ``e`` the elementary charge, although the temperature ``T`` is in eV ([`THERMAL_ENERGY_FACTOR`](@ref)).
+A species takes its mass from [`ion_mass`](@ref) unless `masses` of [`IonEnergyExchangeTerm`](@ref) gives it.
 
-[`radial_particle_content`](@ref) gives ``n V' \Delta r`` at each radius, with the spatial Jacobian ``V' = r`` of a cylinder and the radial cell width ``\Delta r``.
-Its sum over the radii, [`total_particles`](@ref), is the number of electrons per metre of the cylinder divided by ``2\pi``, in m⁻¹.
+A thermal energy density is ``W = \tfrac32 e\, n T`` in J/m³, with ``e`` the elementary charge ([The energy of the cold electrons](model/energy-current.md#The-energy-of-the-cold-electrons)).
+The factor ``e`` converts the temperature ``T`` from eV to J ([`THERMAL_ENERGY_FACTOR`](@ref)).
 
-The atomic data in other units are converted by the package.
+[`radial_particle_content`](@ref) gives ``n V' \Delta r`` at each radius, in m⁻¹.
+Its terms are the density ``n`` in m⁻³, the spatial Jacobian ``V' = r`` of a cylinder in m and the radial cell width ``\Delta r`` in m.
+Its sum over the radii is [`total_particles`](@ref).
+The number of electrons of ``f`` per metre of the cylinder is ``2\pi`` times `total_particles`.
+
+The package converts the atomic data that come in other units.
 [`read_adf11`](@ref) converts the densities of an ADAS file from cm⁻³ to m⁻³ and its coefficients from cm³ to m³ ([ADAS rate coefficients](model/atomic-data.md#ADAS-rate-coefficients)).
-The fits of CHIANTI ([`CHIANTI_IONIZATION_FITS`](@ref)) keep the units of their files, and the cross sections computed from them are in m² ([`chianti_cross_section`](@ref)).
+The fits of CHIANTI ([`CHIANTI_IONIZATION_FITS`](@ref)) keep the units of their files.
+These are eV for the shell energies and 10⁻¹⁴ cm² eV² for the scaled cross sections ([`ChiantiDirectShell`](@ref)), and Ry for the excitation energies ([`ChiantiAutoionization`](@ref)).
+[`chianti_cross_section`](@ref) gives the cross sections computed from them in m².
 
 ## Switches
 
@@ -174,15 +191,15 @@ The switches of `common.jl` are shared, and a script's header names the defaults
 | `np_low=`, `p_sep=` | integer, ``m_e c`` | the cells below the split of the biuniform and tanh grids, and its position |
 | `pitch=` | `uniform` (default), `theta` (biuniform in the pitch angle) | the pitch faces |
 | `nxi=` | integer | the pitch cells |
-| `nxi_low=`, `theta_sep=` | integer, radians | the cells of `pitch=theta` within `theta_sep=` of ``\xi = 1`` |
-| `T=`, `n=`, `B=` | eV, m⁻³, T | the deuterium plasma |
+| `nxi_low=`, `theta_sep=` | integer, rad | the cells of `pitch=theta` within `theta_sep=` of ``\xi = 1`` |
+| `T=`, `n=`, `B=` | eV, m⁻³, T | the deuterium plasma, with `n=` the density of its electrons and ions |
 | `n_ar=` | m⁻³ | neutral argon added to the plasma (`relaxation.jl`) |
 | `T0=` | eV | the temperature of the initial Maxwell-Jüttner distribution of `relaxation.jl`, the plasma temperature by default |
 | `p_star=` | ``m_e c`` | the momentum above which `relaxation.jl` reports the density fraction |
 | `T_final=` | eV | the final temperature of `cooling.jl`, which starts at `T=` |
 | `nr=` | integer | the radii of `cooling.jl` |
 | `dbb=` | dimensionless | ``\delta B/B`` of the radial diffusion of `cooling.jl` with `nr=` above one |
-| `E=` or `e_over_ec=` | V/m, or multiples of [`critical_field`](@ref) at the [`thermal_coulomb_logarithm`](@ref) | the electric field |
+| `E=` or `e_over_ec=` | V/m, or multiples of [`critical_field`](@ref) of `n=` at the [`thermal_coulomb_logarithm`](@ref) | the electric field |
 | `mode=` | `full` (default of `relaxation.jl` and `cooling.jl`), `superthermal`, `ultra_relativistic` | the collision frequency mode ([`CollisionSettings`](@ref)) |
 | `screening=` | `partial` (default), `complete`, `none` | the screening |
 | `lnlambda=` | `thermal` (default), `energy_dependent`, `relativistic` | the Coulomb logarithm |
@@ -194,11 +211,11 @@ The switches of `common.jl` are shared, and a script's header names the defaults
 | `nonnegative=` | `true`, `false` (default) | a [`LowerLimit`](@ref) ``f \ge 0`` on the unknown (`relaxation.jl`, `cooling.jl`, [Lower limits](#Lower-limits)) |
 | `solver=` | `lu` (default), `gmres` | the monolithic sparse LU of [`SparseLU`](@ref), or [`GMRES`](@ref) on the Newton operator |
 | `preconditioner=` | `lu` (default), `ilu` | the factorization of the stored matrix per radius for GMRES, [`RadiusBlockLU`](@ref) or [`RadiusBlockILU`](@ref) ([notes](#Notes-on-the-solver)) |
-| `ilu_drop=` | number | the drop tolerance of [`RadiusBlockILU`](@ref) |
+| `ilu_drop=` | number | the absolute drop tolerance of [`RadiusBlockILU`](@ref) |
 | `refresh=` | `every_step` (default), `every_iteration`, `on_demand` | when the preconditioner is factorized again ([notes](#Notes-on-the-solver)) |
 | `operator=` | `exact` (default), `stored` | the Newton operator of GMRES ([notes](#Notes-on-the-solver)) |
 | `restart=` | integer | the restart length of GMRES ([notes](#Notes-on-the-solver)) |
-| `max_iterations=`, `residual_tolerance=` | integer, number | the Newton iterations and the residual tolerance of [`NewtonSolver`](@ref) |
+| `max_iterations=`, `residual_tolerance=` | integer, number | the Newton iterations and the residual tolerance, relative to the scale of each unknown ([`NewtonSolver`](@ref)) |
 | `line_search=` | boolean | the backtracking line search of [`NewtonSolver`](@ref) |
 | `dt=`, `t_end=` | s, s | the time points of [`integrate`](@ref) |
 | `saves=` | integer | the number of save times |

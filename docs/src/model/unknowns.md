@@ -51,8 +51,10 @@ The layout is immutable.
 
 ### Units of the unknowns
 
-An unknown carries no unit, and its values are in the unit of the quantity it holds.
-The constructors and equations of the package give their unknowns the default names below, and a keyword of each sets another name.
+An unknown carries no unit.
+Its values are plain numbers in the units of this table.
+The constructors and equations of the package give their unknowns the default names below.
+A keyword sets another name, such as `total_energy` of [`total_energy_equation`](@ref) for `:total_electron_energy`.
 
 | Unknown | Holds | Unit |
 |---|---|---|
@@ -65,14 +67,16 @@ The constructors and equations of the package give their unknowns the default na
 | `:cold_electron_temperature` | the temperature of the cold electrons | eV |
 | `:cold_electron_density` | the density of the cold electrons | m⁻³ |
 | `:cold_thermal_energy` | the thermal energy density of the cold electrons | J/m³ |
-| `:total_electron_energy` | the energy density ``W_\mathrm{tot}`` of the fully kinetic mode | J/m³ |
+| `:total_electron_energy` | the energy density ``W_\mathrm{tot}`` of the [fully kinetic mode](energy-current.md#The-total-energy-in-the-fully-kinetic-mode) | J/m³ |
 | `:ion_densities` | the densities of the ion charge states | m⁻³ |
 | `:ion_thermal_energy` | the thermal energy density of each ion species | J/m³ |
 | `:runaway_density` | the density of the fluid runaways | m⁻³ |
 | `:total_electron_density` | the density of the free and the bound electrons | m⁻³ |
 
-A distribution and the density of the hot electrons have no default name, and the caller names them, as the examples name the distribution `:f`.
-A distribution is in m⁻³ ([Units](../getting-started.md#Units)).
+A distribution and the density of the hot electrons have no default name.
+The caller names them, as the examples name the distribution `:f`.
+The density of the hot electrons is in m⁻³.
+A distribution is in m⁻³ per unit of momentum volume ([Notes on the units](../getting-started.md#Notes-on-the-units)).
 
 ## Equations
 

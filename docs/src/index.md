@@ -58,7 +58,7 @@ Questions and bug reports go to the issue tracker of the repository, <https://gi
 
 ## Map of the pages
 
-- [Getting started](getting-started.md): installation, a first run with the examples, the settings of a run and its output files.
+- [Getting started](getting-started.md): installation, a first run with the examples, the [units](getting-started.md#Units) of the inputs, the settings of a run and its output files.
 - Model and numerics:
   - [Unknowns and the equation system](model/unknowns.md): the unknown layout, equations and terms, the equation system and its pairing checks.
   - [Grids](model/grids.md): momentum, pitch and radial grids, the hot-tail and runaway grids and their interface.
