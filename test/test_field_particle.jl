@@ -137,8 +137,9 @@ const SPITZER_HARM = Dict(1 => 0.5816, 2 => 0.6833, 4 => 0.7849, 16 => 0.9225)
     @testset "conductivity against Braams-Karney above 1 keV" begin
         # B. J. Braams and C. F. F. Karney, Phys. Fluids B 1, 1355 (1989),
         # doi:10.1063/1.858966, with the pages of the journal version:
-        # σ = 4πε₀² T^{3/2}/(m^{1/2} e² Z lnΛ) σ̄(Θ, Z), Sec. VII (unnumbered, p. 1362), the
-        # prefactor of braams_karney_conductivity, with σ̄ of their Table I (p. 1362). Its
+        # σ = 4πε₀² T^{3/2}/(m^{1/2} e² Z lnΛ) σ̄(Θ, Z), the unnumbered equation of Sec. VII
+        # (p. 1362), the prefactor of braams_karney_conductivity, with σ̄ of their Table I
+        # (p. 1362). Its
         # Z = 1 column at Θ = 0, 0.01, 0.02 (0, 5.1 and 10.2 keV), 7.42898, 7.27359,
         # 7.12772, agrees with data/braams_karney_conductivity.toml to the 4 decimals
         # kept there. The package interpolates linearly between them. Operator and reference
