@@ -230,7 +230,7 @@ The ionization and recombination of the charge states of `composition`
 ```
 
 for each species and charge state `j = 0, …, Z`, with the ionization coefficients `I`
-(ADF11 SCD) and the recombination coefficients `R` (ACD) of OpenADAS (H. P. Summers, The ADAS User Manual, version 2.6 (2004), http://www.adas.ac.uk, with the data of OpenADAS, https://open.adas.ac.uk) at the electron
+(ADF11 SCD) and the recombination coefficients `R` (ACD) [m³/s] of OpenADAS (H. P. Summers, The ADAS User Manual, version 2.6 (2004), http://www.adas.ac.uk, with the data of OpenADAS, https://open.adas.ac.uk) at the electron
 density `n_e` and temperature of the radial unknowns `density` and `temperature`
 ([`adas_coefficient`](@ref) with `extrapolation`), as DREAM's
 `src/Equations/Fluid/IonRateEquation.cpp`. The default `extrapolation = :dream` takes DREAM's

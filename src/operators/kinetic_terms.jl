@@ -32,11 +32,12 @@ end
     set_unit_field_coefficients!(op)
 
 Advection of an electric field of 1 V/m on the faces of `op`, `Aᵖ = (e/mc) ξ` and
-`Aᵠ = (e/mc)(1 - ξ²)/p`, into `op.unit_field_advection_p` and `op.unit_field_advection_xi`.
-They depend on the grid alone. An operator applied with a field as an argument
+`Aᵠ = (e/mc)(1 - ξ²)/p` in s⁻¹ per V/m with `p` in units of `mₑc`, into
+`op.unit_field_advection_p` and `op.unit_field_advection_xi`. They depend on the grid alone.
+An operator applied with a field as an argument
 ([`apply!`](@ref)`(...; electric_field)`, [`FokkerPlanckTerm`](@ref)`(...; electric_field)`)
-adds the field times these to its advection, in place of [`add_electric_field!`](@ref)
-with a prescribed field.
+adds the field times these to its advection, in place of [`add_electric_field!`](@ref) with
+a prescribed field.
 """
 function set_unit_field_coefficients!(op::AdvectionDiffusion)
     g = op.grid

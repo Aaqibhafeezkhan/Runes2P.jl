@@ -336,7 +336,7 @@ The tolerances are the [`Tolerance`](@ref)s the system holds for the time-step e
 (`time_step_tolerances` of [`EquationSystem`](@ref)); an unknown without one gets
 `relative_tolerance` and no absolute tolerance (DREAM's default absolute tolerance is
 zero for every unknown but the runaway density, the runaway distribution `f_re` and the
-runaway current, which get 1e-10, 1e-10 and `e c 1e-10`;
+runaway current, which get 1e-10, 1e-10 and `e c 1e-10` [A/m²];
 `ConvergenceChecker::GetDefaultAbsTol`, `ConvergenceChecker.cpp:110-120`). An unknown with
 both tolerances zero is left out of the check. A step whose
 solve fails is retried with `failure_factor` times its length, at most `max_failures`
@@ -635,7 +635,7 @@ times the step grows back by the cap, each step under the tolerance.
 The cells of the hot tail of a kinetic unknown lie far below the absolute floor of the
 cell measure (`relative × scale`, 1e17 m⁻³ at a density of 1e20 m⁻³ and a tolerance of
 1e-3, against 1e15 m⁻³ in the tail), so the cells alone leave the tail uncontrolled.
-With `tail_cut` (a momentum in units of mₑc, `nothing` for none) the error of
+With `tail_cut` (a momentum in units of `mₑc`, `nothing` for none) the error of
 every kinetic unknown also holds its moments above the cut: the density and the current
 density at every radius ([`density`](@ref) and [`current_density`](@ref) with a
 [`MomentumRegion`](@ref)), each estimated by the moment of the cell estimate, over

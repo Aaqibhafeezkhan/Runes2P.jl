@@ -160,9 +160,9 @@ end
     edge_to_wall_inductance(minor_radius, wall_radius)
 
 Inductance per major radius [H/m] between the edge of the plasma and the wall,
-`μ₀ ln(b/a)` with `a = minor_radius` and `b = wall_radius` [m], of the flux at the edge
-`ψ_edge = ψ_wall − μ₀ ln(b/a) I_p` (DREAM's `PlasmaEdgeToWallInductanceTerm`). Zero for a
-wall at the edge of the plasma.
+`μ₀ ln(b/a)` of the flux at the edge `ψ_edge = ψ_wall − μ₀ ln(b/a) I_p` (DREAM's
+`PlasmaEdgeToWallInductanceTerm`), with `a = minor_radius` and `b = wall_radius` [m]. Zero
+for a wall at the edge of the plasma.
 """
 function edge_to_wall_inductance(minor_radius::Real, wall_radius::Real)
     wall_radius >= minor_radius > 0 ||
@@ -273,11 +273,11 @@ end
 The poloidal flux that satisfies the discrete Ampère's law of
 [`PoloidalFluxDiffusionTerm`](@ref) for the current density `total_current_density`
 [A/m²] (one value per radius), as DREAM initializes it (a steady solve of the equation of
-the flux, with the flux at the wall zero). `wall_radius` is the radius of the wall [m] and
-`wall_poloidal_flux` the flux there [V s/m]. Returns the named tuple `(poloidal_flux,
-plasma_current, edge_poloidal_flux, wall_poloidal_flux)`, the fluxes in V s/m and the
-current in A: the state of the induction unknowns at the start of a run, next to the field
-and the current density.
+the flux, with the flux `wall_poloidal_flux` at the wall, zero by default). `wall_radius` is
+the radius of the wall [m] and `wall_poloidal_flux` the flux there [V s/m]. Returns the
+named tuple `(poloidal_flux, plasma_current, edge_poloidal_flux, wall_poloidal_flux)`, the
+fluxes in V s/m and the current in A: the state of the induction unknowns at the start of
+a run, next to the field and the current density.
 """
 function initial_poloidal_flux(
         rg::RadialGrid, total_current_density::AbstractVector{<:Real};

@@ -150,7 +150,7 @@ jacobian_assembly(::EquationTerm) = :automatic
 """
     prepare_step!(term, u_old, layout, row, t)
 
-Called with the state at the start of the step and the time `t` [s] that ends the step
+Called with the state at the start of the step and the time `t` [s] that ends the step,
 before every evaluation of the residual ([`residual!`](@ref)), and with the state itself
 and its time in the ODE form ([`rhs!`](@ref)).
 [`fill_initial_values!`](@ref) calls it for the terms of the rows it fills, with the state
