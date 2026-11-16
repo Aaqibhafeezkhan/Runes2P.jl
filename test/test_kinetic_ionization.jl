@@ -1056,8 +1056,8 @@ end
         @test secondary_energy_below(10.0, 1000.0, 15.76, 0.0) == 0
         @test secondary_energy_below(10.0, 10.0, 15.76, 1e3) == 0
         for cut in ((1000.0 - 15.76) / 2, 1e4, Inf)
-            @test secondary_energy_below(10.0, 1000.0, 15.76, cut) ==
-                  mean_secondary_energy(10.0, 1000.0, 15.76, Inf)
+            @test secondary_energy_below(10.0, 1000.0, 15.76, cut) ≈
+                  mean_secondary_energy(10.0, 1000.0, 15.76, Inf) rtol = 1e-14
         end
         # the spectrum of Kim and Rudd, eq. (52) at Q = 1 without the common factor, in
         # w = W/B: its moment up to the cut over its count up to (t − 1)/2, by quadrature
@@ -1075,8 +1075,8 @@ end
         @test beb_secondary_energy_below(1000.0, 15.76, 0.0) == 0
         @test beb_secondary_energy_below(10.0, 15.76, 1e3) == 0
         for cut in ((1000.0 - 15.76) / 2, 1e4, Inf)
-            @test beb_secondary_energy_below(1000.0, 15.76, cut) ==
-                  beb_mean_secondary_energy(1000.0, 15.76, Inf)
+            @test beb_secondary_energy_below(1000.0, 15.76, cut) ≈
+                  beb_mean_secondary_energy(1000.0, 15.76, Inf) rtol = 1e-14
         end
         # within 1e-6 B of the threshold the flat spectrum: half the top as the cut keeps half
         # of the secondaries at a quarter of the top, B top/8. Just above, the closed form

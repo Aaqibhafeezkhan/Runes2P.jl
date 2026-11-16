@@ -150,10 +150,11 @@ The secondaries join the cold electrons through the closure of the cold density,
 With DREAM's `bound_friction = :bethe`, the friction does not hold the energy of each ionization, so the requirement does not apply ([`KineticEnergyLossTerm`](@ref)).
 
 Next to a [`KnockOnTerm`](@ref) on the bound electrons, [`SecondaryHeatingTerm`](@ref) with `cut = :none` counts the energy of the secondaries above the knock-on cutoff twice, since the knock-on term also puts them into a distribution.
-`cut = :knockon` with `knockon` that knock-on term gives the cold electrons only the energy of the secondaries below its cutoff at each radius ([`secondary_energy_below`](@ref), [`beb_secondary_energy_below`](@ref)).
+With `cut = :knockon` and the knock-on term as `knockon`, the heating gives the cold electrons only the energy of the secondaries below the knock-on cutoff at each radius ([`secondary_energy_below`](@ref), [`beb_secondary_energy_below`](@ref)).
 The heating reads the cutoff at each evaluation, so it follows [`KnockOnCutoffUpdate`](@ref).
 The system refuses `cut = :none` next to a knock-on term of the same primary whose target density is the unknown `:total_electron_density`, which counts the bound electrons.
-A target density given as values or as another unknown is not checked, and under the total energy the system refuses the knock-on term.
+A target density given as values or as another unknown is not checked.
+Under the total energy the system refuses the knock-on term.
 
 ## Currents and conductivity
 
