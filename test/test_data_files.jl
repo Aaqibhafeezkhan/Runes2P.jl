@@ -141,6 +141,8 @@
             10.94]
         @test maximum(abs, Runes2P.MEAN_EXCITATION_ENERGY_D - D_N) <= 0.005
         @test maximum(abs, Runes2P.MEAN_EXCITATION_ENERGY_S0 - S_N0) <= 0.005
+    end
+
     @testset "the conductivity of Braams and Karney against its source" begin
         # B. J. Braams and C. F. F. Karney, Phys. Fluids B 1, 1355 (1989),
         # doi:10.1063/1.858966, Table I on p. 1362: the normalized conductivity σ̄(Θ, Z),
