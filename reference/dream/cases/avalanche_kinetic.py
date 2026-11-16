@@ -16,8 +16,10 @@ Two sources (source=):
   rp         AVALANCHE_MODE_KINETIC, the Rosenbluth-Putvinski source. The primaries are the
              electrons of n_re, those beyond p_max, with infinite energy. The grid ends at
              p_max (default 10, cells of the width 0.1 above p = 0.6), n_re starts at
-             1e10 m^-3 and f_hot at 1 m^-3 (100 keV, as examples/avalanche of DREAM). The
-             runaways are n_re.
+             1e10 m^-3 and f_hot at 1 m^-3 (100 keV, as examples/avalanche/generateCylindrical.py
+             of DREAM's branch boltzmann-eqterm). The runaways are n_re. DREAM feeds n_re with
+             the flux of f_hot through p_max and with its external avalanche at the cutoff
+             p_max (src/Settings/RunawaySourceTerms.cpp:44-55 of v26.5).
 
 The growth rate is printed per window. The file holds the time
 series and the settings. With store=test it holds the grid and the first and the last
@@ -25,6 +27,11 @@ distribution as well, which test/test_avalanche_dream.jl uses:
 
     pixi run python <set>/cases/avalanche_kinetic.py out/<set>/dream_avalanche_kinetic.h5 \
         source=boltzmann pmax=200 tmax=0.08 nt=192 windows=4 pcut=0.13 store=test
+
+and test/test_avalanche_rp_pmax_dream.jl, at p_max = 5, 10 and 20 on the build of v26.5:
+
+    pixi run python <set>/cases/avalanche_kinetic.py out/<set>/dream_avalanche_rp_pmax10.h5 \
+        source=rp pmax=10 tmax=0.16 nt=384 windows=8 pcut=0.13 store=test
 
 Usage (from reference/dream, with the environment that run_all.sh sets for <set>):
     pixi run python <set>/cases/avalanche_kinetic.py <output file.h5> source=boltzmann [e_over_ec=20]

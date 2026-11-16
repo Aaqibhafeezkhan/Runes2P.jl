@@ -85,6 +85,11 @@ end
     for name in sort!([name
                        for (name, file) in REFERENCE_FILES
                        if haskey(DREAM_REFERENCE_SETS, file.set)])
+        # a set not yet published, without RUNES2P_REFERENCE_DIR: skipped, reported as broken
+        if !reference_available(name)
+            @test_skip reference_available(name)
+            continue
+        end
         set = reference_set(name)
         dream = DREAM_REFERENCE_SETS[set]
         checkout = joinpath(@__DIR__, "..", "reference", "dream", dream.build, "DREAM")

@@ -17,19 +17,22 @@ export write_adf11, SquareRootDecayTerm, ArctangentTerm, ConstantSourceTerm, Exc
        manufactured_errors, manufactured_step, iter_plasma_operator, _conservation_residual,
        max_rel_diff,
        BoundedGrowthTerm, _growth_step, DREAM_REFERENCE_SETS, REFERENCE_FILES,
-       reference_set, reference_file,
+       reference_set, reference_file, reference_available, published_set,
        FIELD_PARTICLE_SETTINGS, _field_particle_grid, _maxwellian_on,
        OPTIMIZED, call_allocation
 
 # The reference data of the comparisons, one lazy artifact per set (`Artifacts.toml`): the
 # output of DREAM written by the cases of reference/dream/cases/, and GSL's bicubic
-# interpolation written by reference/gsl/bicubic_reference.c. Each DREAM set holds the branch
+# interpolation written by reference/gsl/bicubic_reference.c. A set without an entry in
+# `Artifacts.toml`, one not yet published, is read from its folder in the directory of the
+# environment variable RUNES2P_REFERENCE_DIR, the layout of the folder `out/` that
+# reference/dream/run_all.sh writes (`reference_file`). Each DREAM set holds the branch
 # and the commit that its files store as `dream_branch` and `dream_commit`, and `S_ava_sign`,
 # the factor that turns the stored `hottail/S_ava` into the source: DREAM v26.5 stores the
 # source with the sign of the operator, the branch boltzmann-eqterm flips it to the sign of
 # the source (src/OtherQuantityHandler.cpp), and `build`, the folder of reference/dream/ with the
-# DREAM checkout that made it (dream-v26.5-disruption, dream-v26.5-initial-state and
-# dream-v26.5-runaway-grid share that of dream-v26.5).
+# DREAM checkout that made it (dream-v26.5-disruption, dream-v26.5-initial-state,
+# dream-v26.5-runaway-grid and dream-v26.5-avalanche-rp share that of dream-v26.5).
 const DREAM_REFERENCE_SETS = Dict(
     "dream-v26.5" =>
         (branch = "v26.5", commit = "ecdd5e146537c77602c9d7cc76b36100200e4b9a",
@@ -41,6 +44,9 @@ const DREAM_REFERENCE_SETS = Dict(
         (branch = "v26.5", commit = "ecdd5e146537c77602c9d7cc76b36100200e4b9a",
             S_ava_sign = -1, build = "dream-v26.5"),
     "dream-v26.5-runaway-grid" =>
+        (branch = "v26.5", commit = "ecdd5e146537c77602c9d7cc76b36100200e4b9a",
+            S_ava_sign = -1, build = "dream-v26.5"),
+    "dream-v26.5-avalanche-rp" =>
         (branch = "v26.5", commit = "ecdd5e146537c77602c9d7cc76b36100200e4b9a",
             S_ava_sign = -1, build = "dream-v26.5"),
     "dream-boltzmann-eqterm-93d27e17" => (branch = "boltzmann-eqterm",
@@ -83,6 +89,12 @@ const REFERENCE_FILES = Dict(
     "dream_rp_avalanche.h5" => (set = "dream-v26.5", example_commit = nothing),
     "dream_runaway_rates.h5" => (set = "dream-v26.5", example_commit = nothing),
     "dream_self_consistent_field.h5" => (set = "dream-v26.5", example_commit = nothing),
+    "dream_avalanche_rp_pmax5.h5" =>
+        (set = "dream-v26.5-avalanche-rp", example_commit = nothing),
+    "dream_avalanche_rp_pmax10.h5" =>
+        (set = "dream-v26.5-avalanche-rp", example_commit = nothing),
+    "dream_avalanche_rp_pmax20.h5" =>
+        (set = "dream-v26.5-avalanche-rp", example_commit = nothing),
     "dream_avalanche_kinetic.h5" =>
         (set = "dream-boltzmann-eqterm-93d27e17", example_commit = nothing),
     "dream_example_avalanche.h5" => (set = "dream-boltzmann-eqterm-93d27e17",
@@ -100,8 +112,40 @@ const REFERENCE_FILES = Dict(
 "the set of the data file `name`"
 reference_set(name) = REFERENCE_FILES[name].set
 
-"the path of the data file `name` in the artifact of its set, downloaded at its first use"
-reference_file(name) = joinpath(@artifact_str(reference_set(name)), name)
+"whether the set `set` is published: it has an entry in `Artifacts.toml`"
+published_set(set) = artifact_hash(set, joinpath(@__DIR__, "Artifacts.toml")) !== nothing
+
+# the path of the data file `name` of a set not yet published in RUNES2P_REFERENCE_DIR, or
+# nothing without the variable
+function _local_reference_file(name)
+    directory = get(ENV, "RUNES2P_REFERENCE_DIR", "")
+    isempty(directory) && return nothing
+    return joinpath(directory, reference_set(name), name)
+end
+
+"""
+the path of the data file `name`: in the artifact of its set, downloaded at its first use,
+or for a set not yet published in its folder of RUNES2P_REFERENCE_DIR
+"""
+function reference_file(name)
+    set = reference_set(name)
+    published_set(set) && return joinpath(@artifact_str(set), name)
+    path = _local_reference_file(name)
+    if path === nothing || !isfile(path)
+        error("$name: the set $set is not published, and RUNES2P_REFERENCE_DIR has no $set/$name")
+    end
+    return path
+end
+
+"""
+whether the data file `name` can be read: its set is published, or RUNES2P_REFERENCE_DIR
+holds it. A test of a set not yet published skips without it (`@test_skip`).
+"""
+function reference_available(name)
+    published_set(reference_set(name)) && return true
+    path = _local_reference_file(name)
+    return path !== nothing && isfile(path)
+end
 
 # from test_time_stepping.jl
 # test terms on a radial unknown with one component: -rate √x (throws a DomainError for

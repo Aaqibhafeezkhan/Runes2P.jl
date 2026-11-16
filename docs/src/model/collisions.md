@@ -279,6 +279,9 @@ The docstring of [`IonEnergyExchangeTerm`](@ref) gives examples of the logarithm
 - The default knock-on operator against a quadrature reference, and its physics limits: `test/test_knockon_reference.jl`, `test/test_knockon_physics.jl`.
 - An avalanche run against DREAM's Boltzmann knock-on mode: `test/test_avalanche_dream.jl`.
 - The Rosenbluth-Putvinski source and the fluid growth rate against DREAM: `test/test_avalanche_rp_dream.jl`.
+- The avalanche of the Rosenbluth-Putvinski source with the external avalanche above the grid against DREAM's `AVALANCHE_MODE_KINETIC`, at ``p_\mathrm{max}`` = 5, 10 and 20: `test/test_avalanche_rp_pmax_dream.jl`.
+  The growth rate falls by 22 % from ``p_\mathrm{max} = 5`` to ``p_\mathrm{max} = 20``, since the primaries are the electrons beyond ``p_\mathrm{max}``.
+  The rates of the two codes differ by at most 3e-9 of DREAM's rate.
 - The growth rate of the Rosenbluth-Putvinski source against that of the knock-on operator in one avalanche run, whose primaries have a mean momentum of ``34\, m_e c``: `test/test_runaway_physics.jl`.
   The source gives 1.04 times the growth rate of the knock-on operator at the step of the test (1.03 extrapolated to a zero step).
 - The Dreicer rate with the self-consistent bulk against that with a fixed bulk: `test/test_populations.jl` ([below](#The-Dreicer-rate-with-a-self-consistent-bulk)).
