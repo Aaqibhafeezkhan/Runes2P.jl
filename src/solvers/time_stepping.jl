@@ -336,8 +336,9 @@ The tolerances are the [`Tolerance`](@ref)s the system holds for the time-step e
 (`time_step_tolerances` of [`EquationSystem`](@ref)); an unknown without one gets
 `relative_tolerance` and no absolute tolerance (DREAM's default absolute tolerance is
 zero for every unknown but the runaway density, the runaway distribution `f_re` and the
-runaway current, which get 1e-10, 1e-10 and `e c 1e-10` [A/m²];
-`ConvergenceChecker::GetDefaultAbsTol`, `ConvergenceChecker.cpp:110-120`). An unknown with
+runaway current density. The first two get 1e-10 m⁻³, and the current density gets `e c`
+times that [A/m²]. See `ConvergenceChecker::GetDefaultAbsTol`,
+`ConvergenceChecker.cpp:110-120`). An unknown with
 both tolerances zero is left out of the check. A step whose
 solve fails is retried with `failure_factor` times its length, at most `max_failures`
 times in a row (DREAM's `STEP_REDUCTION_AT_EXCEPTION` and `MAX_STEPS_WITH_EXCEPTION`);
@@ -1199,8 +1200,8 @@ end
                description=Dict())
 
 The options of a run of [`integrate`](@ref), which takes them as keywords or as one
-record. `save_times = nothing` saves at the time points. The others are described with
-[`integrate`](@ref).
+record. `save_times` [s] is `nothing` to save at the time points. The others are described
+with [`integrate`](@ref).
 """
 Base.@kwdef struct RunOptions{
     S <: NewtonSolver, P <: TimeStepper, U, C <: Union{Nothing, CheckpointSettings}, R,

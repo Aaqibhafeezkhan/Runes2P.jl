@@ -836,14 +836,14 @@ end
 """
     residual_scales(system)
 
-Scale of every row of the residual: `scale/time_scale` for rows with a time derivative
-and `scale` for algebraic rows. `scale` is the scale of the equation when it names one,
-else the reference scale of the unknown whose time derivative the row holds, else that of
-the row's unknown. Dividing the residual by these makes all rows of order one. The Newton iteration of
-[`NewtonSolver`](@ref) does not use them: it weights differential rows by `dt/scale`
-(on a kinetic unknown with the larger of the scale and the entry at the start of the step),
-since round-off in `(u - u_old)/dt` at a short step would exceed a tolerance scaled by a
-fixed `time_scale`.
+Scale of every row of the residual: `scale/time_scale` for rows with a time derivative,
+with `time_scale` [s], and `scale` for algebraic rows. `scale` is the scale of the equation
+when it names one, else the reference scale of the unknown whose time derivative the row
+holds, else that of the row's unknown. Dividing the residual by these makes all rows of
+order one. The Newton iteration of [`NewtonSolver`](@ref) does not use them: it weights
+differential rows by `dt/scale` (on a kinetic unknown with the larger of the scale and the
+entry at the start of the step), since round-off in `(u - u_old)/dt` at a short step would
+exceed a tolerance scaled by a fixed `time_scale`.
 """
 function residual_scales(system::EquationSystem)
     scales = system.row_scales

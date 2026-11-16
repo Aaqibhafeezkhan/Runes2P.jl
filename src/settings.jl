@@ -508,8 +508,8 @@ end
     describe(op::AdvectionDiffusion, context=DescriptionContext(); coefficients=true)
 
 Record of the operator: its grid, schemes and boundary conditions, its declarations of
-radial transport and cross diffusion, the boundary flux at `p_min` (a momentum in units of
-`mₑc`) when it is not zero, and with `coefficients = true` the coefficient arrays. An array
+radial transport and cross diffusion, the boundary flux at `p_min` [m⁻³ s⁻¹ for `f` in
+m⁻³] when it is not zero, and with `coefficients = true` the coefficient arrays. An array
 that is zero everywhere is named in `zero_coefficients` and not stored. When the
 coefficients were built by [`set_fokker_planck_coefficients!`](@ref), the plasma and the
 collision settings they were built from are recorded under `coefficient_source`. The
