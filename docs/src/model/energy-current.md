@@ -84,16 +84,19 @@ The time derivative acts on the energy of the hot region itself, so these exchan
 
 Every change of ``W_\mathrm{hot}`` that the row does not list is charged to the cold electrons.
 [`EquationSystem`](@ref) therefore checks the row against the equation of `f`.
-The docstring of [`EquationSystem`](@ref) gives the conditions.
+The docstring of [`total_energy_equation`](@ref) gives the conditions.
 
 - Collisions with sinks (synchrotron loss, bremsstrahlung stopping power, partial or no screening) remove energy from `f`, so the row needs the sinks term.
 - The electrons that leave a Fokker-Planck term with collisions at ``p_\mathrm{max}``, or cross its interface to a runaway grid, take their energy with them.
   The row needs the energy flux of that boundary or interface.
-- Radial transport of `f` and [`RadialEdgeLossTerm`](@ref) are refused, since no term carries the energy moment of radial transport.
+- Radial transport of `f` is refused, since no term carries the energy moment of radial transport.
+  The system refuses it when it is built.
+  A [`RechesterRosenbluthUpdate`](@ref) sets the coefficients of its operator in the run, so the run refuses the update before its first step.
 - A [`KnockOnTerm`](@ref) on the grid is refused, since no term carries the energy of the secondaries.
 - A [`RosenbluthPutvinskiSourceTerm`](@ref) is refused, since its primaries have no energy unknown.
+- A [`LossRateTerm`](@ref) and a [`MaxwellianSourceTerm`](@ref) are refused, since no term carries the energy of the electrons that they remove or add.
 
-Each refused channel would take its energy from the cold electrons of the radius where the electrons are moved or created.
+Each refused channel would take its energy from the cold electrons, or give it to them, at the radius where the electrons are moved, created or removed.
 
 ### Why the hot-tail grid only
 
@@ -130,7 +133,8 @@ with the envelope ``w`` of the region.
 - `part = :sinks`: ``C_a`` all collisions without the field, ``C_b`` their electron-electron part.
   This is the energy that leaves the electrons by the friction on bound electrons, bremsstrahlung and synchrotron radiation.
 
-The sinks take no flux through ``p_\mathrm{max}``: the energy of the electrons that leave there belongs to [`MomentumBoundaryFluxTerm`](@ref) alone, so it is not counted twice.
+Neither part takes a flux through ``p_\mathrm{max}``, whatever the upper boundary of the Fokker-Planck term.
+The energy of the electrons that leave there belongs to [`MomentumBoundaryFluxTerm`](@ref) alone, so it is not counted twice, and the cold electrons do not receive it.
 With the sinks charged to ``W_\mathrm{tot}``, the cold electrons receive exactly the free-electron part of what the hot electrons lose.
 
 [`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` and [`InterfaceEnergyFluxTerm`](@ref) weight the flux at the top of the grid with the kinetic energy of the last momentum cell.

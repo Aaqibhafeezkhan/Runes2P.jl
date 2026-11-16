@@ -235,10 +235,19 @@ Every other change of the energy of the hot region is charged to the cold electr
 `part = :sinks` for the bremsstrahlung, the synchrotron loss and the friction on bound
 electrons, `MomentumBoundaryFluxTerm(...; weight = :energy)` for an outflow at `p_max`, and
 [`InterfaceEnergyFluxTerm`](@ref) for the runaway grid. The system refuses a row that misses
-one of them, and it refuses radial transport of `kinetic` and knock-on secondaries on
-its grid, which have no such term: their energy would come out of the cold electrons of
-the radius where it is moved. The sinks take no flux through `p_max`, whose energy is the
-boundary term's alone. The sinks term is required by the settings of the collisions
+one of them. It refuses the terms of the equation of `kinetic` that have no such term,
+since their energy would come out of the cold electrons, or go to them, at the radius
+where the electrons are moved, created or removed:
+
+- radial transport of `kinetic`, also when a [`RechesterRosenbluthUpdate`](@ref) sets it
+  in the run, which the run refuses before its first step;
+- knock-on secondaries on its grid ([`KnockOnTerm`](@ref)) and the knock-ons of the fluid
+  runaways above it ([`RosenbluthPutvinskiSourceTerm`](@ref));
+- a prescribed loss rate ([`LossRateTerm`](@ref)) and a Maxwellian source
+  ([`MaxwellianSourceTerm`](@ref)).
+
+The sinks and the transfer to the free electrons ([`KineticEnergyLossTerm`](@ref)) take no
+flux through `p_max`, whose energy is the boundary term's alone. The sinks term is required by the settings of the collisions
 (synchrotron, bremsstrahlung, partial or no screening on), not by its value: at `B = 0` a
 synchrotron loss of zero still needs the term, so that the row stays closed when the field
 of the plasma changes.

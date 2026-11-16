@@ -42,6 +42,11 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Changed
 
+- Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` refuses a `LossRateTerm` or a `MaxwellianSourceTerm` in the equation of a distribution whose energy is in the total ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+  Until now the cold electrons gained or paid the energy of the electrons that these terms remove or add, since no term of the row of the temperature carries it.
+- A run refuses a `RechesterRosenbluthUpdate` whose operator moves a distribution whose energy is in the total energy of the electrons ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+  The system refuses radial transport of such a distribution when it is built, but the update sets the coefficients in the run, after that check.
+  The refusal comes before the first step, with an `ArgumentError`.
 - A `KineticEnergyLossTerm` whose source lags the whole plasma (`lagged = :all`) throws an `ArgumentError` naming `prepare_step!` when it is evaluated on its own before any preparation ([#264](https://github.com/osrep/Runes2P.jl/pull/264)).
   Until now it read the plasma of the state.
   An `EquationSystem` prepares such a term at its initial state when it is built, unless the term was prepared before.
@@ -136,3 +141,9 @@ Until the first release, every change is listed under "Unreleased", with the sub
 - `IonEnergyExchangeTerm` refuses a mass of `masses` outside the range 1e-27 kg to 1e-24 kg, with an `ArgumentError` that names the species ([#286](https://github.com/osrep/Runes2P.jl/pull/286)).
   Before, a mass in atomic mass units or in grams gave a wrong exchange without an error.
   The masses of `ion_mass` lie inside the range, and the results of a run do not change.
+- `KineticEnergyLossTerm` with `part = :free_electrons`, and with it `free_electron_energy_transfer_term`, takes no flux through `p_max`, as the part `:sinks` ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+  Before, a source with `p_upper_boundary = :constant_flux`, as on a runaway grid, put the electron-electron flux through `p_max` into the transfer.
+  That flux is the friction that the boundary carries into the grid, so the heating of the cold electrons by a runaway grid rises by its energy.
+  In the disruption case with a runaway grid at `compat = :runes2p`, the heating rises by up to 1.7 % of its former value in the first three steps of the quench.
+  In the window of that case that is compared with DREAM, it rises by up to 2.2e-5 of its former value.
+  The case `heating` of the runaway grid does not change, since its `f_re` vanishes at `p_max`.

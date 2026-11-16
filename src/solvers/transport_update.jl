@@ -24,6 +24,9 @@ holds the radial neighbours before the system is built. Build it with
 `cross_diffusion = false`, as [`add_rechester_rosenbluth_diffusion!`](@ref) advises, so that
 its stencil leaves out the corners of the 3×3 block in p and ξ. A
 [`PiecewiseConstant`](@ref) level needs its switch times among the time points of the run.
+The run refuses the update on a distribution whose energy is in the total energy of the
+electrons ([`total_energy_equation`](@ref)), since no term of the row of the temperature
+carries the energy that the transport moves between the radii.
 DREAM interpolates the table of its `dBB` linearly in time and takes the value at the end of
 a step.
 
@@ -99,6 +102,24 @@ function check_update(update::RechesterRosenbluthUpdate, system)
                                 "Fokker-Planck term of $(equation.unknown) with a plasma source, whose rebuild " *
                                 "clears it. Give the " *
                                 "radial transport an operator and a FokkerPlanckTerm of its own."))
+        end
+    end
+    # The transport of a distribution of the total energy of a row moves energy between the
+    # radii, which a term of that row must carry (_radial_energy_listed). The system refuses
+    # such transport when it is built, but this operator receives its coefficients in the
+    # run, so the check is made here.
+    for entry in _total_energy_rows(system.equations), equation in system.equations
+
+        equation.unknown in entry.distributions || continue
+        for term in equation.terms
+            if term isa FokkerPlanckTerm && term.operator === update.operator &&
+               !_radial_energy_listed(entry.row.terms, term)
+                throw(ArgumentError("the update $(update.name) sets the radial transport of $(equation.unknown), " *
+                                    "whose energy is in the total energy $(entry.total) of the row of " *
+                                    "$(entry.row.unknown), and no term of that row carries the energy flux of " *
+                                    "the transport: the electrons that move out would heat the cold electrons " *
+                                    "where they leave. Radial transport of f is refused under the total energy"))
+            end
         end
     end
     return nothing
