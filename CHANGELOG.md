@@ -142,8 +142,8 @@ Until the first release, every change is listed under "Unreleased", with the sub
   Before, a mass in atomic mass units or in grams gave a wrong exchange without an error.
   The masses of `ion_mass` lie inside the range, and the results of a run do not change.
 - `KineticEnergyLossTerm` with `part = :free_electrons`, and with it `free_electron_energy_transfer_term`, takes no flux through `p_max`, as the part `:sinks` ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
-  Before, a source with `p_upper_boundary = :constant_flux`, as on a runaway grid, put the electron-electron flux through `p_max` into the transfer.
-  That flux is the friction that the boundary carries into the grid, so the heating of the cold electrons by a runaway grid rises by its energy.
-  In the disruption case with a runaway grid at `compat = :runes2p`, the heating rises by up to 1.7 % of its former value in the first three steps of the quench.
-  In the window of that case that is compared with DREAM, it rises by up to 2.2e-5 of its former value.
+  Before, a source with `p_upper_boundary = :constant_flux`, as on a runaway grid, put the electron-electron flux of its last interior face into the transfer as the flux through `p_max`.
+  In the disruption case with a runaway grid at `compat = :runes2p` that flux points into the grid, so the heating of the cold electrons by `f_re` rises by its energy.
+  In the window of that case that is compared with DREAM, a heating of about 1e4 W/m³ rises by up to 2.2e-5 of its former value.
+  In the first three steps of the quench, where `f_re` starts from zero, a heating of about 1e-4 W/m³ rises by up to 1.7 % of its former value.
   The case `heating` of the runaway grid does not change, since its `f_re` vanishes at `p_max`.
