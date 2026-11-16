@@ -9,8 +9,9 @@
 `Σ_k w_k x_k` over the components `x_k` of the radial unknown `unknown` at each radius,
 added to the row of a radial unknown with one component: the free-electron density
 `n_free = Σ Z0 n_ij` of the ion densities with the weights of
-[`free_electron_weights`](@ref). The term is linear, and its Jacobian entries are
-assembled directly, since its row holds every component of a radius.
+[`free_electron_weights`](@ref). The weights take the unit of the components to the unit
+of the row. The term is linear, and its Jacobian entries are assembled directly, since its
+row holds every component of a radius.
 """
 struct WeightedSumTerm <: EquationTerm
     unknown::Symbol
@@ -86,7 +87,8 @@ end
 
 The radial unknown `ions` of the densities [m⁻³] of the charge states of `composition`
 ([`IonComposition`](@ref)), with one group of components per species
-([`component_groups`](@ref)). Its lower limit keeps every charge state at or above
+([`component_groups`](@ref)). `scale` is its reference magnitude, in the unit of the
+densities. Its lower limit keeps every charge state at or above
 `−limit_tolerance` times the density of its species (`LowerLimit(reference = :group)`): a
 state that starts at 0 is not refused for a round-off below 0, and the limit scales with
 each species, so a trace impurity has its own. DREAM gives the charge states no limit of
@@ -381,7 +383,7 @@ end
 """
     ion_rate_matrix(term::IonRateTerm, s, free_electron_density, temperature)
 
-The matrix `A` of the rates of species `s` at the free-electron density
+The matrix `A` [s⁻¹] of the rates of species `s` at the free-electron density
 `free_electron_density` [m⁻³] and the temperature `temperature` [eV], `dn/dt = A n` for the
 densities `n` of its charge states ([`IonRateTerm`](@ref)). Its columns sum to zero.
 """
@@ -403,7 +405,8 @@ end
 
 The densities of the charge states of species `s` in coronal equilibrium at the
 free-electron density `free_electron_density` [m⁻³] and the temperature `temperature` [eV],
-with the total density of the species `species_density`: the steady state of
+with the total density of the species `species_density`, whose unit the densities take
+(m⁻³ for a density, the fractions of the species for the default 1): the steady state of
 the rates of [`IonRateTerm`](@ref), where the flow between neighbouring states vanishes,
 `n_{j+1}/n_j = I_j/R_{j+1}`. The ratios are multiplied in log space, so states far from the
 dominant one underflow to 0 and the large ratios at the extremes of the temperature do not

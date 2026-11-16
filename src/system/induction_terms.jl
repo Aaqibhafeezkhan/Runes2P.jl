@@ -12,7 +12,8 @@
 `coefficient` times `(1/V') ∂_r (V' ∂_r ψ)` of the radial unknown `poloidal_flux`, added
 to the row of a radial unknown with one component: the side of Ampère's law that holds
 the flux, `0 = (1/r) ∂_r (r ∂_r ψ) − 2π μ₀ j`. `V'` is the spatial Jacobian of the radial
-grid (`r` in a cylinder).
+grid (`r` in a cylinder). The operator has the unit of `poloidal_flux` per m², and
+`coefficient` takes it to the unit of the row.
 
 The gradient at a face between two cells is the difference of the cell values over the
 distance of the centres. No flux passes the first face. The gradient at the edge of the plasma
@@ -91,8 +92,9 @@ end
 `coefficient` times the integral of the radial unknown `unknown` over the cross-section of
 the plasma, `Σ 2π V' Δr u` with the spatial Jacobian `V'` of the radial grid (`r` in a
 cylinder), added to the row of a scalar unknown: the plasma current from the current
-density, `0 = Σ 2π r Δr j − I_p` (DREAM's `TotalPlasmaCurrentFromJTot`). The entries of
-its row are assembled directly.
+density, `0 = Σ 2π r Δr j − I_p` (DREAM's `TotalPlasmaCurrentFromJTot`). The integral has
+the unit of `unknown` times m², and `coefficient` takes it to the unit of the row. The
+entries of its row are assembled directly.
 """
 struct CrossSectionIntegralTerm <: EquationTerm
     unknown::Symbol
@@ -118,7 +120,8 @@ end
 """
     cross_section_weights(radial_grid)
 
-Weights `2π V' Δr` of the integral over the cross-section of the plasma, one per radius.
+Weights `2π V' Δr` [m²] of the integral over the cross-section of the plasma, one per
+radius.
 """
 cross_section_weights(rg::RadialGrid) = 2π .* rg.spatial_jacobian .* rg.r_widths
 
@@ -156,9 +159,10 @@ end
 """
     edge_to_wall_inductance(minor_radius, wall_radius)
 
-Inductance per major radius between the edge of the plasma and the wall,
-`μ₀ ln(b/a)`, of the flux at the edge `ψ_edge = ψ_wall − μ₀ ln(b/a) I_p` (DREAM's
-`PlasmaEdgeToWallInductanceTerm`). Zero for a wall at the edge of the plasma.
+Inductance per major radius [H/m] between the edge of the plasma and the wall,
+`μ₀ ln(b/a)` with `a = minor_radius` and `b = wall_radius` [m], of the flux at the edge
+`ψ_edge = ψ_wall − μ₀ ln(b/a) I_p` (DREAM's `PlasmaEdgeToWallInductanceTerm`). Zero for a
+wall at the edge of the plasma.
 """
 function edge_to_wall_inductance(minor_radius::Real, wall_radius::Real)
     wall_radius >= minor_radius > 0 ||
@@ -190,9 +194,10 @@ end
 
 The unknowns of the induction equations with their scales: the electric field [V/m], the
 poloidal flux per major radius [V s/m] and the total current density [A/m²] at each
-radius, and the scalars plasma current [A], flux at the edge and flux at the wall. The
-scales of the flux and of the plasma current follow from that of the current density
-(`current_density_scale`, 1 MA/m² by default) and the minor radius: `μ₀ I_p` and
+radius, and the scalars plasma current [A], flux at the edge and flux at the wall
+[V s/m]. Each scale is in the unit of its unknown: `electric_field_scale` in V/m and
+`current_density_scale` in A/m² (1 MA/m² by default). The scales of the flux and of the
+plasma current follow from that of the current density and the minor radius: `μ₀ I_p` and
 `π a² j`. The total current density gets its equation from the caller, the sum of the
 currents of the run, the others from [`induction_equations`](@ref).
 """
@@ -232,11 +237,12 @@ unknowns:
 | flux at the edge | `0 = ψ_wall − μ₀ ln(b/a) I_p − ψ_edge` |
 | flux at the wall | `dψ_wall/dt = V_loop,wall` |
 
-`wall_radius` is the radius `b` of the wall. `loop_voltage_at_wall` is the loop voltage
-per major radius at the wall [V/m], a number or a function of time: zero for a perfectly
-conducting wall, which holds the flux at the wall. The row of Ampère's law takes the scale
-`2π μ₀` times `current_density_scale`. The equation of the total current density, the sum
-of the currents of the run, comes from the caller.
+`wall_radius` is the radius `b` of the wall [m]. `loop_voltage_at_wall` is the loop voltage
+per major radius at the wall [V/m], a number or a function of the time [s]: zero for a
+perfectly conducting wall, which holds the flux at the wall. The row of Ampère's law takes
+the scale `2π μ₀` times `current_density_scale` [A/m²], in V s/m³, the unit of the row.
+The equation of the total current density, the sum of the currents of the run, comes from
+the caller.
 """
 function induction_equations(
         rg::RadialGrid; wall_radius::Real = last(rg.r_faces), loop_voltage_at_wall = 0.0,
@@ -265,11 +271,13 @@ end
                           wall_poloidal_flux=0)
 
 The poloidal flux that satisfies the discrete Ampère's law of
-[`PoloidalFluxDiffusionTerm`](@ref) for the current density `total_current_density` (one
-value per radius), as DREAM initializes it (a steady solve of the equation of the flux,
-with the flux at the wall zero). Returns the named tuple `(poloidal_flux, plasma_current,
-edge_poloidal_flux, wall_poloidal_flux)`: the state of the induction unknowns at the start
-of a run, next to the field and the current density.
+[`PoloidalFluxDiffusionTerm`](@ref) for the current density `total_current_density`
+[A/m²] (one value per radius), as DREAM initializes it (a steady solve of the equation of
+the flux, with the flux at the wall zero). `wall_radius` is the radius of the wall [m] and
+`wall_poloidal_flux` the flux there [V s/m]. Returns the named tuple `(poloidal_flux,
+plasma_current, edge_poloidal_flux, wall_poloidal_flux)`, the fluxes in V s/m and the
+current in A: the state of the induction unknowns at the start of a run, next to the field
+and the current density.
 """
 function initial_poloidal_flux(
         rg::RadialGrid, total_current_density::AbstractVector{<:Real};

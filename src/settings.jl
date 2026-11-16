@@ -418,11 +418,11 @@ end
 """
     describe_prescribed_plasma(plasma_at, context)
 
-Table of a plasma state prescribed as a function of time, `plasma_at(t)`: the states at
-the time points of `context`, stacked along a last time axis (`(radii, times)` for the
-profiles, `(charge states, radii, times)` for the ion densities). These are the states
-the steps of the run use, except the steps shortened after a failure. A function cannot
-be stored, so the table is the record of it. A table that would exceed the context's
+Table of a plasma state prescribed as a function of the time `t` [s], `plasma_at(t)`: the
+states at the time points of `context`, stacked along a last time axis (`(radii, times)` for
+the profiles, `(charge states, radii, times)` for the ion densities). These are the states
+the steps of the run use, except the steps shortened after a failure. A function cannot be
+stored, so the table is the record of it. A table that would exceed the context's
 `max_table_bytes` is thinned: sampled evenly over the time points at as many as fit, and
 marked `thinned`. Without time points, or when the function fails at one, the record is
 marked as not described. The `reason` of a failure keeps the type of the exception, without
@@ -567,8 +567,8 @@ end
     describe(op::KnockOnOperator, context=DescriptionContext())
 
 Record of the operator: the knock-on and primary grids, the evaluation method, the cutoff
-momentum per radius as it is now, and the options of the kernels with their defaults
-filled in ([`resolved_pitch_options`](@ref)).
+momentum in units of `mₑc` per radius as it is now, and the options of the kernels with
+their defaults filled in ([`resolved_pitch_options`](@ref)).
 """
 function describe(op::KnockOnOperator, context::DescriptionContext = DescriptionContext())
     return SettingsRecord(
@@ -1108,7 +1108,7 @@ end
     describe(region::MomentumRegion, context)
 
 Record of a momentum region: the side, the envelope and the limit. A limit that follows
-the temperature is recorded with its factor and the temperatures at the time points of
+the temperature is recorded with its factor and the temperatures [eV] at the time points of
 `context`, another function of time with its values at the time points.
 """
 function describe(region::MomentumRegion, context::DescriptionContext = DescriptionContext())
@@ -1226,8 +1226,8 @@ end
     describe(model::ConductivityModel, context)
 
 Record of a conductivity model: the reference, what is subtracted for the kinetic
-operator, and the conductivity per radius at the time points of `context` (at the first
-one for a plasma that is constant in time).
+operator, and the conductivity [S/m] per radius at the time points of `context` (at the
+first one for a plasma that is constant in time).
 """
 function describe(model::ConductivityModel, context::DescriptionContext = DescriptionContext())
     record = SettingsRecord(
