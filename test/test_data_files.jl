@@ -148,10 +148,10 @@
         # doi:10.1063/1.858966, Table I on p. 1362: the normalized conductivity σ̄(Θ, Z),
         # as printed with 5 decimals. Rows: Θ = T/mₑc². Columns: Z = 0, 1, 2, 5, 10, ∞.
         # The data file keeps DREAM's port, the printed values rounded to 4 decimals, so
-        # every value is pinned at half a unit of its 4th decimal: at most 5 units of the
-        # printed 5th decimal. A count in integer units keeps the 12 printed values that end
-        # in 5 at exactly 5 units, such as 1.02875 at Z = 1 and Θ = 10, kept as 1.0288. All
-        # 84 cells were read with certainty.
+        # every value is held to half a unit of its 4th decimal: at most 5 units of the
+        # printed 5th decimal, counted in integer units. Of the 12 printed values that end
+        # in 5, the port rounds 6 up and 6 down, such as 1.02875 at Z = 1 and Θ = 10, kept
+        # as 1.0288. At these 12 cells the bound admits either neighbour.
         printed = [3.75994 7.42898 8.75460 10.39122 11.33006 12.76615
                    3.75490 7.27359 8.53281 10.07781 10.95869 12.29716
                    3.74920 7.12772 8.32655 9.78962 10.61952 11.87371
