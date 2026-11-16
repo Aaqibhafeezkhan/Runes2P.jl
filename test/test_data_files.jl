@@ -1,8 +1,7 @@
 # The reader of the data files of data/: the check of the header, the conversion of the
-# arrays, and the header of every file of the directory. The table of mean excitation
-# energies against the printed tables of its source.
-# arrays, and the header of every file of the directory. A test of its own checks the
-# table of Braams and Karney against the values printed in their paper.
+# arrays, and the header of every file of the directory. Two tests of their own check
+# tables against the values printed in their sources: the mean excitation energies, and
+# the conductivity of Braams and Karney.
 
 @testset "data files" begin
     header = """
@@ -65,7 +64,7 @@
 
     # S. P. A. Sauer, J. R. Sabin and J. Oddershede, J. Chem. Phys. 148, 174307 (2018),
     # doi:10.1063/1.5027708. Table N lists the ions with N bound electrons, Z = N to 18, in
-    # I₀ [eV]. The values are typed here as printed, read from the page images.
+    # I₀ [eV]. The values are typed here as printed.
     # - Tables I and II: p. 174307-2.
     # - Tables III to VI: p. 174307-3.
     # - Tables VII to XII: p. 174307-4.
