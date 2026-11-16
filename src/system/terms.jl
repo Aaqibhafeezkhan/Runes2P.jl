@@ -101,9 +101,9 @@ function jacobian_vector_product! end
     validate(term, layout, row[, t])
 
 Check `term` against the layout `layout` of its system, in the equation of the unknown `row`,
-and throw an `ArgumentError` when it does not fit; run when an [`EquationSystem`](@ref) is
-built, with its initial time `t` [s] for terms that evaluate a function of time. The
-default accepts every term.
+and throw an `ArgumentError` when it does not fit. It runs when an
+[`EquationSystem`](@ref) is built, with its initial time `t` [s] for terms that evaluate a
+function of time. The default accepts every term.
 """
 validate(::EquationTerm, layout, row) = nothing
 # with the initial time of the system, for terms that evaluate a function of time

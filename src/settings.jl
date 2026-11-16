@@ -250,14 +250,14 @@ end
     describe(layout)
     describe(layout, context::DescriptionContext)
 
-Plain record of the layout: the order of the unknowns and per unknown its kind, scale,
-position, sizes per radius, components, grid and lower limit. With a `context` the grids
-are named in it (the `layout` section of the settings, next to their `grids` section).
-Without one, the record holds the records of its grids under `grids` and the `unit` of
-each unknown, and is self-contained: it is the root group `layout` of the output and
-checkpoint files, which a resume reads to match the unknowns by name
-([`copy_unknowns!`](@ref)) and to rebuild the grids (`layout_version` 2). The units stay
-out of the settings, so that the setup hash does not depend on them.
+Plain record of the layout: the order of the unknowns and per unknown its kind, scale (in
+the unit of the unknown), position, sizes per radius, components, grid and lower limit. With
+a `context` the grids are named in it (the `layout` section of the settings, next to their
+`grids` section). Without one, the record holds the records of its grids under `grids` and
+the `unit` of each unknown, and is self-contained: it is the root group `layout` of the
+output and checkpoint files, which a resume reads to match the unknowns by name
+([`copy_unknowns!`](@ref)) and to rebuild the grids (`layout_version` 2). The units stay out
+of the settings, so that the setup hash does not depend on them.
 """
 function describe(layout::UnknownLayout)
     context = DescriptionContext()
@@ -1407,7 +1407,7 @@ end
     describe(system::EquationSystem, context=DescriptionContext())
 
 Record of the system: per unknown the kind of its equation and its terms (`term_1`,
-`term_2`, … in the order given), the time scale, and the Newton and time-step tolerances
+`term_2`, … in the order given), the time scale [s], and the Newton and time-step tolerances
 of every unknown as they apply (the defaults filled in). The layout has its own record.
 """
 function describe(system::EquationSystem, context::DescriptionContext = DescriptionContext())

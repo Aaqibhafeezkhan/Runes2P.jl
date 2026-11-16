@@ -143,8 +143,8 @@ end
     TimeStepFailure
 
 Thrown by [`integrate`](@ref) when a step still fails after the retries the stepper
-allows; holds the `time` and `time_step` [s] of the last attempt, its Newton `status` and
-the statistics up to the failure.
+allows. It holds the `time` and `time_step` [s] of the last attempt, its Newton `status`
+and the statistics up to the failure.
 """
 struct TimeStepFailure <: Exception
     time::Float64
@@ -1372,10 +1372,10 @@ between two time points is one step, retried with half the time step when it fai
 step is solved by [`newton_solve!`](@ref) with explicit terms at the previous time level. A
 step that still fails throws [`TimeStepFailure`](@ref).
 
-States are saved at `save_times` (strictly increasing, inside `[times[1], times[end]]`; a
-save time within a relative 1e-12 of a time point is taken as that time point, and two save
-times taken as one time point are refused), and every saved state is a computed one: with
-[`FixedSteps`](@ref) and [`StepDoubling`](@ref) a save time must be a time point (an
+States are saved at `save_times` [s] (strictly increasing, inside `[times[1], times[end]]`;
+a save time within a relative 1e-12 of a time point is taken as that time point, and two
+save times taken as one time point are refused), and every saved state is a computed one:
+with [`FixedSteps`](@ref) and [`StepDoubling`](@ref) a save time must be a time point (an
 `ArgumentError` names one that is not; DREAM saves computed steps only), while
 [`StepController`](@ref) ends a step on every save time. [`time_points`](@ref) builds
 `times` and `save_times` from [`Leg`](@ref)s in one arithmetic. Returns a

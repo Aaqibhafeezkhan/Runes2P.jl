@@ -553,9 +553,9 @@ end
 Radial diffusion of the densities of the ion charge states of `composition`,
 `(1/V') ∂_r (V' D ∂_r n_j)` [m⁻³ s⁻¹] in the rows of the ion densities `ions` (DREAM's
 `IonChargedPrescribedDiffusionTerm`). The diffusivity `D` [m²/s] is `diffusion`, a
-radial profile on the faces ([`radial_values`](@ref)), or `diffusion_at`, a function of time
-that returns one, such as a [`PiecewiseConstant`](@ref) transport history: its switch times
-must be time points of the run ([`forced_time_points`](@ref)). The flux through
+radial profile on the faces ([`radial_values`](@ref)), or `diffusion_at`, a function of the
+time [s] that returns one, such as a [`PiecewiseConstant`](@ref) transport history: its
+switch times must be time points of the run ([`forced_time_points`](@ref)). The flux through
 the face between two cells is `V' D (n_k − n_{k−1})/Δr` with the distance of the centres, as
 for the heat ([`HeatTransportTerm`](@ref)); nothing crosses the first face.
 
