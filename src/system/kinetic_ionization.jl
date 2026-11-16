@@ -448,29 +448,31 @@ closure of the cold density; without this term it is born at zero energy.
   to `(E − I)/2`. All secondaries join the cold electrons, also those born above the hot
   threshold, so this is the moment of the spectrum over the secondaries that the cold
   electrons receive, and the one that the friction with `bound_friction = :ionization_split`
-  takes from `f` ([`CollisionSettings`](@ref)). A [`KnockOnTerm`](@ref) on the bound
-  electrons also puts the secondaries above its cutoff into a distribution, so next to it
-  their energy is counted twice. [`EquationSystem`](@ref) refuses `cut = :none` next to a
-  knock-on term of the kinetic unknown of `kinetic_ionization` whose target density is the
-  unknown `:total_electron_density`. The secondaries above the cutoff carry a large share of
-  the energy. As an illustration, with two energies that come from no reference, take the
-  secondaries above 1 keV of the ionization of a neutral atom by a primary of 1.3 MeV:
-  - With the binary-encounter-Bethe spectrum, the default, they carry 41.8 % of the energy
-    of every secondary for Ar⁰ and 41.1 % for D⁰.
-  - With the spectrum of Opal et al., they carry 58.4 % for Ar⁰ (width 10.0 eV) and 57.5 %
-    for D⁰ (width 8.3 eV).
+  takes from `f` ([`CollisionSettings`](@ref)). Next to a [`KnockOnTerm`](@ref) on the bound
+  electrons, which also puts the secondaries above its cutoff into a distribution, it counts
+  their energy twice.
 - `cut = :threshold`: the mean below the hot threshold `E_c`, conditional on lying there,
   for every secondary.
 - `cut = :knockon`: the energy per ionization of the secondaries below the cutoff momentum
   of the knock-on term `knockon` at each radius ([`secondary_energy_below`](@ref),
   [`beb_secondary_energy_below`](@ref)). The secondaries above it count with zero energy,
   since `knockon` puts them into a distribution. The term reads the cutoff of `knockon` at
-  each evaluation, so it follows a change by [`KnockOnCutoffUpdate`](@ref). The cutoff is no
-  unknown and adds no column to the Jacobian. [`EquationSystem`](@ref) requires `knockon` to
-  be a term of the system whose primary is the kinetic unknown of `kinetic_ionization`. The
-  knock-on term creates its secondaries with the cross section of Møller on its own target
-  density, so the energy that the two terms give is that of the spectrum `spectrum` only as
-  far as the two cross sections agree above the cutoff.
+  each evaluation, so it follows [`KnockOnCutoffUpdate`](@ref), and the cutoff, which is no
+  unknown, adds no column to the Jacobian. The knock-on term creates its secondaries with the
+  cross section of Møller on its own target density, so the two terms give the energy of the
+  spectrum `spectrum` only as far as the two cross sections agree above the cutoff.
+
+[`EquationSystem`](@ref) requires `knockon` to be a term of the system whose primary is the
+kinetic unknown of `kinetic_ionization`. It refuses `cut = :none` next to a knock-on term of
+that primary whose target density is the unknown `:total_electron_density`, and does not
+check a target density given as values. The secondaries above the cutoff carry a large share
+of the energy. As an illustration, with two energies that come from no reference, take the
+secondaries above 1 keV of the ionization of a neutral atom by a primary of 1.3 MeV:
+
+- With the binary-encounter-Bethe spectrum, the default, they carry 41.8 % of the energy of
+  every secondary for Ar⁰ and 41.1 % for D⁰.
+- With the spectrum of Opal et al., they carry 58.4 % for Ar⁰ (width 10.0 eV) and 57.5 % for
+  D⁰ (width 8.3 eV).
 
 `spectrum = :beb` (the default, a choice of this package; see the docs page *Choices of this
 package*) takes the binary-encounter-Bethe spectrum of Kim and Rudd with the ionization
