@@ -139,12 +139,11 @@ const SPITZER_HARM = Dict(1 => 0.5816, 2 => 0.6833, 4 => 0.7849, 16 => 0.9225)
         # doi:10.1063/1.858966, with the pages of the journal version:
         # σ = 4πε₀² T^{3/2}/(m^{1/2} e² Z lnΛ) σ̄(Θ, Z), the unnumbered equation of Sec. VII
         # (p. 1362), the prefactor of braams_karney_conductivity, with σ̄ of their Table I
-        # (p. 1362). Its
-        # Z = 1 column at Θ = 0, 0.01, 0.02 (0, 5.1 and 10.2 keV), 7.42898, 7.27359,
-        # 7.12772, agrees with data/braams_karney_conductivity.toml to the 4 decimals
-        # kept there. The package interpolates linearly between them. Operator and reference
-        # share thermal_coulomb_logarithm, so the ratio does not depend on lnΛ. The
-        # test-particle operator is relativistic, the field-particle matrix elements are
+        # (p. 1362). Its Z = 1 column at Θ = 0, 0.01, 0.02 (0, 5.1 and 10.2 keV), 7.42898,
+        # 7.27359, 7.12772, agrees with data/braams_karney_conductivity.toml to the 4
+        # decimals kept there. The package interpolates linearly between them. Operator and
+        # reference share thermal_coulomb_logarithm, so the ratio does not depend on lnΛ.
+        # The test-particle operator is relativistic, the field-particle matrix elements are
         # those of the nonrelativistic Landau operator. Measured σ/σ_BK with 160 p cells:
         # 0.9997 at 1 keV, 1.0010 at 2 keV, 1.0052 at 5 keV, 1.0112 at 10 keV; 320 cells
         # lower them by 7e-4 to 8e-4. The departure grows with T to 1.1 % at 10 keV; the
