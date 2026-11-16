@@ -13,8 +13,8 @@ Supertype of the terms of an [`Equation`](@ref). A term implements
   structural nonzeros) or `:matrix_free` (applied through `jacobian_vector_product!`,
   e.g. the knock-on term, whose block is dense per radius);
 - `rhs!(out, term, u, layout, row, t)`: add the term to `out` in the rows of the unknown
-  `row`, as a pure function of the state `u` and the time `t`. `:sparse` terms must accept
-  state vectors of dual numbers, since their Jacobian comes from AD;
+  `row`, as a pure function of the state `u` and the time `t` [s]. `:sparse` terms must
+  accept state vectors of dual numbers, since their Jacobian comes from AD;
 - `sparsity!(entries, term, layout, row)` for `:sparse` terms: push `(row index, column
   index)` pairs of the structural nonzeros;
 - `jacobian_vector_product!(out, term, u, v, layout, row, t)` for `:matrix_free` terms:
@@ -75,7 +75,7 @@ treatment(::EquationTerm) = :implicit
     rhs!(out, term, u, layout, row, t)
 
 Add the [`EquationTerm`](@ref) `term` to `out` in the rows of the unknown with id `row`,
-as a pure function of the state `u` and the time `t`. A `:sparse` term (see
+as a pure function of the state `u` and the time `t` [s]. A `:sparse` term (see
 [`coupling`](@ref)) must accept state vectors of dual numbers, since its Jacobian comes
 from automatic differentiation.
 """
@@ -93,7 +93,7 @@ function sparsity! end
     jacobian_vector_product!(out, term, u, v, layout, row, t)
 
 Add the product `(∂ rhs_term / ∂u) v` of a `:matrix_free` [`EquationTerm`](@ref) (see
-[`coupling`](@ref)) to `out`.
+[`coupling`](@ref)) at the state `u` and the time `t` [s] to `out`.
 """
 function jacobian_vector_product! end
 
@@ -101,9 +101,9 @@ function jacobian_vector_product! end
     validate(term, layout, row[, t])
 
 Check `term` against the layout `layout` of its system, in the equation of the unknown `row`,
-and throw an `ArgumentError` when it does not fit; run when an [`EquationSystem`](@ref) is
-built, with its initial time `t` for terms that evaluate a function of time. The default
-accepts every term.
+and throw an `ArgumentError` when it does not fit. It runs when an
+[`EquationSystem`](@ref) is built, with its initial time `t` [s] for terms that evaluate a
+function of time. The default accepts every term.
 """
 validate(::EquationTerm, layout, row) = nothing
 # with the initial time of the system, for terms that evaluate a function of time
@@ -126,8 +126,8 @@ jacobian_kind(::EquationTerm) = :exact
 
 For a `:sparse` term with `jacobian_kind(term) === :approximate`: add `(J_exact - J_stored) v`
 to `out`, the difference between the exact Jacobian-vector product of the term's
-residual and the product of its stored block, both at the state `u`. Nothing for exact
-terms.
+residual and the product of its stored block, both at the state `u` and the time `t` [s].
+Nothing for exact terms.
 """
 jacobian_correction_product!(out, ::EquationTerm, u, v, layout, row, t) = out
 
@@ -150,8 +150,9 @@ jacobian_assembly(::EquationTerm) = :automatic
 """
     prepare_step!(term, u_old, layout, row, t)
 
-Called with the state at the start of the step before every evaluation of the residual
-([`residual!`](@ref)), and with the state itself in the ODE form ([`rhs!`](@ref)).
+Called with the state at the start of the step and the time `t` [s] that ends the step,
+before every evaluation of the residual ([`residual!`](@ref)), and with the state itself
+and its time in the ODE form ([`rhs!`](@ref)).
 [`fill_initial_values!`](@ref) calls it for the terms of the rows it fills, with the state
 and the time it is given, before the fill. The construction of an [`EquationSystem`](@ref)
 calls it with the initial state for a [`KineticEnergyLossTerm`](@ref) of a source with
@@ -177,7 +178,7 @@ _prepare_for_prototype!(::EquationTerm, u, layout, row, t) = nothing
     add_jacobian!(J, term, u, layout, row, t)
 
 Add the entries `∂ rhs_term / ∂u` of a term with [`jacobian_assembly`](@ref)`(term) ===
-:direct` to the stored matrix `J` at the state `u` and the time `t`. The entries lie in
+:direct` to the stored matrix `J` at the state `u` and the time `t` [s]. The entries lie in
 the pattern of `sparsity!`. A method may allocate work arrays per call, such as the dual
 numbers of [`ParticleSourceTerm`](@ref), [`InterfaceParticleFluxTerm`](@ref) and
 [`InterfaceEnergyFluxTerm`](@ref) or the row of [`KineticEnergyLossTerm`](@ref).
@@ -345,13 +346,14 @@ end
     add_local_jacobian!(J, term, u, layout, row, t)
 
 Add the Jacobian of a term whose rows at a radius read only the radial unknowns of that
-radius (its [`dependencies`](@ref)) to `J`, by one evaluation of its `rhs!` with dual numbers:
-partial `k` is seeded on the `k`-th component of the dependencies at every radius at once,
-so that the partials of a row at radius `ir` are its derivatives with respect to the
-unknowns at `ir`. A term with a row that reads all charge states of a radius (the radiated
-power, the conductivity, the energy exchange with the ions) assembles its
-block this way, so that the coloring of the automatic Jacobian does not need a color per
-charge state. The tag is fixed, so the code compiles once per number of local columns.
+radius (its [`dependencies`](@ref)) to `J` at the state `u` and the time `t` [s], by one
+evaluation of its `rhs!` with dual numbers: partial `k` is seeded on the `k`-th component of
+the dependencies at every radius at once, so that the partials of a row at radius `ir` are
+its derivatives with respect to the unknowns at `ir`. A term with a row that reads all
+charge states of a radius (the radiated power, the conductivity, the energy exchange with
+the ions) assembles its block this way, so that the coloring of the automatic Jacobian does
+not need a color per charge state. The tag is fixed, so the code compiles once per number
+of local columns.
 
 The evaluation runs on a state of the dependencies and the row alone, in a layout of these
 radial unknowns on the same radial grid ([`local_layout`](@ref)), so that its cost does not
@@ -503,11 +505,11 @@ end
 """
     low_rank_jacobian(term, u, layout, row, t)
 
-For a `:matrix_free` term whose Jacobian at the state `u` is a sum of low-rank blocks:
-the vector of [`LowRankBlock`](@ref)s. `nothing` (the default) for any other term. The
-block preconditioners of [`GMRES`](@ref) and the direct solvers [`SparseLU`](@ref) and
-[`MKLPardiso`](@ref) add the blocks by a Woodbury update, so the term needs no stored
-Jacobian.
+For a `:matrix_free` term whose Jacobian at the state `u` and the time `t` [s] is a sum of
+low-rank blocks: the vector of [`LowRankBlock`](@ref)s. `nothing` (the default) for any
+other term. The block preconditioners of [`GMRES`](@ref) and the direct solvers
+[`SparseLU`](@ref) and [`MKLPardiso`](@ref) add the blocks by a Woodbury update, so the
+term needs no stored Jacobian.
 """
 low_rank_jacobian(::EquationTerm, u, layout, row, t) = nothing
 

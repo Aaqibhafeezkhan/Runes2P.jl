@@ -87,19 +87,18 @@ describe(settings::CheckpointSettings) = _describe_fields(settings)
     StoredState
 
 A state of a run read from a file, from which [`integrate`](@ref) resumes (`resume`):
-the `time`, the `state` vector in the `layout` it was stored with (rebuilt from the
+the `time` [s], the `state` vector in the `layout` it was stored with (rebuilt from the
 file's layout record, for matching the unknowns by name), the states of the interval
 updates by name, the settings record of the run that wrote it, the number of the segment
 that wrote it, the number of states the run had saved up to the time (`saved_count`), a
 `summary` of the run so far (attempted and accepted steps, Newton and Krylov iterations,
-wall time), the record of the time `stepper` at the time (its step length and what it
-carries between steps, [`FixedSteps`](@ref); empty for a state read from an output file,
-whose time is then a time point of the run), the file it came from and the `units` that
-the file stores, by unknown. A file of the format 0.0.4 or older stores no unit, and its
-`units` are empty, while its `layout` holds the default units. Without `units`, the
+seconds of wall time), the record of the time `stepper` at the time (its step length [s] and
+what it carries between steps, [`FixedSteps`](@ref); empty for a state read from an output
+file, whose time is then a time point of the run), the file it came from and the `units`
+that the file stores, by unknown. A file of the format 0.0.4 or older stores no unit, and
+its `units` are empty, while its `layout` holds the default units. Without `units`, the
 constructor takes those of `layout`. A caller who rebuilds a state read from a file passes
-the `units` of that state. [`read_checkpoint`](@ref) and [`read_state`](@ref)
-return one.
+the `units` of that state. [`read_checkpoint`](@ref) and [`read_state`](@ref) return one.
 """
 struct StoredState{T}
     time::Float64
@@ -364,7 +363,8 @@ end
 
 Why the segment stops now, `"stop file"` or `"wall time"`, or `nothing` when it goes on.
 `longest_step` and `longest_write` are the wall times in seconds of the longest
-accepted step and of the longest checkpoint write of the segment so far.
+accepted step and of the longest checkpoint write of the segment so far, and `now` is a
+UNIX time in seconds.
 """
 function stop_reason(stop::StopCondition, longest_step::Real, longest_write::Real; now::Real = time())
     isempty(stop.stop_file) || !isfile(stop.stop_file) || return "stop file"
@@ -385,7 +385,7 @@ const EXIT_STOPPED_WITHOUT_CHECKPOINT = 86
 
 `:finished` when the run reached its last time point, `:stopped` when the segment stopped
 before it ([`StopCondition`](@ref)). `solution.settings["segment"]` has the reason
-(`stop_reason`) and the time reached (`end_time`).
+(`stop_reason`) and the time reached (`end_time`) [s].
 """
 function run_status(solution)
     Symbol(get(get(solution.settings, "segment", SettingsRecord()), "status", "finished"))

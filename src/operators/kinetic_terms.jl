@@ -5,8 +5,9 @@
 """
     add_electric_field!(op, plasma)
 
-Acceleration by the parallel electric field: `Aᵖ = (eE/mc) ξ`,
-`Aᵠ = (eE/mc)(1 - ξ²)/p`. A positive field accelerates electrons towards `ξ = +1`.
+Acceleration by the parallel electric field `E` [V/m] of `plasma`: `Aᵖ = (eE/mc) ξ`,
+`Aᵠ = (eE/mc)(1 - ξ²)/p`, in s⁻¹ with `p` in units of `mₑc`. A positive field accelerates
+electrons towards `ξ = +1`.
 """
 function add_electric_field!(op::AdvectionDiffusion, plasma::PlasmaState)
     g = op.grid
@@ -31,11 +32,12 @@ end
     set_unit_field_coefficients!(op)
 
 Advection of an electric field of 1 V/m on the faces of `op`, `Aᵖ = (e/mc) ξ` and
-`Aᵠ = (e/mc)(1 - ξ²)/p`, into `op.unit_field_advection_p` and `op.unit_field_advection_xi`.
-They depend on the grid alone. An operator applied with a field as an argument
+`Aᵠ = (e/mc)(1 - ξ²)/p` in s⁻¹ per V/m with `p` in units of `mₑc`, into
+`op.unit_field_advection_p` and `op.unit_field_advection_xi`. They depend on the grid alone.
+An operator applied with a field as an argument
 ([`apply!`](@ref)`(...; electric_field)`, [`FokkerPlanckTerm`](@ref)`(...; electric_field)`)
-adds the field times these to its advection, in place of [`add_electric_field!`](@ref)
-with a prescribed field.
+adds the field times these to its advection, in place of [`add_electric_field!`](@ref) with
+a prescribed field.
 """
 function set_unit_field_coefficients!(op::AdvectionDiffusion)
     g = op.grid
@@ -59,9 +61,9 @@ end
 """
     add_slowing_down!(op, collisions)
 
-Collisional friction `Aᵖ = -p ν_s(p)` on the p faces, and the particle flux through
-`p = 0` from `lim p³ν_s`, which the operator applies under `p_zero_boundary = :outflow`
-([`AdvectionDiffusion`](@ref)).
+Collisional friction `Aᵖ = -p ν_s(p)` on the p faces, in s⁻¹ with `p` in units of `mₑc`,
+and the particle flux through `p = 0` from `lim p³ν_s`, which the operator applies under
+`p_zero_boundary = :outflow` ([`AdvectionDiffusion`](@ref)).
 """
 function add_slowing_down!(op::AdvectionDiffusion, collisions::CollisionModel)
     g = op.grid
@@ -85,9 +87,9 @@ end
 """
     add_pitch_scattering!(op, collisions)
 
-Pitch-angle scattering `Dᵠᵠ = ν_D(p)(1 - ξ²)/2` on the ξ faces. A model with the faces of
-the grid of `op` ([`CollisionModel`](@ref)`(plasma, settings; faces)`) gives `ν_D` from its
-tables at the cell centres, the values of [`deflection_frequency`](@ref).
+Pitch-angle scattering `Dᵠᵠ = ν_D(p)(1 - ξ²)/2` [s⁻¹] on the ξ faces. A model with the
+faces of the grid of `op` ([`CollisionModel`](@ref)`(plasma, settings; faces)`) gives `ν_D`
+from its tables at the cell centres, the values of [`deflection_frequency`](@ref).
 """
 function add_pitch_scattering!(op::AdvectionDiffusion, collisions::CollisionModel)
     g = op.grid
@@ -109,7 +111,8 @@ end
 """
     add_energy_diffusion!(op, collisions)
 
-Energy diffusion `Dᵖᵖ = ν_∥(p)` on the p faces (zero unless `mode = :full`).
+Energy diffusion `Dᵖᵖ = ν_∥(p)` on the p faces (zero unless `mode = :full`), in s⁻¹ with
+`p` in units of `mₑc`.
 """
 function add_energy_diffusion!(op::AdvectionDiffusion, collisions::CollisionModel)
     collisions.settings.mode === :full || return op
@@ -162,8 +165,9 @@ end
 """
     add_synchrotron!(op, plasma)
 
-Synchrotron radiation reaction in a homogeneous field `B`:
-`Aᵖ = -C B² p γ (1 - ξ²)`, `Aᵠ = C B² ξ (1 - ξ²)/γ`, `C = e⁴/(6π ε₀ mₑ³ c³)`.
+Synchrotron radiation reaction in a homogeneous field `B` [T] of `plasma`:
+`Aᵖ = -C B² p γ (1 - ξ²)`, `Aᵠ = C B² ξ (1 - ξ²)/γ`, `C = e⁴/(6π ε₀ mₑ³ c³)`, in s⁻¹ with
+`p` in units of `mₑc`.
 """
 function add_synchrotron!(op::AdvectionDiffusion, plasma::PlasmaState)
     g = op.grid

@@ -94,11 +94,11 @@ _unit(::Nothing, name::Symbol) = get(DEFAULT_UNKNOWN_UNITS, name, "")
     ScalarUnknown(name; scale=1, nonnegative=false, unit=nothing)
 
 Unknown with one value for the whole system (e.g. `:plasma_current`). `scale` is its
-reference magnitude; `nonnegative` declares a [`LowerLimit`](@ref). `unit` is the unit of
-its values as a string, such as `"A"`, which the output file stores. It is ASCII without
-control characters. Without one, an unknown of a default name takes the unit of the table
-in the section "Units of the unknowns" of the docs page "Unknowns and the equation
-system", and any other the empty string.
+reference magnitude, in the unit of its values. `nonnegative` declares a
+[`LowerLimit`](@ref). `unit` is the unit of its values as a string, such as `"A"`, which
+the output file stores. It is ASCII without control characters. Without one, an unknown of
+a default name takes the unit of the table in the section "Units of the unknowns" of the
+docs page "Unknowns and the equation system", and any other the empty string.
 """
 struct ScalarUnknown
     name::Symbol
@@ -120,8 +120,8 @@ Unknown with `components` values at each radius (e.g. `:electric_field`, or
 consecutive ranges, such as the charge states of each ion species
 ([`component_groups`](@ref)). An unknown that declares groups, even a single one, takes by
 default the tolerances relative to the sum over each group ([`tolerance`](@ref),
-[`StepController`](@ref)). `unit` is the unit of its values, as of a
-[`ScalarUnknown`](@ref).
+[`StepController`](@ref)). `scale` is its reference magnitude and `unit` the unit of its
+values, as of a [`ScalarUnknown`](@ref).
 """
 struct RadialUnknown
     name::Symbol
@@ -175,10 +175,10 @@ _grouped(u) = u isa RadialUnknown && u.grouped
 Distribution function on the kinetic grid `grid`, one value per momentum cell at each
 radius (e.g. `:hot_tail_distribution`). The momentum grid may differ between radii.
 A distribution is normally declared without a lower limit: negative values produced by
-the discretization belong to the scheme, not to the Newton steps. `unit` is the unit of
-its values as a string, ASCII without control characters. Without one, it is `"m^-3"`
-whatever the name, for a density per unit of momentum volume with the momentum in
-``m_e c``.
+the discretization belong to the scheme, not to the Newton steps. `scale` is its reference
+magnitude, in the unit of its values. `unit` is the unit of its values as a string, ASCII
+without control characters. Without one, it is `"m^-3"` whatever the name, for a density
+per unit of momentum volume with the momentum in ``m_e c``.
 """
 struct KineticUnknown{T}
     name::Symbol
@@ -476,7 +476,8 @@ function unknown_values end
 """
     unknown_scales(layout)
 
-Vector of the reference scale of every entry of the state vector.
+Vector of the reference scale of every entry of the state vector, each in the unit of its
+unknown.
 """
 function unknown_scales(layout::UnknownLayout)
     scales = zeros(length(layout))

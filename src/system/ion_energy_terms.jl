@@ -76,7 +76,8 @@ with one side alone is refused. The masses are those of [`ion_mass`](@ref) with 
 (`:standard`, the standard atomic weights and the nuclei of the hydrogen isotopes, or
 `:dream`, DREAM's rule). `masses`, when given, replaces them for all species: one mass in kg
 per species of `plasma`, in its order. A mass outside 1e-27 kg to 1e-24 kg is refused, which
-catches a mass given in atomic mass units or in grams.
+catches a mass given in atomic mass units or in grams. The species are read from `plasma`
+at the time `initial_time` [s].
 The densities of the ions come from the prescribed `plasma`, a [`PlasmaState`](@ref) or a
 function of time, or with `ions` from that radial unknown of the charge states, whose
 columns the term then assembles directly; a species of zero density is skipped.

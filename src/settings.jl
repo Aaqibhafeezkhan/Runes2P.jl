@@ -250,14 +250,14 @@ end
     describe(layout)
     describe(layout, context::DescriptionContext)
 
-Plain record of the layout: the order of the unknowns and per unknown its kind, scale,
-position, sizes per radius, components, grid and lower limit. With a `context` the grids
-are named in it (the `layout` section of the settings, next to their `grids` section).
-Without one, the record holds the records of its grids under `grids` and the `unit` of
-each unknown, and is self-contained: it is the root group `layout` of the output and
-checkpoint files, which a resume reads to match the unknowns by name
-([`copy_unknowns!`](@ref)) and to rebuild the grids (`layout_version` 2). The units stay
-out of the settings, so that the setup hash does not depend on them.
+Plain record of the layout: the order of the unknowns and per unknown its kind, scale (in
+the unit of the unknown), position, sizes per radius, components, grid and lower limit. With
+a `context` the grids are named in it (the `layout` section of the settings, next to their
+`grids` section). Without one, the record holds the records of its grids under `grids` and
+the `unit` of each unknown, and is self-contained: it is the root group `layout` of the
+output and checkpoint files, which a resume reads to match the unknowns by name
+([`copy_unknowns!`](@ref)) and to rebuild the grids (`layout_version` 2). The units stay out
+of the settings, so that the setup hash does not depend on them.
 """
 function describe(layout::UnknownLayout)
     context = DescriptionContext()
@@ -418,11 +418,11 @@ end
 """
     describe_prescribed_plasma(plasma_at, context)
 
-Table of a plasma state prescribed as a function of time, `plasma_at(t)`: the states at
-the time points of `context`, stacked along a last time axis (`(radii, times)` for the
-profiles, `(charge states, radii, times)` for the ion densities). These are the states
-the steps of the run use, except the steps shortened after a failure. A function cannot
-be stored, so the table is the record of it. A table that would exceed the context's
+Table of a plasma state prescribed as a function of the time `t` [s], `plasma_at(t)`: the
+states at the time points of `context`, stacked along a last time axis (`(radii, times)` for
+the profiles, `(charge states, radii, times)` for the ion densities). These are the states
+the steps of the run use, except the steps shortened after a failure. A function cannot be
+stored, so the table is the record of it. A table that would exceed the context's
 `max_table_bytes` is thinned: sampled evenly over the time points at as many as fit, and
 marked `thinned`. Without time points, or when the function fails at one, the record is
 marked as not described. The `reason` of a failure keeps the type of the exception, without
@@ -508,9 +508,9 @@ end
     describe(op::AdvectionDiffusion, context=DescriptionContext(); coefficients=true)
 
 Record of the operator: its grid, schemes and boundary conditions, its declarations of
-radial transport and cross diffusion, the boundary flux at `p_min` when it is not zero, and
-with `coefficients = true` the coefficient arrays. An
-array that is zero everywhere is named in `zero_coefficients` and not stored. When the
+radial transport and cross diffusion, the boundary flux [m⁻³ s⁻¹ for `f` in m⁻³] at
+`p_min` when it is not zero, and with `coefficients = true` the coefficient arrays. An array
+that is zero everywhere is named in `zero_coefficients` and not stored. When the
 coefficients were built by [`set_fokker_planck_coefficients!`](@ref), the plasma and the
 collision settings they were built from are recorded under `coefficient_source`. The
 arrays are the definition of the operator, the source is what explains them. Arrays
@@ -567,8 +567,8 @@ end
     describe(op::KnockOnOperator, context=DescriptionContext())
 
 Record of the operator: the knock-on and primary grids, the evaluation method, the cutoff
-momentum per radius as it is now, and the options of the kernels with their defaults
-filled in ([`resolved_pitch_options`](@ref)).
+momentum in units of `mₑc` per radius as it is now, and the options of the kernels with
+their defaults filled in ([`resolved_pitch_options`](@ref)).
 """
 function describe(op::KnockOnOperator, context::DescriptionContext = DescriptionContext())
     return SettingsRecord(
@@ -1108,7 +1108,7 @@ end
     describe(region::MomentumRegion, context)
 
 Record of a momentum region: the side, the envelope and the limit. A limit that follows
-the temperature is recorded with its factor and the temperatures at the time points of
+the temperature is recorded with its factor and the temperatures [eV] at the time points of
 `context`, another function of time with its values at the time points.
 """
 function describe(region::MomentumRegion, context::DescriptionContext = DescriptionContext())
@@ -1226,8 +1226,8 @@ end
     describe(model::ConductivityModel, context)
 
 Record of a conductivity model: the reference, what is subtracted for the kinetic
-operator, and the conductivity per radius at the time points of `context` (at the first
-one for a plasma that is constant in time).
+operator, and the conductivity [S/m] per radius at the time points of `context` (at the
+first one for a plasma that is constant in time).
 """
 function describe(model::ConductivityModel, context::DescriptionContext = DescriptionContext())
     record = SettingsRecord(
@@ -1407,7 +1407,7 @@ end
     describe(system::EquationSystem, context=DescriptionContext())
 
 Record of the system: per unknown the kind of its equation and its terms (`term_1`,
-`term_2`, … in the order given), the time scale, and the Newton and time-step tolerances
+`term_2`, … in the order given), the time scale [s], and the Newton and time-step tolerances
 of every unknown as they apply (the defaults filled in). The layout has its own record.
 """
 function describe(system::EquationSystem, context::DescriptionContext = DescriptionContext())

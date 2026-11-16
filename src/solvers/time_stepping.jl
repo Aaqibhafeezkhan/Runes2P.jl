@@ -9,7 +9,7 @@
 Solver statistics of a run, one entry per attempted step (accepted or not), with its own
 time array:
 
-- `time`, `time_step`: end time and length of the attempted step;
+- `time`, `time_step`: end time and length of the attempted step [s];
 - `accepted`, `status`: whether the step was accepted, and the [`NewtonResult`](@ref)
   status; a step that converged and was not accepted was rejected by the stepper on its
   error estimate, or was a half step of a step doubling;
@@ -117,7 +117,7 @@ end
 """
     TimeSolution
 
-Result of [`integrate`](@ref): the `layout`, the saved `times`, the saved `states` (one
+Result of [`integrate`](@ref): the `layout`, the saved `times` [s], the saved `states` (one
 column per saved time; views of the unknowns through [`unknown_view`](@ref)), the
 [`SolverStatistics`](@ref), the record of the run's `settings`
 ([`run_settings`](@ref)) and `update_states`, per interval update the state in force when
@@ -143,8 +143,8 @@ end
     TimeStepFailure
 
 Thrown by [`integrate`](@ref) when a step still fails after the retries the stepper
-allows; holds the `time` and `time_step` of the last attempt, its Newton `status` and
-the statistics up to the failure.
+allows. It holds the `time` and `time_step` [s] of the last attempt, its Newton `status`
+and the statistics up to the failure.
 """
 struct TimeStepFailure <: Exception
     time::Float64
@@ -336,8 +336,9 @@ The tolerances are the [`Tolerance`](@ref)s the system holds for the time-step e
 (`time_step_tolerances` of [`EquationSystem`](@ref)); an unknown without one gets
 `relative_tolerance` and no absolute tolerance (DREAM's default absolute tolerance is
 zero for every unknown but the runaway density, the runaway distribution `f_re` and the
-runaway current, which get 1e-10, 1e-10 and `e c 1e-10`;
-`ConvergenceChecker::GetDefaultAbsTol`, `ConvergenceChecker.cpp:110-120`). An unknown with
+runaway current density. The first two get 1e-10 m⁻³, and the current density gets `e c`
+times that [A/m²]. See `ConvergenceChecker::GetDefaultAbsTol`,
+`ConvergenceChecker.cpp:110-120`). An unknown with
 both tolerances zero is left out of the check. A step whose
 solve fails is retried with `failure_factor` times its length, at most `max_failures`
 times in a row (DREAM's `STEP_REDUCTION_AT_EXCEPTION` and `MAX_STEPS_WITH_EXCEPTION`);
@@ -346,8 +347,8 @@ DREAM's step update reads the tolerances of the wrong unknowns when a prescribed
 precedes others; Runes2P uses one set of tolerances for the acceptance and the
 next step.
 
-The first step has the length `initial_step` (`nothing`: the first interval of the time
-points). Every step ends at or before the next time point of the run, and a save time
+The first step has the length `initial_step` [s] (`nothing`: the first interval of the
+time points). Every step ends at or before the next time point of the run, and a save time
 must be a time point, so that every saved state is a computed one, as with
 [`FixedSteps`](@ref) (DREAM saves computed steps only and has no save times). A step
 shortened by a time point sets the next length from its own error, as a step to `tmax`
@@ -625,8 +626,8 @@ rejections in a row end the run with [`TimeStepFailure`](@ref) (a settings error
 a `min_shrink` near 1 with a step whose error does not fall). A step whose solve fails is
 retried with `failure_factor` times the length tried, at most `max_failures` times in a row.
 
-The first step has the length `initial_step` (`nothing`: the first interval of the time
-points). Every step ends at or before the next time point and the next save time, so
+The first step has the length `initial_step` [s] (`nothing`: the first interval of the
+time points). Every step ends at or before the next time point and the next save time, so
 every saved state is a computed one. A step cut short by a time point or a save time is
 estimated like any other, and the next length follows from the step taken (at most
 `max_growth` times it), not from the length that was planned: after a run of close save
@@ -635,7 +636,7 @@ times the step grows back by the cap, each step under the tolerance.
 The cells of the hot tail of a kinetic unknown lie far below the absolute floor of the
 cell measure (`relative × scale`, 1e17 m⁻³ at a density of 1e20 m⁻³ and a tolerance of
 1e-3, against 1e15 m⁻³ in the tail), so the cells alone leave the tail uncontrolled.
-With `tail_cut` (a momentum in units of mₑc, `nothing` for none) the error of
+With `tail_cut` (a momentum in units of `mₑc`, `nothing` for none) the error of
 every kinetic unknown also holds its moments above the cut: the density and the current
 density at every radius ([`density`](@ref) and [`current_density`](@ref) with a
 [`MomentumRegion`](@ref)), each estimated by the moment of the cell estimate, over
@@ -1199,8 +1200,8 @@ end
                description=Dict())
 
 The options of a run of [`integrate`](@ref), which takes them as keywords or as one
-record. `save_times = nothing` saves at the time points. The others are described with
-[`integrate`](@ref).
+record. `save_times` [s] is `nothing` to save at the time points. The others are described
+with [`integrate`](@ref).
 """
 Base.@kwdef struct RunOptions{
     S <: NewtonSolver, P <: TimeStepper, U, C <: Union{Nothing, CheckpointSettings}, R,
@@ -1257,7 +1258,7 @@ The record of a run, written by [`write_output`](@ref) as the `settings` group. 
   are a section of their own so that the hash of `system` does not change with the time
   points;
 - `solver`: the Newton and linear solver settings;
-- `time`: the time points, the save times and the stepper ([`TimeStepper`](@ref);
+- `time`: the time points and the save times [s], and the stepper ([`TimeStepper`](@ref);
   `max_step_halvings = n` stands for `stepper = FixedSteps(max_halvings=n)`);
 - `run`: `description`, what the caller adds (a name, the origin of the initial state,
   the parameters a hand-built coefficient came from), as plain values;
@@ -1274,9 +1275,9 @@ The record of a run, written by [`write_output`](@ref) as the `settings` group. 
   outside the package, a prescribed function that fails at a time point).
 
 [`integrate`](@ref) builds the record at its start and returns it in the solution, with
-the record of the segment added under `segment`: its number, its start time, the number
+the record of the segment added under `segment`: its number, its start time [s], the number
 of states saved before it, its status (`running`, `stopped` or `finished`) with the time
-reached, the intervals done and the reason of a stop, and for a resumed segment the file
+reached [s], the intervals done and the reason of a stop, and for a resumed segment the file
 it resumed from, the commit and setup hash of the run that wrote it and the sections whose
 hash changed.
 """
@@ -1364,18 +1365,18 @@ end
     integrate(system, u0, times, options::RunOptions)
 
 Backward-Euler integration of `system` from the state `u0` at `times[1]` through the time
-points `times` (any increasing array, e.g. nonuniform or matching the restarts of another
-run). The `stepper` ([`TimeStepper`](@ref)) sets the length of every step, and every time
-point is the end of a step: with [`FixedSteps`](@ref), the default, each interval between
-two time points is one step, retried with half the time step when it fails
+points `times` [s] (any increasing array, e.g. nonuniform or matching the restarts of
+another run). The `stepper` ([`TimeStepper`](@ref)) sets the length of every step, and every
+time point is the end of a step: with [`FixedSteps`](@ref), the default, each interval
+between two time points is one step, retried with half the time step when it fails
 (`max_step_halvings = n` is a shorthand for `stepper = FixedSteps(max_halvings=n)`). Each
 step is solved by [`newton_solve!`](@ref) with explicit terms at the previous time level. A
 step that still fails throws [`TimeStepFailure`](@ref).
 
-States are saved at `save_times` (strictly increasing, inside `[times[1], times[end]]`; a
-save time within a relative 1e-12 of a time point is taken as that time point, and two save
-times taken as one time point are refused), and every saved state is a computed one: with
-[`FixedSteps`](@ref) and [`StepDoubling`](@ref) a save time must be a time point (an
+States are saved at `save_times` [s] (strictly increasing, inside `[times[1], times[end]]`;
+a save time within a relative 1e-12 of a time point is taken as that time point, and two
+save times taken as one time point are refused), and every saved state is a computed one:
+with [`FixedSteps`](@ref) and [`StepDoubling`](@ref) a save time must be a time point (an
 `ArgumentError` names one that is not; DREAM saves computed steps only), while
 [`StepController`](@ref) ends a step on every save time. [`time_points`](@ref) builds
 `times` and `save_times` from [`Leg`](@ref)s in one arithmetic. Returns a
