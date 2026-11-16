@@ -1,6 +1,8 @@
 # The reader of the data files of data/: the check of the header, the conversion of the
 # arrays, and the header of every file of the directory. The table of mean excitation
 # energies against the printed tables of its source.
+# arrays, and the header of every file of the directory. A test of its own checks the
+# table of Braams and Karney against the values printed in their paper.
 
 @testset "data files" begin
     header = """
@@ -139,5 +141,44 @@
             10.94]
         @test maximum(abs, Runes2P.MEAN_EXCITATION_ENERGY_D - D_N) <= 0.005
         @test maximum(abs, Runes2P.MEAN_EXCITATION_ENERGY_S0 - S_N0) <= 0.005
+    @testset "the conductivity of Braams and Karney against its source" begin
+        # B. J. Braams and C. F. F. Karney, Phys. Fluids B 1, 1355 (1989),
+        # doi:10.1063/1.858966, Table I on p. 1362: the normalized conductivity σ̄(Θ, Z),
+        # as printed with 5 decimals. Rows: Θ = T/mₑc². Columns: Z = 0, 1, 2, 5, 10, ∞.
+        # The data file keeps DREAM's port, the printed values rounded to 4 decimals, so
+        # every value is pinned at half a unit of its 4th decimal: at most 5 units of the
+        # printed 5th decimal. A count in integer units keeps the 12 printed values that end
+        # in 5 at exactly 5 units, such as 1.02875 at Z = 1 and Θ = 10, kept as 1.0288. All
+        # 84 cells were read with certainty.
+        printed = [3.75994 7.42898 8.75460 10.39122 11.33006 12.76615
+                   3.75490 7.27359 8.53281 10.07781 10.95869 12.29716
+                   3.74920 7.12772 8.32655 9.78962 10.61952 11.87371
+                   3.72852 6.73805 7.78445 9.04621 9.75405 10.81201
+                   3.68420 6.20946 7.06892 8.09361 8.66306 9.50746
+                   3.57129 5.43667 6.06243 6.80431 7.21564 7.82693
+                   3.18206 4.13733 4.47244 4.88050 5.11377 5.47602
+                   2.65006 3.13472 3.32611 3.57303 3.72206 3.96944
+                   2.03127 2.27862 2.39205 2.54842 2.64827 2.82473
+                   1.33009 1.45375 1.51805 1.61157 1.67382 1.78870
+                   0.94648 1.02875 1.07308 1.13856 1.18263 1.26490
+                   0.67042 0.72743 0.75853 0.80472 0.83593 0.89443
+                   0.42422 0.46003 0.47965 0.50885 0.52861 0.56569
+                   0.29999 0.32528 0.33915 0.35979 0.37377 0.40000]
+        printed_temperatures = [
+            0, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100]
+        printed_charges = [0, 1, 2, 5, 10, Inf]
+        charges = 1 ./ (1 .+ reverse(printed_charges))
+        data = Runes2P.read_data_file("braams_karney_conductivity")["data"]
+        table = Runes2P.float_matrix(data["table"])
+        # the rows of the file run in X = 1/(1 + Z) from Z = ∞ to Z = 0
+        @test Runes2P.float_vector(data["temperatures"]) == printed_temperatures
+        @test Runes2P.float_vector(data["charges"]) ≈ charges atol = 1e-14
+        @test size(table) == (6, 14)
+        for i in 1:14
+            for j in 1:6
+                kept = round(Int, 1e5 * table[7 - j, i])
+                @test abs(kept - round(Int, 1e5 * printed[i, j])) <= 5
+            end
+        end
     end
 end
