@@ -300,7 +300,9 @@ A mismatch gives a result that is wrong without an error, so [`EquationSystem`](
 | [`DensityMomentTerm`](@ref), [`CurrentMomentTerm`](@ref), [`EnergyMomentTerm`](@ref), [`KineticIonizationTerm`](@ref), [`KineticEnergyLossTerm`](@ref) over the hot region of one temperature | the threshold factor, the envelope and its width | they count different electrons as hot |
 | `bound_friction = :ionization_split` and the [`KineticIonizationTerm`](@ref) of its unknown | the term exists, the threshold factor, the cross-section form | ``f`` pays for other ionizations than it causes |
 | the same, with the sinks of ``f`` booked by [`KineticEnergyLossTerm`](@ref) | a [`SecondaryHeatingTerm`](@ref) of that ionization | the energy of the secondaries is lost |
-| [`SecondaryHeatingTerm`](@ref) and the split friction | `cut = :none`, the spectrum, the widths unless `:beb` | the heating differs from what ``f`` pays |
+| [`SecondaryHeatingTerm`](@ref) and the split friction | `cut = :none` or `:knockon`, the spectrum, the widths unless `:beb` | the heating differs from what ``f`` pays |
+| [`SecondaryHeatingTerm`](@ref) with `cut = :knockon` and its `knockon` | the [`KnockOnTerm`](@ref) is in the system, with the kinetic unknown of the ionization as its primary | the cut is the cutoff of a source that does not run |
+| [`SecondaryHeatingTerm`](@ref) with `cut = :none` and a [`KnockOnTerm`](@ref) of the same primary on `:total_electron_density` | refused: take `cut = :knockon` | the energy of the secondaries above the cutoff is counted twice |
 | a sinks term and an energy moment over a thermal region | the region | the sinks of the bulk are charged as well |
 
 ### Ions

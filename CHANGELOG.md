@@ -8,6 +8,14 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Added
 
+- `SecondaryHeatingTerm(...; cut = :knockon, knockon = term)` gives the cold electrons only the energy of the secondaries below the cutoff of the `KnockOnTerm` `term` at each radius ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+  The secondaries above the cutoff, which the knock-on term puts into a distribution, are no longer counted twice.
+  The heating reads the cutoff at each evaluation, so it follows a `KnockOnCutoffUpdate`.
+  `EquationSystem` requires `term` in the system with the kinetic unknown of the ionization as its primary.
+  It refuses `cut = :none` next to a knock-on term of the same primary on `:total_electron_density`.
+  The settings record of the term holds the knock-on term under the key `knockon` with this cut.
+- `secondary_energy_below` and `beb_secondary_energy_below` give the energy per ionization of the secondaries below a cut, for the spectra of Opal et al. and of Kim and Rudd ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+
 - Every unknown carries a unit string, set by the keyword `unit` of `ScalarUnknown`, `RadialUnknown` and `KineticUnknown` and read by `unknown_unit` ([#288](https://github.com/osrep/Runes2P.jl/pull/288)).
   A scalar or radial unknown of a default name takes the unit of the table "Units of the unknowns", a `KineticUnknown` `"m^-3"`, and any other unknown the empty string.
   The output file stores the unit as the attribute `unit` of every entry of `unknowns`, of `time` and of the grid faces in `layout`, and `OUTPUT_FORMAT_VERSION` is 0.0.5 for it.

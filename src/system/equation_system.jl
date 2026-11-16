@@ -1200,10 +1200,11 @@ function _check_plasma_pairings(equations)
             widths = merge(SECONDARY_SPECTRUM_WIDTHS, settings.secondary_widths)
             for heating in heatings
                 heating.kinetic_ionization === k || continue
-                if heating.cut !== :none
+                if heating.cut === :threshold
                     throw(ArgumentError("the heating by secondaries of the kinetic ionization of $(owner.unknown) takes " *
-                                        "cut = :$(heating.cut), while the friction of bound_friction = " *
-                                        ":ionization_split takes the mean over every secondary from f: take cut = :none"))
+                                        "cut = :threshold, while the friction of bound_friction = :ionization_split " *
+                                        "takes the mean over every secondary from f: take cut = :none, or cut = " *
+                                        ":knockon next to a knock-on term of $(owner.unknown)"))
                 end
                 if heating.spectrum !== settings.secondary_spectrum
                     throw(ArgumentError("the heating by secondaries takes the spectrum :$(heating.spectrum) and the " *
@@ -1220,6 +1221,42 @@ function _check_plasma_pairings(equations)
                                             ":ionization_split take different widths of the secondary spectrum: give " *
                                             "SecondaryHeatingTerm the secondary_widths of the CollisionSettings"))
                     end
+                end
+            end
+        end
+    end
+    # a knock-on term of the primaries of a kinetic ionization puts the secondaries above its
+    # cutoff into f: the heating by secondaries takes only those below it (cut = :knockon), from
+    # that very term. The target of a knock-on term named :total_electron_density counts the
+    # bound electrons, so the cut :none would count the energy above the cutoff twice.
+    knockons = KnockOnTerm[]
+    for equation in equations, term in equation.terms
+
+        if term isa KnockOnTerm
+            push!(knockons, term)
+        end
+    end
+    for heating in heatings
+        kinetic = heating.kinetic_ionization.kinetic
+        if heating.cut === :knockon
+            if !any(term -> term === heating.knockon, knockons)
+                throw(ArgumentError("the heating by secondaries of the kinetic ionization of $kinetic takes cut = " *
+                                    ":knockon with a knock-on term that is not in the system: give it a KnockOnTerm " *
+                                    "of the system"))
+            end
+            if heating.knockon.primary !== kinetic
+                throw(ArgumentError("the heating by secondaries of the kinetic ionization of $kinetic takes cut = " *
+                                    ":knockon with the knock-on term of the primary $(heating.knockon.primary): give " *
+                                    "it a knock-on term of the primary $kinetic"))
+            end
+        elseif heating.cut === :none
+            for term in knockons
+                if term.primary === kinetic &&
+                   term.target_density === :total_electron_density
+                    throw(ArgumentError("the heating by secondaries of the kinetic ionization of $kinetic takes cut = " *
+                                        ":none next to a knock-on term of $kinetic on the bound electrons, which puts " *
+                                        "the secondaries above its cutoff into a distribution: their energy would be " *
+                                        "counted twice. Take cut = :knockon, knockon = that term"))
                 end
             end
         end
