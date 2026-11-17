@@ -75,7 +75,7 @@ The row lists only the channels by which energy enters or leaves the electrons o
 - The sinks of the collisions of `f` are [`KineticEnergyLossTerm`](@ref) with `part = :sinks` and the hot region.
 - The outflow at ``p_\mathrm{max}`` is [`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` and `coefficient = -1`.
 - The channel of the electrons that cross to a runaway grid is [`InterfaceEnergyFluxTerm`](@ref).
-- The knock-ons of the fluid runaways above the grid bring the energy of [`KineticEnergyChangeTerm`](@ref) of the [`RosenbluthPutvinskiSourceTerm`](@ref), over the whole grid.
+- The energy of the knock-ons that the fluid runaways above the grid create ([`RosenbluthPutvinskiSourceTerm`](@ref)) is the [`KineticEnergyChangeTerm`](@ref) of that source, over the whole grid.
 
 The collisional transfer from the hot electrons to the cold ones does not appear in the row.
 Neither do the electrons that cross the threshold, nor the threshold that moves with the temperature.
