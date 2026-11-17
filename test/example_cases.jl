@@ -94,7 +94,7 @@ end
 
 """
     runaway_heating_example(; compat=:dream, lagged=compat === :dream ? :all : :ions,
-                            field=1.5, momentum_cells=100)
+                            field=1.5, momentum_cells=100, scheme=:upwind)
 
 The case `heating` of reference/dream/cases/initial_state.py: the runaway grid of DREAM's
 examples/init_f_re/generate.py (Mathias Hoppe, 2024-11-22) on one radius with the cold
@@ -133,6 +133,8 @@ term, with only the ion densities taken at the start of the step.
 generate.py:35); another value serves the tests of a field near the one where a momentum face
 of `f_re` changes its upwind side. `momentum_cells` is the number of uniform momentum cells
 to p = 50, 100 in the case; another number serves the refinement of the momentum grid.
+`scheme` is the scheme of the operator of `f_re`, `:upwind` in the case; another scheme with
+a side serves the tests of a change of side under it.
 
 Needs the ADF11 tables of deuterium. Returns a named tuple with the `system`, its `layout`,
 the `initial_state`, the `times` of the case, the kinetic `grid`, the Fokker-Planck term
@@ -140,7 +142,7 @@ the `initial_state`, the `times` of the case, the kinetic `grid`, the Fokker-Pla
 """
 function runaway_heating_example(; compat::Symbol = :dream,
         lagged = compat === :dream ? :all : :ions, field::Real = 1.5,
-        momentum_cells::Integer = 100)
+        momentum_cells::Integer = 100, scheme::Symbol = :upwind)
     compat in (:dream, :runes2p) ||
         throw(ArgumentError("compat must be :dream or :runes2p, not $compat"))
     # reference/dream/cases/initial_state.py, after examples/init_f_re/generate.py
@@ -177,12 +179,12 @@ function runaway_heating_example(; compat::Symbol = :dream,
     prescribed = PlasmaState(; cold_electron_temperature = fill(temperature, nr), ions,
         electric_field = zeros(nr), magnetic_field = fill(magnetic_field, nr))
     plasma = PlasmaFromUnknowns(prescribed)
-    # upwind interpolation (initial_state.py:126, generate.py:68), DREAM's default
+    # upwind interpolation by default (initial_state.py:126, generate.py:68), DREAM's default
     # BC_PHI_CONST at p_max and no synchrotron loss, DREAM's default; the field of the
     # unknown. No flux through p = 0 at both compat values, as on DREAM's runaway grid
     # (src/Settings/Equations/f_re.cpp:87, fvm/Equation/AdvectionTerm.cpp:36)
     operator = fokker_planck_operator(grid, prescribed, settings; synchrotron = false,
-        scheme = :upwind, p_upper_boundary = :constant_flux, p_zero_boundary = :zero_flux,
+        scheme, p_upper_boundary = :constant_flux, p_zero_boundary = :zero_flux,
         field_in_coefficients = false)
     fokker_planck = FokkerPlanckTerm(:runaway_distribution, operator; plasma, settings,
         synchrotron = false, electric_field = :electric_field, lagged)

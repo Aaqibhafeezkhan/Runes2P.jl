@@ -210,9 +210,10 @@ With a row that feeds back on the side, an implicit step that straddles a change
 An example is the temperature of the cold electrons heated by a runaway grid, since the friction that sets the side follows that temperature.
 Newton's method then cycles between the two sides until its iterations end, and the step control halves the step.
 In the test case `runaway_heating_example` at `compat = :runes2p`, the face ``p = 0.5\, m_e c`` of the last pitch cell changes its side at 0.165 V/m at the start.
-Over 16 prescribed fields from ``1 + 3 \times 10^{-7}`` to ``1 + 10^{-5}`` times that field, 6 runs reject 1 to 6 steps, and every run finishes (`test/test_runaway_heating_dream.jl`).
+At ``1 + 10^{-6}`` times that field the first attempt of the first step ends without convergence after 30 iterations, and the half step converges.
+The run then finishes with the temperature of fixed half steps, and at ``1 - 10^{-6}`` times that field no step is rejected.
 
-This holds for every scheme with a side, the flux limiters included: under `:upwind` and under `:tcdf` the same runs reject the same number of steps.
+`test/test_runaway_heating_dream.jl` shows this under `:upwind` and under the flux limiter `:tcdf`, whose half steps converge in 3 and 4 iterations respectively.
 
 [`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` and [`InterfaceEnergyFluxTerm`](@ref) weight the flux at the top of the grid with the kinetic energy of the last momentum cell.
 That is the energy that the discrete energy moment of the grid loses with the electrons.
