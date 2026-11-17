@@ -72,7 +72,7 @@ julia --project=test test/runtests.jl --files test_grids.jl,test_layout.jl     #
 - `--results <path>` writes a TOML summary of the run: the commit, local changes, the optimisation level, the counts and the time per file.
 - The groups are independent, so they can run side by side in separate processes.
 
-The comparison tests read the reference sets of `Artifacts.toml`, which are downloaded at their first use (about 6.7 MB).
+The comparison tests read the reference sets of `Artifacts.toml`, which are downloaded at their first use (about 6.8 MB).
 Where the test nodes have no network, install them beforehand on a node that has:
 
 ```sh
@@ -113,7 +113,7 @@ The summary of `--results` records the level as `opt_level`, so that a run at `-
 - Without the CHIANTI files the regeneration of `data/chianti_ionization.toml` by `scripts/generate_chianti_ionization.jl` is skipped.
   The table itself is in the repository and is tested without them.
 - `RUNES2P_JACOBIAN_CHUNK_SIZE=8` is recommended for the test suite: `env RUNES2P_JACOBIAN_CHUNK_SIZE=8 julia ...`.
-- A reference set without an entry in `Artifacts.toml` is read from its folder in `RUNES2P_REFERENCE_DIR`.
+- A reference set without an entry in `Artifacts.toml`, such as a new set built by `reference/dream/run_all.sh` before its publication, is read from its folder in `RUNES2P_REFERENCE_DIR`.
   A test of such a set is skipped and reported as broken when the folder does not hold its file.
 
 ## Why the tests compile long
