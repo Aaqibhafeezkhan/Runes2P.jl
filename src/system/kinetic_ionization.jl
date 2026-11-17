@@ -429,7 +429,7 @@ end
     SecondaryHeatingTerm(kinetic_ionization::KineticIonizationTerm;
                          widths=SECONDARY_SPECTRUM_WIDTHS,
                          temperature=:cold_electron_temperature, cut=:none, spectrum=:beb,
-                         knockon=nothing)
+                         knockon_term=nothing)
 
 The heating [W/m³] of the cold electrons by the secondary electrons of the kinetic
 ionization `kinetic_ionization`, for the row of their temperature:
@@ -454,20 +454,27 @@ closure of the cold density; without this term it is born at zero energy.
 - `cut = :threshold`: the mean below the hot threshold `E_c`, conditional on lying there,
   for every secondary.
 - `cut = :knockon`: the energy per ionization of the secondaries below the cutoff momentum
-  of the knock-on term `knockon` at each radius ([`secondary_energy_below`](@ref),
-  [`beb_secondary_energy_below`](@ref)). The secondaries above it count with zero energy,
-  since `knockon` puts them into a distribution. The term reads the cutoff of `knockon` at
-  each evaluation, so it follows [`KnockOnCutoffUpdate`](@ref), and the cutoff, which is no
-  unknown, adds no column to the Jacobian. The knock-on term creates its secondaries with the
-  cross section of Møller on its own target density, so the two terms give the energy of the
-  spectrum `spectrum` only as far as the two cross sections agree above the cutoff.
+  of the knock-on term `knockon_term` at each radius ([`secondary_energy_below`](@ref),
+  [`beb_secondary_energy_below`](@ref)). The secondaries above it count with zero energy.
+  A distribution receives them only where the target density of `knockon_term` counts the
+  bound electrons and its knock-on grid holds their momenta, since the term produces only
+  into the cells of that grid between the cutoff and the kinematic maximum
+  ([`KnockOnKernels`](@ref)). The term reads the cutoff of `knockon_term` at each evaluation,
+  so it follows [`KnockOnCutoffUpdate`](@ref), and the cutoff, which is no unknown, adds no
+  column to the Jacobian. The knock-on term creates its secondaries with the cross section
+  of Møller on its own target density, so the two terms give the energy of the spectrum
+  `spectrum` only as far as the two cross sections agree above the cutoff.
 
-[`EquationSystem`](@ref) requires `knockon` to be a term of the system whose primary is the
-kinetic unknown of `kinetic_ionization`. It refuses `cut = :none` next to a knock-on term of
-that primary whose target density is the unknown `:total_electron_density`, and does not
-check a target density given as values. The secondaries above the cutoff carry a large share
-of the energy. As an illustration, with two energies that come from no reference, take the
-secondaries above 1 keV of the ionization of a neutral atom by a primary of 1.3 MeV:
+[`EquationSystem`](@ref) requires `knockon_term` to be a term of the system whose primary is
+the kinetic unknown of `kinetic_ionization`. Next to a knock-on term of that primary on the
+unknown `:total_electron_density`, which counts the bound electrons, it refuses `cut = :none`
+and `cut = :threshold`, and `knockon_term` must be such a term. It refuses `cut = :knockon`
+with a knock-on term on `:cold_electron_density` or `:runaway_density`, which count free
+electrons only. It does not check a target density given as values or under another name.
+
+The secondaries above the cutoff carry a large share of the energy. As an illustration,
+with two energies that come from no reference, take the secondaries above 1 keV of the
+ionization of a neutral atom by a primary of 1.3 MeV:
 
 - With the binary-encounter-Bethe spectrum, the default, they carry 41.8 % of the energy of
   every secondary for Ar⁰ and 41.1 % for D⁰.
@@ -501,13 +508,13 @@ struct SecondaryHeatingTerm{K <: KineticIonizationTerm, N <: Union{Nothing, Knoc
     spectrum::Symbol                  # :opal or :beb
     widths::Vector{Float64}           # per species of the composition of `kinetic_ionization`
     energies::Vector{Vector{Float64}} # per radius: the kinetic energy [eV] of each momentum cell
-    knockon::N                        # with cut = :knockon, the knock-on term whose cutoff is the cut
+    knockon_term::N                   # with cut = :knockon, the knock-on term whose cutoff is the cut
 end
 
 function SecondaryHeatingTerm(
         kinetic_ionization::KineticIonizationTerm; widths = SECONDARY_SPECTRUM_WIDTHS,
         temperature::Symbol = :cold_electron_temperature, cut::Symbol = :none,
-        spectrum::Symbol = :beb, knockon::Union{Nothing, KnockOnTerm} = nothing)
+        spectrum::Symbol = :beb, knockon_term::Union{Nothing, KnockOnTerm} = nothing)
     cut in SECONDARY_CUTS ||
         throw(ArgumentError("cut must be :none, :threshold or :knockon, not $cut"))
     spectrum in SECONDARY_SPECTRA ||
@@ -515,9 +522,9 @@ function SecondaryHeatingTerm(
     cut === :threshold && kinetic_ionization.envelopes === nothing &&
         throw(ArgumentError("the heating by secondaries with cut = :threshold needs the region of the kinetic " *
                             "ionization: its threshold is the cut of the secondaries"))
-    (cut === :knockon) == (knockon !== nothing) ||
-        throw(ArgumentError("the heating by secondaries takes a knock-on term (knockon = term) with cut = :knockon " *
-                            "and with no other cut"))
+    (cut === :knockon) == (knockon_term !== nothing) ||
+        throw(ArgumentError("the heating by secondaries takes a knock-on term (knockon_term = term) with cut = " *
+                            ":knockon and with no other cut"))
     limit = if kinetic_ionization.envelopes === nothing
         nothing
     else
@@ -547,16 +554,20 @@ function SecondaryHeatingTerm(
              for p in momentum_grid(kinetic_ionization.grid, ir).p_centers])
     end
     return SecondaryHeatingTerm(kinetic_ionization, temperature, cut, spectrum,
-        [get(table, name, NaN) for name in names], energies, knockon)
+        [get(table, name, NaN) for name in names], energies, knockon_term)
 end
 
 const SECONDARY_CUTS = (:none, :threshold, :knockon)
 
+# the default names of the unknowns whose density counts free electrons only (the table
+# "Units of the unknowns"): a knock-on term on one of them produces no secondaries from the
+# bound electrons
+const FREE_ELECTRON_UNKNOWNS = (:cold_electron_density, :runaway_density)
+
 # the kinetic energy [eV] of the cutoff momentum of the knock-on term of `term` at radius ir,
 # read at each evaluation so that it follows a change of the cutoff (KnockOnCutoffUpdate)
 function _knockon_cutoff_energy(term::SecondaryHeatingTerm, ir)
-    p_cutoff = term.knockon.operator.p_cutoff[ir]
-    return (sqrt(1 + p_cutoff^2) - 1) * Constants.ELECTRON_REST_ENERGY
+    return kinetic_energy(term.knockon_term.operator.p_cutoff[ir])
 end
 
 function _region_temperature_name(term::SecondaryHeatingTerm)
@@ -577,14 +588,28 @@ function validate(term::SecondaryHeatingTerm, layout, row)
 end
 
 # the weight e ⟨E_s⟩ v σ [J m³/s] of each momentum cell and component of radius ir at the
-# temperature T
+# temperature T. With cut = :knockon, ⟨E_s⟩ is the energy per ionization of the secondaries
+# below the knock-on cutoff of radius ir. The cutoff is no unknown, so these weights depend
+# on no unknown. They take the type of T for the derivative by the temperature.
 function _secondary_weights(term::SecondaryHeatingTerm, ir, T)
-    term.cut === :knockon && return _secondary_weights_below(term, ir, T)
+    if term.cut === :knockon
+        cut = oftype(float(T), _knockon_cutoff_energy(term, ir))
+        return _secondary_weights(secondary_spectrum_energy_below, term, ir, cut)
+    end
+    # one type: Inf, and the threshold of a fixed-momentum region, in the type of T
+    cut_energy = if term.cut === :threshold
+        _threshold_energy(term.kinetic_ionization, T)
+    else
+        Inf
+    end
+    return _secondary_weights(secondary_spectrum_mean, term, ir, oftype(float(T), cut_energy))
+end
+
+# the weights with the energy per ionization `energy_per_ionization(spectrum, width, E, I, cut)`
+function _secondary_weights(energy_per_ionization::F, term::SecondaryHeatingTerm, ir,
+        cut) where {F}
     kinetic_ionization = term.kinetic_ionization
     c = kinetic_ionization.composition
-    # one type: Inf, and the threshold of a fixed-momentum region, in the type of T
-    cut_energy = term.cut === :threshold ? _threshold_energy(kinetic_ionization, T) : Inf
-    cut = oftype(float(T), cut_energy)
     rates = kinetic_ionization.rates[ir]
     energies = term.energies[ir]
     weights = zeros(typeof(float(cut)), size(rates))
@@ -595,31 +620,7 @@ function _secondary_weights(term::SecondaryHeatingTerm, ir, T)
         for i in axes(rates, 1)
             rates[i, k] == 0 && continue
             weights[i, k] = Constants.ELEMENTARY_CHARGE * rates[i, k] *
-                            secondary_spectrum_mean(
-                                term.spectrum, term.widths[s], energies[i], I, cut)
-        end
-    end
-    return weights
-end
-
-# cut = :knockon: the weight e E_< v σ [J m³/s], with E_< the energy per ionization of the
-# secondaries below the knock-on cutoff of radius ir. The cutoff is no unknown, so the weights
-# depend on no unknown; they take the type of T for the derivative by the temperature.
-function _secondary_weights_below(term::SecondaryHeatingTerm, ir, T)
-    kinetic_ionization = term.kinetic_ionization
-    c = kinetic_ionization.composition
-    cut = oftype(float(T), _knockon_cutoff_energy(term, ir))
-    rates = kinetic_ionization.rates[ir]
-    energies = term.energies[ir]
-    weights = zeros(typeof(cut), size(rates))
-    for s in 1:length(c), (j, k) in enumerate(species_components(c, s))
-
-        j > c.nuclear_charges[s] && continue
-        I = ionization_energy(c.names[s], j - 1)
-        for i in axes(rates, 1)
-            rates[i, k] == 0 && continue
-            weights[i, k] = Constants.ELEMENTARY_CHARGE * rates[i, k] *
-                            secondary_spectrum_energy_below(
+                            energy_per_ionization(
                                 term.spectrum, term.widths[s], energies[i], I, cut)
         end
     end
@@ -721,8 +722,8 @@ at the state `u` and the time `t` [s], in two parts:
 
 - `potential`: the ionization potentials, `e Σ I_j K_j n_j`, stored in the ions and released
   at recombination (the gain of `RadiatedPowerTerm(...; radiation = :recombination)`);
-- `secondaries`: the kinetic energy of the secondary electrons, which
-  [`SecondaryHeatingTerm`](@ref) with its default `cut = :none` gives to the cold electrons;
+- `secondaries`: the kinetic energy of every secondary electron, the heating of
+  [`SecondaryHeatingTerm`](@ref) with `cut = :none`, whatever cut the system takes;
   with `spectrum = :opal` and the widths `widths` [eV], `nothing` when an element of the
   composition has no width of the secondary spectrum ([`SECONDARY_SPECTRUM_WIDTHS`](@ref)),
   since `potential` needs none.

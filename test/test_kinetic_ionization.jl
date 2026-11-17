@@ -1006,34 +1006,53 @@ end
         of_g = KnockOnTerm(:g, KnockOnOperator(grid, grid, 0.1); target_density = [
             1e19, 1e19])
         below(term) = Equation(:cold_electron_temperature, TimeDerivative(),
-            SecondaryHeatingTerm(k5; cut = :knockon, knockon = term, spectrum = :opal))
-        with_knockon(heat, term) = [Equation(:f, TimeDerivative(), fp(5.0), term),
+            SecondaryHeatingTerm(k5; cut = :knockon, knockon_term = term, spectrum = :opal))
+        with_knockon(heat, terms...) = [Equation(:f, TimeDerivative(), fp(5.0), terms...),
             Equation(:ion_densities, TimeDerivative(), k5), heat,
             closure...]
         @test_throws ArgumentError SecondaryHeatingTerm(k5; cut = :knockon)
-        @test_throws ArgumentError SecondaryHeatingTerm(k5; knockon = knock)
+        @test_throws ArgumentError SecondaryHeatingTerm(k5; knockon_term = knock)
         @test Runes2P._check_plasma_pairings(with_knockon(below(knock), knock)) === nothing
         @test_throws "not in the system" Runes2P._check_plasma_pairings(system(below(knock)))
         @test_throws "not in the system" Runes2P._check_plasma_pairings(with_knockon(below(knock), on_values))
         @test_throws "the primary g" Runes2P._check_plasma_pairings(with_knockon(below(of_g), of_g))
-        # cut = :none next to a knock-on term of f on the bound electrons counts twice; on a
-        # target density given as values the system cannot tell
-        @test_throws "cut = :knockon" Runes2P._check_plasma_pairings(with_knockon(heating, knock))
+        # a knock-on term on an unknown of free electrons alone puts no secondary of the
+        # ionization into f, so the cut would lose their energy
+        for name in (:cold_electron_density, :runaway_density)
+            on_free = KnockOnTerm(:f, KnockOnOperator(grid, grid, 0.1); target_density = name)
+            @test_throws "free electrons only" Runes2P._check_plasma_pairings(with_knockon(
+                below(on_free), on_free))
+        end
+        # of two knock-on terms of f, the cut takes the one on the bound electrons
+        knock2 = KnockOnTerm(:f, KnockOnOperator(grid, grid, 0.2); target_density = :total_electron_density)
+        @test Runes2P._check_plasma_pairings(with_knockon(below(knock), knock, on_values)) ===
+              nothing
+        @test Runes2P._check_plasma_pairings(with_knockon(below(knock2), knock, knock2)) ===
+              nothing
+        @test_throws "next to one that is" Runes2P._check_plasma_pairings(with_knockon(
+            below(on_values), knock,
+            on_values))
+        # cut = :none next to a knock-on term of f on the bound electrons counts twice. On a
+        # target density given as values the system cannot tell.
+        @test_throws "counted twice" Runes2P._check_plasma_pairings(with_knockon(heating, knock))
         @test Runes2P._check_plasma_pairings(with_knockon(heating, on_values)) === nothing
         @test Runes2P._check_plasma_pairings(with_knockon(heating, of_g)) === nothing
-        # with DREAM's Bethe friction the cut at the knock-on cutoff pairs as well
-        @test Runes2P._check_plasma_pairings([
+        # with DREAM's Bethe friction the cut at the knock-on cutoff pairs as well, and the
+        # cut at the hot threshold counts part of the energy above the cutoff twice
+        bethe(heat) = [
             Equation(:f, TimeDerivative(),
                 FokkerPlanckTerm(:f, operator(); plasma = from_unknowns, settings = CollisionSettings()),
                 knock),
-            Equation(:ion_densities, TimeDerivative(), k5), below(knock), closure...]) ===
-              nothing
+            Equation(:ion_densities, TimeDerivative(), k5), heat, closure...]
+        @test Runes2P._check_plasma_pairings(bethe(below(knock))) === nothing
+        @test_throws "part of their energy would count twice" Runes2P._check_plasma_pairings(bethe(threshold))
+        @test_throws "counted twice" Runes2P._check_plasma_pairings(bethe(heating))
         # the settings record holds the knock-on term with this cut alone
         record = Runes2P.describe(below(knock).terms[1], Runes2P.DescriptionContext())
         @test record["cut"] == "knockon"
-        @test record["knockon"]["type"] == "KnockOnTerm" &&
-              record["knockon"]["primary"] == "f"
-        @test !haskey(Runes2P.describe(heating.terms[1], Runes2P.DescriptionContext()), "knockon")
+        @test record["knockon_term"]["type"] == "KnockOnTerm" &&
+              record["knockon_term"]["primary"] == "f"
+        @test !haskey(Runes2P.describe(heating.terms[1], Runes2P.DescriptionContext()), "knockon_term")
     end
 
     @testset "the cut at the knock-on cutoff" begin
@@ -1055,6 +1074,9 @@ end
         # the limits: nothing at a zero cut or below the threshold, every secondary from the top
         @test secondary_energy_below(10.0, 1000.0, 15.76, 0.0) == 0
         @test secondary_energy_below(10.0, 10.0, 15.76, 1e3) == 0
+        # a tiny cut, where ln(1 + (cut/w)²) without log1p is zero
+        @test secondary_energy_below(10.0, 1000.0, 15.76, 1e-8) ≈
+              5.0 * (1e-9)^2 / atan((1000.0 - 15.76) / 20) rtol = 1e-14
         for cut in ((1000.0 - 15.76) / 2, 1e4, Inf)
             @test secondary_energy_below(10.0, 1000.0, 15.76, cut) ≈
                   mean_secondary_energy(10.0, 1000.0, 15.76, Inf) rtol = 1e-14
@@ -1078,13 +1100,29 @@ end
             @test beb_secondary_energy_below(1000.0, 15.76, cut) ≈
                   beb_mean_secondary_energy(1000.0, 15.76, Inf) rtol = 1e-14
         end
-        # within 1e-6 B of the threshold the flat spectrum: half the top as the cut keeps half
-        # of the secondaries at a quarter of the top, B top/8. Just above, the closed form
-        # loses digits (1.2e-3 of the value at 1.01e-6 B)
-        @test beb_secondary_energy_below(15.76 * (1 + 1.98e-6), 15.76, 15.76 * 0.495e-6) ≈
-              15.76 * 0.99e-6 / 8 rtol = 1e-6
-        @test beb_secondary_energy_below(15.76 * (1 + 2.02e-6), 15.76, 15.76 * 0.505e-6) ≈
-              15.76 * 1.01e-6 / 8 rtol = 1e-2
+        # small cuts and the band near the threshold, where the closed forms lose digits
+        # (2.7e-3 relative at cut/B = 1e-7) and the integrals take their Taylor series, against
+        # a quadrature in BigFloat. On both sides of the switch at w = 0.03 the two forms agree
+        # with it to 1e-12 relative (largest measured: 5.2e-13 at the switch).
+        setprecision(BigFloat, 256) do
+            exact(E, B, cut) = begin
+                t = big(E) / big(B)
+                top = (big(E) - big(B)) / (2 * big(B))
+                upper = min(top, big(cut) / big(B))
+                moment = quadgk(w -> w * shape(w, t), big(0), upper; rtol = big(1e-25))[1]
+                big(B) * moment /
+                quadgk(w -> shape(w, t), big(0), top; rtol = big(1e-25))[1]
+            end
+            for (E, B) in ((1000.0, 15.76), (1.3e6, 13.6)), ratio in (1e-9, 1e-7, 1e-5)
+
+                @test beb_secondary_energy_below(E, B, ratio * B) ≈ exact(E, B, ratio * B) rtol = 1e-12
+            end
+            for top in (1e-7, 1e-4, 0.029, 0.031), cut in (top * 15.76 / 2, Inf)
+
+                E = 15.76 * (1 + 2 * top)
+                @test beb_secondary_energy_below(E, 15.76, cut) ≈ exact(E, 15.76, cut) rtol = 1e-12
+            end
+        end
         # the shares that the docstring of SecondaryHeatingTerm states: the secondaries above
         # 1 keV of a primary of 1.3 MeV on the neutral atom carry 41.8 % (Ar) and 41.1 % (D) of
         # the energy of every secondary with the default spectrum, 58.4 % and 57.5 % with that
@@ -1105,8 +1143,9 @@ end
               SECONDARY_SPECTRUM_WIDTHS["D"] == 8.3
 
         # the heating with the cut against the heating of every secondary less the energy
-        # above the cutoff: f in one cell at about 96 keV and neutral argon alone, so that
-        # the ratio is that of the moments of the spectrum, for two cutoffs of the operator
+        # above the cutoff: f in one cell at 93.0 keV and neutral argon alone, so that the
+        # ratio is that of the moments of the spectrum, for two cutoffs of the operator and for
+        # the cutoffs that an update sets
         grid = cylindrical_grid(
             MomentumGrid(uniform_p_faces(50, 0.0, 1.0), uniform_xi_faces(2)),
             RadialGrid(uniform_r_faces(1, 0.5)))
@@ -1130,41 +1169,56 @@ end
         E = kinetic_energy(momentum_grid(grid).p_centers[cell])
         I0 = ionization_energy("Ar", 0)
         t = E / I0
+        # the share of the energy of every secondary that those below the cut carry
+        share_below(spectrum, cut) = begin
+            above, total = if spectrum === :opal
+                top = (E - I0) / 2
+                S = x -> 1 / (1 + (x / 10.0)^2)
+                (quadgk(x -> x * S(x), cut, top; rtol = 1e-12)[1],
+                    quadgk(x -> x * S(x), 0, top; rtol = 1e-12)[1])
+            else
+                top = (t - 1) / 2
+                (quadgk(w -> w * shape(w, t), cut / I0, top; rtol = 1e-12)[1],
+                    quadgk(w -> w * shape(w, t), 0, top; rtol = 1e-12)[1])
+            end
+            @test 0 < above < total
+            1 - above / total
+        end
         for spectrum in (:opal, :beb)
             every = SecondaryHeatingTerm(kinetic; spectrum)
-            below = SecondaryHeatingTerm(kinetic; spectrum, cut = :knockon, knockon = knock)
+            below = SecondaryHeatingTerm(kinetic; spectrum, cut = :knockon, knockon_term = knock)
             heats = Float64[]
             for p_cutoff in (0.1, 0.2)
                 set_cutoff!(operator, p_cutoff)
-                cut = kinetic_energy(p_cutoff)
-                above, total = if spectrum === :opal
-                    top = (E - I0) / 2
-                    S = x -> 1 / (1 + (x / 10.0)^2)
-                    (quadgk(x -> x * S(x), cut, top; rtol = 1e-12)[1],
-                        quadgk(x -> x * S(x), 0, top; rtol = 1e-12)[1])
-                else
-                    top = (t - 1) / 2
-                    (quadgk(w -> w * shape(w, t), cut / I0, top; rtol = 1e-12)[1],
-                        quadgk(w -> w * shape(w, t), 0, top; rtol = 1e-12)[1])
-                end
-                @test 0 < above < total
-                @test heat(below) ≈ heat(every) * (1 - above / total) rtol = 1e-9
+                @test heat(below) ≈
+                      heat(every) * share_below(spectrum, kinetic_energy(p_cutoff)) rtol = 1e-9
                 push!(heats, heat(below))
             end
             # the term reads the cutoff at its evaluation: a higher cutoff keeps more energy
             @test heats[2] > heats[1]
+            # a cutoff update that follows a cooling plasma (that of the checkpoint case)
+            # moves the cutoff, and the heating follows it
+            update = KnockOnCutoffUpdate(operator, time -> _checkpoint_plasma(time; nr = 1))
+            cutoffs = Float64[]
+            for time in (0.0, 8e-4)
+                Runes2P.apply_update!(update, u, layout, time)
+                push!(cutoffs, only(operator.p_cutoff))
+                @test heat(below) ≈
+                      heat(every) * share_below(spectrum, kinetic_energy(cutoffs[end])) rtol = 1e-9
+            end
+            @test cutoffs[1] != cutoffs[2]
             set_cutoff!(operator, 0.1)
         end
 
         # the Jacobian of the term with the cut against central differences, with the
-        # threshold of the region following the temperature; the cutoff adds no column
+        # threshold of the region following the temperature. The cutoff adds no column.
         layout, kinetic, u = _ionization_case()
         n = length(u)
         knock = KnockOnTerm(:f, KnockOnOperator(kinetic.grid, kinetic.grid, [0.03, 0.05]);
             target_density = [1e19, 1e19])
         row = 3
         for spectrum in (:opal, :beb)
-            heating = SecondaryHeatingTerm(kinetic; spectrum, cut = :knockon, knockon = knock)
+            heating = SecondaryHeatingTerm(kinetic; spectrum, cut = :knockon, knockon_term = knock)
             every = SecondaryHeatingTerm(kinetic; spectrum)
             Td = ForwardDiff.Dual{Nothing, Float64, 1}(20.0, ForwardDiff.Partials((1.0,)))
             np, components = size(kinetic.rates[1])
