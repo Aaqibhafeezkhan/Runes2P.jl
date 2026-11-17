@@ -13,6 +13,11 @@ Until the first release, every change is listed under "Unreleased", with the sub
   A region takes a fixed limit, and a limit that follows the temperature or time is refused.
   The settings record of a run holds the record of the term, and `OUTPUT_FORMAT_VERSION` is 0.0.6 for it and for the key `knockon_term` of a `SecondaryHeatingTerm` with `cut = :knockon`.
   A file of the format 0.0.5 reads as before.
+- `KineticEnergyLossTerm` takes a Fokker-Planck term with a flux limiter in a scheme, such as `:tcdf`, so a total-energy row accepts the sinks of a hot-tail grid under a limiter ([#298](https://github.com/osrep/Runes2P.jl/pull/298)).
+  The term then takes the moment in the form of the momentum faces, with both operators on the upwind side of the whole advection of the Fokker-Planck term.
+  The term reads the sign of that advection, its collisions and its field, and lists the field unknown among its dependencies without a column.
+  Its Jacobian holds the derivative of the limiter.
+  A Fokker-Planck term with linear schemes gives the term the moment of the applied operators, as before.
 - `SecondaryHeatingTerm(...; cut = :knockon, knockon_term = term)` gives the cold electrons only the energy of the secondaries below the cutoff of the `KnockOnTerm` `term` at each radius ([#294](https://github.com/osrep/Runes2P.jl/pull/294)).
   The secondaries above the cutoff, which the knock-on term puts into a distribution, are no longer counted twice.
   The heating reads the cutoff at each evaluation, so it follows a `KnockOnCutoffUpdate`.

@@ -1065,7 +1065,7 @@ end
 
 function settings_fields(::Type{<:KineticEnergyLossTerm})
     (described = (:kinetic, :source, :part, :coefficient, :envelopes),
-        derived = (:lagged_plasma,))
+        derived = (:lagged_plasma, :row_buffer))
 end
 
 function describe(term::KineticEnergyLossTerm, context::DescriptionContext)

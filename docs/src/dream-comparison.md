@@ -377,7 +377,7 @@ In DREAM's source:
   With it, the lower boundary of its advection in ``p`` is mirrored (`AD_BC_MIRRORED`) in place of Dirichlet (`src/Settings/Equations/distribution.cpp:234-237`).
 
 **Heating of the cold electrons by a runaway grid.**
-Runes2P's default is the energy change of the electron-electron operator of the grid, with a linear scheme of the operator.
+Runes2P's default is the energy change of the electron-electron operator of the grid, with the scheme of the grid, whose momentum faces take the side of the whole advection under a limiter ([`KineticEnergyLossTerm`](@ref)).
 That operator takes no flux through ``p_\mathrm{max}``, so the electrons that cross it give no energy to the cold electrons.
 DREAM's moment, [`FrictionEnergyTransferTerm`](@ref), also counts the energy that the friction carries out of the grid through ``p = 0`` where that flux is applied (`p_zero_boundary = :outflow`).
 The test case `runaway_heating_example` (`test/example_cases.jl`) takes the option at `compat = dream`.
