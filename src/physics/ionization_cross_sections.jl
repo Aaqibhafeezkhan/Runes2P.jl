@@ -169,6 +169,34 @@ function mean_secondary_energy(width, E, I, cut)
 end
 
 """
+    secondary_energy_below(width, E, I, cut)
+
+The kinetic energy [eV] per ionization that the secondary electrons below `cut` carry, for
+an ionization with the ionization potential `I` by an electron of kinetic energy `E`, with
+the spectrum of Opal et al. of width `width` ([`SECONDARY_SPECTRUM_WIDTHS`](@ref)). All four
+are in eV. It is the partial moment of the spectrum up to `E_<`, the smaller of `E_top` and
+`cut`, divided by the count of every secondary up to `E_top = (E − I)/2`, with `Ē = width`:
+
+```math
+\\frac{\\int_0^{E_{<}} E_s\\, S(E_s)\\, dE_s}{\\int_0^{E_\\mathrm{top}} S(E_s)\\, dE_s}
+= \\frac{(Ē/2) \\ln(1 + (E_{<}/Ē)^2)}{\\arctan(E_\\mathrm{top}/Ē)},
+\\qquad S(E_s) = \\frac{1}{1 + (E_s/Ē)^2}.
+```
+
+Unlike [`mean_secondary_energy`](@ref), the secondaries above `cut` count with zero energy
+instead of being left out. It is zero at `cut = 0` and below the threshold, and equal to
+`mean_secondary_energy(width, E, I, Inf)` for `cut ≥ E_top`. [`SecondaryHeatingTerm`](@ref)
+with `cut = :knockon` and `spectrum = :opal` gives this energy to the cold electrons.
+"""
+function secondary_energy_below(width, E, I, cut)
+    top = (E - I) / 2
+    top > 0 || return zero(promote_type(typeof(top), typeof(float(cut))))
+    upper = min(top, cut)
+    upper > 0 || return zero(upper)
+    return width / 2 * log1p((upper / width)^2) / atan(top / width)
+end
+
+"""
     beb_mean_secondary_energy(E, B, cut)
 
 The mean kinetic energy [eV] of the secondary electron of an ionization of a subshell with
@@ -188,8 +216,9 @@ for ions with open-shell valence electrons, their Sec. VI) cancels in the mean, 
 spectrum needs only `B`. `Q = 1`, their approximation where the dipole oscillator strength
 is not known (Sec. IV), also for the one-electron ions, for which their eq. (60) gives
 `Q = 0.5668`: there the dipole term, which lies at small `w`, is too large, and the mean too
-low. Zero below the threshold. Within `1e-6 B` of the threshold, where the closed form loses
-its digits, the mean is that of the flat spectrum there, `W_top/2`. The mean of a charge state takes the
+low. Zero below the threshold. Where the upper limit, the smaller of `(E − B)/2` and `cut`,
+lies below `1e-6 B`, the closed form loses its digits, and the mean is that of the flat
+spectrum there, half that limit. The mean of a charge state takes the
 valence shell alone, with `B` its ionization energy; inner shells, which Kim and Rudd sum
 over, are left out. Normalized by the same integral, the spectrum gives
 their total cross section of the BEB model, `(ln t/2)(1 − 1/t²) + 1 − 1/t − ln t/(t + 1)` at
@@ -202,16 +231,106 @@ function beb_mean_secondary_energy(E, B, cut)
     top > 0 || return zero(top)
     # near the threshold the spectrum is flat over 0 ≤ w ≤ top
     top < 1e-6 && return B * top / 2
-    s = t - top
-    F1, F2, F3 = -1 / (t + 1), one(t), log(t)
-    # the integrals of [f_n(w) + f_n(t − w)] and of w [f_n(w) + f_n(t − w)] from 0 to top
-    count = F1 * (log1p(top) + log(t / s)) + F2 * ((1 - 1 / (1 + top)) + (1 / s - 1 / t)) +
-            F3 * ((1 - 1 / (1 + top)^2) / 2 + (1 / s^2 - 1 / t^2) / 2)
-    moment = F1 * ((top - log1p(top)) + (t * log(t / s) - top)) +
-             F2 * ((log1p(top) + 1 / (1 + top) - 1) + (t / s - 1 + log(s / t))) +
-             F3 * ((1 / (2 * (1 + top)^2) - 1 / (1 + top) + 1 / 2) +
-              (t / (2 * s^2) - 1 / s + 1 / (2t)))
+    F = _beb_coefficients(t)
+    count = _beb_spectrum_count(t, top, F)
+    moment = _beb_spectrum_moment(t, top, F)
     return B * moment / count
+end
+
+"""
+    beb_secondary_energy_below(E, B, cut)
+
+The kinetic energy [eV] per ionization that the secondary electrons below `cut` carry, for
+an ionization of a subshell with the binding energy `B` by an electron of kinetic energy `E`,
+the energies and `cut` in eV, with the spectrum of [`beb_mean_secondary_energy`](@ref). It is
+the partial moment of the spectrum up to `w_<`, the smaller of `w_top` and `cut/B`, divided
+by the count of every secondary up to `w_top = (t − 1)/2`, with `t = E/B` and `w = W/B`:
+
+```math
+B\\, \\frac{\\int_0^{w_{<}} w\\, \\frac{dσ}{dw}\\, dw}{\\int_0^{w_\\mathrm{top}} \\frac{dσ}{dw}\\, dw}.
+```
+
+Unlike [`beb_mean_secondary_energy`](@ref), the secondaries above `cut` count with zero
+energy instead of being left out. It is zero at `cut = 0` and below the threshold. For
+`cut ≥ B w_top` it is the mean over every secondary, which
+`beb_mean_secondary_energy(E, B, Inf)` gives as well, except where `w_top < 1e-6` and that
+function takes the flat spectrum. [`SecondaryHeatingTerm`](@ref) with `cut = :knockon` and
+`spectrum = :beb` gives this energy to the cold electrons.
+
+Each integral is in closed form where its upper limit, `w_<` or `w_top`, is 0.03 or more.
+Below that limit the closed form loses digits, and the integral takes the Taylor series of
+the spectrum at `w = 0` up to `w^8`. The two forms agree best at that switch.
+"""
+function beb_secondary_energy_below(E, B, cut)
+    t = E / B
+    # E − B is exact near the threshold, where t − 1 is not
+    top = (E - B) / (2 * B)
+    top > 0 || return zero(promote_type(typeof(float(t)), typeof(float(cut))))
+    upper = min(top, cut / B)
+    upper > 0 || return zero(upper)
+    F = _beb_coefficients(t)
+    count = if top < BEB_SERIES_LIMIT
+        _beb_spectrum_series(t, top, F, 0)
+    else
+        _beb_spectrum_count(t, top, F)
+    end
+    moment = if upper < BEB_SERIES_LIMIT
+        _beb_spectrum_series(t, upper, F, 1)
+    else
+        _beb_spectrum_moment(t, upper, F)
+    end
+    return B * moment / count
+end
+
+# the coefficients F_1, F_2, F_3 of the spectrum of Kim and Rudd at Q = 1
+# (beb_mean_secondary_energy) at t = E/B, without the common factor
+_beb_coefficients(t) = (-1 / (t + 1), one(t), log(t))
+
+# the integral of that spectrum in w = W/B from 0 to `upper`, with the coefficients F
+@inline function _beb_spectrum_count(t, upper, F)
+    s = t - upper
+    F1, F2, F3 = F
+    return F1 * (log1p(upper) + log(t / s)) +
+           F2 * ((1 - 1 / (1 + upper)) + (1 / s - 1 / t)) +
+           F3 * ((1 - 1 / (1 + upper)^2) / 2 + (1 / s^2 - 1 / t^2) / 2)
+end
+
+# the integral of w times that spectrum from 0 to `upper`
+@inline function _beb_spectrum_moment(t, upper, F)
+    s = t - upper
+    F1, F2, F3 = F
+    return F1 * ((upper - log1p(upper)) + (t * log(t / s) - upper)) +
+           F2 * ((log1p(upper) + 1 / (1 + upper) - 1) + (t / s - 1 + log(s / t))) +
+           F3 * ((1 / (2 * (1 + upper)^2) - 1 / (1 + upper) + 1 / 2) +
+            (t / (2 * s^2) - 1 / s + 1 / (2t)))
+end
+
+# Below this upper limit the integrals of the spectrum take their Taylor series of the order
+# below, where the two forms agree best.
+const BEB_SERIES_LIMIT = 0.03
+const BEB_SERIES_ORDER = 8
+
+# the integral of w^power times that spectrum from 0 to `upper` as its Taylor series at w = 0,
+# with the terms of the spectrum up to w^BEB_SERIES_ORDER
+function _beb_spectrum_series(t, upper, F, power)
+    F1, F2, F3 = F
+    inverse_t = 1 / t
+    total = zero(promote_type(typeof(t), typeof(upper)))
+    sign = 1
+    t_power = inverse_t
+    u_power = upper^(power + 1)
+    for n in 0:BEB_SERIES_ORDER
+        # the coefficient of w^n: (−1)^n C(n + k − 1, n) from 1/(w + 1)^k, and
+        # C(n + k − 1, n)/t^(n + k) from 1/(t − w)^k
+        coefficient = F1 * (sign + t_power) +
+                      F2 * (n + 1) * (sign + t_power * inverse_t) +
+                      F3 * (n + 1) * (n + 2) / 2 * (sign + t_power * inverse_t^2)
+        total += coefficient * u_power / (n + 1 + power)
+        sign = -sign
+        t_power *= inverse_t
+        u_power *= upper
+    end
+    return total
 end
 
 # the mean secondary energy [eV] of the spectrum `spectrum`: :opal, Opal et al. with the width
@@ -221,6 +340,16 @@ function secondary_spectrum_mean(spectrum::Symbol, width, E, I, cut)
         return beb_mean_secondary_energy(E, I, cut)
     else
         return mean_secondary_energy(width, E, I, cut)
+    end
+end
+
+# the energy [eV] per ionization of the secondaries below `cut` of the spectrum `spectrum`
+# (secondary_energy_below, beb_secondary_energy_below)
+function secondary_spectrum_energy_below(spectrum::Symbol, width, E, I, cut)
+    if spectrum === :beb
+        return beb_secondary_energy_below(E, I, cut)
+    else
+        return secondary_energy_below(width, E, I, cut)
     end
 end
 

@@ -104,6 +104,7 @@ export KineticIonizationTerm, fluid_ionization_coefficient, kinetic_ionization_r
        MINIMUM_SPLIT_THRESHOLD_FACTORS
 export IonDiffusionTerm
 export SECONDARY_SPECTRUM_WIDTHS, mean_secondary_energy, beb_mean_secondary_energy,
+       secondary_energy_below, beb_secondary_energy_below,
        SecondaryHeatingTerm, ionization_energy_flows
 export ADF11Table, read_adf11, adas_coefficient, adf11_file_name, adas_cache_directory,
        read_adas
