@@ -170,13 +170,13 @@ with the envelope ``w`` of the region.
   This is the energy that leaves the electrons by the friction on bound electrons, bremsstrahlung and synchrotron radiation.
 
 Neither part takes a flux through ``p_\mathrm{max}``, whatever the upper boundary of the Fokker-Planck term.
-The energy of the electrons that cross there belongs to the boundary term alone, so it is not counted twice, and the cold electrons do not exchange it.
+The energy of the electrons that cross there, that of the last momentum cell, belongs to the boundary term alone, so it is not counted twice, and the cold electrons do not exchange it.
 That term is [`MomentumBoundaryFluxTerm`](@ref) at an outer boundary and [`InterfaceEnergyFluxTerm`](@ref) at the interface to a runaway grid.
 With the sinks charged to ``W_\mathrm{tot}``, the cold electrons receive exactly the free-electron part of what the hot electrons lose.
 
 [`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` and [`InterfaceEnergyFluxTerm`](@ref) weight the flux at the top of the grid with the kinetic energy of the last momentum cell.
 That is the energy that the discrete energy moment of the grid loses with the electrons.
-The electrons that cross to the runaway grid take their energy with them and do not heat the cold ones.
+The electrons that cross to the runaway grid take that energy with them and do not heat the cold ones with it.
 `test/test_energy_transfer.jl` and `test/test_energy_moment.jl` test these terms and the energy moment, and `test/test_friction_energy_transfer.jl` tests [`FrictionEnergyTransferTerm`](@ref).
 
 ### The energy step at the interface

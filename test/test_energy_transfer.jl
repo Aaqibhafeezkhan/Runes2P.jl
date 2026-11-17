@@ -512,26 +512,51 @@ using SparseArrays: findnz, sparse
         @test maximum(abs, Matrix(J) - reference) <= 1e-12 * largest
     end
 
-    @testset "the work of the collisions at the interface ($mapping, $scheme)" for (mapping, scheme) in (
-        (:overlap, :upwind), (:overlap, :central), (:overlap, :exponential_fitting),
-        (:overlap, :tcdf), (:dream, :upwind))
+    @testset "the work of the collisions at the interface ($(case))" for case in (
+        (mapping = :overlap, scheme = :upwind), (mapping = :overlap, scheme = :central),
+        (mapping = :overlap, scheme = :exponential_fitting),
+        (mapping = :overlap, scheme = :tcdf), (mapping = :dream, scheme = :upwind),
+        (mapping = :overlap, scheme = :exponential_fitting, peclet = :small),
+        (mapping = :overlap, scheme = :exponential_fitting, mode = :superthermal,
+        pitch = :per_radius),
+        (mapping = :overlap, scheme = :upwind, lagged = :all))
         # Two grids that meet at p = 0.6 on two radii, the field an unknown, partial screening
         # of argon, bremsstrahlung and synchrotron loss: the flux through the face is the part of
         # the field, of the electron-electron collisions and of the sinks, each with the face
         # value of the whole flux. The part of the electron-electron collisions times the energy
         # step is the term. `:tcdf` is a limited scheme on the hot grid, whose interface flux is
         # upwind; the other schemes are those of the interface on an operator of the same scheme.
+        # `peclet = :small` takes keV temperatures, cells of 0.02 on both sides of the face and a
+        # field near the friction, so that the Péclet number of exponential fitting spans 0.05 to
+        # above 1 over the pitch cells. `mode = :superthermal` has no energy diffusion, so
+        # exponential fitting is upwind there; `pitch = :per_radius` takes other pitch faces at
+        # the second radius. `lagged = :all` takes the plasma of the last preparation of the
+        # Fokker-Planck term, and the system is built before any.
+        (; mapping, scheme) = case
+        peclet, mode = get(case, :peclet, :large), get(case, :mode, :full)
+        pitch, lagged = get(case, :pitch, :uniform), get(case, :lagged, ())
+        temperatures = peclet === :small ? [5e3, 1e4] : [T0, 2T0]
         radii = RadialGrid(uniform_r_faces(2, 0.5))
-        hot = cylindrical_grid(MomentumGrid(uniform_p_faces(30, 0.0, 0.6), uniform_xi_faces(4)), radii)
-        upper = runaway_grid(hot, uniform_p_faces(20, 0.6, 5.0)[2:end], uniform_xi_faces(6))
-        mixed = PlasmaState(; cold_electron_temperature = [T0, 2T0],
+        hot_p = uniform_p_faces(30, 0.0, 0.6)
+        hot = if pitch === :per_radius
+            cylindrical_grid(
+                [MomentumGrid(hot_p, uniform_xi_faces(4)),
+                    MomentumGrid(hot_p, -cos.(range(0, π; length = 5)))],
+                radii)
+        else
+            cylindrical_grid(MomentumGrid(hot_p, uniform_xi_faces(4)), radii)
+        end
+        upper_p = peclet === :small ? uniform_p_faces(100, 0.6, 2.6) :
+                  uniform_p_faces(20, 0.6, 5.0)
+        upper = runaway_grid(hot, upper_p[2:end], uniform_xi_faces(6))
+        mixed = PlasmaState(; cold_electron_temperature = temperatures,
             ions = [IonSpecies("D", 1, 1, [n, 2n]), IonSpecies("Ar", 18, 2, [1e18, 3e18])],
             electric_field = zeros(2), magnetic_field = fill(2.5, 2))
-        partial = CollisionSettings(mode = :full, screening = :partial)
+        partial = CollisionSettings(; mode, screening = :partial)
         plasma = PlasmaFromUnknowns(mixed)
         lower = FokkerPlanckTerm(:f,
             AdvectionDiffusion(hot; scheme, p_upper_boundary = :interface);
-            plasma, settings = partial, electric_field = :electric_field)
+            plasma, settings = partial, electric_field = :electric_field, lagged)
         re = FokkerPlanckTerm(:runaway,
             AdvectionDiffusion(upper; scheme = :exponential_fitting, p_lower_boundary = :interface);
             plasma, settings = partial, electric_field = :electric_field)
@@ -550,7 +575,7 @@ using SparseArrays: findnz, sparse
         prescribed(name, values) = Equation(name, Algebraic(), PrescribedValueTerm(values),
             LinearTerm(name; coefficient = -1))
         rng = Xoshiro(17)
-        hot_m, upper_m = momentum_grid(hot), momentum_grid(upper)
+        hot_m, upper_m = momentum_grid(hot, 1), momentum_grid(upper, 1)
         state(field) = begin
             u = zeros(length(layout))
             for ir in 1:2
@@ -562,7 +587,7 @@ using SparseArrays: findnz, sparse
                                                    for p in upper_m.p_centers, _ in 1:6]
             end
             unknown_values(u, layout, 3) .= field
-            unknown_values(u, layout, 4) .= [T0, 2T0]
+            unknown_values(u, layout, 4) .= temperatures
             unknown_values(u, layout, 5) .= [n, 2n]
             return u
         end
@@ -572,9 +597,35 @@ using SparseArrays: findnz, sparse
         # exponential fitting, written out here
         bernoulli(x) = x == 0 ? 1.0 : x / expm1(x)
         fitting(w) = abs(w) < 1e-6 ? 0.5 + w / 12 : (bernoulli(-w) - 1) / w
-        for field in ([30.0, -20.0], [-30.0, 20.0])
+        # the field of each radius at which the Péclet number of the last pitch cell is w
+        function field_at_peclet(w)
+            op = Runes2P._operator_at(lower, state([0.0, 0.0]), layout, 0.0)
+            return map(1:2) do ir
+                distance, _ = Runes2P._interface_distance(interface, ir)
+                A = w * op.diffusion_p_p[31, 4, ir] / distance - op.advection_p[31, 4, ir]
+                A / op.unit_field_advection_p[31, 4, ir]
+            end
+        end
+        if lagged === :all
+            Runes2P.prepare_step!(lower, state([0.0, 0.0]), layout, 1, 0.0)
+        end
+        fields = if peclet === :small
+            (field_at_peclet(0.05), field_at_peclet(-0.05))
+        else
+            ([30.0, -20.0], [-30.0, 20.0])
+        end
+        for field in fields
             u = state(field)
             op = Runes2P._operator_at(lower, u, layout, 0.0)
+            if peclet === :small
+                for ir in 1:2
+                    distance, _ = Runes2P._interface_distance(interface, ir)
+                    w = [(op.advection_p[31, j, ir] +
+                          field[ir] * op.unit_field_advection_p[31, j, ir]) * distance /
+                         op.diffusion_p_p[31, j, ir] for j in 1:4]
+                    @test minimum(abs, w) < 0.1 && maximum(abs, w) > 1
+                end
+            end
             ee = electron_electron_operator(hot, op.coefficient_source[].plasma, partial;
                 p_upper_boundary = :interface)
             values = Runes2P.rhs!(zeros(length(u)), work, u, layout, 6, 0.0)
@@ -584,6 +635,7 @@ using SparseArrays: findnz, sparse
                 distance, weight_left = Runes2P._interface_distance(interface, ir)
                 f_l, f_u = kinetic_view(u, layout, 1, ir), kinetic_view(u, layout, 2, ir)
                 overlap = interface.overlaps[ir]
+                xi_widths = momentum_grid(hot, ir).xi_widths
                 total = 0.0
                 for j in 1:4
                     A = op.advection_p[31, j, ir] +
@@ -594,13 +646,13 @@ using SparseArrays: findnz, sparse
                     if mapping === :dream
                         fr = Runes2P._dream_upper_value(interface, f_u, j, ir)
                         face = A > 0 ? fl : fr
-                        total += hot_m.xi_widths[j] * V *
+                        total += xi_widths[j] * V *
                                  (A_of(j) * face - D_of(j) * (fr - fl) / distance)
                         continue
                     end
                     for s in overlap.left_ranges[j]
                         fr = f_u[1, overlap.right_cells[s]]
-                        weight = if interface.scheme === :upwind
+                        weight = if interface.scheme === :upwind || D == 0
                             A >= 0 ? 1.0 : 0.0
                         elseif interface.scheme === :central
                             weight_left
@@ -609,7 +661,7 @@ using SparseArrays: findnz, sparse
                         end
                         face = weight * fl + (1 - weight) * fr
                         gamma = A_of(j) * face - D_of(j) * (fr - fl) / distance
-                        total += hot_m.xi_widths[j] * overlap.left_fractions[s] * V * gamma
+                        total += xi_widths[j] * overlap.left_fractions[s] * V * gamma
                     end
                 end
                 return total / radii.spatial_jacobian[ir]
@@ -631,28 +683,50 @@ using SparseArrays: findnz, sparse
         # the Jacobian of the row against central differences in every column, and against
         # the AD of the residual in the columns of the distributions and the field, which the
         # coefficients of the plasma do not hide
-        u = state([30.0, -20.0])
+        u = state(first(fields))
         system = EquationSystem(layout,
             [Equation(:f, TimeDerivative(), lower, interface),
                 Equation(:runaway, TimeDerivative(), re, interface),
-                prescribed(:electric_field, [30.0, -20.0]),
-                prescribed(:cold_electron_temperature, [T0, 2T0]),
+                prescribed(:electric_field, first(fields)),
+                prescribed(:cold_electron_temperature, temperatures),
                 prescribed(:cold_electron_density, [n, 2n]),
                 Equation(:work, Algebraic(), work, LinearTerm(:work; coefficient = -1))];
             initial_state = u)
+        if lagged === :all
+            # the system is built and steps with a term never prepared before: its operator
+            # holds no collisions until the first preparation
+            fresh = FokkerPlanckTerm(:f,
+                AdvectionDiffusion(hot; scheme, p_upper_boundary = :interface);
+                plasma, settings = partial, electric_field = :electric_field, lagged)
+            fresh_interface = MomentumInterfaceTerm(:f, :runaway, fresh, re)
+            @test fresh.operator.coefficient_source[] === nothing
+            fresh_system = EquationSystem(layout,
+                [Equation(:f, TimeDerivative(), fresh, fresh_interface),
+                    Equation(:runaway, TimeDerivative(), re, fresh_interface),
+                    system.equations[3:5]...,
+                    Equation(
+                        :work, Algebraic(), InterfaceCollisionWorkTerm(fresh_interface),
+                        LinearTerm(:work; coefficient = -1))];
+                initial_state = u)
+            solution = integrate(fresh_system, u, [0.0, 1e-9]; stepper = FixedSteps())
+            @test all(solution.statistics.accepted)
+            @test all(!=(0), unknown_values(solution.states[:, 2], layout, 6))
+            # a lagged plasma has no columns: the stored Jacobian treats it as fixed
+            @test !Runes2P.has_plasma_columns(work)
+        end
         J = jacobian_prototype(system)
         jacobian!(J, system, u, 0.0)
         rows = [first(Runes2P.unknown_range(layout, 6, ir)) for ir in 1:2]
+        # the rows of the term alone: with a lagged plasma that of its last preparation, as the
+        # stored Jacobian takes it
+        row_values(x) = Runes2P.rhs!(zeros(eltype(x), length(x)), work, x, layout, 6, 0.0)[rows]
         differences = zeros(2, length(u))
         for column in eachindex(u)
             h = 1e-6 * max(abs(u[column]), 1.0)
             up, down = copy(u), copy(u)
             up[column] += h
             down[column] -= h
-            F_up, F_down = zeros(length(u)), zeros(length(u))
-            rhs!(F_up, up, system, 0.0)
-            rhs!(F_down, down, system, 0.0)
-            differences[:, column] .= (F_up[rows] .- F_down[rows]) ./ (2h)
+            differences[:, column] .= (row_values(up) .- row_values(down)) ./ (2h)
         end
         work_columns = setdiff(eachindex(u), rows)
         for (k, r) in enumerate(rows)
@@ -660,7 +734,9 @@ using SparseArrays: findnz, sparse
             @test maximum(abs, Vector(J[r, work_columns]) .-
                                differences[k, work_columns]) <=
                   1e-6 * largest
-            # the plasma columns hold the derivative of the collision frequencies
+            # the plasma columns hold the derivative of the collision frequencies, and a lagged
+            # plasma has none
+            lagged === :all && continue
             for name in (:cold_electron_temperature, :cold_electron_density)
                 column = first(Runes2P.unknown_range(layout, unknown_id(layout, name), k))
                 @test J[r, column] != 0
@@ -673,13 +749,21 @@ using SparseArrays: findnz, sparse
         # fitting, whose weight follows the Péclet number
         with_field = interface.scheme === :exponential_fitting && mapping === :overlap
         @test ((rows[1], field_columns[1]) in stored) == with_field
-        dense = ForwardDiff.jacobian(v -> rhs!(similar(v), v, system, 0.0), u)
+        # the column of the field is about 1/w² of the others: at a large Péclet number below
+        # the resolution of the differences, near w = 1 against them
+        if with_field && peclet === :small
+            for (k, r) in enumerate(rows)
+                @test J[r, field_columns[k]] != 0
+                @test J[r, field_columns[k]] ≈ differences[k, field_columns[k]] rtol = 1e-5
+            end
+        end
+        dense = ForwardDiff.jacobian(row_values, u)
         kinetic = vcat(collect(Runes2P.unknown_range(layout, 1, 1)),
             collect(Runes2P.unknown_range(layout, 1, 2)),
             collect(Runes2P.unknown_range(layout, 2, 1)), collect(Runes2P.unknown_range(layout, 2, 2)),
             field_columns)
-        for r in rows
-            @test Vector(J[r, kinetic]) ≈ dense[r, kinetic] rtol = 1e-12
+        for (k, r) in enumerate(rows)
+            @test Vector(J[r, kinetic]) ≈ dense[k, kinetic] rtol = 1e-12
         end
 
         # the record: the record of a term with its coefficient and its interface
@@ -722,6 +806,15 @@ using SparseArrays: findnz, sparse
         accepted = MomentumInterfaceTerm(:f, :runaway, built,
             AdvectionDiffusion(upper; p_lower_boundary = :interface))
         @test Runes2P.validate(InterfaceCollisionWorkTerm(accepted), two, 3) === nothing
+        # its rhs! reads an operator that no Fokker-Planck term refreshes, and allocates nothing
+        w = zeros(length(two))
+        kinetic_array(w, two, 1) .= 1e16
+        kinetic_array(w, two, 2) .= 1e14
+        prescribed_work = InterfaceCollisionWorkTerm(accepted)
+        out = zeros(length(w))
+        @test only(Runes2P.rhs!(out, prescribed_work, w, two, 3, 0.0)[Runes2P.unknown_range(two, 3, 1)]) !=
+              0
+        @test call_allocation(Runes2P.rhs!, out, prescribed_work, w, two, 3, 0.0) == 0 skip = !OPTIMIZED
         @test_throws "radial unknown with one component" Runes2P.validate(
             InterfaceCollisionWorkTerm(accepted), two, 1)
     end

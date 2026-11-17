@@ -92,8 +92,9 @@ end
 
 The power [W/m³] that the electrons of the unknown of `source` give to the free cold
 electrons by collisions: [`KineticEnergyLossTerm`](@ref) with `part = :free_electrons`, the
-transfer from the runaway grid to the cold electrons. The electrons that cross `p_max`
-exchange no energy with the cold electrons.
+transfer from the runaway grid to the cold electrons. The energy that the electrons carry
+through `p_max` is not in it; the work of the collisions on the electrons that cross the
+interface to a hot-tail grid is [`InterfaceCollisionWorkTerm`](@ref).
 """
 function free_electron_energy_transfer_term(source::FokkerPlanckTerm)
     KineticEnergyLossTerm(source; part = :free_electrons)
@@ -175,11 +176,11 @@ end
 
 # The operators C_a and C_b of the part, with the scheme and the lower boundaries of the
 # source. Both parts take no flux through p_max (the value :interface): the electrons that
-# cross there carry their energy across the edge of the grid, and neither the cold
-# electrons nor the sinks exchange it. In the row of the total energy that energy is the
-# boundary term's, MomentumBoundaryFluxTerm(...; weight = :energy) at an outer boundary and
-# InterfaceEnergyFluxTerm at the interface to a runaway grid, which a flux in either part
-# would count twice.
+# cross there carry the energy of their cell across the edge of the grid. In the row of the
+# total energy that energy is the boundary term's, MomentumBoundaryFluxTerm(...; weight =
+# :energy) at an outer boundary and InterfaceEnergyFluxTerm at the interface to a runaway
+# grid, which a flux in either part would count twice. The work of the collisions on the
+# electrons that cross the interface is InterfaceCollisionWorkTerm's.
 function _loss_operators(term::KineticEnergyLossTerm, grid, plasma)
     op = term.source.operator
     free = electron_electron_operator(
@@ -705,7 +706,9 @@ The collisions are those of the plasma and the settings that the coefficients of
 operator were last built from, so a lagged plasma or lagged ions of the Fokker-Planck term
 are taken as the flux takes them. The term keeps the coefficients of the face until the
 operator is rebuilt from other plasma values, so a plasma state changed in place under the
-same coefficients of the operator is not seen. The settings take `mode = :full` or `:superthermal`. The row reads the
+same coefficients of the operator is not seen. An operator not yet built from a plasma, such as that of a lagged term before its first
+[`prepare_step!`](@ref), holds no collisions, and the term is zero there. The settings take
+`mode = :full` or `:superthermal`. The row reads the
 cells of both grids at the face, the plasma columns of the Fokker-Planck term when its
 coefficients follow the plasma unknowns ([`has_plasma_columns`](@ref)), and the column of
 the field only with exponential fitting, whose weight depends on the field. The term
@@ -904,9 +907,13 @@ end
 # operator of numbers, and of their own evaluation for an operator of dual coefficients
 function _collision_face_coefficients!(term::InterfaceCollisionWorkTerm, op::AdvectionDiffusion)
     built = op.coefficient_source[]
+    # an operator not yet built from a plasma, such as that of a lagged term before its first
+    # preparation, holds no collisions, and its electrons cross without their work
     if built === nothing
-        throw(ArgumentError("the lower operator of the interface of InterfaceCollisionWorkTerm holds no collisions " *
-                            "of a plasma: the term needs the plasma of its coefficients"))
+        fill!(term.advection, 0.0)
+        fill!(term.diffusion, 0.0)
+        term.source[] = nothing
+        return (term.advection, term.diffusion)::Tuple{Vector{Float64}, Vector{Float64}}
     end
     if eltype(op.advection_p) === Float64
         # the record of the coefficients changes with every rebuild: the same record, the same

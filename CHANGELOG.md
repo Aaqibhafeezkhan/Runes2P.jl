@@ -11,8 +11,6 @@ Until the first release, every change is listed under "Unreleased", with the sub
 - `InterfaceCollisionWorkTerm(interface; coefficient = -1)` is the work of the electron-electron collisions on the electrons that cross a `MomentumInterfaceTerm`, for the row of the temperature ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
   It is the part of the flux through the face that these collisions drive, at the face value of the whole flux, times an energy step.
   The step is the energy of the first cell of the runaway grid less that of the last cell of the hot-tail grid.
-  Under the total energy of the electrons the row of the temperature needs it next to the `InterfaceEnergyFluxTerm` of the same interface, with a negative coefficient, so that the cold electrons pay that work.
-  Until now no term carried it, and the energy of the two grids was not conserved across the face.
   The settings record of a run holds the record of the term, in the format 0.0.6.
 - `KineticEnergyChangeTerm(source; region, coefficient)` is the power that a source term gives its distribution, for the row of the temperature, with a `RosenbluthPutvinskiSourceTerm` as `source` ([#296](https://github.com/osrep/Runes2P.jl/pull/296)).
   It is the energy moment of the knock-ons of the fluid runaways above the grid, `n_re n_tot` times a sum over the cells that the source fills.
@@ -61,6 +59,9 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Changed
 
+- Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` refuses a row of the temperature with an `InterfaceEnergyFluxTerm` but without the `InterfaceCollisionWorkTerm` of the same interface, with a negative coefficient ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+  Until now no term carried the work of the electron-electron collisions on the electrons that cross the interface, and the energy of the two grids was not conserved across the face.
+  The cold electrons now pay that work.
 - Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` accepts a `RosenbluthPutvinskiSourceTerm` in the equation of a distribution whose energy is in the total, which it refused until now ([#296](https://github.com/osrep/Runes2P.jl/pull/296)).
   The row of the temperature then needs one `KineticEnergyChangeTerm` of that very source, with a positive coefficient and without a region, since every knock-on is in the total energy.
   The term creates the energy of the knock-ons in the system, and no population pays it.
