@@ -156,10 +156,12 @@ DREAM's documentation gives an upper bound for `pCutAvalanche`, the critical mom
 
 | Choice | Value |
 |---|---|
-| region of the energy of the knock-ons of [`RosenbluthPutvinskiSourceTerm`](@ref) in the row of [`total_energy_equation`](@ref) | the whole grid: [`KineticEnergyChangeTerm`](@ref) without a region |
+| who pays the energy of the knock-ons that [`RosenbluthPutvinskiSourceTerm`](@ref) creates, under [`total_energy_equation`](@ref) | no population: [`KineticEnergyChangeTerm`](@ref) creates it in the system |
 
-The secondaries below the threshold of the hot region heat the cold electrons, and those above it join the energy of the hot region.
-DREAM has no total energy of the electrons, so it makes no such choice.
+The primaries of the source are the fluid runaways above the grid, which have no energy unknown.
+The rejected alternative charges the energy of the knock-ons to the cold electrons, which a row of the total energy without the term would do.
+The term takes no region, since every knock-on is in the total energy.
+DREAM's source also creates the knock-ons without taking their energy from a population, and DREAM has no total energy of the electrons ([Energy and current balance](model/energy-current.md#What-the-system-enforces)).
 
 ## Linear solvers
 

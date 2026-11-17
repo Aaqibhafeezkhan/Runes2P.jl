@@ -330,6 +330,7 @@ The terms of the sinks and of ``p_\mathrm{max}`` take a negative coefficient, an
 
 The system refuses radial transport of that distribution, since the system has no energy term for radial transport.
 It refuses [`KnockOnTerm`](@ref), [`LossRateTerm`](@ref), [`MaxwellianSourceTerm`](@ref) and a [`LinearTerm`](@ref) with a nonzero coefficient in the equation of that distribution, since no term of the row carries their energy.
+It refuses a [`KineticEnergyChangeTerm`](@ref) in the row whose source is not in the equation of a distribution in ``W_\mathrm{hot}``, since its knock-ons are outside ``W_\mathrm{tot}``.
 A run repeats these checks before its first step, with the coefficients of the operators as they are then.
 It also refuses a [`RechesterRosenbluthUpdate`](@ref) that sets the radial transport of that distribution.
 The energy balance itself is on the page [Energy and current balance](energy-current.md).

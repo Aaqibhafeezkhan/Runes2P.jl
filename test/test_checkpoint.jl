@@ -1025,9 +1025,11 @@ using HDF5
         @test [unknown_unit(whole.layout, name) for name in (:plasma_current, :T, :f)] ==
               ["MA", "eV", ""]
 
-        # a file of the format 0.0.5 reads as one of the current format: the format 0.0.6
-        # adds records of the settings that this run does not hold. The output reads with its
-        # units, and a resume from such a checkpoint repeats the run.
+        # The guard that the readers accept the version 0.0.5: a file of the current format
+        # relabelled 0.0.5 reads with its units, and a resume from such a checkpoint repeats
+        # the run. The relabel stands for a file of 0.0.5 since the format 0.0.6 adds only
+        # records of the settings, which this run does not hold. The test does not check the
+        # content of a later format, and it fails when a reader refuses the version 0.0.5.
         function relabel!(file, version)
             h5open(file, "r+") do h5
                 delete_attribute(h5, "format_version")
