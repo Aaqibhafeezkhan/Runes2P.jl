@@ -34,9 +34,6 @@ Each set is published as a tarball at `https://deep.reak.bme.hu/~data/runes2p/re
 - https://deep.reak.bme.hu/~data/runes2p/reference/dream-boltzmann-eqterm-93d27e17/dream-boltzmann-eqterm-93d27e17.tar.gz
 - https://deep.reak.bme.hu/~data/runes2p/reference/gsl-2.8/gsl-2.8.tar.gz
 
-The set `dream-v26.5-avalanche-rp` is not published yet.
-The tests read it from `out/` through the environment variable `RUNES2P_REFERENCE_DIR` (`test/README.md`).
-
 The files sit at the top level of each tarball.
 Every DREAM file records `dream_commit`, `dream_branch` and `petsc_version` as attributes.
 

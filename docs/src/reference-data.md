@@ -1,6 +1,6 @@
 # Reference data
 
-The tests compare Runes2P with the output of DREAM and of GSL stored in seven reference sets, so they do not run DREAM themselves.
+The tests compare Runes2P with the output of DREAM and of GSL stored in six reference sets, so they do not run DREAM themselves.
 The DREAM cases are DREAM's public examples, run with their own settings and a few stated overrides, and synthetic cases written for one comparison each.
 The generator scripts, the build of DREAM and the regeneration are in `reference/` of the repository.
 
@@ -31,9 +31,6 @@ Each set is published as a tarball with its files at the top level:
 - <https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5-runaway-grid/dream-v26.5-runaway-grid.tar.gz>
 - <https://deep.reak.bme.hu/~data/runes2p/reference/dream-boltzmann-eqterm-93d27e17/dream-boltzmann-eqterm-93d27e17.tar.gz>
 - <https://deep.reak.bme.hu/~data/runes2p/reference/gsl-2.8/gsl-2.8.tar.gz>
-
-The set `dream-v26.5-avalanche-rp` is not published yet.
-The tests read it from a local folder (below).
 
 ## The files and their tests
 

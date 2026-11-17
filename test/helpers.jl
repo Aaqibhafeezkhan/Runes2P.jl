@@ -17,16 +17,16 @@ export write_adf11, SquareRootDecayTerm, ArctangentTerm, ConstantSourceTerm, Exc
        manufactured_errors, manufactured_step, iter_plasma_operator, _conservation_residual,
        max_rel_diff,
        BoundedGrowthTerm, _growth_step, DREAM_REFERENCE_SETS, REFERENCE_FILES,
-       reference_set, reference_file, reference_available, published_set,
+       reference_set, reference_file, reference_available, has_artifact_entry,
        FIELD_PARTICLE_SETTINGS, _field_particle_grid, _maxwellian_on,
        OPTIMIZED, call_allocation
 
 # The reference data of the comparisons, one lazy artifact per set (`Artifacts.toml`): the
 # output of DREAM written by the cases of reference/dream/cases/, and GSL's bicubic
 # interpolation written by reference/gsl/bicubic_reference.c. A set without an entry in
-# `Artifacts.toml`, one not yet published, is read from its folder in the directory of the
-# environment variable RUNES2P_REFERENCE_DIR, the layout of the folder `out/` that
-# reference/dream/run_all.sh writes (`reference_file`). Each DREAM set holds the branch
+# `Artifacts.toml` is read from its folder in the directory of the environment variable
+# RUNES2P_REFERENCE_DIR, the layout of the folder `out/` that reference/dream/run_all.sh
+# writes (`reference_file`). Each DREAM set holds the branch
 # and the commit that its files store as `dream_branch` and `dream_commit`, and `S_ava_sign`,
 # the factor that turns the stored `hottail/S_ava` into the source: DREAM v26.5 stores the
 # source with the sign of the operator, the branch boltzmann-eqterm flips it to the sign of
@@ -112,10 +112,12 @@ const REFERENCE_FILES = Dict(
 "the set of the data file `name`"
 reference_set(name) = REFERENCE_FILES[name].set
 
-"whether the set `set` is published: it has an entry in `Artifacts.toml`"
-published_set(set) = artifact_hash(set, joinpath(@__DIR__, "Artifacts.toml")) !== nothing
+"whether the set `set` has an entry in `Artifacts.toml`"
+function has_artifact_entry(set)
+    artifact_hash(set, joinpath(@__DIR__, "Artifacts.toml")) !== nothing
+end
 
-# the path of the data file `name` of a set not yet published in RUNES2P_REFERENCE_DIR, or
+# the path of the data file `name` in the folder of its set in RUNES2P_REFERENCE_DIR, or
 # nothing without the variable
 function _local_reference_file(name)
     directory = get(ENV, "RUNES2P_REFERENCE_DIR", "")
@@ -125,24 +127,25 @@ end
 
 """
 the path of the data file `name`: in the artifact of its set, downloaded at its first use,
-or for a set not yet published in its folder of RUNES2P_REFERENCE_DIR
+or for a set without an entry in `Artifacts.toml` in its folder of RUNES2P_REFERENCE_DIR
 """
 function reference_file(name)
     set = reference_set(name)
-    published_set(set) && return joinpath(@artifact_str(set), name)
+    has_artifact_entry(set) && return joinpath(@artifact_str(set), name)
     path = _local_reference_file(name)
     if path === nothing || !isfile(path)
-        error("$name: the set $set is not published, and RUNES2P_REFERENCE_DIR has no $set/$name")
+        error("$name: the set $set has no entry in Artifacts.toml, and RUNES2P_REFERENCE_DIR has no $set/$name")
     end
     return path
 end
 
 """
-whether the data file `name` can be read: its set is published, or RUNES2P_REFERENCE_DIR
-holds it. A test of a set not yet published skips without it (`@test_skip`).
+whether the data file `name` can be read: its set has an entry in `Artifacts.toml`, or
+RUNES2P_REFERENCE_DIR holds it. A test of a set without the entry skips when the folder of
+the set does not hold the file (`@test_skip`).
 """
 function reference_available(name)
-    published_set(reference_set(name)) && return true
+    has_artifact_entry(reference_set(name)) && return true
     path = _local_reference_file(name)
     return path !== nothing && isfile(path)
 end

@@ -15,9 +15,11 @@ Two sources (source=):
              the test-particle critical momentum plus n_re.
   rp         AVALANCHE_MODE_KINETIC, the Rosenbluth-Putvinski source. The primaries are the
              electrons of n_re, those beyond p_max, with infinite energy. The grid ends at
-             p_max (default 10, cells of the width 0.1 above p = 0.6), n_re starts at
-             1e10 m^-3 and f_hot at 1 m^-3 (100 keV, as examples/avalanche/generateCylindrical.py
-             of DREAM's branch boltzmann-eqterm). The runaways are n_re. DREAM feeds n_re with
+             p_max (default 10, cells of the width 0.1 above p = 0.6). f_hot starts at a
+             Maxwellian of 1 m^-3 at 100 keV, as in
+             examples/avalanche/generateCylindrical.py of DREAM's branch boltzmann-eqterm.
+             The start of n_re at 1e10 m^-3 is a choice of this case, as are the plasma, the
+             field and the cutoff pcut of the source. The runaways are n_re. DREAM feeds n_re with
              the flux of f_hot through p_max and with its external avalanche at the cutoff
              p_max (src/Settings/RunawaySourceTerms.cpp:44-55 of v26.5).
 

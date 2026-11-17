@@ -1,11 +1,12 @@
 # The avalanche of the kinetic Rosenbluth-Putvinski source against the upper momentum
 # boundary p_max of the hot-tail grid, against DREAM's AVALANCHE_MODE_KINETIC
-# (reference/dream/cases/avalanche_kinetic.py source=rp, DREAM v26.5): fully ionized
-# deuterium at 100 eV and 1e20 m⁻³, E = 20 E_c, complete screening, the constant Coulomb
-# logarithm, centred interpolation, f = 0 beyond p_max, a hot-tail grid only with cells of
-# 0.01 below p = 0.6 and of 0.1 above, 14 pitch cells, the cutoff of the source at p = 0.13,
-# 384 steps to 160 ms. n_re starts at 1e10 m⁻³ and f at a Maxwellian of 1 m⁻³ at 100 keV
-# (examples/avalanche/generateCylindrical.py of DREAM's branch boltzmann-eqterm).
+# (reference/dream/cases/avalanche_kinetic.py source=rp, DREAM v26.5). The case chooses
+# fully ionized deuterium at 100 eV and 1e20 m⁻³, E = 20 E_c, complete screening, the
+# constant Coulomb logarithm, centred interpolation, f = 0 beyond p_max, a hot-tail grid only
+# with cells of 0.01 below p = 0.6 and of 0.1 above, 14 pitch cells, the cutoff of the
+# source at p = 0.13, 384 steps to 160 ms and the start of n_re at 1e10 m⁻³. The start of f,
+# a Maxwellian of 1 m⁻³ at 100 keV, is that of examples/avalanche/generateCylindrical.py of
+# DREAM's branch boltzmann-eqterm.
 #
 # The primaries of the source are the electrons of n_re, beyond p_max. Its knock-ons on the
 # grid are accelerated and leave through p_max into n_re, and those above p_max enter n_re
@@ -24,7 +25,7 @@
 #   20    | 18.458 s⁻¹      | +1e-4         | -1.6e-2        | -1.8e-2        | -1.9e-3
 #
 # The ratio of the rates at p_max = 20 and 5 is 0.7759 in the set and 0.7735 with 56 pitch
-# cells, so the fall of 22 % is resolved to about 0.3 % of the rate.
+# cells: the rate falls by 22.4 % in the set and by 22.7 % with 56 pitch cells.
 #
 # This is the same method in two codes. test_avalanche_rp.jl checks the rate of the source
 # between the cutoff and p_max against the Møller rate, independently of DREAM.
@@ -99,7 +100,8 @@ end
 
 @testset "Rosenbluth-Putvinski avalanche against p_max, against DREAM" begin
     if !all(reference_available(last(entry)) for entry in RP_PMAX_FILES)
-        # the set is not published yet: its files are read from RUNES2P_REFERENCE_DIR
+        # the set has no entry in Artifacts.toml, and RUNES2P_REFERENCE_DIR does not hold
+        # its files
         @info "the set $(reference_set(last(first(RP_PMAX_FILES)))) is not available " *
               "(RUNES2P_REFERENCE_DIR): the comparison is skipped"
         @test_skip all(reference_available(last(entry)) for entry in RP_PMAX_FILES)
@@ -108,17 +110,38 @@ end
         for (p_max, name) in RP_PMAX_FILES
             @testset "p_max = $p_max" begin
                 h5open(reference_file(name)) do h5
+                    # the run that the file must hold, checked before the run of Runes2P, so
+                    # that a stale or partial file of RUNES2P_REFERENCE_DIR fails here: the
+                    # DREAM commit of the set, the arguments of the case, the settings that
+                    # the Runes2P side assumes, p_max and the number of time points
+                    dream = DREAM_REFERENCE_SETS[reference_set(name)]
                     setting(key) = only(read(h5["settings/$key"]))
-                    @test setting("eqsys/n_re/avalanche") == 4            # AVALANCHE_MODE_KINETIC
-                    @test setting("eqsys/f_hot/boundarycondition") == 1   # BC_F_0
-                    @test setting("collisions/collfreq_mode") == 2        # FULL
-                    @test setting("collisions/collfreq_type") == 1        # COMPLETELY_SCREENED
-                    @test setting("collisions/lnlambda") == 1             # CONSTANT
-                    @test setting("eqsys/f_hot/adv_interp/p1") == 1       # CENTRED
-                    @test setting("eqsys/f_hot/synchrotronmode") == 1     # neglected
-                    @test last(read(h5["grid/p1_f"])) ≈ p_max rtol = 1e-14
+                    #! format: off
+                    run_checks = [
+                        "dream_commit" => read(attributes(h5)["dream_commit"]) == dream.commit,
+                        "dream_branch" => read(attributes(h5)["dream_branch"]) == dream.branch,
+                        "arguments" => read(attributes(h5)["arguments"]) ==
+                            "source=rp pmax=$p_max tmax=0.16 nt=384 windows=8 pcut=0.13 store=test",
+                        "avalanche" => setting("eqsys/n_re/avalanche") == 4,             # KINETIC
+                        "boundarycondition" => setting("eqsys/f_hot/boundarycondition") == 1, # BC_F_0
+                        "collfreq_mode" => setting("collisions/collfreq_mode") == 2,     # FULL
+                        "collfreq_type" => setting("collisions/collfreq_type") == 1,     # COMPLETELY_SCREENED
+                        "lnlambda" => setting("collisions/lnlambda") == 1,               # CONSTANT
+                        "bremsstrahlung_mode" =>
+                            setting("collisions/bremsstrahlung_mode") == 1,              # NEGLECT
+                        # COLLISIONLESS, the same p⋆ as COLLISIONAL in a cylinder
+                        "pstar_mode" => setting("collisions/pstar_mode") == 2,
+                        "adv_interp/p1" => setting("eqsys/f_hot/adv_interp/p1") == 1,    # CENTRED
+                        "synchrotronmode" => setting("eqsys/f_hot/synchrotronmode") == 1, # neglected
+                        "p_max" => isapprox(last(read(h5["grid/p1_f"])), p_max; rtol = 1e-14),
+                        "time points" => length(read(h5["t"])) == 385]
+                    #! format: on
+                    for (label, matches) in run_checks
+                        matches || @error "$name does not hold the run of the test" label
+                        @test matches
+                    end
+                    all(last, run_checks) || return
                     run = rp_pmax_run(h5)
-                    @test length(run.times) == 385
 
                     # the runaway density at every time point: largest difference 1.0e-8 of
                     # DREAM's value (p_max = 5), 8.1e-9 (10) and 5.9e-9 (20). The source of
@@ -132,16 +155,27 @@ end
                     @test rates ≈ dream_rates rtol = 1e-8
                     last_rates[p_max] = last(rates)
 
-                    # the distribution at the end, where it is above 1e-6 of its largest
-                    # value: largest difference 1.4e-8 of DREAM's value (p_max = 5), 1.2e-8
-                    # (10) and 9.5e-9 (20)
+                    # the distribution at the end, momentum along the first index
                     a = read(h5["f_hot_final"])[:, :, 1]
                     b = run.f_final
+                    faces = read(h5["grid/p1_f"])
+                    p = [(faces[i] + faces[i + 1]) / 2 for i in axes(a, 1)]
+                    # the knock-ons below the critical momentum: each cell where f is above
+                    # 1e-6 of its largest value, compared with DREAM's value of the cell.
+                    # These cells lie at p ≤ 0.195 (p_max = 5), 0.185 (10) and 0.175 (20).
+                    # Largest difference 1.4e-8 (p_max = 5), 1.2e-8 (10) and 9.5e-9 (20).
                     cut = 1e-6 * maximum(abs, a)
                     #! format: off
                     difference = maximum(abs(a[k] - b[k]) / abs(a[k]) for k in eachindex(a) if abs(a[k]) > cut)
                     #! format: on
                     @test difference < 5e-8
+                    # the runaway tail, the cells above the critical momentum p_c = 0.2294 of
+                    # the case: the largest difference divided by the largest |f| of the tail,
+                    # 1.3e-8 (p_max = 5), 1.1e-8 (10) and 8.9e-9 (20)
+                    tail = p .> read(h5["p_critical"])
+                    tail_difference = maximum(abs, a[tail, :] .- b[tail, :]) /
+                                      maximum(abs, a[tail, :])
+                    @test tail_difference < 5e-8
 
                     # the fluid growth rate of the match (2.0e-6 of DREAM's) and the effective
                     # critical field (2.1e-5 of DREAM's, which DREAM solves to 2e-3)
@@ -152,13 +186,17 @@ end
         end
 
         @testset "the growth rate falls as p_max grows" begin
-            # the last window: 23.790 s⁻¹ at p_max = 5, 21.552 s⁻¹ at 10, 18.458 s⁻¹ at 20
-            @test last_rates[5] > last_rates[10] > last_rates[20]
-            @test last_rates[5] ≈ 23.790 rtol = 1e-4
-            @test last_rates[10] ≈ 21.552 rtol = 1e-4
-            @test last_rates[20] ≈ 18.458 rtol = 1e-4
-            # the ratio of 0.7759, against 0.7735 with 56 pitch cells (the table above)
-            @test 0.77 < last_rates[20] / last_rates[5] < 0.78
+            # a file that fails its checks above leaves no rate
+            @test issetequal(keys(last_rates), first.(RP_PMAX_FILES))
+            if issetequal(keys(last_rates), first.(RP_PMAX_FILES))
+                # the last window: 23.790 s⁻¹ at p_max = 5, 21.552 s⁻¹ at 10, 18.458 s⁻¹ at 20
+                @test last_rates[5] > last_rates[10] > last_rates[20]
+                @test last_rates[5] ≈ 23.790 rtol = 1e-4
+                @test last_rates[10] ≈ 21.552 rtol = 1e-4
+                @test last_rates[20] ≈ 18.458 rtol = 1e-4
+                # the ratio of 0.7759, against 0.7735 with 56 pitch cells (the table above)
+                @test 0.77 < last_rates[20] / last_rates[5] < 0.78
+            end
         end
     end
 end

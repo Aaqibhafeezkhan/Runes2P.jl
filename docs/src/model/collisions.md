@@ -280,7 +280,9 @@ The docstring of [`IonEnergyExchangeTerm`](@ref) gives examples of the logarithm
 - An avalanche run against DREAM's Boltzmann knock-on mode: `test/test_avalanche_dream.jl`.
 - The Rosenbluth-Putvinski source and the fluid growth rate against DREAM: `test/test_avalanche_rp_dream.jl`.
 - The avalanche of the Rosenbluth-Putvinski source with the external avalanche above the grid against DREAM's `AVALANCHE_MODE_KINETIC`, at ``p_\mathrm{max}`` = 5, 10 and 20: `test/test_avalanche_rp_pmax_dream.jl`.
-  The growth rate falls by 22 % from ``p_\mathrm{max} = 5`` to ``p_\mathrm{max} = 20``, since the primaries are the electrons beyond ``p_\mathrm{max}``.
+  The case is fully ionized deuterium at 100 eV and ``10^{20}\,\mathrm{m}^{-3}`` with ``E = 20\, E_c`` (``E_c`` the Connor-Hastie critical field), on a grid of 14 pitch cells and cells of 0.1 in momentum above ``p = 0.6``.
+  In this case the growth rate falls by 22.4 % from ``p_\mathrm{max} = 5`` to ``p_\mathrm{max} = 20``, since the primaries are the electrons beyond ``p_\mathrm{max}``.
+  With 56 pitch cells DREAM's rate falls by 22.7 %.
   The rates of the two codes differ by at most 3e-9 of DREAM's rate.
 - The growth rate of the Rosenbluth-Putvinski source against that of the knock-on operator in one avalanche run, whose primaries have a mean momentum of ``34\, m_e c``: `test/test_runaway_physics.jl`.
   The source gives 1.04 times the growth rate of the knock-on operator at the step of the test (1.03 extrapolated to a zero step).

@@ -105,7 +105,7 @@ The summary of `--results` records the level as `opt_level`, so that a run at `-
 | `RUNES2P_CHIANTI_DIR` | `~/chianti` | the CHIANTI database, for the regeneration test of the table of CHIANTI's cross sections |
 | `RUNES2P_JACOBIAN_CHUNK_SIZE` | none | the upper limit of the chunk size of the dual numbers of the sparse Jacobians |
 | `RUNES2P_REGRESSION_RTOL` | none, bit for bit | the relative tolerance of the pure-Julia regression values at `-O2`; the Full suite of CI sets `1e-13` |
-| `RUNES2P_REFERENCE_DIR` | none | the directory of the reference sets not yet published, one folder per set, the layout of `out/` of `reference/dream/run_all.sh` |
+| `RUNES2P_REFERENCE_DIR` | none | the directory of the reference sets without an entry in `Artifacts.toml`, one folder per set, the layout of `out/` of `reference/dream/run_all.sh` |
 
 - `scripts/fetch_adas.py` fills the ADAS cache.
   No ADAS data is in the repository.
@@ -113,8 +113,8 @@ The summary of `--results` records the level as `opt_level`, so that a run at `-
 - Without the CHIANTI files the regeneration of `data/chianti_ionization.toml` by `scripts/generate_chianti_ionization.jl` is skipped.
   The table itself is in the repository and is tested without them.
 - `RUNES2P_JACOBIAN_CHUNK_SIZE=8` is recommended for the test suite: `env RUNES2P_JACOBIAN_CHUNK_SIZE=8 julia ...`.
-- A reference set without an entry in `Artifacts.toml` is read from `RUNES2P_REFERENCE_DIR`.
-  Without it the tests of that set are skipped and reported as broken.
+- A reference set without an entry in `Artifacts.toml` is read from its folder in `RUNES2P_REFERENCE_DIR`.
+  A test of such a set is skipped and reported as broken when the folder does not hold its file.
 
 ## Why the tests compile long
 
@@ -152,4 +152,5 @@ What is still compiled per case:
   An agreement with DREAM shows that both codes use the same method, not that the method is right.
 - A comparison with DREAM reads DREAM's output, written by a case script of `reference/dream/cases/`, with `reference_file` of `helpers.jl`, from the artifact of its set.
   The set's DREAM branch and commit are in the table of `helpers.jl`.
-  A test of a set not yet published checks `reference_available` first and skips with `@test_skip` without the data.
+  A set without an entry in `Artifacts.toml` is read from its folder in `RUNES2P_REFERENCE_DIR`.
+  A test of such a set checks `reference_available` first and skips with `@test_skip` when the folder does not hold its file.
