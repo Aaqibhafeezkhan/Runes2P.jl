@@ -29,6 +29,7 @@ The channels of this row:
 | friction of fluid runaways | [`RunawayFluidEnergyTransferTerm`](@ref) |
 | collisions of the runaway grid with the cold electrons | [`free_electron_energy_transfer_term`](@ref) |
 | friction of the hot-tail distribution on the cold electrons, without the full collision frequencies | [`FrictionEnergyTransferTerm`](@ref) |
+| electron-electron work on the electrons that cross a momentum interface to a runaway grid (optional) | [`InterfaceCollisionWorkTerm`](@ref) |
 
 [`IonEnergyExchangeTerm`](@ref) with `side = :ions` is the same exchange in the row of the ion energies, so the two sides are antisymmetric.
 [`RunawayFluidEnergyTransferTerm`](@ref) is DREAM's heating by runaways without a runaway grid, the power ``e c\, E_c\, n_\mathrm{re}``: runaways at the speed of light against the friction of the critical field ``E_c``, with the Coulomb logarithm at ``p = 20\, m_e c``.
@@ -74,7 +75,7 @@ The row lists only the channels by which energy enters or leaves the electrons o
 - The heating by the secondaries of a kinetic ionization ([`SecondaryHeatingTerm`](@ref)) moves their energy from the sinks to the cold electrons.
 - The sinks of the collisions of `f` are [`KineticEnergyLossTerm`](@ref) with `part = :sinks` and the hot region.
 - The outflow at ``p_\mathrm{max}`` is [`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` and `coefficient = -1`.
-- The channel of the electrons that cross to a runaway grid is [`InterfaceEnergyFluxTerm`](@ref), with the work of the collisions on them, [`InterfaceCollisionWorkTerm`](@ref) (below).
+- The channel of the electrons that cross to a runaway grid is [`InterfaceEnergyFluxTerm`](@ref), with the work of the electron-electron collisions on them, [`InterfaceCollisionWorkTerm`](@ref) (below).
 - The energy of the knock-ons that the fluid runaways above the grid create ([`RosenbluthPutvinskiSourceTerm`](@ref)) is the [`KineticEnergyChangeTerm`](@ref) of that source, over the whole grid.
 
 The collisional transfer from the hot electrons to the cold ones does not appear in the row.
@@ -91,8 +92,8 @@ The docstring of [`total_energy_equation`](@ref) gives the conditions.
 - The electrons that leave a Fokker-Planck term with collisions at ``p_\mathrm{max}``, or cross its interface to a runaway grid, take their energy with them.
   The row needs the energy flux of that boundary or interface.
   At the interface it also needs one [`InterfaceCollisionWorkTerm`](@ref) of the same interface, with a negative coefficient (below).
-  The row refuses the term of an interface whose lower distribution is not in ``W_\mathrm{hot}``.
-  A second such term of one interface, which would count the work twice, is refused in every row, the row of the cold thermal energy alone included.
+  The row refuses the term of an interface whose lower distribution, that of the grid below the face, is not in ``W_\mathrm{hot}``.
+  A second [`InterfaceCollisionWorkTerm`](@ref) of one interface, which would count the work twice, is refused in every row, the row of the cold thermal energy alone included.
 - Radial transport of `f` is refused, since the system has no energy term for radial transport.
   The system refuses it when it is built, and a run checks the coefficients again before its first step.
   A [`RechesterRosenbluthUpdate`](@ref) sets the coefficients of its operator in the run, so the run refuses the update before its first step.
@@ -180,8 +181,11 @@ A Fokker-Planck term with linear schemes gives the parts the moment of their ope
 A flux limiter in a scheme of the Fokker-Planck term, in ``p``, in ``\xi`` or in ``r``, makes the term nonlinear in ``f``.
 The momentum face values of the parts then take the upwind side of the whole advection of the Fokker-Planck term, its collisions and its electric field.
 That face value depends on ``f`` and on the side alone, so the field part, the free-electron part and the sinks sum to the momentum flux of the term face by face.
-Exponential fitting in ``p`` is the exception: its face value follows the coefficients of each operator, so the parts do not sum to the flux there.
 On their own sides they would not: in a test of a 100 eV plasma at 2 V/m under the limiters, their sum differs from the flux by up to 0.18 of its largest value (`test/test_energy_transfer.jl`).
+
+Exponential fitting in ``p`` is the exception to that sum: its face value follows the coefficients of each operator, so the parts do not sum to the flux there.
+This holds for the faces inside a grid.
+At the interface to a runaway grid every part takes the one face value of the whole flux, so the parts sum to the flux there under every scheme ([The energy step at the interface](#The-energy-step-at-the-interface)).
 
 Under a limiter the term takes the moment in the form of the momentum faces, since the pitch fluxes sum to zero over a momentum row:
 
@@ -206,22 +210,28 @@ The step ``E_{\mathrm{up},1} - E_{\mathrm{low},N}`` is about ``m_e c^2 \beta\, \
 It therefore vanishes as the cells at the face are refined.
 
 Neither the energy moments of the two operators nor the sinks term take a flux through the face, so no operator pays the step.
-Each part of the flux through the face pays it for its electrons:
+Each part of the flux through the face pays it for its electrons.
+A payer loses the step when the flux of its part goes up through the face, and gains it when that flux goes down.
 
 | Part of the flux through the face | Pays the step | Term of the row |
 |---|---|---|
-| the field | the field | none: the part up to the face in ``E j_\mathrm{hot}`` (below) |
+| the field | the field | no term of its own: ``E j_\mathrm{hot}`` holds the part up to the face (below) |
 | the electron-electron collisions: friction and energy diffusion | the cold electrons | [`InterfaceCollisionWorkTerm`](@ref) |
-| the friction on bound electrons, their energy diffusion under partial screening, bremsstrahlung and synchrotron radiation | the sinks | none |
+| the friction on bound electrons, the energy diffusion by bound electrons under partial screening, bremsstrahlung and synchrotron radiation | the sinks | none |
 
 The ions scatter the electrons in pitch only, so they move none across the face.
 The step of the sinks changes the energy of the runaway grid alone, which is outside ``W_\mathrm{tot}``, so the row takes no term for it.
 
-The row holds only the part of the step of the field up to the face, through ``E j_\mathrm{hot}``.
-The hot current ``j_\mathrm{hot}`` covers the cells of `f` up to the face, while the discrete field term of `f` works only up to the centre of the last cell.
-So ``E j_\mathrm{hot}`` holds about the field part of the flux through the face times ``E_\mathrm{face} - E_{\mathrm{low},N}``, with ``E_\mathrm{face}`` the kinetic energy at the face.
-That is roughly the fraction ``\Delta p_\mathrm{low}/(\Delta p_\mathrm{low} + \Delta p_\mathrm{up})`` of the step, with ``\Delta p_\mathrm{low}`` and ``\Delta p_\mathrm{up}`` the widths of the two cells at the face.
-The runaway grid receives the whole step as well, and the row takes no term for the difference, as for the gap at the threshold of the hot region ([The field work on the hot region](#The-field-work-on-the-hot-region)).
+The row credits ``W_\mathrm{tot}`` with the field work ``E j_\mathrm{hot}``, and the hot current ``j_\mathrm{hot}`` covers the cells of `f` up to the face.
+``W_\mathrm{hot}`` itself gains the work of the discrete field term of `f` only up to the centre of its last cell.
+At the face it loses ``\Gamma E_{\mathrm{low},N}``, with ``\Gamma`` the flux through the face.
+So ``W_\mathrm{tot}`` holds about ``\Gamma_E (E_\mathrm{face} - E_{\mathrm{low},N})`` that ``W_\mathrm{hot}`` never receives, with ``\Gamma_E`` the field part of the flux and ``E_\mathrm{face}`` the kinetic energy at the face.
+Since ``W_\mathrm{cold} = W_\mathrm{tot} - W_\mathrm{hot}``, the cold electrons receive it as heat.
+
+The runaway grid receives the whole step with the electron, so that part of the step is counted twice.
+The part is positive where the field drives electrons up through the face, and negative where it drives them down.
+It is roughly the fraction ``\Delta p_\mathrm{low}/(\Delta p_\mathrm{low} + \Delta p_\mathrm{up})`` of the step of the field, with ``\Delta p_\mathrm{low}`` and ``\Delta p_\mathrm{up}`` the widths of the two cells at the face, and it falls with the width of these cells.
+The row has no term for it, as for the gap at the threshold of the hot region ([The field work on the hot region](#The-field-work-on-the-hot-region)).
 
 Each part takes the face value of the whole flux: the upwind side, the linear interpolation or the weight of exponential fitting that the coefficients of all processes set.
 The parts therefore add up to the flux through the face, as the docstring of [`InterfaceCollisionWorkTerm`](@ref) shows.
@@ -229,7 +239,9 @@ The parts therefore add up to the flux through the face, as the docstring of [`I
 The term charges the work of the electron-electron collisions to the cold electrons, a choice of this package ([Choices of this package](../choices.md#Total-energy-of-the-electrons)).
 The cold electrons are the targets of these collisions, and inside each grid they gain the energy that the collisions take from the electrons.
 Where the friction pulls electrons down through the face, the cold electrons gain the step of each of them, and where the energy diffusion pushes electrons up, they pay it.
-`test/test_energy_budget.jl` closes the energy of the two grids across the face and conserves the total energy of a two-grid system with the term, and shows what both miss without it.
+Without a field, `test/test_energy_budget.jl` closes the energy of the two grids across the face with the term, and conserves the total energy of a two-grid system with it.
+The test also shows what the budget and the total energy miss without the term.
+With a field the row misses the part of the step of the field described above.
 
 ## The energy of the kinetic ionization
 

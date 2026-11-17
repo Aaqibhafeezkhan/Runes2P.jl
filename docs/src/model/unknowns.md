@@ -147,7 +147,7 @@ A row that holds every cell of a radius, such as a density moment, would take on
 Such terms assemble their block directly, and the coloring sees the other terms alone.
 The terms of the momentum interface ([`InterfaceParticleFluxTerm`](@ref), [`InterfaceEnergyFluxTerm`](@ref), [`InterfaceCollisionWorkTerm`](@ref)) read the cells at the face of both grids in one row, and assemble that row directly for the same reason.
 The two flux terms read the field as well when it is an unknown.
-The work term reads it only where the weight of the face follows the field, with exponential fitting and the overlap mapping, as its docstring gives.
+The work term reads it only where the weight of the face follows the field, with exponential fitting ([Positivity](positivity.md)) and the overlap mapping ([The interface](grids.md#The-interface)), as the docstring of [`InterfaceCollisionWorkTerm`](@ref) gives.
 A term whose rows read all charge states of a radius builds its block by one dual-number pass over a reduced layout ([`Runes2P.add_local_jacobian!`](@ref), [`Runes2P.local_layout`](@ref)).
 
 The knock-on term with an implicit primary ([`KnockOnTerm`](@ref)) is matrix-free, since its block is dense per radius.
@@ -334,8 +334,8 @@ The terms of the sinks, of ``p_\mathrm{max}`` and of the work at the interface t
 The system refuses radial transport of that distribution, since the system has no energy term for radial transport.
 It refuses [`KnockOnTerm`](@ref), [`LossRateTerm`](@ref), [`MaxwellianSourceTerm`](@ref) and a [`LinearTerm`](@ref) with a nonzero coefficient in the equation of that distribution, since no term of the row carries their energy.
 It refuses a [`KineticEnergyChangeTerm`](@ref) in the row whose source is not in the equation of a distribution in ``W_\mathrm{hot}``, since its knock-ons are outside ``W_\mathrm{tot}``.
-It refuses an [`InterfaceCollisionWorkTerm`](@ref) of an interface whose lower distribution is not in ``W_\mathrm{hot}``.
-A second such term of one interface is refused in a row of every kind, the row of the cold thermal energy alone included.
+It refuses an [`InterfaceCollisionWorkTerm`](@ref) of an interface whose lower distribution, that of the grid below the face, is not in ``W_\mathrm{hot}``.
+A second [`InterfaceCollisionWorkTerm`](@ref) of one interface is refused in a row of every kind, the row of the cold thermal energy alone included.
 
 A run repeats these checks before its first step, with the coefficients of the operators as they are then.
 It also refuses a [`RechesterRosenbluthUpdate`](@ref) that sets the radial transport of that distribution.

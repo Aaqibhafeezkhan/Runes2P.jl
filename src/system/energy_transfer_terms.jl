@@ -912,22 +912,22 @@ grid with the energy of its last cell and enters the upper grid with the energy 
 cell ([`InterfaceEnergyFluxTerm`](@ref)).
 
 No operator holds the step, since neither grid takes a flux through the face in its energy
-moments ([`KineticEnergyLossTerm`](@ref)). The free electrons pay it for `Γ_ee`. The sinks pay
-it for the friction on bound electrons, their energy diffusion under partial screening,
-bremsstrahlung and synchrotron radiation. The row of a total energy holds only the part of
-the step of the field up to the face, through the work of the field on the hot region (see
-the section *The field work on the hot region* of the docs page *Energy and current
-balance*).
+moments ([`KineticEnergyLossTerm`](@ref)). The cold electrons pay it for `Γ_ee`. The sinks
+pay it for the friction on bound electrons, the energy diffusion by bound electrons under
+partial screening, bremsstrahlung and synchrotron radiation. The row of a total energy
+credits the cold electrons with the part of the step of the field up to the face, which the
+runaway grid receives as well (see the section *The energy step at the interface* of the
+docs page *Energy and current balance*).
 
 With the default `coefficient = −1` in the row of the temperature the cold electrons pay the
 work of the electron-electron collisions, as they gain the energy that these collisions take
 from the electrons on either grid. Charging that work to the cold electrons is a choice of
 this package (see the docs page *Choices of this package*). In every row the system refuses
-a second such term of one interface, which would count the work twice. In the row of a total
-energy ([`total_energy_equation`](@ref)) it requires one such term next to the
-[`InterfaceEnergyFluxTerm`](@ref) of the same interface, with a negative coefficient, and
-refuses one of an interface whose lower distribution is not in the total energy. A row of the
-cold thermal energy alone ([`thermal_energy_equation`](@ref)) takes the term without these
+a second `InterfaceCollisionWorkTerm` of one interface, which would count the work twice. In
+the row of a total energy ([`total_energy_equation`](@ref)) it requires one such term next to
+the [`InterfaceEnergyFluxTerm`](@ref) of the same interface, with a negative coefficient. It
+refuses there one of an interface whose lower distribution, that of the grid below the face,
+is not in the total energy. A row of the cold thermal energy alone ([`thermal_energy_equation`](@ref)) takes the term without these
 two conditions.
 
 Each overlap cell of the face carries the flux `Γ = A f_face − D (f_up − f_low)/Δp`. `A` and
@@ -947,22 +947,23 @@ interface.
 
 The term reads the plasma and the settings of the record of the coefficients of the lower
 operator at each evaluation, so a lagged plasma or lagged ions of the Fokker-Planck term are
-taken as the flux takes them. It compares the values of that plasma, so it agrees with the
-operator whenever the operator was rebuilt after the last change of that plasma, which a run
-does. It keeps the coefficients of the face and rebuilds them when the Fokker-Planck term of
-the interface rebuilds its coefficients, and when those plasma values or settings differ
-from the kept ones. An
-operator not yet built from a plasma, such as that of a lagged term before its first
+taken as the flux takes them. It compares the values of that plasma, not the object. So it
+agrees with the operator whenever the operator was rebuilt after the last change of that
+plasma, as in a run. It keeps the coefficients of the face. It rebuilds them when the
+Fokker-Planck term of the interface rebuilds its coefficients, or when those plasma values or
+settings differ from the kept ones.
+
+An operator not yet built from a plasma, such as that of a lagged term before its first
 [`prepare_step!`](@ref), holds no collisions, and the term is zero there. The settings take
 `mode = :full` or `:superthermal`.
 
 The row reads the cells of both grids at the face. It reads the plasma columns of the
 Fokker-Planck term when its coefficients follow the plasma unknowns
 ([`has_plasma_columns`](@ref)). It reads the column of the field only with exponential
-fitting and `pitch_mapping = :overlap`, whose weight of the face follows the field, unless a
-Fokker-Planck term with a plasma and `mode = :superthermal` holds the coefficients. The
-energy diffusion is zero there, so the face takes the upwind side. The term assembles the
-row itself ([`jacobian_assembly`](@ref)).
+fitting and `pitch_mapping = :overlap`, where the weight of the face follows the field. It
+reads none when a Fokker-Planck term with a plasma and `mode = :superthermal` holds the
+coefficients, since the energy diffusion is zero there and the face takes the upwind side.
+The term assembles the row itself ([`jacobian_assembly`](@ref)).
 """
 struct InterfaceCollisionWorkTerm{I <: MomentumInterfaceTerm} <: EquationTerm
     interface::I
