@@ -416,6 +416,9 @@ In these points Runes2P differs from DREAM, and no option gives DREAM's behaviou
   Such a step is retried with half its length ([`StepDoubling`](@ref)).
   DREAM's next step is unbounded there (`src/TimeStepper/TimeStepperAdaptive.cpp:458-482`).
 - The ion rows take the sign convention of every other row, so [`IonDiffusionTerm`](@ref) takes a positive coefficient (DREAM: `src/Equations/Fluid/IonTransientTerm.cpp:78`).
+- [`braams_karney_conductivity`](@ref) takes the last column of the table where ``\Theta = T/m_ec^2`` exceeds it by at most 1e-8 relative ([Choices of this package](choices.md#Conductivity)).
+  DREAM throws for every ``\Theta`` above the table, from the interpolation of GSL (`src/Equations/RunawayFluid.cpp:751`).
+  DREAM itself throws at ``T = 100`` times its own rest energy in eV, since it forms ``\Theta`` in the conductivity from ``m_e``, ``c`` and ``e``.
 - [`coronal_equilibrium`](@ref) multiplies the ratios of the rates in log space, where DREAM multiplies them directly (`src/Settings/IonEquilibrium.cpp:100-137`).
 - The derivatives of the ADAS coefficients are exact, without DREAM's floors in the Jacobian ([`adas_coefficient`](@ref), [`IonRateTerm`](@ref)).
 - The Jacobian of [`ExternalAvalancheTerm`](@ref) holds every column of the rate, where DREAM's holds those of the field and of ``n_\mathrm{tot}``.

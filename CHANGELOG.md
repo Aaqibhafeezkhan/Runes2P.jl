@@ -136,3 +136,7 @@ Until the first release, every change is listed under "Unreleased", with the sub
 - `IonEnergyExchangeTerm` refuses a mass of `masses` outside the range 1e-27 kg to 1e-24 kg, with an `ArgumentError` that names the species ([#286](https://github.com/osrep/Runes2P.jl/pull/286)).
   Before, a mass in atomic mass units or in grams gave a wrong exchange without an error.
   The masses of `ion_mass` lie inside the range, and the results of a run do not change.
+- `braams_karney_conductivity` takes the last column of its table where Θ = T/mₑc² exceeds it by at most 1e-8 relative (`BRAAMS_KARNEY_TEMPERATURE_MARGIN`) ([#304](https://github.com/osrep/Runes2P.jl/pull/304)).
+  As DREAM does, the function forms Θ from `ELECTRON_MASS`, `SPEED_OF_LIGHT` and `ELEMENTARY_CHARGE`, and this Θ exceeds `T / ELECTRON_REST_ENERGY` by 6.8e-9 of it.
+  Before, T = 100 × `ELECTRON_REST_ENERGY`, the temperature of the last column, threw a `DomainError`.
+  At or below the last column the conductivity does not change, and the comparisons with DREAM stay bit for bit.
