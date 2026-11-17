@@ -114,7 +114,7 @@ The summary of `--results` records the level as `opt_level`, so that a run at `-
   The table itself is in the repository and is tested without them.
 - `RUNES2P_JACOBIAN_CHUNK_SIZE=8` is recommended for the test suite: `env RUNES2P_JACOBIAN_CHUNK_SIZE=8 julia ...`.
 - A reference set without an entry in `Artifacts.toml`, such as a new set built by `reference/dream/run_all.sh` before its publication, is read from its folder in `RUNES2P_REFERENCE_DIR`.
-  A test of such a set is skipped and reported as broken when the folder does not hold its file.
+  Without the file there, `reference_file` throws an error.
 
 ## Why the tests compile long
 
@@ -153,4 +153,5 @@ What is still compiled per case:
 - A comparison with DREAM reads DREAM's output, written by a case script of `reference/dream/cases/`, with `reference_file` of `helpers.jl`, from the artifact of its set.
   The set's DREAM branch and commit are in the table of `helpers.jl`.
   A set without an entry in `Artifacts.toml` is read from its folder in `RUNES2P_REFERENCE_DIR`.
-  A test of such a set checks `reference_available` first and skips with `@test_skip` when the folder does not hold its file.
+  Without the file there, `reference_file` throws an error.
+  `reference_available` tells whether a file can be read, and the check of the DREAM commits in `test_kinetic_operator_dream.jl` skips with `@test_skip` a file that cannot.

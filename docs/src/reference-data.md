@@ -37,7 +37,7 @@ Each set is published as a tarball with its files at the top level:
 
 | File | Set | Case script | Test |
 |---|---|---|---|
-| `dream_avalanche_kinetic.h5` | `dream-boltzmann-eqterm-93d27e17` | `avalanche_kinetic.py` | `test_avalanche_dream.jl` |
+| `dream_avalanche_kinetic.h5` | `dream-boltzmann-eqterm-93d27e17` | `avalanche_kinetic.py source=boltzmann` | `test_avalanche_dream.jl` |
 | `dream_avalanche_rp_pmax5.h5`, `dream_avalanche_rp_pmax10.h5`, `dream_avalanche_rp_pmax20.h5` | `dream-v26.5-avalanche-rp` | `avalanche_kinetic.py source=rp` | `test_avalanche_rp_pmax_dream.jl` |
 | `dream_cold_energy.h5` | `dream-v26.5` | `cold_energy_fluid.py` | `test_cold_energy_dream.jl` |
 | `dream_collisions.h5` | `dream-v26.5` | `collision_frequencies.py` | `test_collisions_dream.jl` |
@@ -82,7 +82,9 @@ For the output of a DREAM example it also names the last DREAM commit that chang
 A new set that `run_all.sh` has built but that is not yet published has no entry in `test/Artifacts.toml`.
 Such a set is read from the folder `<set>/` of the directory in the environment variable `RUNES2P_REFERENCE_DIR`.
 That directory has the layout of `out/` that `run_all.sh` writes.
-Without the variable, or without the files there, the tests of the set are skipped and reported as broken.
+Without the variable, or without the file there, `reference_file` throws an error.
+`reference_available(name)` of `test/helpers.jl` tells whether a file can be read.
+`test/test_kinetic_operator_dream.jl` uses it to skip such a file in its check of the DREAM commits and report it as broken.
 
 Every DREAM file records `dream_commit`, `dream_branch` and `petsc_version` as attributes.
 `test/test_kinetic_operator_dream.jl` checks the commit and the branch of every DREAM file against its set.

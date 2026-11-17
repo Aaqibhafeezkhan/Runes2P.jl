@@ -17,7 +17,7 @@ export write_adf11, SquareRootDecayTerm, ArctangentTerm, ConstantSourceTerm, Exc
        manufactured_errors, manufactured_step, iter_plasma_operator, _conservation_residual,
        max_rel_diff,
        BoundedGrowthTerm, _growth_step, DREAM_REFERENCE_SETS, REFERENCE_FILES,
-       reference_set, reference_file, reference_available, has_artifact_entry,
+       reference_set, reference_file, reference_available,
        FIELD_PARTICLE_SETTINGS, _field_particle_grid, _maxwellian_on,
        OPTIMIZED, call_allocation
 
@@ -141,8 +141,8 @@ end
 
 """
 whether the data file `name` can be read: its set has an entry in `Artifacts.toml`, or
-RUNES2P_REFERENCE_DIR holds it. A test of a set without the entry skips when the folder of
-the set does not hold the file (`@test_skip`).
+RUNES2P_REFERENCE_DIR holds it. `reference_file` throws an error for a file that cannot be
+read. The check of the DREAM commits in test_kinetic_operator_dream.jl skips such a file.
 """
 function reference_available(name)
     has_artifact_entry(reference_set(name)) && return true

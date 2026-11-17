@@ -48,6 +48,7 @@ function rp_pmax_run(h5)
         cold_electron_temperature = [temperature], cold_electron_density = [density],
         ions = [IonSpecies("D", 1, 1, [density])], electric_field = [field],
         magnetic_field = [B])
+    # :relativistic is the constant relativistic logarithm, DREAM's CONSTANT (`coulomb_logarithm`)
     settings = CollisionSettings(mode = :full, screening = :complete,
         coulomb_logarithm = :relativistic, bremsstrahlung = :neglect)
     operator = fokker_planck_operator(
@@ -130,7 +131,9 @@ end
                     "time points" => length(read(h5["t"])) == 385]
                 #! format: on
                 for (label, matches) in run_checks
-                    matches || @error "$name does not hold the run of the test" label
+                    if !matches
+                        @error "$name does not hold the run of the test" label
+                    end
                     @test matches
                 end
                 all(last, run_checks) || return
