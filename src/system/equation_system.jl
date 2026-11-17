@@ -1610,7 +1610,9 @@ function _check_total_energy_rows(equations)
                                         "the energy that it adds to the hot region or removes from it. A Maxwellian " *
                                         "source is refused under the total energy"))
                 end
-                if term isa LinearTerm && any(!iszero, term.coefficient)
+                # in an algebraic equation of the distribution a LinearTerm is its closure
+                if term isa LinearTerm && equation.kind isa TimeDerivative &&
+                   any(!iszero, term.coefficient)
                     throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
                                         "and the LinearTerm of $(term.unknown) in the equation of $d moves electrons " *
                                         "into $d or out of it, whose energy no term of the row carries: the cold " *

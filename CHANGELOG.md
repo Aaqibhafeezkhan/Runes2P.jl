@@ -145,7 +145,7 @@ Until the first release, every change is listed under "Unreleased", with the sub
 - `KineticEnergyLossTerm` with `part = :free_electrons`, and with it `free_electron_energy_transfer_term`, takes no flux through `p_max`, as the part `:sinks` ([#295](https://github.com/osrep/Runes2P.jl/pull/295)).
   Before, it took the electron-electron flux through `p_max` of every upper boundary that carries one: `:f_zero`, `:constant_flux`, `:extrapolated_flux` and `:extrapolated_flux_consistent`.
   `:interface` carries none, and `:outflow` carries one only where the electron-electron advection at `p_max` points outward.
-  With `:f_zero` and a tail at the end of a test grid, the old transfer was larger than the new one by 1.0e-5 of it with exponential fitting and by 25 % with upwind.
+  With `:f_zero`, on the grid of the row checks of `test/test_energy_budget.jl` with its tail at `p_max`, the old transfer was larger than the new one by 1.0e-5 of the new one with exponential fitting and by 2.5e-1 with upwind.
 - With the change above, the heating of the cold electrons by `f_re` in the disruption case with a runaway grid at `compat = :runes2p` rises ([#295](https://github.com/osrep/Runes2P.jl/pull/295)).
   Its runaway grid takes `:constant_flux`, DREAM's default, which continues the flux of the last interior face through `p_max`, and that flux points into the grid.
   In the window of that case that is compared with DREAM, a heating of about 1e4 W/m³ rises by up to 2.2e-5 of its former value.

@@ -204,6 +204,10 @@ import ForwardDiff
         @test check((term, LinearTerm(:f; coefficient = 0.0)), sinks, outflow) === nothing
         @test check((term, LinearTerm(:g; coefficient = [0.0, 0.0])), sinks, outflow) ===
               nothing
+        # in an algebraic equation of f a LinearTerm of f is the closure of the row
+        @test Runes2P._check_plasma_pairings([Equation(:f, Algebraic(), LinearTerm(:g),
+                                                  LinearTerm(:f; coefficient = -1));
+                                              row(); energy]) === nothing
         # a system without the total energy needs none of these row terms
         @test Runes2P._check_plasma_pairings([Equation(
             :f, TimeDerivative(), term, FokkerPlanckTerm(:f, transport))]) === nothing

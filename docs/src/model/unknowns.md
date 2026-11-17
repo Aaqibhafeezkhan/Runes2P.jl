@@ -324,8 +324,8 @@ For each distribution in ``W_\mathrm{hot}`` the system therefore requires in tha
 
 Each of these terms takes a negative coefficient.
 
-The system refuses radial transport of that distribution, since no term of the row carries its energy.
-For the same reason it refuses [`KnockOnTerm`](@ref), [`RosenbluthPutvinskiSourceTerm`](@ref), [`LossRateTerm`](@ref), [`MaxwellianSourceTerm`](@ref) and a [`LinearTerm`](@ref) with a nonzero coefficient in the equation of that distribution.
+The system refuses radial transport of that distribution, since the system has no energy term for radial transport.
+It refuses [`KnockOnTerm`](@ref), [`RosenbluthPutvinskiSourceTerm`](@ref), [`LossRateTerm`](@ref), [`MaxwellianSourceTerm`](@ref) and a [`LinearTerm`](@ref) with a nonzero coefficient in the equation of that distribution, since no term of the row carries their energy.
 A run repeats these checks before its first step, with the coefficients of the operators as they are then.
 It also refuses a [`RechesterRosenbluthUpdate`](@ref) that sets the radial transport of that distribution.
 The energy balance itself is on the page [Energy and current balance](energy-current.md).

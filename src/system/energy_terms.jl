@@ -245,11 +245,13 @@ the electrons are moved, created or removed:
   runaways above it ([`RosenbluthPutvinskiSourceTerm`](@ref)) are refused.
 - A prescribed loss rate ([`LossRateTerm`](@ref)) and a Maxwellian source
   ([`MaxwellianSourceTerm`](@ref)) are refused.
-- A [`LinearTerm`](@ref) with a nonzero coefficient, which moves electrons into `kinetic`
-  from a kinetic unknown or out of it, is refused.
+- A [`LinearTerm`](@ref) with a nonzero coefficient in the time derivative of `kinetic`,
+  which moves electrons into `kinetic` from a kinetic unknown or out of it, is refused.
 
 The checks read the coefficients of the operators as they are, and a run repeats them
-before its first step. A [`ParticleSourceTerm`](@ref) is accepted. With the constraint
+before its first step.
+
+A [`ParticleSourceTerm`](@ref) is accepted. With the constraint
 `0 = n(f) − n_cold − n_hot` for its magnitude, it moves electrons between the cold
 population and `kinetic`, so the cold electrons rightly pay the energy that its electrons
 bring into the hot region. A Maxwellian source adds or removes electrons from outside the
