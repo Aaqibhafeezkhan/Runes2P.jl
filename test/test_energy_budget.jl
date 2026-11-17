@@ -579,6 +579,81 @@ import ForwardDiff
               1e-12 * sum(volumes .* abs.(heated.moment))
     end
 
+    @testset "radial transport next to the sinks under an upwind side that a field turns" begin
+        # Partial screening gives the collisions of f sinks, which the row takes over the hot
+        # region under :upwind in p, where every part of the loss takes the side of the whole
+        # advection. A field of 2 V/m beats the friction above a few thermal momenta, so the
+        # whole advection changes its sign along p. Radial transport of f on three radii with
+        # a closed edge, with its energy term. At each radius W_tot changes by the sinks, the
+        # outflow at p_max and the transport, and in the volume by the sinks and the outflow
+        # alone. Measured: 18 of the 117 inner faces of the pitch cell ξ > 0 with friction and
+        # 99 with the field ahead, the budget at each radius to 9.9e-15 of the largest channel,
+        # |∫P| of 6.3e-17 of ∫|P|, and the volume change less the losses 2.2e-14 of ∫|P|
+        T0, n, E = 100.0, 1e19, 2.0
+        grid = cylindrical_grid(
+            MomentumGrid(uniform_p_faces(40, 0.0, 0.6), uniform_xi_faces(2)),
+            RadialGrid([0.0, 0.15, 0.3, 0.5]))
+        m = momentum_grid(grid)
+        base = PlasmaState(;
+            cold_electron_temperature = fill(T0, 3), ions = [
+                IonSpecies("Ar", 18, 2, fill(1e18, 3)),
+                IonSpecies("D", 1, 1, fill(n, 3))],
+            electric_field = fill(E, 3), magnetic_field = fill(2.5, 3))
+        region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor = 3))
+        collisions = FokkerPlanckTerm(:f,
+            AdvectionDiffusion(grid; scheme = :upwind, p_upper_boundary = :f_zero);
+            plasma = PlasmaFromUnknowns(base),
+            settings = CollisionSettings(mode = :full, screening = :partial))
+        transport_op = AdvectionDiffusion(grid; scheme = :central, cross_diffusion = false)
+        add_rechester_rosenbluth_diffusion!(transport_op, 2e-3; major_radius = 6.2)
+        transport = FokkerPlanckTerm(:f, transport_op)
+        sinks = KineticEnergyLossTerm(collisions; part = :sinks, region)
+        outflow = MomentumBoundaryFluxTerm(:f, collisions; weight = :energy, coefficient = -1)
+        energy = KineticEnergyChangeTerm(transport)
+        layout = UnknownLayout(grid.radial_grid,
+            [KineticUnknown(:f, grid; scale = 1e19),
+                RadialUnknown(:cold_electron_temperature; scale = 100.0),
+                RadialUnknown(:cold_electron_density; scale = 1e19),
+                RadialUnknown(:cold_thermal_energy; scale = THERMAL_ENERGY_FACTOR * 1e21),
+                RadialUnknown(:total_electron_energy; scale = THERMAL_ENERGY_FACTOR * 1e21)])
+        equations = [Equation(:f, TimeDerivative(), collisions, transport),
+            Equation(:cold_electron_temperature, TimeDerivative(:total_electron_energy),
+                sinks, outflow, energy),
+            density_row(fill(n, 3)), thermal_energy_equation(),
+            total_energy_equation(:f, grid; region)]
+        theta = T0 / Constants.ELECTRON_REST_ENERGY
+        u0 = zeros(length(layout))
+        for ir in 1:3
+            kinetic_view(u0, layout, 1, ir) .= [n * exp(-p^2 / 2theta) +
+                                                1e17 * (4 - ir) *
+                                                exp(-((p - 0.3) / 0.05)^2)
+                                                for p in m.p_centers, _ in 1:2]
+        end
+        unknown_values(u0, layout, 2) .= [100.0, 70.0, 40.0]
+        unknown_values(u0, layout, 3) .= n
+        system = EquationSystem(layout, equations; time_scale = 1e-7, initial_state = u0)
+        dt = 1e-7
+        solution = integrate(system, u0, [0.0, dt]; stepper = FixedSteps())
+        start, finish = solution.states[:, 1], solution.states[:, 2]
+        # the whole advection takes both signs along p in each pitch cell of each radius
+        advection = Runes2P._operator_at(collisions, finish, layout, dt).advection_p
+        @test any(<(0), advection[2:40, 2, :]) && any(>(0), advection[2:40, 2, :])
+        rows = [first(Runes2P.unknown_range(layout, 2, ir)) for ir in 1:3]
+        channel(term) = Runes2P.rhs!(zeros(length(finish)), term, finish, layout, 2, dt)[rows]
+        losses = channel(sinks) .+ channel(outflow)
+        transported = channel(energy)
+        change = (unknown_values(finish, layout, 5) .- unknown_values(start, layout, 5)) ./
+                 dt
+        volumes = grid.radial_grid.spatial_jacobian .* grid.radial_grid.r_widths
+        scale = maximum(abs, transported)
+        @test maximum(abs, losses) > 0 && scale > 0
+        @test maximum(abs.(change .- (losses .+ transported))) <
+              1e-12 * max(scale, maximum(abs, losses))
+        @test abs(sum(volumes .* transported)) < 1e-13 * sum(volumes .* abs.(transported))
+        @test abs(sum(volumes .* (change .- losses))) <
+              1e-12 * sum(volumes .* abs.(transported))
+    end
+
     @testset "radial transport set after the build under the total energy" begin
         # An operator of radial transport built by hand declares radial transport and holds no
         # coefficients when the system is built, so the system accepts it without the energy
