@@ -1296,7 +1296,7 @@ function _check_plasma_pairings(equations)
         #! format: off
         sources = if term isa Union{KineticEnergyLossTerm, KineticEnergyChangeTerm}
             (term.source,)
-        elseif term isa InterfaceFluxTerm
+        elseif term isa InterfaceRowTerm
             (term.interface,)
         else
             filter(s -> s isa FokkerPlanckTerm && is_state_dependent(s.plasma), _coefficient_sources(term))
@@ -1600,6 +1600,35 @@ function _total_energy_row(row, equations)
     return (; row, total, closures, distributions = unique(kinetic_names))
 end
 
+# The work of the electron-electron collisions on the electrons that cross the interface of
+# the Fokker-Planck term `term` of `d`: the row of a total energy lists one
+# InterfaceCollisionWorkTerm of the interface of each of its InterfaceEnergyFluxTerms
+# `crossings`, charged to the cold electrons, and none of an interface of another term of `d`
+function _check_interface_collision_work(row, total, d, term, crossings, listed)
+    works = [t for t in listed if t isa InterfaceCollisionWorkTerm && t.interface.lower === d]
+    for t in works
+        if t.interface.lower_term !== term
+            throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
+                                "and its collision work at the interface of $d reads the interface of another term " *
+                                "of $d: give it the interface of this term"))
+        end
+        if !(t.coefficient < 0)
+            throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
+                                "and its collision work at the interface of $d has the coefficient $(t.coefficient), " *
+                                "which gives the cold electrons the work that they pay: give it a negative coefficient"))
+        end
+    end
+    for crossing in crossings
+        if !any(t -> t.interface === crossing.interface, works)
+            throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
+                                "and the electron-electron collisions do work on the electrons of $d that cross " *
+                                "the interface, which no term of the row charges to the cold electrons: add " *
+                                "InterfaceCollisionWorkTerm of the interface of its InterfaceEnergyFluxTerm"))
+        end
+    end
+    return nothing
+end
+
 # The rows that hold the time derivative of a total energy with an algebraic equation, each
 # as the named tuple of _total_energy_row.
 function _total_energy_rows(equations)
@@ -1688,6 +1717,7 @@ function _check_total_energy_rows(equations)
                                                     "to the total in place of removing it: give it a negative coefficient"))
                             end
                         end
+                        _check_interface_collision_work(row, total, d, term, crossings, listed)
                     elseif !any(
                         t -> t isa MomentumBoundaryFluxTerm && t.kinetic === d &&
                              t.source === term &&
