@@ -38,15 +38,15 @@ const BRAAMS_KARNEY_TABLE = float_matrix(_BRAAMS_KARNEY_DATA["table"])
 """
     BRAAMS_KARNEY_TEMPERATURE_MARGIN
 
-The relative margin, 1e-8, by which `Θ = T/mₑc²` may exceed the last column of
-`BRAAMS_KARNEY_TEMPERATURES` in [`braams_karney_conductivity`](@ref), which then takes the
-last column. As in DREAM, that function forms `Θ` from `ELEMENTARY_CHARGE`, `ELECTRON_MASS`
-and `SPEED_OF_LIGHT`, while the rest of the package forms it from `ELECTRON_REST_ENERGY`.
-The constants of `Constants` are DREAM's, whose `mₑc²/e` lies 6.8e-9 below
-`ELECTRON_REST_ENERGY`, relative. So the temperature `100 ELECTRON_REST_ENERGY` of the last
-column has `Θ = 100 (1 + 6.8e-9)` there. The margin covers that difference, and a larger
-excess is a temperature outside the table (a choice of this package; see the docs page
-*Choices of this package*).
+The margin, 1e-8 relative to the last column `Θ = 100`, by which `Θ = T/mₑc²` may exceed
+that column of `BRAAMS_KARNEY_TEMPERATURES` in [`braams_karney_conductivity`](@ref). A `Θ`
+inside the margin takes the last column, and a larger `Θ` throws a `DomainError`. As in
+DREAM, that function forms `Θ` from `ELEMENTARY_CHARGE`, `ELECTRON_MASS` and
+`SPEED_OF_LIGHT`, while the rest of the package forms it from `ELECTRON_REST_ENERGY`. With
+the constants of the module `Constants`, whose docstring compares the two, the first form
+exceeds the second by 6.8e-9 of it. So `T = 100 × ELECTRON_REST_ENERGY` has
+`Θ = 100 (1 + 6.8e-9)` in that function, inside the margin. The margin is a choice of this
+package (see the docs page *Choices of this package*).
 """
 const BRAAMS_KARNEY_TEMPERATURE_MARGIN = 1e-8
 
@@ -123,11 +123,11 @@ and Redl equals it, since the neoclassical correction is 1 without trapped parti
 temperature and high charge it is the Lorentz conductivity ``64 \\sqrt{2\\pi} \\,
 \\varepsilon_0^2 T^{3/2} / (\\sqrt{m_e} \\, e^2 Z \\ln\\Lambda)``.
 
-As in DREAM, `Θ = T/mₑc²` is formed here from `mₑ`, `c` and `e`, which exceeds
-`T / ELECTRON_REST_ENERGY` by 6.8e-9 of it. A `Θ` above the last column of the table by
-at most `BRAAMS_KARNEY_TEMPERATURE_MARGIN` takes the last column, so that the temperature
-`100 ELECTRON_REST_ENERGY` [eV] is accepted. Where DREAM's `Θ` exceeds the table, DREAM
-throws.
+As in DREAM, `Θ = T/mₑc²` is formed here from `mₑ`, `c` and `e`, and not from
+`ELECTRON_REST_ENERGY` (the docstring of the module `Constants` compares the two). A `Θ`
+above the last column of the table by at most `BRAAMS_KARNEY_TEMPERATURE_MARGIN` = 1e-8
+relative takes the last column, so that `T = 100 × ELECTRON_REST_ENERGY` is accepted. A
+larger `Θ` throws a `DomainError`. DREAM throws for every `Θ` above the table.
 """
 function braams_karney_conductivity(free_electron_density, temperature, effective_charge)
     temperature > 0 || throw(DomainError(temperature, "the temperature must be positive"))

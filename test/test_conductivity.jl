@@ -116,16 +116,26 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
             end
         end
         # at the last column the table value itself
+        T_last = highest * Constants.ELECTRON_REST_ENERGY
         for Z in (1.0, 4.0)
-            @test braams_karney_conductivity(
-                1e20, highest *
-                      Constants.ELECTRON_REST_ENERGY, Z) ≈
-                  lorentz_conductivity(highest * Constants.ELECTRON_REST_ENERGY, 1e20, Z) *
+            @test braams_karney_conductivity(1e20, T_last, Z) ≈
+                  lorentz_conductivity(T_last, 1e20, Z) *
                   normalized_conductivity(highest, 1 / (1 + Z)) / (32 / sqrt(2π)) rtol = 1e-14
         end
+        # just below the last column in the function's Θ the interpolation, not the clamp
+        T_below = T_last * (1 - 5e-9)
+        @test highest * (1 - margin) < dream_theta(T_below) < highest
+        for Z in (1.0, 4.0)
+            @test braams_karney_conductivity(1e20, T_below, Z) ≈
+                  lorentz_conductivity(T_below, 1e20, Z) *
+                  normalized_conductivity(dream_theta(T_below), 1 / (1 + Z)) /
+                  (32 / sqrt(2π)) rtol = 1e-14
+        end
+        # the value of the margin
+        @test margin == 1e-8
         # the edge of the margin, in the function's own Θ: the last temperature taken and
         # the first refused
-        T_edge = highest * Constants.ELECTRON_REST_ENERGY
+        T_edge = T_last
         while dream_theta(nextfloat(T_edge)) <= highest * (1 + margin)
             T_edge = nextfloat(T_edge, 2^20)
         end

@@ -31,10 +31,11 @@ using HDF5
     source = Runes2P.rhs!(zeros(length(u)), term, u, layout, 4, 0.0)
 
     @testset "the kinetic source per cell" begin
-        # DREAM's S_ava, (p, ξ, radius) as HDF5 gives it to Julia: every cell 1 + 3.0e-9 times
-        # DREAM's, the difference of DREAM's constants of the prefactor e⁴/((4πε₀ mₑc)² c)
-        # against Runes2P's r₀² c, with r₀ of CODATA 2014 as in DREAM. The sign is the one of the set: DREAM v26.5
-        # stores the source with the sign of the operator.
+        # DREAM's S_ava, (p, ξ, radius) as HDF5 gives it to Julia: every cell 1 + 3.0e-9
+        # times DREAM's. The prefactor is r₀² c here, with the classical electron radius of
+        # the package (CODATA 2014), against e⁴/((4πε₀ mₑc)² c) of its other constants in
+        # DREAM. The sign is the one of the set: DREAM v26.5 stores the source with the sign
+        # of the operator.
         S = DREAM_REFERENCE_SETS[reference_set("dream_rp_avalanche.h5")].S_ava_sign .*
             data["S_ava"]
         for ir in 1:nr
