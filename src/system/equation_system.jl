@@ -1467,41 +1467,42 @@ function _moves_in_radius(term::FokkerPlanckTerm)
     any(!iszero, term.operator.diffusion_r_r) || any(!iszero, term.operator.advection_r)
 end
 
-# The rows that hold the time derivative of a total energy W_tot = W_cold + W_hot, each as
-# (row, total, closures, distributions): the name of W_tot, its algebraic equations, and the
-# kinetic unknowns whose energy moments in them make up W_hot
-function _total_energy_rows(equations)
-    rows = []
-    for row in equations
-        row.kind isa TimeDerivative && row.kind.of !== nothing || continue
-        total = row.kind.of
-        closures = [e for e in equations if e.unknown === total && e.kind isa Algebraic]
-        isempty(closures) && continue
-        kinetic_names = Symbol[]
-        for e in closures, t in e.terms
+# The row `row` that holds the time derivative of the total energy W_tot = W_cold + W_hot as
+# a named tuple of four fields: `row` itself, `total` the name of W_tot, `closures` the
+# algebraic equations of W_tot, and `distributions` the kinetic unknowns whose energy
+# moments in them make up W_hot.
+function _total_energy_row(row, equations)
+    total = row.kind.of
+    closures = [e for e in equations if e.unknown === total && e.kind isa Algebraic]
+    kinetic_names = Symbol[]
+    for e in closures, t in e.terms
 
-            if t isa EnergyMomentTerm
-                push!(kinetic_names, t.kinetic)
-            end
+        if t isa EnergyMomentTerm
+            push!(kinetic_names, t.kinetic)
         end
-        push!(rows, (; row, total, closures, distributions = unique(kinetic_names)))
     end
-    return rows
+    return (; row, total, closures, distributions = unique(kinetic_names))
 end
 
-# Whether a term of the row of a total energy (`row_terms`) carries the energy that the
-# radial transport of the Fokker-Planck term `term` moves between the radii. No term carries
-# it, so radial transport of a distribution of W_hot is refused, when the system is built and
-# when an update sets the transport in the run. A term of that energy flux is admitted here.
-_radial_energy_listed(row_terms, term::FokkerPlanckTerm) = false
+# The rows that hold the time derivative of a total energy with an algebraic equation, each
+# as the named tuple of _total_energy_row.
+function _total_energy_rows(equations)
+    candidates = [_total_energy_row(row, equations)
+                  for row in equations
+                  if row.kind isa TimeDerivative && row.kind.of !== nothing]
+    return [entry for entry in candidates if !isempty(entry.closures)]
+end
 
 # The row of a total energy holds the time derivative of W_tot = W_cold + W_hot, with W_hot
 # the energy moments of the distributions in the closure of W_tot, so every change of W_hot
 # that no term of the row lists is charged to the cold electrons. For each distribution of
-# W_hot the row lists the sinks of its collisions, the energy that leaves through p_max (the
-# flux of the boundary, or the interface to the runaway grid), and refuses the channels
-# that no row term carries: radial transport of f, knock-on secondaries on its grid, the
-# fluid knock-ons above it, a prescribed loss rate and a Maxwellian source.
+# W_hot the row lists the sinks of its collisions, the energy that crosses p_max (the flux of
+# the boundary, or the interface to the runaway grid), and refuses the channels that no row
+# term carries: radial transport of f, knock-on secondaries on its grid, the fluid knock-ons
+# above it, a prescribed loss rate, a Maxwellian source, and a LinearTerm with a nonzero
+# coefficient, which moves electrons into f from a kinetic unknown or out of it. The checks
+# read the coefficients of the operators as they are, so a run repeats them before its
+# first step (_check_run).
 function _check_total_energy_rows(equations)
     for (; row, total, closures, distributions) in _total_energy_rows(equations)
         listed = row.terms
@@ -1580,12 +1581,11 @@ function _check_total_energy_rows(equations)
                                             "coefficient = -1) of this term"))
                     end
                 end
-                if term isa FokkerPlanckTerm && _moves_in_radius(term) &&
-                   !_radial_energy_listed(listed, term)
+                if term isa FokkerPlanckTerm && _moves_in_radius(term)
                     throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
-                                        "and $d moves in radius, whose energy flux no term of the row carries: the " *
-                                        "electrons that move out would heat the cold electrons where they leave. Radial " *
-                                        "transport of f is refused under the total energy"))
+                                        "and $d moves in radius, but the system has no energy term for radial " *
+                                        "transport: the cold electrons would gain or pay the energy that the transport " *
+                                        "moves between the radii. Radial transport of $d is refused under the total energy"))
                 end
                 if term isa KnockOnTerm
                     throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
@@ -1605,9 +1605,17 @@ function _check_total_energy_rows(equations)
                 end
                 if term isa MaxwellianSourceTerm
                     throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
-                                        "and the MaxwellianSourceTerm in the equation of $d adds electrons whose energy " *
-                                        "no term of the row carries: the cold electrons would pay the energy that it adds to " *
-                                        "the hot region. A Maxwellian source is refused under the total energy"))
+                                        "and the MaxwellianSourceTerm in the equation of $d adds or removes electrons " *
+                                        "whose energy no term of the row carries: the cold electrons would pay or gain " *
+                                        "the energy that it adds to the hot region or removes from it. A Maxwellian " *
+                                        "source is refused under the total energy"))
+                end
+                if term isa LinearTerm && any(!iszero, term.coefficient)
+                    throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
+                                        "and the LinearTerm of $(term.unknown) in the equation of $d moves electrons " *
+                                        "into $d or out of it, whose energy no term of the row carries: the cold " *
+                                        "electrons would pay or gain it. A LinearTerm with a nonzero coefficient is " *
+                                        "refused in the equation of a distribution under the total energy"))
                 end
             end
         end

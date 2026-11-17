@@ -235,22 +235,31 @@ Every other change of the energy of the hot region is charged to the cold electr
 `part = :sinks` for the bremsstrahlung, the synchrotron loss and the friction on bound
 electrons, `MomentumBoundaryFluxTerm(...; weight = :energy)` for an outflow at `p_max`, and
 [`InterfaceEnergyFluxTerm`](@ref) for the runaway grid. The system refuses a row that misses
-one of them. It refuses the terms of the equation of `kinetic` that have no such term,
-since their energy would come out of the cold electrons, or go to them, at the radius
-where the electrons are moved, created or removed:
+one of them. It also refuses the terms of the equation of `kinetic` for which the system has
+no energy term, since the cold electrons would pay or gain their energy at the radius where
+the electrons are moved, created or removed:
 
-- radial transport of `kinetic`, also when a [`RechesterRosenbluthUpdate`](@ref) sets it
-  in the run, which the run refuses before its first step;
-- knock-on secondaries on its grid ([`KnockOnTerm`](@ref)) and the knock-ons of the fluid
-  runaways above it ([`RosenbluthPutvinskiSourceTerm`](@ref));
-- a prescribed loss rate ([`LossRateTerm`](@ref)) and a Maxwellian source
-  ([`MaxwellianSourceTerm`](@ref)).
+- Radial transport of `kinetic` is refused. The run refuses a
+  [`RechesterRosenbluthUpdate`](@ref) that sets it, before its first step.
+- Knock-on secondaries on its grid ([`KnockOnTerm`](@ref)) and the knock-ons of the fluid
+  runaways above it ([`RosenbluthPutvinskiSourceTerm`](@ref)) are refused.
+- A prescribed loss rate ([`LossRateTerm`](@ref)) and a Maxwellian source
+  ([`MaxwellianSourceTerm`](@ref)) are refused.
+- A [`LinearTerm`](@ref) with a nonzero coefficient, which moves electrons into `kinetic`
+  from a kinetic unknown or out of it, is refused.
+
+The checks read the coefficients of the operators as they are, and a run repeats them
+before its first step. A [`ParticleSourceTerm`](@ref) is accepted. With the constraint
+`0 = n(f) − n_cold − n_hot` for its magnitude, it moves electrons between the cold
+population and `kinetic`, so the cold electrons rightly pay the energy that its electrons
+bring into the hot region. A Maxwellian source adds or removes electrons from outside the
+system, so no population of the system should pay or gain their energy.
 
 The sinks and the transfer to the free electrons ([`KineticEnergyLossTerm`](@ref)) take no
-flux through `p_max`, whose energy is the boundary term's alone. The sinks term is required by the settings of the collisions
-(synchrotron, bremsstrahlung, partial or no screening on), not by its value: at `B = 0` a
-synchrotron loss of zero still needs the term, so that the row stays closed when the field
-of the plasma changes.
+flux through `p_max`, whose energy is the boundary term's alone. The sinks term is required
+by the settings of the collisions (synchrotron, bremsstrahlung, partial or no screening on),
+not by its value: at `B = 0` a synchrotron loss of zero still needs the term, so that the
+row stays closed when the field of the plasma changes.
 
 `total_energy` takes its initial value from the row, after the energy of the cold electrons.
 """

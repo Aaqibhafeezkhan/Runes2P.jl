@@ -86,7 +86,9 @@ Prescribed loss `-ν f` of the kinetic unknown `unknown` with the rate `ν` [1/s
 radius (`rate`, one value per radius), added to the row unknown, which has the same grid.
 The exponential loss of a region with open field lines, as DREAM's loss outside the last
 closed flux surface. The vector is referenced: an update of the run may change its values
-between the intervals.
+between the intervals. The system refuses the term in the equation of a distribution whose
+energy is in the total energy of the electrons ([`total_energy_equation`](@ref)), since no
+term carries the energy of the lost electrons.
 """
 struct LossRateTerm <: EquationTerm
     unknown::Symbol

@@ -21,8 +21,9 @@ L = −\\frac{1}{V'} \\sum_{ij} w_i\\, m_e c^2 (γ_i − 1)\\, [C_a f − C_b f]
 with the envelope `w` of `region` (1 without one, [`MomentumRegion`](@ref)) and the
 operators of the plasma, collision settings, scheme and lower boundaries of `source`.
 Neither part takes a flux through `p_max`, whatever the upper boundary of `source`: the
-electrons that cross there carry their energy across the edge of the grid, which
-[`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` counts. The parts:
+electrons that cross there carry their energy across the edge of the grid. That energy is
+counted by [`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` at an outer boundary
+and by [`InterfaceEnergyFluxTerm`](@ref) at the interface to a runaway grid. The parts:
 
 - `part = :free_electrons`: `C_a` the electron-electron part ([`electron_electron_operator`](@ref)),
   `C_b = 0`: the energy that the electrons give to the free cold electrons, the friction
@@ -172,19 +173,19 @@ end
 # The operators C_a and C_b of the part, with the scheme and the lower boundaries of the
 # source. Both parts take no flux through p_max (the value :interface): the electrons that
 # cross there carry their energy across the edge of the grid, and neither the cold
-# electrons nor the sinks exchange it. In the row of the total energy that energy is
-# MomentumBoundaryFluxTerm(...; weight = :energy) alone, which a flux in either part would
-# count twice.
+# electrons nor the sinks exchange it. In the row of the total energy that energy is the
+# boundary term's, MomentumBoundaryFluxTerm(...; weight = :energy) at an outer boundary and
+# InterfaceEnergyFluxTerm at the interface to a runaway grid, which a flux in either part
+# would count twice.
 function _loss_operators(term::KineticEnergyLossTerm, grid, plasma)
     op = term.source.operator
-    upper = :interface
     free = electron_electron_operator(
         grid, plasma, term.source.settings; scheme = op.p_scheme,
-        p_lower_boundary = op.p_lower_boundary, p_upper_boundary = upper,
+        p_lower_boundary = op.p_lower_boundary, p_upper_boundary = :interface,
         p_zero_boundary = op.p_zero_boundary)
     term.part === :free_electrons && return (free, nothing)
     collisions = AdvectionDiffusion(grid; p_scheme = op.p_scheme, xi_scheme = op.xi_scheme,
-        p_lower_boundary = op.p_lower_boundary, p_upper_boundary = upper,
+        p_lower_boundary = op.p_lower_boundary, p_upper_boundary = :interface,
         p_zero_boundary = op.p_zero_boundary)
     C = eltype(plasma.cold_electron_temperature)
     if C !== Float64
