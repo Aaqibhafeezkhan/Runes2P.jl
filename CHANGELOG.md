@@ -8,6 +8,9 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Added
 
+- `KineticEnergyLossTerm` takes a Fokker-Planck term with a flux limiter, such as `:tcdf`, so a total-energy row accepts the sinks of a hot-tail grid under a limiter ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+  Under `:upwind`, `:quick`, `:upwind_second_order` and the limiters, the term takes the moment in the form of the momentum faces, and its Jacobian holds the derivative of the limiter.
+  The term reads the sign of the field unknown of the Fokker-Planck term, which it lists among its dependencies without a column.
 - `SecondaryHeatingTerm(...; cut = :knockon, knockon_term = term)` gives the cold electrons only the energy of the secondaries below the cutoff of the `KnockOnTerm` `term` at each radius ([#294](https://github.com/osrep/Runes2P.jl/pull/294)).
   The secondaries above the cutoff, which the knock-on term puts into a distribution, are no longer counted twice.
   The heating reads the cutoff at each evaluation, so it follows a `KnockOnCutoffUpdate`.
@@ -50,6 +53,11 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Changed
 
+- Under `:upwind`, `:quick` and `:upwind_second_order`, both operators of `KineticEnergyLossTerm` take the face values on the upwind side of the whole advection of the Fokker-Planck term, its collisions and its field ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+  Until now each operator took the side of its own advection, so the field part, the free-electron part and the sinks did not sum to the momentum flux of the term where the field beats the friction.
+  In `runaway_heating_example` at `compat = :runes2p` (upwind, 1.5 V/m) the heating by `f_re` is now 1.36e5 to 1.39e5 W/m³ over the run, in place of 0 to 473 W/m³.
+  That is 1.77 to 1.78 times DREAM's moment `FrictionEnergyTransferTerm` on the same states.
+  `T_cold` ends 2.8e-4 above DREAM's in place of 2.9e-4 below it.
 - `EquationSystem` refuses `SecondaryHeatingTerm` with `cut = :none` or `cut = :threshold` next to a `KnockOnTerm` of the same primary on `:total_electron_density`, which counts the energy above the knock-on cutoff twice ([#294](https://github.com/osrep/Runes2P.jl/pull/294)).
   `bound_friction = :ionization_split` accepts the heating with `cut = :knockon` as well as with `cut = :none`.
 - Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` refuses a `LossRateTerm`, a `MaxwellianSourceTerm` or a `LinearTerm` with a nonzero coefficient in the equation of a distribution whose energy is in the total ([#295](https://github.com/osrep/Runes2P.jl/pull/295)).

@@ -378,6 +378,22 @@ Base.@propagate_inbounds _advection_xi(op::AdvectionDiffusion, field, i, k, ir) 
     op.advection_xi[i, k, ir] + field[ir] * op.unit_field_advection_xi[i, k, ir]
 #! format: on
 
+# The operator and the field (`nothing` or one value per radius) whose momentum advection
+# sets the upwind side of the face values of another operator. The parts of an operator
+# that each take the side of the whole sum to the flux of the whole face by face, also
+# under a limiter, whose face value depends on f and on the side alone.
+struct AdvectionSide{O <: AdvectionDiffusion, F}
+    operator::O
+    field::F
+end
+
+# the advection of p face k that sets the side of the face value: the face's own advection
+# A without a side, that of the side's operator and field with one
+#! format: off
+@inline _side_advection_p(A, ::Nothing, k, j, ir) = A
+Base.@propagate_inbounds _side_advection_p(A, side::AdvectionSide, k, j, ir) = _advection_p(side.operator, side.field, k, j, ir)
+#! format: on
+
 @inline function _face_value(scheme, advection, f_left, f_right, weight_left)
     if scheme === :upwind
         return advection >= 0 ? f_left : f_right
@@ -399,6 +415,12 @@ end
 # Flux A f - D ∂f between two cell centres a distance `distance` apart, for the scheme;
 # `weight_left` is the linear-interpolation weight of the left centre at the face
 @inline function _face_flux(scheme, A, D, f_left, f_right, distance, weight_left)
+    return _face_flux(scheme, A, A, D, f_left, f_right, distance, weight_left)
+end
+
+# The same flux with the face value on the side of the advection `A_side`, multiplied by
+# the advection A. Exponential fitting has no face value apart from A, and ignores A_side.
+@inline function _face_flux(scheme, A, A_side, D, f_left, f_right, distance, weight_left)
     if scheme === :exponential_fitting
         if D > 0
             w = A * distance / D
@@ -406,7 +428,7 @@ end
         end
         return A * (A >= 0 ? f_left : f_right) - D * (f_right - f_left) / distance
     end
-    return A * _face_value(scheme, A, f_left, f_right, weight_left) -
+    return A * _face_value(scheme, A_side, f_left, f_right, weight_left) -
            D * (f_right - f_left) / distance
 end
 
@@ -512,21 +534,23 @@ Base.@propagate_inbounds function _r_four_point_face(
 end
 
 # Γᵖ (not multiplied by 𝒱') through interior p face `k` (2 <= k <= momentum cell count),
-# between cells k-1 and k.
+# between cells k-1 and k, with the face value on the upwind side of `side`
+# (`AdvectionSide`, `nothing`: of the face's own advection).
 Base.@propagate_inbounds function _p_interior_gamma(
-        op::AdvectionDiffusion, f, k, j, ir, state, field = nothing)
+        op::AdvectionDiffusion, f, k, j, ir, state, field = nothing, side = nothing)
     m = op.momentum_grids[ir]
     np = momentum_cell_count(m)
     A = _advection_p(op, field, k, j, ir)
+    A_side = _side_advection_p(A, side, k, j, ir)
     f_left = f[k - 1, j, ir]
     f_right = f[k, j, ir]
     distance = m.p_centers[k] - m.p_centers[k - 1]
     weight_left = (m.p_centers[k] - m.p_faces[k]) / distance
     F = if is_four_point_scheme(op.p_scheme) && np >= 3
-        A * _p_four_point_face(op, f, state, A, k, j, ir) -
+        A * _p_four_point_face(op, f, state, A_side, k, j, ir) -
         op.diffusion_p_p[k, j, ir] * (f_right - f_left) / distance
     else
-        _face_flux(op.p_scheme, A, op.diffusion_p_p[k, j, ir],
+        _face_flux(op.p_scheme, A, A_side, op.diffusion_p_p[k, j, ir],
             f_left, f_right, distance, weight_left)
     end
     D = op.diffusion_p_xi[k, j, ir]
@@ -556,9 +580,12 @@ function _flux_eltype(::AdvectionDiffusion{<:Any, C}, f, field = nothing) where 
 end
 
 # Flux Γᵖ through p face `k` (between cells k-1 and k), multiplied by 𝒱'. `state` gives the
-# limiter weights of a frozen limiter (`nothing`: the limiter at f itself).
+# limiter weights of a frozen limiter (`nothing`: the limiter at f itself), and `side` the
+# advection whose upwind side the face values take (`AdvectionSide`, `nothing`: the face's
+# own advection).
 Base.@propagate_inbounds function _p_flux(
-        op::AdvectionDiffusion, f, k, j, ir, state = nothing, field = nothing)
+        op::AdvectionDiffusion, f, k, j, ir, state = nothing, field = nothing,
+        side = nothing)
     m = op.momentum_grids[ir]
     np = momentum_cell_count(m)
     V = op.jacobian_p_faces[k, j, ir]
@@ -572,7 +599,8 @@ Base.@propagate_inbounds function _p_flux(
             # second-order upwind (DREAM AdvectionTerm, F1PSqAtZero with the p = 0 deltas)
             #! format: off
             face = if is_four_point_scheme(op.p_scheme) && np >= 3
-                _p_four_point_face(op, f, state, _advection_p(op, field, 1, j, ir), 1, j, ir)
+                A_zero = _advection_p(op, field, 1, j, ir)
+                _p_four_point_face(op, f, state, _side_advection_p(A_zero, side, 1, j, ir), 1, j, ir)
             else
                 f[1, j, ir]
             end
@@ -588,13 +616,14 @@ Base.@propagate_inbounds function _p_flux(
     end
     V == 0 && return zero(T)
     A = _advection_p(op, field, k, j, ir)
+    A_side = _side_advection_p(A, side, k, j, ir)
     if k == np + 1
         # the flux through an interface belongs to the MomentumInterfaceTerm
         op.p_upper_boundary === :interface && return zero(T)
         f_last = f[np, j, ir]
         if op.p_upper_boundary === :constant_flux
             # 𝒱'Γᵖ continued unchanged from the last interior face (DREAM BC_PHI_CONST)
-            return _p_flux(op, f, np, j, ir, state, field)
+            return _p_flux(op, f, np, j, ir, state, field, side)
         elseif op.p_upper_boundary === :extrapolated_flux
             # linear extrapolation of 𝒱'Γᵖ from the last two interior faces (DREAM
             # BC_DPHI_CONST, PXiExternalLoss.cpp), ported as DREAM's code has it: both
@@ -604,15 +633,16 @@ Base.@propagate_inbounds function _p_flux(
             # the last interior face's 𝒱'.
             A_last = _advection_p(op, field, np, j, ir)
             A_prev = _advection_p(op, field, np-1, j, ir)
-            gamma_last = _p_interior_gamma(op, f, np, j, ir, state, field)
+            A_prev_side = _side_advection_p(A_prev, side, np - 1, j, ir)
+            gamma_last = _p_interior_gamma(op, f, np, j, ir, state, field, side)
             face_value_prev = if is_four_point_scheme(op.p_scheme) && np >= 3
-                _p_four_point_face(op, f, state, A_prev, np - 1, j, ir)
+                _p_four_point_face(op, f, state, A_prev_side, np - 1, j, ir)
             else
                 f_left = f[np - 2, j, ir]
                 f_right = f[np - 1, j, ir]
                 distance_prev = m.p_centers[np - 1] - m.p_centers[np - 2]
                 weight_left = (m.p_centers[np - 1] - m.p_faces[np - 1]) / distance_prev
-                _face_value(op.p_scheme, A_prev, f_left, f_right, weight_left)
+                _face_value(op.p_scheme, A_prev_side, f_left, f_right, weight_left)
             end
             distance_prev = m.p_centers[np - 1] - m.p_centers[np - 2]
             gamma_prev_dream = A_last * face_value_prev -
@@ -626,8 +656,8 @@ Base.@propagate_inbounds function _p_flux(
             # each face's own 𝒱' and Γᵖ throughout, unlike DREAM's code (which also shares
             # one 𝒱' between the two terms, a second deviation from its stated definition
             # beside the Aᵖ index)
-            phi_last = _p_flux(op, f, np, j, ir, state, field)
-            phi_prev = _p_flux(op, f, np - 1, j, ir, state, field)
+            phi_last = _p_flux(op, f, np, j, ir, state, field, side)
+            phi_prev = _p_flux(op, f, np - 1, j, ir, state, field, side)
             dd = m.p_widths[np] / m.p_widths[np - 1]
             return (1 + dd) * phi_last - dd * phi_prev
         elseif op.p_upper_boundary === :f_zero && np > 1  # one cell: outflow below
@@ -637,12 +667,12 @@ Base.@propagate_inbounds function _p_flux(
                 return V * _face_flux(op.p_scheme, A, op.diffusion_p_p[k, j, ir],
                     f_last, zero(T), distance, 0.5)
             end
-            return V * ((A > 0 ? A * f_last : zero(T)) +
+            return V * ((A_side > 0 ? A * f_last : zero(T)) +
                     op.diffusion_p_p[k, j, ir] * f_last / distance)
         end
-        return V * (A > 0 ? A * f_last : zero(T))
+        return V * (A_side > 0 ? A * f_last : zero(T))
     end
-    return V * _p_interior_gamma(op, f, k, j, ir, state, field)
+    return V * _p_interior_gamma(op, f, k, j, ir, state, field, side)
 end
 
 # Flux Γᵠ through ξ face `k` (between cells k-1 and k), multiplied by 𝒱'.

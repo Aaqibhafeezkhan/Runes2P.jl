@@ -7,7 +7,11 @@
 # the plasma it keeps there when prepared before, and the energy carried through p_max and
 # through the interface, with its column of the field when the interface reads the field,
 # and the particles through the interface in a radial row (InterfaceParticleFluxTerm), with
-# the rows of both on pitch grids that differ between radii.
+# the rows of both on pitch grids that differ between radii. Under the schemes whose face
+# value depends on the side of the advection, the loss of f in the form of the momentum
+# faces: the parts that sum to the flux of the whole, the energy moment, the pitch fluxes
+# that leave it, the form of the linear schemes, the Jacobian, the sign of the field and the
+# allocations.
 using ForwardDiff: ForwardDiff
 using Random: Xoshiro
 using SparseArrays: findnz, sparse
@@ -510,5 +514,274 @@ using SparseArrays: findnz, sparse
             (du, x) -> rhs!(du, x, system, 0.0), zeros(length(layout)), u)
         largest = maximum(abs, reference)
         @test maximum(abs, Matrix(J) - reference) <= 1e-12 * largest
+    end
+
+    @testset "the loss under schemes that depend on the side of the advection" begin
+        # A bulk of 100 eV with a monotone tail on a grid from p = 0, two radii with different
+        # pitch grids, collisions with a synchrotron loss (B = 5 T) and bremsstrahlung as the
+        # sinks, and a field of 2 V/m, which beats the friction above p ≈ 0.06 at ξ of its
+        # sign, so that the side of the whole advection differs from that of the collisions
+        T1, n1 = 100.0, 1e19
+        p_faces = uniform_p_faces(60, 0.0, 0.6)
+        radii = RadialGrid(uniform_r_faces(2, 0.5))
+        hot = cylindrical_grid(
+            [MomentumGrid(p_faces, uniform_xi_faces(6)),
+                MomentumGrid(p_faces, -cos.(range(0, π; length = 7)))],
+            radii)
+        collision_settings = CollisionSettings(mode = :full, screening = :complete,
+            coulomb_logarithm = :energy_dependent, bremsstrahlung = :stopping_power)
+        hot_region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor = 5))
+        theta = T1 / Constants.ELECTRON_REST_ENERGY
+        tail = zeros(60, 6, 2)
+        for ir in 1:2
+            mr = momentum_grid(hot, ir)
+            for (j, xi) in enumerate(mr.xi_centers), (i, p) in enumerate(mr.p_centers)
+
+                bulk = n1 * exp(-p^2 / (1 + sqrt(1 + p^2)) / theta) / (2π * theta)^1.5
+                tail[i, j, ir] = (bulk + 1e20 * exp(-p / 0.1)) * (1 + 0.3xi)
+            end
+        end
+        function loss_case(scheme, field; field_unknown = false, region = hot_region)
+            plasma = PlasmaState(; cold_electron_temperature = fill(T1, 2),
+                ions = [IonSpecies("D", 1, 1, fill(n1, 2))], electric_field = fill(field, 2),
+                magnetic_field = fill(5.0, 2), cold_electron_density = fill(n1, 2))
+            unknowns = [KineticUnknown(:f, hot; scale = 1e19),
+                RadialUnknown(:cold_electron_temperature; scale = 100.0),
+                RadialUnknown(:cold_electron_density; scale = 1e19)]
+            if field_unknown
+                push!(unknowns, RadialUnknown(:electric_field))
+            end
+            case_layout = UnknownLayout(radii, unknowns)
+            state = zeros(length(case_layout))
+            kinetic_array(state, case_layout, 1) .= tail
+            unknown_values(state, case_layout, 2) .= T1
+            unknown_values(state, case_layout, 3) .= n1
+            op = AdvectionDiffusion(hot; scheme, p_upper_boundary = :f_zero)
+            source = if field_unknown
+                unknown_values(state, case_layout, 4) .= field
+                set_unit_field_coefficients!(op)
+                FokkerPlanckTerm(:f, op; plasma = PlasmaFromUnknowns(plasma),
+                    settings = collision_settings, electric_field = :electric_field)
+            else
+                FokkerPlanckTerm(:f, op; plasma = PlasmaFromUnknowns(plasma),
+                    settings = collision_settings)
+            end
+            sinks = KineticEnergyLossTerm(source; part = :sinks, region, coefficient = 1)
+            free = KineticEnergyLossTerm(source; part = :free_electrons, region)
+            whole = Runes2P._operator_at(source, state, case_layout, 0.0)
+            side = Runes2P._loss_side(sinks, state, case_layout, 0.0)
+            collisions, electron_electron = Runes2P._loss_operators(sinks, hot,
+                Runes2P._transfer_plasma(sinks, state, case_layout, 0.0))
+            # the field part: the advection of the whole without the collisions
+            field_part = AdvectionDiffusion(hot; scheme, p_upper_boundary = :interface)
+            field_part.advection_p .= _p_advection(whole, state, case_layout, source) .-
+                                      collisions.advection_p
+            return (; layout = case_layout, state, source, sinks, free, whole, side,
+                collisions, electron_electron, field_part)
+        end
+        # the advection of the whole on the p faces, with the field of an unknown
+        function _p_advection(op, state, case_layout, source)
+            source.electric_field === nothing && return op.advection_p
+            E = unknown_values(state, case_layout, unknown_id(case_layout, source.electric_field))
+            return op.advection_p .+ reshape(E, 1, 1, :) .* op.unit_field_advection_p
+        end
+        side_schemes = (
+            :upwind, :quick, :upwind_second_order, :tcdf, :muscl, :smart, :ospre,
+            :van_albada)
+
+        @testset "the parts sum to the flux of the whole ($scheme, E = $field)" for scheme in side_schemes,
+            field in (2.0, -2.0)
+
+            case = loss_case(scheme, field)
+            (; layout, state, side, whole, collisions, electron_electron, field_part) = case
+            (; sinks, free, source) = case
+            field_values = Runes2P._field_values(source.electric_field, state, layout)
+            # a: face by face, the field part, the free-electron part and the sinks with the
+            # side of the whole sum to the momentum flux of the whole to round-off (2e-16 to
+            # 6e-16 of the largest flux), while the parts on their own sides differ from it
+            # (0.07 to 0.4 of the largest flux) where the field beats the friction
+            flux(op, k, j, ir, s = nothing) = Runes2P._p_flux(
+                op, tail, k, j, ir, nothing, nothing, s)
+            shared, own, largest = 0.0, 0.0, 0.0
+            for ir in 1:2, j in 1:6, k in 1:60
+                reference = Runes2P._p_flux(whole, tail, k, j, ir, nothing, field_values)
+                sinks_flux = flux(collisions, k, j, ir, side) -
+                             flux(electron_electron, k, j, ir, side)
+                parts = flux(field_part, k, j, ir, side) +
+                        flux(electron_electron, k, j, ir, side) +
+                        sinks_flux
+                own_sides = flux(field_part, k, j, ir) + flux(electron_electron, k, j, ir) +
+                            (flux(collisions, k, j, ir) - flux(electron_electron, k, j, ir))
+                shared = max(shared, abs(parts - reference))
+                own = max(own, abs(own_sides - reference))
+                largest = max(largest, abs(reference))
+            end
+            @test shared <= 2e-15 * largest
+            @test own > 1e-2 * largest
+            # b: the energy moment of the whole over the region, in the operator's own form,
+            # is the moment of the field part plus the free-electron part plus the sinks (at
+            # most 2e-14 of it measured). The whole takes no flux through p_max here, as the parts.
+            interfaced = AdvectionDiffusion(hot; scheme, p_upper_boundary = :interface)
+            for name in (:advection_p, :diffusion_p_p, :advection_xi, :diffusion_xi_xi,
+                :advection_p_times_p2_at_zero)
+                getfield(interfaced, name) .= getfield(whole, name)
+            end
+            interfaced.advection_p .= _p_advection(whole, state, layout, source)
+            df = apply!(zeros(size(tail)), interfaced, tail)
+            sinks_rhs = Runes2P.rhs!(zeros(length(state)), sinks, state, layout, 2, 0.0)
+            free_rhs = Runes2P.rhs!(zeros(length(state)), free, state, layout, 2, 0.0)
+            for ir in 1:2
+                envelope = Runes2P._envelope_at(
+                    sinks.envelopes, hot, ir, state, layout, 0.0)
+                weights = Runes2P._energy_weights(hot, ir) .* envelope
+                moment = sum(weights .* view(df, :, :, ir))
+                field_moment = Runes2P._face_loss(
+                    (field_part, nothing), tail, side, envelope, ir)
+                # the coefficients 1 of both parts: the rows hold −(the moment)
+                r = first(Runes2P.unknown_range(layout, 2, ir))
+                parts = field_moment - sinks_rhs[r] - free_rhs[r]
+                @test parts ≈ moment rtol = 1e-13
+            end
+        end
+
+        @testset "the pitch fluxes leave the energy moment ($scheme)" for scheme in (:tcdf, :upwind)
+            # c: the energy moment of the pitch divergence alone, with advection, diffusion and
+            # cross diffusion in pitch, is zero to round-off of the moments of its cells
+            (; layout, state, whole, sinks) = loss_case(scheme, 2.0)
+            pitch = AdvectionDiffusion(hot; scheme, p_upper_boundary = :interface)
+            pitch.advection_xi .= whole.advection_xi
+            pitch.diffusion_xi_xi .= whole.diffusion_xi_xi
+            pitch.diffusion_xi_p .= 0.1 .* whole.diffusion_xi_xi
+            df = apply!(zeros(size(tail)), pitch, tail)
+            for ir in 1:2
+                envelope = Runes2P._envelope_at(
+                    sinks.envelopes, hot, ir, state, layout, 0.0)
+                cells = Runes2P._energy_weights(hot, ir) .* envelope .* view(df, :, :, ir)
+                @test any(!iszero, cells)
+                @test abs(sum(cells)) <= 1e-14 * sum(abs, cells)
+            end
+        end
+
+        @testset "the face form of a linear scheme is the moment of apply! ($scheme)" for scheme in (
+            :upwind, :central, :exponential_fitting, :quick, :upwind_second_order)
+            # d: with the face values on their own sides, the sum over the momentum faces is
+            # the energy moment of the operators applied to f, at p = 0 with both of its
+            # boundaries and at p_min > 0 with a prescribed flux. The random coefficients
+            # cancel in the moment, so the bound is 1e-14 of the sum of the absolute moments
+            # of the cells.
+            (; layout, state, sinks) = loss_case(:upwind, 2.0)
+            rng = Xoshiro(17)
+            above = cylindrical_grid(
+                [MomentumGrid(uniform_p_faces(30, 0.1, 0.6), uniform_xi_faces(6)),
+                    MomentumGrid(uniform_p_faces(30, 0.1, 0.6), -cos.(range(0, π; length = 7)))],
+                radii)
+            for (grid_d, boundaries) in ((hot, (; p_zero_boundary = :outflow)),
+                (hot, (; p_zero_boundary = :zero_flux)), (
+                above, (; p_lower_boundary = :prescribed)))
+                op = AdvectionDiffusion(grid_d; scheme, p_upper_boundary = :interface, boundaries...)
+                op.advection_p .= randn(rng, size(op.advection_p))
+                op.diffusion_p_p .= rand(rng, size(op.diffusion_p_p))
+                op.diffusion_p_xi .= 0.1 .* randn(rng, size(op.diffusion_p_xi))
+                op.advection_xi .= randn(rng, size(op.advection_xi))
+                op.advection_p_times_p2_at_zero .= randn(rng, size(op.advection_p_times_p2_at_zero))
+                op.p_flux_at_lower_boundary .= randn(rng, size(op.p_flux_at_lower_boundary))
+                g = rand(rng, size(grid_d)...)
+                df = apply!(zeros(size(g)), op, g)
+                for ir in 1:2
+                    envelope = Runes2P._envelope_at(
+                        sinks.envelopes, hot, ir, state, layout, 0.0)
+                    envelope = grid_d === hot ? envelope : ones(30)
+                    cells = Runes2P._energy_weights(grid_d, ir) .* envelope .*
+                            view(df, :, :, ir)
+                    face = Runes2P._face_loss((op, nothing), g, nothing, envelope, ir)
+                    @test abs(face - sum(cells)) <= 1e-14 * sum(abs, cells)
+                end
+            end
+        end
+
+        @testset "the Jacobian of the face form ($scheme)" for scheme in (:tcdf, :ospre)
+            # e: at a monotone f, where the limiters are smooth, the row in the columns of f
+            # agrees with the automatic differentiation of the residual to 1e-15 of its
+            # largest entry, and the row in the columns of f, of the temperature and of the
+            # density with central differences of 1e-6 of each value to 1e-6 of the largest
+            # entry (9e-8 and 7e-8 measured)
+            (; layout, state, source) = loss_case(scheme, 2.0)
+            term = KineticEnergyLossTerm(source; part = :sinks, region = hot_region)
+            entries = Runes2P.sparsity!(Tuple{Int, Int}[], term, layout, 2)
+            JL = sparse(
+                first.(entries), last.(entries), zeros(length(entries)), length(state),
+                length(state))
+            Runes2P.add_jacobian!(JL, term, state, layout, 2, 0.0)
+            loss_rhs(x) = Runes2P.rhs!(zeros(eltype(x), length(x)), term, x, layout, 2, 0.0)
+            dense = ForwardDiff.jacobian(loss_rhs, state)
+            for ir in 1:2
+                r = first(Runes2P.unknown_range(layout, 2, ir))
+                f_columns = Runes2P.unknown_range(layout, 1, ir)
+                @test maximum(abs, Vector(JL[r, f_columns]) - dense[r, f_columns]) <=
+                      1e-15 * maximum(abs, dense[r, f_columns])
+                columns = [collect(f_columns); first(Runes2P.unknown_range(layout, 2, ir));
+                           first(Runes2P.unknown_range(layout, 3, ir))]
+                differences = map(columns) do column
+                    h = 1e-6 * abs(state[column])
+                    up, down = copy(state), copy(state)
+                    up[column] += h
+                    down[column] -= h
+                    return (loss_rhs(up)[r] - loss_rhs(down)[r]) / 2h
+                end
+                @test maximum(abs, Vector(JL[r, columns]) - differences) <=
+                      1e-6 * maximum(abs, differences)
+                @test JL[r, first(Runes2P.unknown_range(layout, 2, ir))] != 0
+            end
+        end
+
+        @testset "the sign of the field unknown" begin
+            # the face form reads the field unknown of the source only through the sign of the
+            # whole advection and has no column of it: a change of the field that keeps the
+            # side of every face leaves the row unchanged exactly
+            (; layout, state, sinks, whole) = loss_case(:tcdf, 2.0; field_unknown = true)
+            @test :electric_field in Runes2P.dependencies(sinks) && !is_linear(sinks)
+            entries = Runes2P.sparsity!(Tuple{Int, Int}[], sinks, layout, 2)
+            @test !any(entry -> last(entry) in Runes2P.unknown_range(layout, 4, 1), entries)
+            rows = [first(Runes2P.unknown_range(layout, 2, ir)) for ir in 1:2]
+            loss_rhs(x) = Runes2P.rhs!(zeros(length(x)), sinks, x, layout, 2, 0.0)[rows]
+            changed, reversed = copy(state), copy(state)
+            unknown_values(changed, layout, 4) .*= 1 + 1e-6
+            unknown_values(reversed, layout, 4) .*= -1
+            sides(x) = sign.(whole.advection_p .+
+                             reshape(unknown_values(x, layout, 4), 1, 1, :) .*
+                             whole.unit_field_advection_p)
+            @test sides(changed) == sides(state)
+            @test loss_rhs(changed) == loss_rhs(state)
+            @test loss_rhs(reversed) != loss_rhs(state)
+            # the field of the plasma of the source gives the same side and the same row
+            in_plasma = loss_case(:tcdf, 2.0)
+            plasma_rhs = Runes2P.rhs!(zeros(length(in_plasma.state)), in_plasma.sinks,
+                in_plasma.state, in_plasma.layout, 2, 0.0)
+            @test [plasma_rhs[first(Runes2P.unknown_range(in_plasma.layout, 2, ir))]
+                   for ir in 1:2] ≈ loss_rhs(state) rtol = 1e-13
+        end
+
+        @testset "allocations of the face form" begin
+            # the sum over the faces allocates nothing, nor do the columns of f of the row; the
+            # residual and the Jacobian allocate their operators (_loss_operators), and the face
+            # form less than the moment of the applied operators under exponential fitting
+            (; layout, state, source, side, collisions, electron_electron) = loss_case(:tcdf, 2.0)
+            term = KineticEnergyLossTerm(source; part = :sinks)
+            ops = (collisions, electron_electron)
+            @test call_allocation(Runes2P._face_loss, ops, tail, side, nothing, 1) == 0 skip = !OPTIMIZED
+            entries = Runes2P.sparsity!(Tuple{Int, Int}[], term, layout, 2)
+            JL = sparse(
+                first.(entries), last.(entries), zeros(length(entries)), length(state),
+                length(state))
+            colored = Runes2P.ColoredCells{4, 1}(tail)
+            @test call_allocation(Runes2P._add_face_loss_columns!, JL, term, ops, colored,
+                side, hot, state, layout, 2, 0.0) == 0 skip = !OPTIMIZED
+            fitted = KineticEnergyLossTerm(loss_case(:exponential_fitting, 2.0).source; part = :sinks)
+            out = zeros(length(state))
+            @test call_allocation(Runes2P.rhs!, out, term, state, layout, 2, 0.0) <=
+                  call_allocation(Runes2P.rhs!, out, fitted, state, layout, 2, 0.0)
+            @test call_allocation(Runes2P.add_jacobian!, JL, term, state, layout, 2, 0.0) <=
+                  call_allocation(Runes2P.add_jacobian!, JL, fitted, state, layout, 2, 0.0)
+        end
     end
 end

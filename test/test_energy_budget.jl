@@ -33,10 +33,12 @@ import ForwardDiff
               thermal_coulomb_logarithm(1e19, 100.0)
     end
 
-    @testset "transfer from a slowing-down tail" begin
+    @testset "transfer from a slowing-down tail ($scheme)" for scheme in (:exponential_fitting, :tcdf)
         # A bump of electrons at p = 0.3 above a 100 eV bulk, collisions with the free electrons
         # only (complete screening), no field: the energy the tail loses goes to the cold
-        # electrons. The friction power of a superthermal electron on cold free electrons is
+        # electrons. Under the limiter TCDF the system takes the sinks of the row in the form
+        # of the momentum faces (KineticEnergyLossTerm), and the budget closes as under
+        # exponential fitting. The friction power of a superthermal electron on cold free electrons is
         # v F_s = 4π n r₀² mₑc³ lnΛ_ee(p) γ/p, and the transfer is its sum over the tail. The
         # collisions are those of the fully kinetic mode, finite at p = 0 (the superthermal
         # friction diverges there); their thermal corrections at the bump are of order T/E ≈ 0.5 %.
@@ -64,7 +66,7 @@ import ForwardDiff
                 RadialUnknown(:cold_thermal_energy; scale = THERMAL_ENERGY_FACTOR * 1e21),
                 RadialUnknown(:total_electron_energy; scale = THERMAL_ENERGY_FACTOR * 1e21)])
         fp = FokkerPlanckTerm(:f,
-            AdvectionDiffusion(grid; scheme = :exponential_fitting, p_upper_boundary = :f_zero);
+            AdvectionDiffusion(grid; scheme, p_upper_boundary = :f_zero);
             plasma = PlasmaFromUnknowns(base), settings)
         # the row lists the sinks of the hot region and the energy that leaves through p_max;
         # both are below 1e-10 of the total energy over the step here
