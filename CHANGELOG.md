@@ -8,7 +8,7 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Added
 
-- `KineticEnergyChangeTerm(source; region, coefficient)` takes a `FokkerPlanckTerm` with radial transport as `source` ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+- `KineticEnergyChangeTerm(source; region, coefficient)` takes a `FokkerPlanckTerm` with radial transport as `source` ([#306](https://github.com/osrep/Runes2P.jl/pull/306)).
   It is then the energy moment of the radial transport of that term over `region`, whose limit may follow the temperature unknown.
   Under `total_energy_equation` the system and the run require this term in the row of the temperature for radial transport of a distribution in the total energy, in place of refusing the transport.
   A `RechesterRosenbluthUpdate` on such a distribution is accepted when the row holds the term.
@@ -83,7 +83,7 @@ Until the first release, every change is listed under "Unreleased", with the sub
   `bound_friction = :ionization_split` accepts the heating with `cut = :knockon` as well as with `cut = :none`.
 - Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` refuses a `LossRateTerm`, a `MaxwellianSourceTerm` or a `LinearTerm` with a nonzero coefficient in the equation of a distribution whose energy is in the total ([#295](https://github.com/osrep/Runes2P.jl/pull/295)).
   Until now the cold electrons gained or paid the energy of the electrons that these terms remove or add, since no term of the row of the temperature carries it.
-- A run refuses a `RechesterRosenbluthUpdate` whose operator moves a distribution whose energy is in the total energy of the electrons, unless the row of the temperature holds the energy term of that transport ([#295](https://github.com/osrep/Runes2P.jl/pull/295), [#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+- A run refuses a `RechesterRosenbluthUpdate` whose operator moves a distribution whose energy is in the total energy of the electrons, unless the row of the temperature holds the energy term of that transport ([#295](https://github.com/osrep/Runes2P.jl/pull/295), [#306](https://github.com/osrep/Runes2P.jl/pull/306)).
   The system refuses radial transport of such a distribution without that term when it is built, but the update sets the coefficients in the run, after that check.
   A run also repeats the checks of the total energy before its first step, so coefficients of radial transport set by hand after the build need the term too.
   Both refusals come before the first step, with an `ArgumentError`.
