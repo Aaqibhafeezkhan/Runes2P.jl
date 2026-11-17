@@ -21,7 +21,7 @@ Until the first release, every change is listed under "Unreleased", with the sub
   The term then takes the moment in the form of the momentum faces, with both operators on the upwind side of the whole advection of the Fokker-Planck term.
   The term reads the sign of that advection, its collisions and its field, and lists the field unknown among its dependencies without a column.
   Its Jacobian holds the derivative of the limiter.
-  A Fokker-Planck term with linear schemes gives the term the moment of the applied operators, as before.
+  A Fokker-Planck term with linear schemes gives the term the moment of the applied operators, except under the momentum schemes with a side (below).
 - `SecondaryHeatingTerm(...; cut = :knockon, knockon_term = term)` gives the cold electrons only the energy of the secondaries below the cutoff of the `KnockOnTerm` `term` at each radius ([#294](https://github.com/osrep/Runes2P.jl/pull/294)).
   The secondaries above the cutoff, which the knock-on term puts into a distribution, are no longer counted twice.
   The heating reads the cutoff at each evaluation, so it follows a `KnockOnCutoffUpdate`.

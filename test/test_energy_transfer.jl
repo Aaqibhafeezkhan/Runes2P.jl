@@ -1049,16 +1049,16 @@ using SparseArrays: findnz, sparse
         @testset "the parts sum to the moment of the whole ($scheme, $xi_scheme, E = $field, $field_unknown)" for (scheme, xi_scheme) in (
                 ((limiter, limiter) for limiter in limiters)..., (:upwind, :tcdf),
                 ((linear, linear) for linear in sided_linear)...),
-            field in (2.0, -2.0, 0.01),
+            field in (2.0, -2.0, 0.01, 0.0),
             field_unknown in (false, true)
 
             # The energy moment of the whole over the region, in the operator's own form, is the
             # moment of the field part plus the rows of the free-electron part and of the sinks
             # (at most 6.4e-15 of it measured), also with upwind in p and a limiter in ξ alone.
             # This holds under the linear schemes with a side as under the limiters, at 2 V/m,
-            # where the field beats the friction above p ≈ 0.06, and at 0.01 V/m, where the
-            # friction dominates every face. The whole takes no flux through p_max here, as the
-            # parts.
+            # where the field beats the friction above p ≈ 0.06, and at 0.01 V/m and without a
+            # field, where the friction dominates every face. The whole takes no flux through
+            # p_max here, as the parts.
             (; layout, state, side, whole, field_part, sinks, free, source) = loss_case(
                 scheme, field; xi_scheme, field_unknown)
             interfaced = AdvectionDiffusion(
@@ -1158,14 +1158,14 @@ using SparseArrays: findnz, sparse
             part in (:sinks, :free_electrons)
 
             # The term takes the face form on the side of the whole advection. It lists the
-            # field unknown among its dependencies and has no column of it. At 0.01 V/m the
-            # friction dominates every face, the side of the whole is that of each part, and
-            # the row is the energy moment of the applied operators to 1e-13 of the sum of
-            # the absolute moments of the cells (at most 6.5e-16 measured). At 2 V/m the field
-            # beats the friction above p ≈ 0.06, and the row departs from that moment by more
-            # than 1e-4 of it: by 2.0e-4 to 5.8e-2 of it measured, the least under QUICK in the
-            # free-electron part.
-            for (field, beats_friction) in ((0.01, false), (2.0, true))
+            # field unknown among its dependencies and has no column of it. Without a field and
+            # at 0.01 V/m the friction dominates every face, the side of the whole is that of
+            # each part, and the row is the energy moment of the applied operators to 1e-13 of
+            # the sum of the absolute moments of the cells (at most 6.5e-16 measured). At 2 V/m
+            # the field beats the friction above p ≈ 0.06, and the row departs from that moment
+            # by more than 1e-4 of it: by 2.0e-4 to 5.8e-2 of it measured, the least under QUICK
+            # in the free-electron part.
+            for (field, beats_friction) in ((0.0, false), (0.01, false), (2.0, true))
                 (; layout, state, source) = loss_case(scheme, field; field_unknown = true)
                 term = KineticEnergyLossTerm(source; part, region = hot_region)
                 @test Runes2P._face_form(term)
@@ -1190,6 +1190,52 @@ using SparseArrays: findnz, sparse
                         @test deviation <= 1e-13 * sum(abs, cells)
                     end
                 end
+            end
+        end
+
+        @testset "the parts on the side of the whole from their coefficients ($part, E = $field)" for part in (
+                :sinks, :free_electrons),
+            field in (2.0, 0.0)
+
+            # Under upwind, an anchor without the flux functions: the face value of f is that
+            # of the cell upwind of the whole advection, field included. The flux of a part
+            # through a momentum face is its advection times that value, less its diffusion
+            # times the difference of f over the distance of the centres, times 𝒱' of the face.
+            # The row is minus the sum over the faces inside the region, weighted by the step of
+            # the energy and by Δξ, over V'. It agrees to 1e-13 of the sum of the absolute
+            # weighted fluxes of the operators, which cancel in the sinks.
+            (; layout, state, source, whole) = loss_case(:upwind, field)
+            term = KineticEnergyLossTerm(source; part, region = hot_region)
+            out = Runes2P.rhs!(zeros(length(state)), term, state, layout, 2, 0.0)
+            plasma = Runes2P._transfer_plasma(term, state, layout, 0.0)
+            ops = Runes2P._loss_operators(term, hot, plasma)
+            A_whole = _p_advection(whole, state, layout, source)
+            for ir in 1:2
+                m = momentum_grid(hot, ir)
+                envelope = Runes2P._envelope_at(term.envelopes, hot, ir, state, layout, 0.0)
+                energies = Runes2P._kinetic_energy.(m.p_centers) .* envelope
+                @test iszero(envelope[1])
+                volume = hot.radial_grid.spatial_jacobian[ir]
+                expected, absolute = 0.0, 0.0
+                for j in 1:6, k in 2:60
+
+                    f_face = A_whole[k, j, ir] >= 0 ? tail[k - 1, j, ir] : tail[k, j, ir]
+                    distance = m.p_centers[k] - m.p_centers[k - 1]
+                    gradient = (tail[k, j, ir] - tail[k - 1, j, ir]) / distance
+                    step = energies[k] - energies[k - 1]
+                    weight = step * m.xi_widths[j] * ops[1].jacobian_p_faces[k, j, ir] /
+                             volume
+                    for (op, sign) in zip(ops, (1, -1))
+                        op === nothing && continue
+                        @test iszero(op.diffusion_p_xi[k, j, ir])
+                        flux = op.advection_p[k, j, ir] * f_face -
+                               op.diffusion_p_p[k, j, ir] * gradient
+                        expected += sign * weight * flux
+                        absolute += abs(weight * flux)
+                    end
+                end
+                @test abs(out[rows_of(layout)[ir]] + term.coefficient * expected) <=
+                      1e-13 * absolute
             end
         end
 

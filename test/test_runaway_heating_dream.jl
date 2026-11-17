@@ -191,7 +191,8 @@ const HEATING_RUN_DEFAULT_FIRST_STEP = 5e-5
             moments = [heating(moment, k) for k in eachindex(times)]
             @info "the heating by f_re at compat = runes2p over the run [W/m³]: the " *
                   "energy change $(extrema(energy_change)), DREAM's moment " *
-                  "$(extrema(moments))"
+                  "$(extrema(moments)), the ratio at each step " *
+                  "$(extrema(energy_change ./ moments))"
             T = [value(solution.states[:, k], layout, :cold_electron_temperature)
                  for k in eachindex(times)]
             temperature = maximum(abs, (T .- T_dream) ./ T_dream)
@@ -211,8 +212,8 @@ const HEATING_RUN_DEFAULT_FIRST_STEP = 5e-5
                   "the last: $(distributions[2]), $(distributions[end]); the density of " *
                   "f_re over the run against its start: $drift"
             # Measured: the energy change of the operator falls from 1.39e5 to 1.36e5 W/m³,
-            # DREAM's moment on the same states rises from 7.68e4 to 7.81e4 W/m³ over the steps,
-            # and the energy change is 1.77 to 1.78 times the moment at each step. Nearly all of
+            # DREAM's moment on the same states falls from 7.81e4 to 7.68e4 W/m³ over the steps,
+            # and the energy change is 1.772 to 1.779 times the moment at each step. Nearly all of
             # f_re sits in the first momentum cell (p = 0.25). The field of 1.5 V/m beats the
             # friction at the face p = 0.5 above it, so the momentum faces take the upwind side
             # of the whole advection there, the value of the first cell. The friction on the
