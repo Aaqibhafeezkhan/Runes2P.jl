@@ -191,7 +191,8 @@ const HEATING_RUN_DEFAULT_FIRST_STEP = 5e-5
             moments = [heating(moment, k) for k in eachindex(times)]
             @info "the heating by f_re at compat = runes2p over the run [W/m³]: the " *
                   "energy change $(extrema(energy_change)), DREAM's moment " *
-                  "$(extrema(moments))"
+                  "$(extrema(moments)), the ratio at each step " *
+                  "$(extrema(energy_change ./ moments))"
             T = [value(solution.states[:, k], layout, :cold_electron_temperature)
                  for k in eachindex(times)]
             temperature = maximum(abs, (T .- T_dream) ./ T_dream)
@@ -210,11 +211,17 @@ const HEATING_RUN_DEFAULT_FIRST_STEP = 5e-5
             @info "f_re at compat = runes2p against DREAM's, after the first step and at " *
                   "the last: $(distributions[2]), $(distributions[end]); the density of " *
                   "f_re over the run against its start: $drift"
-            # Measured: the energy change of the operator rises from 0 to 473 W/m³, DREAM's
-            # moment on the same states is 7.68e4 to 7.81e4 W/m³. Nearly all of f_re sits
-            # in the first momentum cell (p = 0.25), below which there is no cell for the
-            # friction to carry it to, so the energy change of the operator is small; the
-            # moment counts the friction of that cell in full.
+            # Measured: the energy change of the operator falls from 1.39e5 to 1.36e5 W/m³,
+            # DREAM's moment on the same states falls from 7.81e4 to 7.68e4 W/m³ over the steps,
+            # and the energy change is 1.772 to 1.779 times the moment at each step. Nearly all of
+            # f_re sits in the first momentum cell (p = 0.25). The field of 1.5 V/m beats the
+            # friction at the face p = 0.5 above it, so the momentum faces take the upwind side
+            # of the whole advection there, the value of the first cell. The friction on the
+            # free electrons then carries that cell's electrons down through the face, and the
+            # energy change counts that flux with the energy step between the first two cells.
+            # At the start that is 2.13 times the friction moment at the cell centre with the
+            # collision settings of the operator (6.53e4 W/m³), which is 0.837 of DREAM's moment
+            # above; the test set "the heating on refined momentum grids" below refines it.
             # The run takes lagged = :ions in place of :all and the superthermal
             # frequencies, since the electron-electron operator has no ultra-relativistic
             # form (runaway_heating_example). At p = 0.25 the superthermal frequencies give
@@ -222,17 +229,17 @@ const HEATING_RUN_DEFAULT_FIRST_STEP = 5e-5
             # (_collisional_slowing_down and _deflection_frequency of
             # src/physics/collision_frequencies.jl), so f_re differs from
             # DREAM's by 0.46 of its largest value after the first step and 0.76 at the
-            # last. T_cold ends 2.9e-4 below DREAM's: the form of the heating takes about
-            # 3.2e-4 (the difference of the two heatings over the 5 µs, about 0.39 J/m³,
+            # last. T_cold ends 2.8e-4 above DREAM's: the form of the heating gives about
+            # 2.5e-4 (the difference of the two heatings over the 5 µs, about 0.30 J/m³,
             # over the heat capacity 1.5 e n_cold of 12 J/(m³ eV)), and the ohmic heating at
             # the end of the step adds about 3e-5, as at compat = dream.
-            # The bounds: the energy change at the start is 0, at most 1e-12 of the moment;
-            # it is never negative; its largest value is 6.2e-3 of the smallest moment,
-            # below 1e-2; the smallest moment is 7.68e4 W/m³, above 7e4 W/m³.
-            @test abs(energy_change[1]) <= 1e-12 * minimum(moments)
+            # The bounds: the energy change is never negative; it is 1.7 to 1.85 times the
+            # moment at every step; the smallest moment is 7.68e4 W/m³, above 7e4 W/m³; T_cold
+            # at the last step is 2.77e-4 above DREAM's, between 2e-4 and 3.5e-4.
             @test all(>=(0), energy_change)
-            @test maximum(energy_change) < 1e-2 * minimum(moments)
+            @test all(1.7 .< energy_change ./ moments .< 1.85)
             @test all(moments .> 7e4)
+            @test 2e-4 < (T[end] - T_dream[end]) / T_dream[end] < 3.5e-4
             # no flux through p = 0, as at compat = dream: the density of f_re changes by
             # 6.0e-16 of its start over the run, round-off
             @test drift < HEATING_RUN_DENSITY
@@ -240,6 +247,117 @@ const HEATING_RUN_DEFAULT_FIRST_STEP = 5e-5
             # step and 0.756 at the last, the difference of the collision frequencies
             @test 0.4 < distributions[2] < 0.5
             @test 0.7 < distributions[end] < 0.8
+        end
+
+        @testset "the heating on refined momentum grids" begin
+            # The free-electron part of the energy change at the start of the case at
+            # compat = runes2p (T = 100 eV, 1.5 V/m), with f = 1 in the momentum cells below
+            # p = 0.5 of the last pitch cell and zero elsewhere, divided by the friction moment
+            # at the cell centres: FrictionEnergyTransferTerm with the collision settings of
+            # the operator of f_re, on the same grid. Only the width of the momentum cells
+            # varies. The shared side is the term; "own sides" is the moment of the operator
+            # applied to f, each face on the side of its own advection.
+            # Measured, for the widths 0.5, 0.25, 0.125 and 0.0625:
+            # - shared side: 2.127, 1.543, 1.267, 1.133;
+            # - own sides: 0.000, 0.486, 0.740, 0.869.
+            # Both are of first order: their distances from 1 fall by 2.08, 2.03 and 2.01 and by
+            # 1.95, 1.97 and 1.99 per halving. Their mean is of second order: its distance from
+            # 1 falls by 4.41, 4.10 and 4.03. With f = 1 in every
+            # pitch cell below p = 0.5 the shared side gives 0.978 at the width 0.5,
+            # since the field beats the friction at p = 0.5 in some pitch cells only.
+            function heating_ratios(cells; every_pitch = false)
+                case = runaway_heating_example(; compat = :runes2p, momentum_cells = cells)
+                (; layout, grid) = case
+                u = copy(case.initial_state)
+                id = unknown_id(layout, :runaway_distribution)
+                f = kinetic_view(u, layout, id, 1)
+                m = momentum_grid(grid)
+                f .= 0
+                for i in 1:momentum_cell_count(m)
+                    m.p_centers[i] < 0.5 || continue
+                    if every_pitch
+                        f[i, :] .= 1
+                    else
+                        f[i, end] = 1
+                    end
+                end
+                row = unknown_id(layout, :cold_electron_temperature)
+                row_value(term) = only(unknown_values(
+                    rhs!(zeros(length(u)), term, u, layout, row, 0.0), layout, row))
+                friction = FrictionEnergyTransferTerm(:runaway_distribution, grid,
+                    PlasmaFromUnknowns(case.prescribed); settings = case.fokker_planck.settings)
+                reference = row_value(friction)
+                term = case.heating
+                plasma = Runes2P._transfer_plasma(term, u, layout, 0.0)
+                change = Runes2P._loss_change(Runes2P._loss_operators(term, grid, plasma),
+                    kinetic_array(u, layout, id))
+                weights = Runes2P._loss_weights(term, grid, 1, u, layout, 0.0)
+                own_sides = -term.coefficient * sum(weights .* view(change, :, :, 1))
+                return (shared = row_value(term) / reference, own = own_sides / reference)
+            end
+            results = [heating_ratios(cells) for cells in (100, 200, 400, 800)]
+            shared = [r.shared for r in results]
+            own = [r.own for r in results]
+            mean = (shared .+ own) ./ 2
+            every_pitch = heating_ratios(100; every_pitch = true).shared
+            @info "the heating over the friction moment at the widths 0.5 to 0.0625: shared " *
+                  "side $shared, own sides $own; every pitch cell at 0.5: $every_pitch"
+            @test all(shared .> 1 .> own)
+            @test shared[1] ≈ 2.127 atol = 1e-3
+            @test own[1] < 1e-12
+            # first order: the error halves with the width; the mean falls by about 4
+            @test all(1.8 .< (shared[1:3] .- 1) ./ (shared[2:4] .- 1) .< 2.2)
+            @test all(1.8 .< (1 .- own[1:3]) ./ (1 .- own[2:4]) .< 2.2)
+            @test all(3.5 .< (mean[1:3] .- 1) ./ (mean[2:4] .- 1) .< 4.6)
+            @test every_pitch < 1
+        end
+
+        @testset "a step across the change of side of a face ($scheme)" for scheme in (:upwind, :tcdf)
+            # At compat = runes2p the heating by f_re jumps where a momentum face changes its
+            # upwind side, and the side follows T_cold through the friction. Near the field at
+            # which the whole advection of the face p = 0.5 of the last pitch cell vanishes at
+            # the initial state, Newton's iteration of a step that straddles the change may
+            # alternate between the two sides and not converge. The step control then halves
+            # the step, and the run continues with the result of the smaller steps.
+            # Measured: at (1 + 1e-6) times that field the first attempt ends without
+            # convergence after 30 iterations, and the half step converges in 3 iterations
+            # under upwind and 4 under TCDF; at (1 − 1e-6) times it no step is rejected.
+            case = runaway_heating_example(; compat = :runes2p, scheme)
+            whole = Runes2P._operator_at(case.fokker_planck, case.initial_state, case.layout, 0.0)
+            pitch = size(case.grid)[2]
+            @test momentum_grid(case.grid).p_faces[2] == 0.5
+            flip = -whole.advection_p[2, pitch, 1] /
+                   whole.unit_field_advection_p[2, pitch, 1]
+            @info "the face p = 0.5 of the last pitch cell changes its side at $flip V/m"
+            @test 0.1 < flip < 0.2
+            steps = times[1:3]
+            above = runaway_heating_example(; compat = :runes2p, scheme,
+                field = flip * (1 + 1e-6))
+            adaptive = integrate(above.system, above.initial_state, steps)
+            statistics = adaptive.statistics
+            @info "$scheme, a step across the change of side: statuses $(statistics.status), Newton " *
+                  "iterations $(statistics.newton_iterations), steps $(statistics.time_step)"
+            @test adaptive.times[end] == steps[end]
+            rejected = findall(!, statistics.accepted)
+            @test 1 <= length(rejected) <= 3
+            for attempt in rejected
+                @test attempt < length(statistics.accepted)
+                @test statistics.time_step[attempt + 1] ≈ statistics.time_step[attempt] / 2
+            end
+            # fixed steps of the accepted sizes reach the same temperature
+            accepted_steps = statistics.time_step[statistics.accepted]
+            grid_times = steps[1] .+ cumsum([0.0; accepted_steps])
+            grid_times[end] = steps[end]
+            fixed = integrate(above.system, above.initial_state, grid_times;
+                stepper = FixedSteps())
+            @test all(fixed.statistics.accepted)
+            row = unknown_id(above.layout, :cold_electron_temperature)
+            T_adaptive = only(unknown_values(adaptive.states[:, end], above.layout, row))
+            T_fixed = only(unknown_values(fixed.states[:, end], above.layout, row))
+            @test T_adaptive ≈ T_fixed rtol = 1e-12
+            below = runaway_heating_example(; compat = :runes2p, scheme,
+                field = flip * (1 - 1e-6))
+            @test all(integrate(below.system, below.initial_state, steps).statistics.accepted)
         end
     end
 end

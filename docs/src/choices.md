@@ -158,6 +158,7 @@ DREAM's documentation gives an upper bound for `pCutAvalanche`, the critical mom
 |---|---|
 | who pays the energy of the knock-ons that [`RosenbluthPutvinskiSourceTerm`](@ref) creates, under [`total_energy_equation`](@ref) | no population: [`KineticEnergyChangeTerm`](@ref) creates it in the system |
 | who pays the work of the electron-electron collisions on the electrons that cross the interface to a runaway grid, under [`total_energy_equation`](@ref) | the cold electrons: [`InterfaceCollisionWorkTerm`](@ref) with `coefficient = -1` |
+| upwind side of the momentum face values of the parts of [`KineticEnergyLossTerm`](@ref) under a scheme with a side | the side of the whole advection of the Fokker-Planck term, field included, for every part |
 
 The primaries of the source are the fluid runaways above the grid, which have no energy unknown.
 The rejected alternative charges the energy of the knock-ons to the cold electrons, which a row of the total energy without the term would do.
@@ -168,6 +169,13 @@ The work of the collisions at the interface is the energy step between the two c
 No operator holds it, since neither grid takes a flux through the face in its energy moments.
 The cold electrons pay it because they are the targets of these collisions, which give them the energy that the electrons lose inside each grid.
 The rejected alternative leaves the work to no population, as a row without the term would, and the energy of the two grids is then not conserved across the face ([Energy and current balance](model/energy-current.md#The-energy-step-at-the-interface)).
+
+The parts of the energy loss take the side of the whole advection under `:upwind`, `:quick`, `:upwind_second_order` and the flux limiters, so that they sum to the momentum flux of the Fokker-Planck term face by face.
+The rejected alternative takes each operator of a part on the side of its own advection.
+The parts then miss the flux at every face where the advection of an operator and the whole advection have opposite signs.
+That happens where the field beats the friction, and at ``p = 0`` under a four-point scheme with `p_zero_boundary = :outflow`, where the field alone sets the side.
+In a test at 2 V/m their sum differs there from the flux of the whole by up to 0.44 of the largest face flux of the whole (`test/test_energy_transfer.jl`).
+The shared side makes each part jump where a face changes its side, and an implicit step across that change may then need a smaller step ([Energy and current balance](model/energy-current.md#Energy-transfer-between-the-distributions)).
 
 ## Linear solvers
 
