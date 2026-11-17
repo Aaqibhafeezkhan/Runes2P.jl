@@ -30,6 +30,14 @@ lazy = true
     url = "https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5-runaway-grid/dream-v26.5-runaway-grid.tar.gz"
     sha256 = "7766abb42b025e58fd90f6268e73d109820768096161a8297b61813882c4edf8"
 
+["dream-v26.5-avalanche-rp"]
+git-tree-sha1 = "038ee26bb7a2c3d0ae313c0490910e6fac3b2d1d"
+lazy = true
+
+    [["dream-v26.5-avalanche-rp".download]]
+    url = "https://deep.reak.bme.hu/~data/runes2p/reference/dream-v26.5-avalanche-rp/dream-v26.5-avalanche-rp.tar.gz"
+    sha256 = "4dc8c79b826f47e9399fedc4aa103c6c65b2f2e18d1a419a3fcfa9897200b58f"
+
 ["dream-boltzmann-eqterm-93d27e17"]
 git-tree-sha1 = "77d8da5460738ec8a58e7c82ea9903be2842fab4"
 lazy = true
