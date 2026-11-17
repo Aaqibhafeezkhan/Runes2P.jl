@@ -8,6 +8,10 @@ This page compares Runes2P with DREAM, the code whose design it follows (M. Hopp
 The comparison is with DREAM release v26.5 and its branch `boltzmann-eqterm` at commit `93d27e1`, the builds of the [Reference data](reference-data.md).
 The file and line citations of DREAM's source refer to commit `93d27e1` unless they name another version.
 
+Agreement with DREAM shows that the two codes use the same method, not that the method is right.
+The checks of the collision models that do not come from DREAM compare with the literature, with analytic limits and with a second operator of the code.
+The section [Comparisons](model/collisions.md#Comparisons) of the page "Collision models" lists them next to the comparisons with DREAM.
+
 ## Features of DREAM
 
 | ✅ implemented | 🚧 partial | ➖ not implemented | features |
