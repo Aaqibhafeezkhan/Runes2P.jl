@@ -185,17 +185,24 @@ An electron that crosses the interface leaves the hot-tail grid with the kinetic
 It enters the runaway grid with the energy ``E_{\mathrm{up},1}`` of the first momentum cell there.
 The step ``E_{\mathrm{up},1} - E_{\mathrm{low},N}`` is about ``m_e c^2 \beta\, \delta p``, with ``\beta = v/c`` at the face and ``\delta p`` the distance of the two cell centres in units of ``m_e c``.
 It therefore vanishes as the cells at the face are refined.
+
 Neither the energy moments of the two operators nor the sinks term take a flux through the face, so no operator pays the step.
 Each part of the flux through the face pays it for its electrons:
 
-| Part of the flux through the face | Pays the step | Term |
+| Part of the flux through the face | Pays the step | Term of the row |
 |---|---|---|
-| the field | the field | none |
+| the field | the field | none: approximately in ``E j_\mathrm{hot}`` (below) |
 | the electron-electron collisions: friction and energy diffusion | the cold electrons | [`InterfaceCollisionWorkTerm`](@ref) |
-| the friction on bound electrons, bremsstrahlung and synchrotron radiation | the sinks | none |
+| the friction on bound electrons, their energy diffusion under partial screening, bremsstrahlung and synchrotron radiation | the sinks | none |
 
 The ions scatter the electrons in pitch only, so they move none across the face.
-The steps of the field and of the sinks change the energy of the runaway grid alone, which is outside ``W_\mathrm{tot}``, so the row takes no term for them.
+The step of the sinks changes the energy of the runaway grid alone, which is outside ``W_\mathrm{tot}``, so the row takes no term for it.
+
+The row holds the step of the field only approximately, through ``E j_\mathrm{hot}``.
+That current covers the cells of `f` up to the face, while the discrete field term of `f` works only up to the centre of the last cell.
+So ``E j_\mathrm{hot}`` holds about the field part of the flux through the face times ``E_\mathrm{face} - E_{\mathrm{low},N}``, with ``E_\mathrm{face}`` the kinetic energy at the face.
+The runaway grid receives the whole step as well, and the row takes no term for the difference, as for the gap at the threshold of the hot region ([The field work on the hot region](#The-field-work-on-the-hot-region)).
+
 Each part takes the face value of the whole flux: the upwind side, the linear interpolation or the weight of exponential fitting that the coefficients of all processes set.
 The parts therefore add up to the flux through the face, as the docstring of [`InterfaceCollisionWorkTerm`](@ref) shows.
 
