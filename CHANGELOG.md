@@ -64,7 +64,7 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Changed
 
-- Under the momentum schemes `:upwind`, `:quick` and `:upwind_second_order`, `KineticEnergyLossTerm` takes both operators on the upwind side of the whole advection of the Fokker-Planck term, as under a flux limiter ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+- Under the momentum schemes `:upwind`, `:quick` and `:upwind_second_order`, `KineticEnergyLossTerm` takes both operators on the upwind side of the whole advection of the Fokker-Planck term, as under a flux limiter ([#307](https://github.com/osrep/Runes2P.jl/pull/307)).
   Until now each operator took the side of its own advection there, and the field part, the free-electron part and the sinks did not sum to the momentum flux where the field beats the friction.
   The term reads the sign of that advection, field included, and lists the field unknown among its dependencies, in the settings record of a run too, without a column.
   The heating of the cold electrons by `f_re` in the test case `runaway_heating_example` at `compat = runes2p` is 1.39e5 W/m³ at the start, where it was 0.
