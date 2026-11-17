@@ -696,8 +696,9 @@ interpolation of `:central`, or, for exponential fitting, the weight `(B(−w) �
 lower cell with `B(x) = x/(eˣ − 1)` and `w = A Δp/D`. With `pitch_mapping = :dream` it is
 the upwind side of `A` against the upper value interpolated in the pitch. `Γ_ee` takes the
 same face value with the coefficients of the electron-electron collisions alone, `A_ee =
-−p ν_s,ee` and, in `mode = :full`, `D_ee = Θ γ ν_s,ee` (as
-[`electron_electron_operator`](@ref)). The parts of the field, of these collisions and of
+−p ν_s,ee` [mₑc/s] and, in `mode = :full`, `D_ee = Θ γ ν_s,ee` [(mₑc)²/s], with `p` the
+momentum of the face [mₑc], `ν_s,ee` [s⁻¹] the slowing-down frequency on the free electrons
+and `Θ = T/(mₑc²)` (as [`electron_electron_operator`](@ref)). The parts of the field, of these collisions and of
 the sinks therefore add up to the flux of the interface.
 
 The collisions are those of the plasma and the settings that the coefficients of the lower
