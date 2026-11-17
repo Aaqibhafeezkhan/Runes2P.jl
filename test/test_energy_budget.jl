@@ -5,7 +5,8 @@
 # superthermal electrons, the temperature of a cold plasma under a hot tail a hundred times
 # its energy, the chain that determines the temperature, the checks of the row with the
 # losses that take no flux through p_max, the refusal of radial transport set after the
-# build, by an update or by hand, and DREAM's fluid heating by runaways.
+# build, by an update or by hand, the energy of the knock-ons of fluid runaways, and DREAM's
+# fluid heating by runaways.
 import ForwardDiff
 
 @testset "energy budget" begin
@@ -186,8 +187,44 @@ import ForwardDiff
         transport = AdvectionDiffusion(grid; scheme = :central, r_boundary = :absorbing)
         add_rechester_rosenbluth_diffusion!(transport, 1e-3; major_radius = 6.2)
         @test_throws "Radial transport" check((term, FokkerPlanckTerm(:f, transport)), sinks, outflow)
-        @test_throws "fluid runaways above the grid" check(
-            (term, RosenbluthPutvinskiSourceTerm(:f, grid)), sinks, outflow)
+        # the knock-ons of the fluid runaways above the grid bring their energy into W_tot: the
+        # row takes one energy term of this very source, with a positive coefficient and no
+        # region
+        rp = RosenbluthPutvinskiSourceTerm(:f, grid)
+        @test check((term, rp), sinks, outflow, KineticEnergyChangeTerm(rp)) === nothing
+        @test_throws "add KineticEnergyChangeTerm(source)" check((term, rp), sinks, outflow)
+        for coefficient in (0, -1)
+            @test_throws "give it a positive coefficient" check(
+                (term, rp), sinks, outflow, KineticEnergyChangeTerm(rp; coefficient))
+        end
+        @test_throws "give it no region" check((term, rp), sinks, outflow,
+            KineticEnergyChangeTerm(rp; region = MomentumRegion(0.1)))
+        @test_throws "more than once" check((term, rp), sinks, outflow,
+            KineticEnergyChangeTerm(rp), KineticEnergyChangeTerm(rp))
+        # the energy term of a copy of the source built from the same arguments: the identity
+        # check refuses it before the row check
+        @test_throws "not a term of the system" check((term, rp), sinks, outflow,
+            KineticEnergyChangeTerm(RosenbluthPutvinskiSourceTerm(:f, grid)))
+        # two sources in the equation of f: each needs its own energy term, matched by the
+        # identity of the source, not by the distribution
+        rp_low = RosenbluthPutvinskiSourceTerm(:f, grid; p_cutoff = 0.02)
+        @test check((term, rp, rp_low), sinks, outflow, KineticEnergyChangeTerm(rp),
+            KineticEnergyChangeTerm(rp_low)) === nothing
+        @test_throws "add KineticEnergyChangeTerm(source)" check(
+            (term, rp, rp_low), sinks, outflow, KineticEnergyChangeTerm(rp))
+        @test_throws "add KineticEnergyChangeTerm(source)" check(
+            (term, rp, rp_low), sinks, outflow, KineticEnergyChangeTerm(rp_low))
+        # the energy term of the source of a distribution outside W_tot: its knock-ons are not
+        # in W_tot, so the row refuses the term
+        rp_g = RosenbluthPutvinskiSourceTerm(:g, grid)
+        outside(row_terms...) = Runes2P._check_plasma_pairings([Equation(:f, TimeDerivative(), term, rp);
+                                                                Equation(:g, TimeDerivative(), rp_g);
+                                                                row(row_terms...); energy])
+        @test outside(sinks, outflow, KineticEnergyChangeTerm(rp)) === nothing
+        @test_throws "whose distribution is not in the total energy" outside(
+            sinks, outflow, KineticEnergyChangeTerm(rp), KineticEnergyChangeTerm(rp_g))
+        @test_throws "whose distribution is not in the total energy" outside(
+            sinks, outflow, KineticEnergyChangeTerm(rp_g))
         # a prescribed loss rate and a Maxwellian source move electrons with their energy out
         # of W_hot and into it, which no row term carries
         @test_throws "prescribed loss rate is refused" check(
@@ -359,6 +396,67 @@ import ForwardDiff
                 PrescribedValueTerm([1.0]), minus(:cold_thermal_energy)),
             total_energy_equation(:f, grid; region)]
         @test_throws "nothing determines it" EquationSystem(layout, unrelated; initial_state = u0)
+    end
+
+    @testset "the energy of the knock-ons of fluid runaways" begin
+        # A frozen tail: the equation of f holds the Rosenbluth-Putvinski source alone, with
+        # prescribed n_re and n_tot, and the row of the temperature the energy P of its
+        # knock-ons. With the hot region below the cutoff every knock-on joins W_hot, so the
+        # cold temperature stays. With the region above p_max, W_hot = 0 and the cold
+        # electrons take P: T(t) = T₀ + P t/(3/2 e n).
+        T0, n, n_re, n_tot = 100.0, 1e19, 3e16, 1e20
+        p_cutoff = 0.04
+        grid = cylindrical_grid(
+            MomentumGrid(uniform_p_faces(40, 0.0, 0.8), uniform_xi_faces(2)),
+            RadialGrid(uniform_r_faces(1, 0.5)))
+        m = momentum_grid(grid)
+        source = RosenbluthPutvinskiSourceTerm(:f, grid; p_cutoff, electric_field = nothing)
+        # P = n_re n_tot Σ_i mₑc²(γ_i − 1) R_i over the cells above the cutoff, a face here, each
+        # in the pitch cell ξ > 0 of the two
+        P = n_re * n_tot *
+            sum(Constants.ELECTRON_REST_ENERGY * e * (sqrt(1 + m.p_centers[i]^2) - 1) *
+                rosenbluth_putvinski_rate(m.p_faces[i], m.p_faces[i + 1])
+            for i in 1:40 if m.p_faces[i] >= p_cutoff)
+        layout = UnknownLayout(grid.radial_grid,
+            [KineticUnknown(:f, grid; scale = 1e16),
+                RadialUnknown(:cold_electron_temperature; scale = 100.0),
+                RadialUnknown(:cold_electron_density; scale = 1e19),
+                RadialUnknown(:cold_thermal_energy; scale = THERMAL_ENERGY_FACTOR * 1e21),
+                RadialUnknown(:total_electron_energy; scale = THERMAL_ENERGY_FACTOR * 1e21),
+                RadialUnknown(:runaway_density; scale = 1e16),
+                RadialUnknown(:total_electron_density; scale = 1e20)])
+        prescribed(name, value) = Equation(name, Algebraic(), PrescribedValueTerm([value]), minus(name))
+        function knockon_run(region)
+            equations = [Equation(:f, TimeDerivative(), source),
+                prescribed(:runaway_density, n_re), prescribed(:total_electron_density, n_tot),
+                Equation(
+                    :cold_electron_temperature, TimeDerivative(:total_electron_energy),
+                    KineticEnergyChangeTerm(source)),
+                density_row([n]), thermal_energy_equation(), total_energy_equation(:f, grid; region)]
+            u0 = zeros(length(layout))
+            unknown_values(u0, layout, 2) .= T0
+            unknown_values(u0, layout, 3) .= n
+            unknown_values(u0, layout, 6) .= n_re
+            unknown_values(u0, layout, 7) .= n_tot
+            system = EquationSystem(layout, equations; initial_state = u0)
+            times = collect(range(0.0, 1e-3; length = 11))
+            solution = integrate(system, u0, times; stepper = FixedSteps())
+            temperatures = [unknown_values(solution.states[:, k], layout, 2)[1]
+                            for k in 1:11]
+            return times, temperatures
+        end
+        # every knock-on in W_hot: the limit 0.02 lies a cell below the cutoff 0.04, the lower
+        # face of the first cell of the source, and gives an envelope of 1 in every cell of
+        # the source. Measured: |T − T₀|/T₀ of at most 2.8e-16, against the rise (T − T₀)/T₀
+        # of 9.1e-2 of the second run.
+        times, temperatures = knockon_run(MomentumRegion(0.02))
+        @test maximum(abs.(temperatures .- T0)) / T0 < 1e-12
+        # no knock-on in W_hot: the cold electrons take their whole energy. Measured:
+        # |T − T_exact|/T_exact of at most 9.1e-16.
+        times, temperatures = knockon_run(MomentumRegion(0.9))
+        exact = T0 .+ P .* times ./ (THERMAL_ENERGY_FACTOR * n)
+        @test exact[end] - T0 > 0.05 * T0
+        @test maximum(abs.(temperatures .- exact) ./ exact) < 1e-12
     end
 
     @testset "a driven fully kinetic plasma" begin

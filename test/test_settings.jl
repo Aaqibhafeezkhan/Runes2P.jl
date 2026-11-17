@@ -108,7 +108,8 @@ _is_plain(x) = false
             FokkerPlanckTerm, PrescribedPlasma, PlasmaFromUnknowns, ProductTerm, WeightedSumTerm,
             IonRateTerm, KineticIonizationTerm, IonDiffusionTerm, SecondaryHeatingTerm,
             EnergyMomentTerm, HeatTransportTerm, IonEnergyExchangeTerm,
-            RunawayFluidEnergyTransferTerm, KineticEnergyLossTerm, FrictionEnergyTransferTerm,
+            RunawayFluidEnergyTransferTerm, KineticEnergyLossTerm, KineticEnergyChangeTerm,
+            FrictionEnergyTransferTerm,
             InterfaceEnergyFluxTerm, InterfaceParticleFluxTerm, KnockOnTerm, LinearTerm, DensityMomentTerm,
             CurrentMomentTerm, MaxwellianSourceTerm, MomentumInterfaceTerm, RadialEdgeLossTerm, LossRateTerm,
             PrescribedValueTerm, ParticleSourceTerm, MomentumBoundaryFluxTerm, PoloidalFluxDiffusionTerm,
@@ -620,8 +621,8 @@ _is_plain(x) = false
         @test environment["cpu_threads"] == Sys.CPU_THREADS
         @test occursin(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4}$", environment["start_time"])
         @test _is_plain(environment)
-        @test OUTPUT_FORMAT_VERSION == v"0.0.5"
-        @test Runes2P.output_format_version() == "0.0.5"
+        @test OUTPUT_FORMAT_VERSION == v"0.0.6"
+        @test Runes2P.output_format_version() == "0.0.6"
     end
 
     @testset "output file" begin
@@ -633,7 +634,7 @@ _is_plain(x) = false
         write_output(file, solution)
         h5open(file) do h5
             @test sort(collect(keys(attributes(h5)))) == DOCUMENTED_ROOT_ATTRIBUTES
-            @test read(attributes(h5)["format_version"]) == "0.0.5"
+            @test read(attributes(h5)["format_version"]) == "0.0.6"
             @test VersionNumber(read(attributes(h5)["format_version"])) ==
                   OUTPUT_FORMAT_VERSION
             @test read(attributes(h5)["runes2p_commit"]) == code_version()["commit"]
@@ -689,7 +690,7 @@ _is_plain(x) = false
         write_output(file, by_hand)
         h5open(file) do h5
             @test !haskey(h5, "settings")
-            @test read(attributes(h5)["format_version"]) == "0.0.5"
+            @test read(attributes(h5)["format_version"]) == "0.0.6"
             @test read(attributes(h5)["runes2p_commit"]) == code_version()["commit"]
         end
         @test isempty(read_settings(file))

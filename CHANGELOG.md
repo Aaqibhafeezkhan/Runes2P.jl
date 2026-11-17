@@ -8,6 +8,11 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Added
 
+- `KineticEnergyChangeTerm(source; region, coefficient)` is the power that a source term gives its distribution, for the row of the temperature, with a `RosenbluthPutvinskiSourceTerm` as `source` ([#296](https://github.com/osrep/Runes2P.jl/pull/296)).
+  It is the energy moment of the knock-ons of the fluid runaways above the grid, `n_re n_tot` times a sum over the cells that the source fills.
+  A region takes a fixed limit, and a limit that follows the temperature or time is refused.
+  The settings record of a run holds the record of the term, and `OUTPUT_FORMAT_VERSION` is 0.0.6 for it and for the key `knockon_term` of a `SecondaryHeatingTerm` with `cut = :knockon`.
+  A file of the format 0.0.5 reads as before.
 - `SecondaryHeatingTerm(...; cut = :knockon, knockon_term = term)` gives the cold electrons only the energy of the secondaries below the cutoff of the `KnockOnTerm` `term` at each radius ([#294](https://github.com/osrep/Runes2P.jl/pull/294)).
   The secondaries above the cutoff, which the knock-on term puts into a distribution, are no longer counted twice.
   The heating reads the cutoff at each evaluation, so it follows a `KnockOnCutoffUpdate`.
@@ -50,6 +55,10 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Changed
 
+- Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` accepts a `RosenbluthPutvinskiSourceTerm` in the equation of a distribution whose energy is in the total, which it refused until now ([#296](https://github.com/osrep/Runes2P.jl/pull/296)).
+  The row of the temperature then needs one `KineticEnergyChangeTerm` of that very source, with a positive coefficient and without a region, since every knock-on is in the total energy.
+  The term creates the energy of the knock-ons in the system, and no population pays it.
+  The row refuses a `KineticEnergyChangeTerm` whose source is not in the equation of a distribution in the total energy.
 - `EquationSystem` refuses `SecondaryHeatingTerm` with `cut = :none` or `cut = :threshold` next to a `KnockOnTerm` of the same primary on `:total_electron_density`, which counts the energy above the knock-on cutoff twice ([#294](https://github.com/osrep/Runes2P.jl/pull/294)).
   `bound_friction = :ionization_split` accepts the heating with `cut = :knockon` as well as with `cut = :none`.
 - Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` refuses a `LossRateTerm`, a `MaxwellianSourceTerm` or a `LinearTerm` with a nonzero coefficient in the equation of a distribution whose energy is in the total ([#295](https://github.com/osrep/Runes2P.jl/pull/295)).

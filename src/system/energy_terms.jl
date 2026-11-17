@@ -231,18 +231,21 @@ energy of the hot region itself. DREAM's fully kinetic mode has none of them
 
 Every other change of the energy of the hot region is charged to the cold electrons, since
 `W_cold = W_tot − W_hot`. The row must therefore list each term of the equation of
-`kinetic` that moves energy out of the electrons: [`KineticEnergyLossTerm`](@ref) with
-`part = :sinks` for the bremsstrahlung, the synchrotron loss and the friction on bound
-electrons, `MomentumBoundaryFluxTerm(...; weight = :energy)` for an outflow at `p_max`, and
-[`InterfaceEnergyFluxTerm`](@ref) for the runaway grid. The system refuses a row that misses
-one of them. It also refuses the terms of the equation of `kinetic` for which the system has
-no energy term, since the cold electrons would pay or gain their energy at the radius where
-the electrons are moved, created or removed:
+`kinetic` that moves energy out of the electrons or into them: [`KineticEnergyLossTerm`](@ref)
+with `part = :sinks` for the bremsstrahlung, the synchrotron loss and the friction on bound
+electrons, `MomentumBoundaryFluxTerm(...; weight = :energy)` for an outflow at `p_max`,
+[`InterfaceEnergyFluxTerm`](@ref) for the runaway grid, and [`KineticEnergyChangeTerm`](@ref)
+of each [`RosenbluthPutvinskiSourceTerm`](@ref) for the energy of the knock-ons of the fluid
+runaways above the grid, over the whole grid. The system refuses a row that misses one of
+them, and a `KineticEnergyChangeTerm` whose source is not in the equation of a distribution
+in the total energy, since its knock-ons are outside the total. It also refuses the terms of
+the equation of `kinetic` for which the system has no energy term, since the cold electrons
+would pay or gain their energy at the radius where the electrons are moved, created or
+removed:
 
 - Radial transport of `kinetic` is refused. The run refuses a
   [`RechesterRosenbluthUpdate`](@ref) that sets it, before its first step.
-- Knock-on secondaries on its grid ([`KnockOnTerm`](@ref)) and the knock-ons of the fluid
-  runaways above it ([`RosenbluthPutvinskiSourceTerm`](@ref)) are refused.
+- Knock-on secondaries on its grid ([`KnockOnTerm`](@ref)) are refused.
 - A prescribed loss rate ([`LossRateTerm`](@ref)) and a Maxwellian source
   ([`MaxwellianSourceTerm`](@ref)) are refused.
 - A [`LinearTerm`](@ref) with a nonzero coefficient in the time derivative of `kinetic`,

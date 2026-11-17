@@ -19,8 +19,14 @@ Since 0.0.5 a file stores units ([`write_output`](@ref)):
   `unit`, and the entry of each unknown in the group `layout` holds it as `unit`.
 - The dataset `time` carries the attribute `unit`, which is `"s"`.
 - The datasets of the grid faces in the group `layout` carry the attribute `unit`.
+
+Since 0.0.6 the settings record of a run may hold two more entries:
+
+- The record of [`KineticEnergyChangeTerm`](@ref), with its source and its region.
+- The key `knockon_term` in the record of a [`SecondaryHeatingTerm`](@ref) with
+  `cut = :knockon`, the record of its knock-on term.
 """
-const OUTPUT_FORMAT_VERSION = v"0.0.5"
+const OUTPUT_FORMAT_VERSION = v"0.0.6"
 
 "The format version as written to files, `\"major.minor.patch\"`."
 output_format_version() = string(OUTPUT_FORMAT_VERSION)
@@ -1069,6 +1075,21 @@ function describe(term::KineticEnergyLossTerm, context::DescriptionContext)
     record["coefficient"] = term.coefficient
     record["source"] = describe(term.source, context)
     return _describe_region!(record, term.envelopes, context)
+end
+
+function settings_fields(::Type{<:KineticEnergyChangeTerm})
+    (described = (:kinetic, :source, :coefficient, :region), derived = (:energies,))
+end
+
+function describe(term::KineticEnergyChangeTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["kinetic"] = String(term.kinetic)
+    record["coefficient"] = term.coefficient
+    record["source"] = describe(term.source, context)
+    if term.region !== nothing
+        record["region"] = describe(term.region, context)
+    end
+    return record
 end
 
 function settings_fields(::Type{<:FrictionEnergyTransferTerm})

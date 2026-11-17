@@ -1294,7 +1294,7 @@ function _check_plasma_pairings(equations)
     terms_of_system = collect(Iterators.flatten(equation.terms for equation in equations))
     for equation in equations, term in equation.terms
         #! format: off
-        sources = if term isa KineticEnergyLossTerm
+        sources = if term isa Union{KineticEnergyLossTerm, KineticEnergyChangeTerm}
             (term.source,)
         elseif term isa InterfaceFluxTerm
             (term.interface,)
@@ -1525,6 +1525,64 @@ function _moves_in_radius(term::FokkerPlanckTerm)
     any(!iszero, term.operator.diffusion_r_r) || any(!iszero, term.operator.advection_r)
 end
 
+# The energy of the knock-ons that the Rosenbluth-Putvinski source `source` of the distribution
+# `d` creates, in the terms `listed` of the row of `temperature` that holds the time derivative
+# of `total`: one KineticEnergyChangeTerm of this very source, with a positive coefficient and
+# without a region, since every knock-on is in W_tot. The term creates the energy of the
+# knock-ons in the system, a choice of this package: the primaries, the fluid runaways above
+# the grid, have no energy unknown, so no population pays it. The alternative that it rejects
+# charges that energy to the cold electrons, as a row without the term would.
+function _check_knockon_energy(source, listed, temperature, total, d)
+    changes = [t for t in listed if t isa KineticEnergyChangeTerm && t.source === source]
+    if isempty(changes)
+        throw(ArgumentError("the row of $temperature holds the time derivative of the total energy $total, and " *
+                            "the knock-ons of the fluid runaways above the grid of $d bring their energy into " *
+                            "$total without a term of the row, so the cold electrons would pay it: add " *
+                            "KineticEnergyChangeTerm(source) of this RosenbluthPutvinskiSourceTerm to the row"))
+    end
+    if length(changes) > 1
+        throw(ArgumentError("the row of $temperature holds the time derivative of the total energy $total, and " *
+                            "it holds $(length(changes)) energy terms of the Rosenbluth-Putvinski source of $d, " *
+                            "which count the energy of its knock-ons more than once: keep one"))
+    end
+    change = only(changes)
+    if !(change.coefficient > 0)
+        throw(ArgumentError("the row of $temperature holds the time derivative of the total energy $total, and " *
+                            "the energy term of the Rosenbluth-Putvinski source of $d has the coefficient " *
+                            "$(change.coefficient), which does not add the energy of the knock-ons to the total: " *
+                            "give it a positive coefficient"))
+    end
+    if change.region !== nothing
+        throw(ArgumentError("the row of $temperature holds the time derivative of the total energy $total, and " *
+                            "the energy term of the Rosenbluth-Putvinski source of $d takes a region, but every " *
+                            "knock-on of the source is in $total: give it no region"))
+    end
+    return nothing
+end
+
+# Each KineticEnergyChangeTerm in the row `row` of the total energy `total` has a source that
+# is a term in the equation of one of the `distributions` in W_hot. The knock-ons of another
+# source are outside W_tot, and the row would give their energy to the cold electrons.
+function _check_energy_change_sources(row, total, distributions, equations)
+    for change in row.terms
+        change isa KineticEnergyChangeTerm || continue
+        in_total = false
+        for equation in equations
+            equation.unknown in distributions || continue
+            if any(t -> t === change.source, equation.terms)
+                in_total = true
+            end
+        end
+        if !in_total
+            throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, and " *
+                                "its KineticEnergyChangeTerm takes a source of $(change.kinetic), whose distribution " *
+                                "is not in the total energy: the row would give the energy of knock-ons outside " *
+                                "$total to the cold electrons. Remove the term, or put $(change.kinetic) into $total"))
+        end
+    end
+    return nothing
+end
+
 # The row `row` that holds the time derivative of the total energy W_tot = W_cold + W_hot as
 # a named tuple of four fields: `row` itself, `total` the name of W_tot, `closures` the
 # algebraic equations of W_tot, and `distributions` the kinetic unknowns whose energy
@@ -1555,15 +1613,18 @@ end
 # the energy moments of the distributions in the closure of W_tot, so every change of W_hot
 # that no term of the row lists is charged to the cold electrons. For each distribution of
 # W_hot the row lists the sinks of its collisions, the energy that crosses p_max (the flux of
-# the boundary, or the interface to the runaway grid), and refuses the channels that no row
-# term carries: radial transport of f, knock-on secondaries on its grid, the fluid knock-ons
-# above it, a prescribed loss rate, a Maxwellian source, and a LinearTerm with a nonzero
-# coefficient, which moves electrons into f from a kinetic unknown or out of it. The checks
-# read the coefficients of the operators as they are, so a run repeats them before its
-# first step (_check_run).
+# the boundary, or the interface to the runaway grid), the energy of the knock-ons of each
+# Rosenbluth-Putvinski source over the whole grid, and refuses the channels that no row term
+# carries: radial transport of f, knock-on secondaries on its grid, a prescribed loss rate, a
+# Maxwellian source, and a LinearTerm with a nonzero coefficient, which moves electrons into
+# f from a kinetic unknown or out of it. The row refuses an energy term of a source outside
+# the equations of the distributions of W_hot, whose knock-ons are not in W_tot. The checks
+# read the coefficients of the operators as they are, so a run repeats them before its first
+# step (_check_run).
 function _check_total_energy_rows(equations)
     for (; row, total, closures, distributions) in _total_energy_rows(equations)
         listed = row.terms
+        _check_energy_change_sources(row, total, distributions, equations)
         for d in distributions, equation in equations
 
             equation.unknown === d || continue
@@ -1651,9 +1712,7 @@ function _check_total_energy_rows(equations)
                                         "cold electrons, since no term carries the energy of the secondaries: refused"))
                 end
                 if term isa RosenbluthPutvinskiSourceTerm
-                    throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
-                                        "and the knock-ons of the fluid runaways above the grid of $d take their energy " *
-                                        "from the cold electrons, since the primaries have no energy unknown: refused"))
+                    _check_knockon_energy(term, listed, row.unknown, total, d)
                 end
                 if term isa LossRateTerm
                     throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
