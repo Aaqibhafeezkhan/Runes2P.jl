@@ -237,13 +237,14 @@ electrons, `MomentumBoundaryFluxTerm(...; weight = :energy)` for an outflow at `
 [`InterfaceEnergyFluxTerm`](@ref) and [`InterfaceCollisionWorkTerm`](@ref) of the same
 interface for the runaway grid, and [`KineticEnergyChangeTerm`](@ref)
 of each [`RosenbluthPutvinskiSourceTerm`](@ref) for the energy of the knock-ons of the fluid
-runaways above the grid, over the whole grid. Radial transport of `kinetic` needs a
-`KineticEnergyChangeTerm` of each [`FokkerPlanckTerm`](@ref) that holds it, over `region`,
-for the energy that the transport moves in and out of the hot region of each radius. The run
-requires it before its first step for a [`RechesterRosenbluthUpdate`](@ref) that sets the
-transport. The system refuses a row that misses one of these terms or holds two energy
-terms of one source, and a `KineticEnergyChangeTerm` whose source is not in the equation of a distribution
-in the total energy, since the energy that it counts is outside the total. It refuses an
+runaways above the grid, over the whole grid. Each [`FokkerPlanckTerm`](@ref) of `kinetic`
+whose operator holds nonzero radial coefficients needs a `KineticEnergyChangeTerm` of that
+term without a region, for the change of the energy of all of `kinetic` by the transport at
+each radius. The run requires it before its first step for a
+[`RechesterRosenbluthUpdate`](@ref) that sets the transport. The system refuses a row that
+misses one of these terms. It refuses two energy terms of one source. It refuses a
+`KineticEnergyChangeTerm` whose source is not in the equation of a distribution in the total
+energy, since the energy that it counts is outside the total. It refuses an
 `InterfaceCollisionWorkTerm` of an interface whose lower distribution, that of the grid
 below the face, is not in the total energy, since the electrons that cross there are outside
 the total. A second `InterfaceCollisionWorkTerm` of one interface, which would count the work

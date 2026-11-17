@@ -104,7 +104,7 @@ function check_update(update::RechesterRosenbluthUpdate, system)
                                 "radial transport an operator and a FokkerPlanckTerm of its own."))
         end
     end
-    # The transport of a distribution of the total energy of a row moves the energy of its hot
+    # The transport of a distribution of the total energy of a row moves the energy of its
     # electrons, which the row takes from the energy term of the transport. The system requires
     # that term when it is built for transport that is already set, but this operator receives
     # its coefficients in the run, so the check is made here.
@@ -112,11 +112,10 @@ function check_update(update::RechesterRosenbluthUpdate, system)
 
         d = equation.unknown
         d in entry.distributions || continue
-        moment = _energy_moment(entry.closures, d)
         for term in equation.terms
             if term isa FokkerPlanckTerm && term.operator === update.operator
                 _check_transport_energy(
-                    entry.row.unknown, entry.total, d, term, entry.row.terms, moment)
+                    term, entry.row.terms, entry.row.unknown, entry.total, d)
             end
         end
     end

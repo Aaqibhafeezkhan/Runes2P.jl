@@ -328,9 +328,12 @@ For each distribution in ``W_\mathrm{hot}`` the system therefore requires in tha
 - the energy that leaves through ``p_\mathrm{max}``, as [`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` or as [`InterfaceEnergyFluxTerm`](@ref) of the interface to the runaway grid.
 - at the interface to the runaway grid, the work of the electron-electron collisions on the electrons that cross, as [`InterfaceCollisionWorkTerm`](@ref) of the same interface.
 - the energy of the knock-ons of each [`RosenbluthPutvinskiSourceTerm`](@ref) in its equation, as one [`KineticEnergyChangeTerm`](@ref) of that source without a region.
-- the energy that radial transport moves, as one [`KineticEnergyChangeTerm`](@ref) of each [`FokkerPlanckTerm`](@ref) in its equation that holds radial transport, over the region of the energy moment.
+- the change of its energy by radial transport, as one [`KineticEnergyChangeTerm`](@ref) over the whole grid, without a region.
+  A [`FokkerPlanckTerm`](@ref) in its equation whose operator holds nonzero radial coefficients requires one such term of that very term in the row.
+  A Fokker-Planck term whose operator declares radial transport but holds no coefficients yet, as one built for a [`RechesterRosenbluthUpdate`](@ref), accepts the term.
 
 The terms of the sinks, of ``p_\mathrm{max}`` and of the work at the interface take a negative coefficient, and the terms of the knock-ons and of the radial transport a positive one.
+The system checks the sign only, and a coefficient of 1 or −1 closes the budget.
 
 It refuses [`KnockOnTerm`](@ref), [`LossRateTerm`](@ref), [`MaxwellianSourceTerm`](@ref) and a [`LinearTerm`](@ref) with a nonzero coefficient in the equation of that distribution, since no term of the row carries their energy.
 It refuses a [`KineticEnergyChangeTerm`](@ref) in the row whose source is not in the equation of a distribution in ``W_\mathrm{hot}``, since the energy that it counts is outside ``W_\mathrm{tot}``.
@@ -339,5 +342,5 @@ It refuses an [`InterfaceCollisionWorkTerm`](@ref) of an interface whose lower d
 A second [`InterfaceCollisionWorkTerm`](@ref) of one interface is refused in a row of every kind, the row of the cold thermal energy alone included.
 
 A run repeats these checks before its first step, with the coefficients of the operators as they are then.
-For a [`RechesterRosenbluthUpdate`](@ref) that sets the radial transport of that distribution, it requires the [`KineticEnergyChangeTerm`](@ref) of the Fokker-Planck term of the update.
+So a [`RechesterRosenbluthUpdate`](@ref) that sets the radial transport of that distribution passes only when the row holds the term from the build of the system.
 The energy balance itself is on the page [Energy and current balance](energy-current.md).

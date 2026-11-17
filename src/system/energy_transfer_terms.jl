@@ -2,9 +2,9 @@
 # collisional transfer from the runaway grid to the cold electrons, the sinks of the hot
 # electrons (bound electrons, bremsstrahlung, synchrotron), the energy and the particles
 # that electrons carry out of the hot-tail grid through the interface, the work of the
-# electron-electron collisions on the electrons that cross it, and the energy that
-# a source term or radial transport gives a distribution. Included after operators/field_particle.jl, whose
-# electron-electron operator it uses, and after system/avalanche_terms.jl, whose
+# electron-electron collisions on the electrons that cross it, and the energy that a source
+# term or radial transport gives a distribution. Included after operators/field_particle.jl,
+# whose electron-electron operator it uses, and after system/avalanche_terms.jl, whose
 # RosenbluthPutvinskiSourceTerm the energy of a source dispatches on.
 
 using SparseArrays: findnz, sparse
@@ -391,7 +391,7 @@ function add_jacobian!(J, term::KineticEnergyLossTerm, u, layout, row, t)
         T = unknown_values(u, layout, T_id)
         for ir in 1:nr
             m = momentum_grid(grid, ir)
-            envelope = _temperature_envelope(term.envelopes, grid, T, ir)
+            envelope = _temperature_envelope(term, grid, T, ir)
             energies = _energy_weights(grid, ir)
             value = 0.0
             for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
@@ -434,15 +434,15 @@ Base.@propagate_inbounds function Base.getindex(
         a.values[i, j, ir], ForwardDiff.Partials(seeds))
 end
 
-# the envelope of the region of `envelopes` at radius ir in dual numbers of one partial, the
-# derivative by the temperature unknown T that moves its limit
-function _temperature_envelope(envelopes::RegionEnvelopes, grid, T, ir)
+# the envelope of the region at radius ir in dual numbers of one partial, the derivative by
+# the temperature unknown T that moves its limit
+function _temperature_envelope(term::KineticEnergyLossTerm, grid, T, ir)
     D = ForwardDiff.Dual{PlasmaColumnTag, Float64, 1}
     m = momentum_grid(grid, ir)
-    limit = envelopes.region.limit
+    limit = term.envelopes.region.limit
     p0 = limit.factor * sqrt(2 * D(T[ir], ForwardDiff.Partials((1.0,))) /
               Constants.ELECTRON_REST_ENERGY)
-    return momentum_envelope!(zeros(D, momentum_cell_count(m)), envelopes.region, m, p0)
+    return momentum_envelope!(zeros(D, momentum_cell_count(m)), term.envelopes.region, m, p0)
 end
 
 # the buffer of the row of one radius in the columns of f, kept by the term; the operator
@@ -478,7 +478,7 @@ function _add_face_loss_jacobian!(J, term::KineticEnergyLossTerm, ops, f, grid, 
         T_id = unknown_id(layout, only(temperature))
         T = unknown_values(u, layout, T_id)
         for ir in 1:radial_cell_count(layout)
-            envelope = _temperature_envelope(term.envelopes, grid, T, ir)
+            envelope = _temperature_envelope(term, grid, T, ir)
             moment = _face_energy_moment(ops, f, side, envelope, ir)
             _add_entry!(J, first(unknown_range(layout, row, ir)),
                 first(unknown_range(layout, T_id, ir)),
@@ -1466,9 +1466,10 @@ of `mₑc`. A limit that follows the temperature or another function of time thr
 
 In the row of the temperature under [`total_energy_equation`](@ref) the system requires this
 term for each Rosenbluth-Putvinski source of a distribution of the total energy, with that
-source itself, a positive coefficient and no region, since every knock-on is in the total
-energy. It refuses the term there when its source is not in the equation of such a
-distribution. The term creates the energy of the knock-ons in the system, a choice of this
+source of the system itself and no region, since every knock-on is in the total energy. The
+system checks the sign of the coefficient, and a coefficient of 1 closes the budget. It
+refuses the term there when its source is not in the equation of such a distribution. The
+term creates the energy of the knock-ons in the system, a choice of this
 package (see the docs page *Choices of this package*): their primaries, the fluid runaways
 above the grid, have no energy unknown, so no population pays it. The alternative, which the
 package rejects, charges that energy to the cold electrons.
@@ -1480,36 +1481,42 @@ removes neither the thermal energy of the target electrons nor the ionization en
 bound target, and DREAM removes neither.
 
 The rate of a [`FokkerPlanckTerm`](@ref) is its radial transport alone, the divergence of
-the radial flux `Φ = 𝒱'Γʳ` of its operator ([`AdvectionDiffusion`](@ref)) through the faces
-`k` and `k + 1` of the radius `k`:
+the radial flux `Φ = 𝒱'Γʳ` of its operator ([`AdvectionDiffusion`](@ref)), positive outward,
+through the faces `k` and `k + 1` of the radius `k`, over the whole grid:
 
 ```math
-P = -\\frac{1}{V' Δr} \\sum_{ij} w_i\\, m_e c^2 (γ_i − 1)\\, Δp_i Δξ_j \\left(Φ_{ij,k+1} − Φ_{ij,k}\\right),
+P_k = -\\frac{1}{V'_k Δr_k} \\sum_{ij} m_e c^2 (γ_i − 1)\\, Δp_i Δξ_j \\left(Φ_{ij,k+1} − Φ_{ij,k}\\right),
 ```
 
-with the radial width `Δr` [m] of the radius and the cells of zero volume left out. The
-fluxes are those of the residual of the term: the radial scheme, the overlap of pitch grids
-that differ between radii and the boundary at the edge. The momentum part of the operator,
-where it holds one, is not in `P`. The term reads the coefficients of the operator at every
-evaluation, so it follows a [`RechesterRosenbluthUpdate`](@ref). It is linear in the
-distribution under a linear radial scheme, and its Jacobian holds the cells that the radial
-fluxes read: the neighbouring radii, and the second neighbours under a four-point scheme. The
-limit of `region` may follow the temperature unknown ([`ThermalMomentum`](@ref)), which adds
-the column of the temperature.
+with the spatial Jacobian `V'_k` [m] and the radial width `Δr_k` [m] of the radius, and the
+cells of zero volume left out. The fluxes are those of the discretised equation of `f`: the
+radial scheme, the overlap of pitch grids that differ between radii and the boundary at the
+edge. The momentum part of the operator, where it holds one, is not in `P`. This source takes
+no region, and a `region` throws an `ArgumentError`.
 
-With the same envelope at all radii the energy only moves between the radii: the integral
-`Σ_k V'_k Δr_k P_k` is the energy flux through the edge, zero with `r_boundary = :zero_flux`.
-With envelopes that differ, such as a threshold that follows a temperature profile, the
-integral also holds the energy of the electrons that the transport carries across the
-threshold, `Σ_k Σ_ij (w_{i,k} − w_{i,k−1}) mₑc²(γ_i − 1) Δp_i Δξ_j Φ_{ij,k}` with one pitch
-grid at all radii, summed over the inner faces.
+The term reads the coefficients of the operator at every evaluation, so it follows a
+[`RechesterRosenbluthUpdate`](@ref). It is linear in the distribution under a linear radial
+scheme. Its Jacobian holds the cells that the radial fluxes read: the neighbouring radii,
+and the second neighbours under a four-point scheme.
+
+The transport only moves energy between the radii and out through the edge: the integral
+`Σ_k V'_k Δr_k P_k` is minus the energy flux out through the edge, zero with
+`r_boundary = :zero_flux`.
 
 In the row of the temperature under [`total_energy_equation`](@ref) the system requires this
-term for each Fokker-Planck term with radial transport of a distribution of the total
-energy, with that term itself, a positive coefficient and the region of the energy moment
-of that distribution. The cold electrons then neither pay nor gain the energy that the
-transport of the hot electrons moves. The region of the hot electrons is a choice of this
-package (see the docs page *Choices of this package*).
+term for each Fokker-Planck term of a distribution of the total energy whose operator holds
+nonzero radial coefficients. Its source must be that Fokker-Planck term of the system, not a
+copy, and it takes no region. The system checks the sign of the coefficient, and a
+coefficient of 1 closes the budget. The moment over the whole grid is a choice of this
+package (see the docs page *Choices of this package*): the cold electrons receive the energy
+that the transport moves with the electrons below the threshold of the hot region, and with
+the electrons that it carries across that threshold.
+
+The Rechester-Rosenbluth heat diffusivity of [`HeatTransportTerm`](@ref) is the energy moment
+of the same kinetic diffusion on a Maxwellian of uniform density. With that model at the
+level of this transport in one run, the energy of the bulk moves twice in radius, once with
+the electrons of `f` and once with the heat diffusion of the cold electrons. The docs page
+*Energy and current balance* has the details.
 """
 struct KineticEnergyChangeTerm{S, E, C} <: EquationTerm
     kinetic::Symbol
@@ -1635,17 +1642,22 @@ end
 # The energy of the radial transport of a Fokker-Planck term
 const RadialTransportEnergyTerm = KineticEnergyChangeTerm{<:FokkerPlanckTerm}
 
-# the envelopes of the region on the grid of the operator, which follow its limit in the run
+# The energy of radial transport takes the whole grid, a choice of this package: with a
+# closed edge it conserves the total energy whatever the thresholds of the radii. The
+# alternative that it rejects takes the hot region of the energy moment, which loses or gains
+# the energy of the electrons that the transport carries across a threshold that differs
+# between radii. Nothing is kept for the weights.
 function _energy_changes(source::FokkerPlanckTerm, region)
-    RegionEnvelopes(region, source.operator.grid)
+    if region !== nothing
+        throw(ArgumentError("KineticEnergyChangeTerm of radial transport takes no region: it is the moment over the " *
+                            "whole grid, which conserves the total energy whatever the threshold of each radius"))
+    end
+    return nothing
 end
 
-function dependencies(term::RadialTransportEnergyTerm)
-    [term.kinetic; collect(Symbol, _region_unknowns(term.energies))]
-end
+dependencies(term::RadialTransportEnergyTerm) = [term.kinetic]
 function is_linear(term::RadialTransportEnergyTerm)
-    isempty(_region_unknowns(term.energies)) &&
-        !is_nonlinear_scheme(term.source.operator.r_scheme)
+    !is_nonlinear_scheme(term.source.operator.r_scheme)
 end
 jacobian_assembly(::RadialTransportEnergyTerm) = :direct
 
@@ -1655,13 +1667,13 @@ function validate(term::RadialTransportEnergyTerm, layout, row)
     id = unknown_id(layout, term.kinetic)
     layout.kinds[id] === :kinetic ||
         throw(ArgumentError("KineticEnergyChangeTerm needs a kinetic unknown"))
-    _check_envelopes(term.energies, kinetic_grid(layout, id))
     return nothing
 end
 
 # The energy moment of the radial transport of `op` at radius ir: −(1/(V' Δr)) Σ_j Δξ_j Σ_i
 # w_i ε_i Δp_i (Φ_{ir+1} − Φ_ir), with the radial fluxes Φ of apply_radius! for the radial
-# mode `mode`, over the cells with volume. The number type follows f and the envelope.
+# mode `mode`, over the cells with volume. The envelope w is `nothing` (1, the whole grid) for
+# the term; a test takes the hot region with it. The number type follows f and the envelope.
 function _transport_energy(op::AdvectionDiffusion, f, envelope, ir, mode)
     m = op.momentum_grids[ir]
     rg = op.grid.radial_grid
@@ -1691,12 +1703,9 @@ end
 # the rows of all radii behind a barrier on the radial mode
 function _add_transport_energy!(out, term::RadialTransportEnergyTerm, op, u, layout, row,
         t, mode)
-    id = unknown_id(layout, term.kinetic)
-    grid = kinetic_grid(layout, id)
-    f = kinetic_array(u, layout, id)
+    f = kinetic_array(u, layout, unknown_id(layout, term.kinetic))
     for ir in 1:radial_cell_count(layout)
-        envelope = _moment_envelope(term.energies, grid, ir, u, layout, t)
-        energy = _transport_energy(op, f, envelope, ir, mode)
+        energy = _transport_energy(op, f, nothing, ir, mode)
         out[first(unknown_range(layout, row, ir))] += term.coefficient * energy
     end
     return out
@@ -1708,8 +1717,8 @@ struct TransportRowTag end
 # A radial flux through face k reads the radii k − 2 to k + 1 at most, the mirrored ghost
 # cells at the axis among them, with one pitch grid at all radii. Any four consecutive radii
 # have different indices modulo 4, so four colors, that index modulo 4, give each partial of
-# the flux to one cell.
-const TRANSPORT_ROW_COLORS = 2 * LOSS_STENCIL_HALF_WIDTH
+# the flux to one cell: twice the stencil half width of the four-point radial schemes.
+const TRANSPORT_ROW_COLORS = 2 * maximum(stencil_half_width, FOUR_POINT_SCHEMES)
 
 # The distribution f with the derivative of the cell at radius ir in the partial of its color
 struct RadiallyColoredCells{T, A <: AbstractArray{T, 3}} <:
@@ -1729,23 +1738,7 @@ end
 function add_jacobian!(J, term::RadialTransportEnergyTerm, u, layout, row, t)
     op = term.source.operator
     mode = _radial_flux_mode(op)
-    _add_transport_energy_columns!(J, term, op, u, layout, row, t, mode)
-    temperature = _region_unknowns(term.energies)
-    isempty(temperature) && return J
-    # the column of the temperature that moves the limit of the region
-    id = unknown_id(layout, term.kinetic)
-    grid = kinetic_grid(layout, id)
-    f = kinetic_array(u, layout, id)
-    T_id = unknown_id(layout, only(temperature))
-    T = unknown_values(u, layout, T_id)
-    for ir in 1:radial_cell_count(layout)
-        envelope = _temperature_envelope(term.energies, grid, T, ir)
-        energy = _transport_energy(op, f, envelope, ir, mode)
-        _add_entry!(J, first(unknown_range(layout, row, ir)),
-            first(unknown_range(layout, T_id, ir)),
-            term.coefficient * ForwardDiff.partials(energy, 1))
-    end
-    return J
+    return _add_transport_energy_columns!(J, term, op, u, layout, row, t, mode)
 end
 
 # The columns of f: the flux of each face of each cell with a nonzero weight once in dual
@@ -1754,21 +1747,19 @@ end
 function _add_transport_energy_columns!(J, term::RadialTransportEnergyTerm, op, u, layout,
         row, t, mode)
     id = unknown_id(layout, term.kinetic)
-    grid = kinetic_grid(layout, id)
     f = kinetic_array(u, layout, id)
     colored = RadiallyColoredCells(f)
     rg = op.grid.radial_grid
     nr = radial_cell_count(rg)
     for ir in 1:nr
         m = op.momentum_grids[ir]
-        envelope = _envelope_at(term.energies, grid, ir, u, layout, t)
         r = first(unknown_range(layout, row, ir))
         scale = -term.coefficient / (rg.r_widths[ir] * rg.spatial_jacobian[ir])
         @inbounds for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
 
             op.jacobian_centers[i, j, ir] == 0 && continue
-            weight = _envelope_value(envelope, i) * _kinetic_energy(m.p_centers[i]) *
-                     m.p_widths[i] * m.xi_widths[j] * scale
+            weight = _kinetic_energy(m.p_centers[i]) * m.p_widths[i] * m.xi_widths[j] *
+                     scale
             weight == 0 && continue
             for (k, sign) in ((ir + 1, 1), (ir, -1))
                 k == 1 && continue
@@ -1822,23 +1813,22 @@ function _add_overlap_flux_columns!(J, layout, id, r, op, f, i, j, ir, k, weight
         F = _face_flux(op.r_scheme, op.advection_r[i, s, k], op.diffusion_r_r[i, s, k],
             f_left, f_right, distance, weight_left)
         partials = ForwardDiff.partials(F)
-        factor = weight * shares[s] * V
-        _add_entry!(J, r, _kinetic_index(layout, id, k - 1, i, left_cell),
-            factor * partials[1])
-        _add_entry!(J, r, _kinetic_index(layout, id, k, i, right_cell), factor *
-                                                                        partials[2])
+        # the weight of the row times the share of the pitch cell and 𝒱' of the overlap cell
+        overlap_weight = weight * shares[s] * V
+        left_entry = overlap_weight * partials[1]
+        right_entry = overlap_weight * partials[2]
+        _add_entry!(J, r, _kinetic_index(layout, id, k - 1, i, left_cell), left_entry)
+        _add_entry!(J, r, _kinetic_index(layout, id, k, i, right_cell), right_entry)
     end
     return J
 end
 
-# the cells that the radial fluxes of each cell read, as the stencil of the operator, and the
-# temperature of a region that follows it
+# the cells that the radial fluxes of each cell read, as the stencil of the operator
 function sparsity!(entries, term::RadialTransportEnergyTerm, layout, row)
     id = unknown_id(layout, term.kinetic)
     op = term.source.operator
     np, nxi, nr = size(op.grid)
     options = _stencil_options(op)
-    temperature = _region_unknowns(term.energies)
     for ir in 1:nr
         r = first(unknown_range(layout, row, ir))
         for j in 1:nxi, i in 1:np
@@ -1846,9 +1836,6 @@ function sparsity!(entries, term::RadialTransportEnergyTerm, layout, row)
             _visit_stencil(op.grid, i, j, ir; options...) do i2, j2, ir2
                 push!(entries, (r, _kinetic_index(layout, id, ir2, i2, j2)))
             end
-        end
-        for name in temperature
-            push!(entries, (r, first(unknown_range(layout, unknown_id(layout, name), ir))))
         end
     end
     return entries

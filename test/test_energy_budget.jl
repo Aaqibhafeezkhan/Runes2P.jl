@@ -5,9 +5,9 @@
 # superthermal electrons, the temperature of a cold plasma under a hot tail a hundred times
 # its energy, the chain that determines the temperature, the checks of the row with the
 # losses that take no flux through p_max, the energy of radial transport in the total energy
-# with its budget at each radius, the energy term that radial transport set after the build,
-# by an update or by hand, needs, the energy of the knock-ons of fluid runaways, and DREAM's
-# fluid heating by runaways.
+# with its budget at each radius, and the energy of the knock-ons of fluid runaways. Radial
+# transport set after the build, by an update or by hand, needs the energy term as well.
+# Last, DREAM's fluid heating by runaways.
 import ForwardDiff
 
 @testset "energy budget" begin
@@ -228,54 +228,53 @@ import ForwardDiff
         g_system = [g_equations; g_row; energy]
         outside_message = "reads the interface of g, whose distribution is not in the total energy"
         @test_throws outside_message Runes2P._check_plasma_pairings(g_system)
-        # radial transport moves the energy of the hot electrons: the row takes one energy term
-        # of this very Fokker-Planck term, with a positive coefficient and the region of the
-        # energy moment
+        # radial transport moves the energy of the electrons of f: the row takes one energy term
+        # of this very Fokker-Planck term, with a positive coefficient and no region
         transport = AdvectionDiffusion(grid; scheme = :central, r_boundary = :absorbing)
         add_rechester_rosenbluth_diffusion!(transport, 1e-3; major_radius = 6.2)
         moving = FokkerPlanckTerm(:f, transport)
-        transport_energy = KineticEnergyChangeTerm(moving; region)
+        transport_energy = KineticEnergyChangeTerm(moving)
         @test check((term, moving), sinks, outflow, transport_energy) === nothing
-        @test_throws "add KineticEnergyChangeTerm(term; region)" check((term, moving), sinks, outflow)
+        @test_throws "add KineticEnergyChangeTerm(term)" check((term, moving), sinks, outflow)
         @test_throws "more than once" check(
             (term, moving), sinks, outflow, transport_energy, transport_energy)
         for coefficient in (0, -1)
             @test_throws "give it a positive coefficient" check(
                 (term, moving), sinks, outflow,
-                KineticEnergyChangeTerm(moving; region, coefficient))
+                KineticEnergyChangeTerm(moving; coefficient))
         end
-        @test_throws "another region than the energy moment" check(
-            (term, moving), sinks, outflow,
-            KineticEnergyChangeTerm(moving; region = MomentumRegion(0.1)))
-        @test_throws "another region than the energy moment" check(
-            (term, moving), sinks, outflow, KineticEnergyChangeTerm(moving))
+        # a region: refused when the term is built, and by the row for a term built otherwise
+        @test_throws "takes no region" KineticEnergyChangeTerm(moving; region)
+        with_region = KineticEnergyChangeTerm(:f, moving, 1.0, region, nothing)
+        @test_throws "give it no region" check((term, moving), sinks, outflow, with_region)
         # the energy term of a copy of the transport term: the identity check refuses it
         @test_throws "not a term of the system" check((term, moving), sinks, outflow,
-            KineticEnergyChangeTerm(FokkerPlanckTerm(:f, transport); region))
+            KineticEnergyChangeTerm(FokkerPlanckTerm(:f, transport)))
         # a transport term that holds no coefficients yet needs no energy term, and takes one
         idle = FokkerPlanckTerm(:f, AdvectionDiffusion(grid; scheme = :central))
         @test check((term, idle), sinks, outflow) === nothing
-        @test check((term, idle), sinks, outflow, KineticEnergyChangeTerm(idle; region)) ===
+        @test check((term, idle), sinks, outflow, KineticEnergyChangeTerm(idle)) ===
               nothing
         @test_throws "more than once" check((term, idle), sinks, outflow,
-            KineticEnergyChangeTerm(idle; region), KineticEnergyChangeTerm(idle; region))
+            KineticEnergyChangeTerm(idle), KineticEnergyChangeTerm(idle))
         # the energy term of the transport of a distribution outside W_tot
         g_moving = FokkerPlanckTerm(:g, transport)
         g_transport = [Equation(:f, TimeDerivative(), term, moving),
             Equation(:g, TimeDerivative(), g_moving)]
+        g_energy = KineticEnergyChangeTerm(g_moving)
+        g_row = row(sinks, outflow, transport_energy, g_energy)
         @test_throws "whose distribution is not in the total energy" Runes2P._check_plasma_pairings([g_transport;
-                                                                                                     row(
-                                                                                                         sinks,
-                                                                                                         outflow,
-                                                                                                         transport_energy,
-                                                                                                         KineticEnergyChangeTerm(
-                                                                                                             g_moving;
-                                                                                                             region));
+                                                                                                     g_row;
                                                                                                      energy])
-        @test Runes2P._check_plasma_pairings([g_transport;
-                                              row(sinks, outflow, transport_energy);
-                                              energy]) ===
-              nothing
+        f_row = row(sinks, outflow, transport_energy)
+        @test Runes2P._check_plasma_pairings([g_transport; f_row; energy]) === nothing
+        # a row of the energy of the cold electrons alone holds no distribution, so the energy
+        # term of the transport would give the cold electrons the energy of f
+        cold_row = Equation(
+            :cold_electron_temperature, TimeDerivative(:cold_thermal_energy),
+            transport_energy)
+        @test_throws "an energy of the cold electrons alone without a distribution" Runes2P._check_plasma_pairings([
+            Equation(:f, TimeDerivative(), term, moving), cold_row, thermal_energy_equation()])
         # the knock-ons of the fluid runaways above the grid bring their energy into W_tot: the
         # row takes one energy term of this very source, with a positive coefficient and no
         # region
@@ -384,9 +383,9 @@ import ForwardDiff
         # closed edge: Rechester-Rosenbluth diffusion and an inward advection. The row of the
         # total energy holds the energy term of the transport, so at each radius W_tot changes
         # by the step times the transport moment P of the end of the step, computed here from
-        # apply! of the transport operator over the hot region, less the outflow. With one
-        # threshold at all radii P integrates to zero over the volume, and so does the change
-        # of W_tot apart from the outflow. Without the term, a coefficient of 1e-30 that the
+        # apply! of the transport operator over the whole grid, less the outflow. P integrates
+        # to zero over the volume, and so does the change of W_tot apart from the outflow.
+        # Without the term, a coefficient of 1e-30 that the
         # check accepts, the row misses P at each radius, and the cold electrons pay it.
         T0, n = 100.0, 1e19
         grid = cylindrical_grid(
@@ -444,12 +443,14 @@ import ForwardDiff
             p0 = moment_region.limit.factor * sqrt(2T / Constants.ELECTRON_REST_ENERGY)
             return momentum_envelope!(zeros(40), moment_region, m, p0)
         end
-        # the moment of the transport over the hot region from apply!, per radius [W/m³]
+        # the moment of the transport from apply!, per radius [W/m³], over the whole grid
+        # (`nothing`) or over the hot region of `moment_region`
         function transport_moment(op, u, moment_region)
             df = apply!(zeros(size(grid)), op, kinetic_array(u, layout, 1))
             moments = zeros(3)
             for ir in 1:3, j in 1:2, i in 1:40
-                envelope = envelope_at(moment_region, u, ir)
+                envelope = moment_region === nothing ? ones(40) :
+                           envelope_at(moment_region, u, ir)
                 moments[ir] += envelope[i] * Runes2P._kinetic_energy(m.p_centers[i]) *
                                df[i, j, ir] * phase_space_jacobian(grid, ir)[i, j] *
                                m.p_widths[i] * m.xi_widths[j] /
@@ -465,7 +466,7 @@ import ForwardDiff
             op = transport_operator(; filled = isempty(updates))
             transport = FokkerPlanckTerm(:f, op)
             equations = equations_of(collisions, transport, moment_region,
-                KineticEnergyChangeTerm(transport; region = moment_region, coefficient))
+                KineticEnergyChangeTerm(transport; coefficient))
             initial = copy(u0)
             unknown_values(initial, layout, 2) .= temperatures
             system = EquationSystem(layout, equations; time_scale = 1e-7, initial_state = initial)
@@ -480,16 +481,19 @@ import ForwardDiff
             rows = [first(Runes2P.unknown_range(layout, 2, ir)) for ir in 1:3]
             outflow = Runes2P.rhs!(
                 zeros(length(finish)), equations[2].terms[1], finish, layout, 2, 0.0)[rows]
-            return (; start, finish, outflow,
-                moment = transport_moment(op, finish, moment_region))
+            return (;
+                start, finish, outflow, moment = transport_moment(op, finish, nothing),
+                hot = transport_moment(op, finish, moment_region))
         end
         with = run(1.0)
-        # the transport moves energy at each radius, and its moment integrates to zero
+        # the transport moves energy at each radius, and its moment integrates to zero.
+        # Measured: the largest |P| is 9.4e6 W/m³, so a step moves 0.26 % of W_tot at the
+        # inner radius
         scale = maximum(abs, with.moment)
         @test scale > 1e-3 * maximum(values_of(with.start, 5)) / dt
         @test abs(sum(volumes .* with.moment)) < 1e-13 * sum(volumes .* abs.(with.moment))
         # each radius: the change of W_tot is that of the transport and the outflow. Measured:
-        # at most 1.7e-14 of the largest |P|, and |∫P| of 7.5e-17 of ∫|P|
+        # at most 2.0e-14 of the largest |P|, and |∫P| of 1.5e-16 of ∫|P|
         change = (values_of(with.finish, 5) .- values_of(with.start, 5)) ./ dt
         @test maximum(abs.(change .- (with.moment .+ with.outflow))) < 1e-12 * scale
         @test abs(sum(volumes .* (change .- with.outflow))) <
@@ -508,19 +512,22 @@ import ForwardDiff
         @test maximum(abs.(updated.moment .- with.moment)) < 1e-6 * scale
         @test maximum(abs.(change .- (updated.moment .+ updated.outflow))) < 1e-12 * scale
         # a threshold that follows a temperature that differs between the radii: the row holds
-        # the transport over the hot region of each radius at the temperature of the end of the
-        # step, whose column the Newton iteration takes, and the moment no longer integrates to
-        # zero, since the transport carries electrons across the threshold. Measured: |∫P| of
-        # 3.0e-6 of ∫|P| (7.5e-17 with one threshold, above), small since the bump lies well
-        # above the threshold
+        # the transport over the whole grid, so the budget closes at each radius and in the
+        # volume as with one threshold. The moment over the hot region alone, the rejected
+        # alternative, no longer integrates to zero, since the transport carries electrons
+        # across the threshold. Measured: the budget per radius to 1.9e-14 of the largest |P|,
+        # |∫P| of 7.5e-17 of ∫|P|, and the hot region 3.0e-6 of ∫|P|
         thermal = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor = 3))
         profiled = run(1.0; moment_region = thermal, temperatures = [100.0, 70.0, 40.0])
         change = (values_of(profiled.finish, 5) .- values_of(profiled.start, 5)) ./ dt
         thermal_scale = maximum(abs, profiled.moment)
+        thermal_volume_scale = sum(volumes .* abs.(profiled.moment))
         @test maximum(abs.(change .- (profiled.moment .+ profiled.outflow))) <
               1e-12 * thermal_scale
-        @test abs(sum(volumes .* profiled.moment)) >
-              1e-7 * sum(volumes .* abs.(profiled.moment))
+        @test abs(sum(volumes .* profiled.moment)) < 1e-13 * thermal_volume_scale
+        @test abs(sum(volumes .* (change .- profiled.outflow))) <
+              1e-12 * thermal_volume_scale
+        @test abs(sum(volumes .* profiled.hot)) > 1e-7 * thermal_volume_scale
     end
 
     @testset "radial transport set after the build under the total energy" begin
@@ -568,30 +575,30 @@ import ForwardDiff
         # accepted when built: the operator moves nothing yet
         system = EquationSystem(layout, equations(); time_scale = 1e-7, initial_state = u0)
         @test system isa EquationSystem
-        @test_throws "add KineticEnergyChangeTerm(term; region)" integrate(
+        @test_throws "add KineticEnergyChangeTerm(term)" integrate(
             system, u0, [0.0, 1e-8]; stepper = FixedSteps(), updates = (update,))
         # with the energy term of the transport the run takes the update; a second term is
         # refused when the system is built
         with_term = EquationSystem(
-            layout, equations(KineticEnergyChangeTerm(moving; region));
+            layout, equations(KineticEnergyChangeTerm(moving));
             time_scale = 1e-7, initial_state = u0)
         solution = integrate(
             with_term, u0, [0.0, 1e-8]; stepper = FixedSteps(), updates = (update,))
         @test all(isfinite, solution.states)
         @test any(!iszero, transport.diffusion_r_r)
         fill!(transport.diffusion_r_r, 0.0)
-        twice = equations(KineticEnergyChangeTerm(moving; region), KineticEnergyChangeTerm(moving; region))
+        twice = equations(KineticEnergyChangeTerm(moving), KineticEnergyChangeTerm(moving))
         @test_throws "more than once" EquationSystem(
             layout, twice; time_scale = 1e-7, initial_state = u0)
         # the same coefficients set by hand on the built system: the run refuses them before
         # its first step, also when it resumes, and the system refuses them when it is built
         add_rechester_rosenbluth_diffusion!(transport, 1e-3; major_radius = 6.2)
-        @test_throws "add KineticEnergyChangeTerm(term; region)" integrate(
+        @test_throws "add KineticEnergyChangeTerm(term)" integrate(
             system, u0, [0.0, 1e-8]; stepper = FixedSteps())
-        @test_throws "add KineticEnergyChangeTerm(term; region)" integrate(
+        @test_throws "add KineticEnergyChangeTerm(term)" integrate(
             system, u0, [0.0, 1e-8]; stepper = FixedSteps(),
             resume = joinpath(mktempdir(), "missing.h5"))
-        @test_throws "add KineticEnergyChangeTerm(term; region)" EquationSystem(
+        @test_throws "add KineticEnergyChangeTerm(term)" EquationSystem(
             layout, equations(); time_scale = 1e-7, initial_state = u0)
     end
 
