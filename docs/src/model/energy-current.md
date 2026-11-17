@@ -239,9 +239,11 @@ The parts therefore add up to the flux through the face, as the docstring of [`I
 The term charges the work of the electron-electron collisions to the cold electrons, a choice of this package ([Choices of this package](../choices.md#Total-energy-of-the-electrons)).
 The cold electrons are the targets of these collisions, and inside each grid they gain the energy that the collisions take from the electrons.
 Where the friction pulls electrons down through the face, the cold electrons gain the step of each of them, and where the energy diffusion pushes electrons up, they pay it.
-Without a field, `test/test_energy_budget.jl` closes the energy of the two grids across the face with the term, and conserves the total energy of a two-grid system with it.
-The test also shows what the budget and the total energy miss without the term.
-With a field the row misses the part of the step of the field described above.
+
+`test/test_energy_budget.jl` closes the energy of the two grids across the face under a field, with the whole step of the field at the face written out as a channel of its own and without the row of the total energy.
+Without a field, it conserves the total energy of a two-grid system through the row of the total energy with the term.
+Both tests also show what they miss without the term.
+With a field, the row of the total energy counts the part of the step of the field up to the face twice, as described above.
 
 ## The energy of the kinetic ionization
 
