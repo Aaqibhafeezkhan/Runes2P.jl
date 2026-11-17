@@ -8,6 +8,11 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Added
 
+- `KineticEnergyChangeTerm(source; region, coefficient)` takes a `FokkerPlanckTerm` with radial transport as `source` ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+  It is then the energy moment of the radial transport of that term over `region`, whose limit may follow the temperature unknown.
+  Under `total_energy_equation` the system and the run require this term in the row of the temperature for radial transport of a distribution in the total energy, in place of refusing the transport.
+  A `RechesterRosenbluthUpdate` on such a distribution is accepted when the row holds the term.
+  The settings record of the term is that of format 0.0.6.
 - `InterfaceCollisionWorkTerm(interface; coefficient = -1)` is the work of the electron-electron collisions on the electrons that cross a `MomentumInterfaceTerm`, for the row of the temperature ([#297](https://github.com/osrep/Runes2P.jl/pull/297)).
   It is the electron-electron part of the flux through the face, taken at the same face value of f as the flux itself, times an energy step.
   The step is the energy of the first cell of the runaway grid less that of the last cell of the hot-tail grid.

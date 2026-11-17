@@ -77,6 +77,7 @@ The row lists only the channels by which energy enters or leaves the electrons o
 - The outflow at ``p_\mathrm{max}`` is [`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` and `coefficient = -1`.
 - The channel of the electrons that cross to a runaway grid is [`InterfaceEnergyFluxTerm`](@ref), with the work of the electron-electron collisions on them, [`InterfaceCollisionWorkTerm`](@ref) (below).
 - The energy of the knock-ons that the fluid runaways above the grid create ([`RosenbluthPutvinskiSourceTerm`](@ref)) is the [`KineticEnergyChangeTerm`](@ref) of that source, over the whole grid.
+- The energy that radial transport of `f` moves at each radius is the [`KineticEnergyChangeTerm`](@ref) of the [`FokkerPlanckTerm`](@ref) of the transport, over the hot region ([below](#Radial-transport-of-the-hot-electrons)).
 
 The collisional transfer from the hot electrons to the cold ones does not appear in the row.
 Neither do the electrons that cross the threshold, nor the threshold that moves with the temperature.
@@ -94,9 +95,11 @@ The docstring of [`total_energy_equation`](@ref) gives the conditions.
   At the interface it also needs one [`InterfaceCollisionWorkTerm`](@ref) of the same interface, with a negative coefficient (below).
   The row refuses the term of an interface whose lower distribution, that of the grid below the face, is not in ``W_\mathrm{hot}``.
   A second [`InterfaceCollisionWorkTerm`](@ref) of one interface, which would count the work twice, is refused in every row, the row of the cold thermal energy alone included.
-- Radial transport of `f` is refused, since the system has no energy term for radial transport.
-  The system refuses it when it is built, and a run checks the coefficients again before its first step.
-  A [`RechesterRosenbluthUpdate`](@ref) sets the coefficients of its operator in the run, so the run refuses the update before its first step.
+- Radial transport of `f` moves the energy of the hot electrons between the radii.
+  The row needs one [`KineticEnergyChangeTerm`](@ref) of each [`FokkerPlanckTerm`](@ref) of `f` that holds radial transport, with a positive coefficient and the region of the energy moment.
+  The system checks this when it is built, and a run checks the coefficients again before its first step.
+  A [`RechesterRosenbluthUpdate`](@ref) sets the coefficients of its operator in the run, so the run requires the term for the Fokker-Planck term of that operator before its first step.
+  A second energy term of one Fokker-Planck term is refused, and so is one whose Fokker-Planck term is not in the equation of a distribution in ``W_\mathrm{hot}``.
 - A [`KnockOnTerm`](@ref) on the grid is refused, since no term carries the energy of the secondaries.
 - A [`RosenbluthPutvinskiSourceTerm`](@ref) creates knock-ons whose energy no other term carries.
   The row needs one [`KineticEnergyChangeTerm`](@ref) of that very source, with a positive coefficient and without a region (below).
@@ -135,6 +138,32 @@ With ``n_\mathrm{cold} = n_\mathrm{free} - n_\mathrm{hot}`` and a [`ParticleSour
 The cold electrons that remain therefore gain ``\tfrac{3}{2} T`` per such knock-on.
 That is 0.62 % of the term at 10 eV, ``p_\mathrm{cut} = 0.04`` and ``p_\mathrm{max} = 0.8``, where every knock-on lies above the threshold.
 A bound target, which ``n_\mathrm{tot}`` counts, does not pay its ionization energy either, and DREAM behaves the same in both respects.
+
+### Radial transport of the hot electrons
+
+Radial transport of `f`, such as the diffusion along stochastic field lines of [`add_rechester_rosenbluth_diffusion!`](@ref), is a [`FokkerPlanckTerm`](@ref) of its own.
+Its [`KineticEnergyChangeTerm`](@ref) is the energy moment of the radial part of its operator over the hot region:
+
+```math
+P_k = -\frac{1}{V'_k \Delta r_k} \sum_{ij} w_{i,k}\, m_e c^2 (\gamma_i - 1)\, \Delta p_i\, \Delta\xi_j \left(\Phi_{ij,k+1} - \Phi_{ij,k}\right),
+```
+
+with ``k`` the radius, ``\Delta r_k`` its width, ``w_{i,k}`` the envelope of the hot region there, and ``\Phi_{ij,k}`` the radial flux ``\mathcal{V}' \Gamma^r`` of the cell ``(i, j)`` through the inner face of radius ``k``.
+The fluxes are those of the residual of `f`, so ``P_k`` is the change of ``W_\mathrm{hot}`` that the transport makes, to round-off.
+With the term in the row, the cold electrons neither pay nor gain the energy that the transport moves.
+
+With one threshold at all radii the energy only moves between the radii.
+The volume integral ``\sum_k V'_k \Delta r_k P_k`` is then the energy flux through the edge of the plasma, and zero for a closed edge.
+A threshold that follows a temperature profile differs between the radii.
+An electron that the transport carries to a radius where it lies below the threshold leaves ``W_\mathrm{hot}``, and one carried above the threshold joins it.
+The volume integral then also holds the energy of these electrons, which ``W_\mathrm{tot}`` loses or gains.
+
+The transport of `f` below the threshold changes no term of the row.
+The heat transport of the cold electrons is the separate channel [`HeatTransportTerm`](@ref), which moves ``W_\mathrm{cold}`` between the radii.
+The two terms do not overlap, since one counts the electrons above the threshold and the other the cold electrons.
+A run that transports both populations needs both terms, each with its own coefficient.
+
+`test/test_energy_transfer.jl` compares the term with the moment of the operator applied to `f`, and `test/test_energy_budget.jl` closes the budget of ``W_\mathrm{tot}`` at each radius with it.
 
 ### Why the hot-tail grid only
 
