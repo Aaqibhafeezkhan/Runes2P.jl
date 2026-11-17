@@ -158,6 +158,7 @@ DREAM's documentation gives an upper bound for `pCutAvalanche`, the critical mom
 |---|---|
 | who pays the energy of the knock-ons that [`RosenbluthPutvinskiSourceTerm`](@ref) creates, under [`total_energy_equation`](@ref) | no population: [`KineticEnergyChangeTerm`](@ref) creates it in the system |
 | who pays the work of the electron-electron collisions on the electrons that cross the interface to a runaway grid, under [`total_energy_equation`](@ref) | the cold electrons: [`InterfaceCollisionWorkTerm`](@ref) with `coefficient = -1` |
+| the energy of radial transport of the hot-tail distribution that the row counts, under [`total_energy_equation`](@ref) | that of the hot region: [`KineticEnergyChangeTerm`](@ref) over the region of the energy moment |
 
 The primaries of the source are the fluid runaways above the grid, which have no energy unknown.
 The rejected alternative charges the energy of the knock-ons to the cold electrons, which a row of the total energy without the term would do.
@@ -168,6 +169,11 @@ The work of the collisions at the interface is the energy step between the two c
 No operator holds it, since neither grid takes a flux through the face in its energy moments.
 The cold electrons pay it because they are the targets of these collisions, which give them the energy that the electrons lose inside each grid.
 The rejected alternative leaves the work to no population, as a row without the term would, and the energy of the two grids is then not conserved across the face ([Energy and current balance](model/energy-current.md#The-energy-step-at-the-interface)).
+
+The energy term of radial transport counts the electrons above the threshold of the hot region, as the sinks do, so the cold electrons neither pay nor gain what the transport moves.
+The transport of the distribution below the threshold then changes no term of the row, and the heat transport of the cold electrons stays [`HeatTransportTerm`](@ref).
+The rejected alternative takes the whole grid, which charges the transport of the bulk of the distribution to the cold electrons and overlaps with that heat transport.
+Where the threshold differs between radii, an electron that the transport carries across it leaves or joins the total energy without a population that pays ([Energy and current balance](model/energy-current.md#Radial-transport-of-the-hot-electrons)).
 
 ## Linear solvers
 

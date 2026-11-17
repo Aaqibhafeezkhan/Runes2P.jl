@@ -151,6 +151,7 @@ P_k = -\frac{1}{V'_k \Delta r_k} \sum_{ij} w_{i,k}\, m_e c^2 (\gamma_i - 1)\, \D
 with ``k`` the radius, ``\Delta r_k`` its width, ``w_{i,k}`` the envelope of the hot region there, and ``\Phi_{ij,k}`` the radial flux ``\mathcal{V}' \Gamma^r`` of the cell ``(i, j)`` through the inner face of radius ``k``.
 The fluxes are those of the residual of `f`, so ``P_k`` is the change of ``W_\mathrm{hot}`` that the transport makes, to round-off.
 With the term in the row, the cold electrons neither pay nor gain the energy that the transport moves.
+The term takes the hot region, a choice of this package ([Choices of this package](../choices.md#Total-energy-of-the-electrons)).
 
 With one threshold at all radii the energy only moves between the radii.
 The volume integral ``\sum_k V'_k \Delta r_k P_k`` is then the energy flux through the edge of the plasma, and zero for a closed edge.

@@ -415,14 +415,14 @@ import ForwardDiff
                 RadialUnknown(:cold_electron_density; scale = 1e19),
                 RadialUnknown(:cold_thermal_energy; scale = THERMAL_ENERGY_FACTOR * 1e21),
                 RadialUnknown(:total_electron_energy; scale = THERMAL_ENERGY_FACTOR * 1e21)])
-        function equations_of(collisions, transport, row_terms...)
+        function equations_of(collisions, transport, moment_region, row_terms...)
             [Equation(:f, TimeDerivative(), collisions, transport),
                 Equation(
                     :cold_electron_temperature, TimeDerivative(:total_electron_energy),
                     MomentumBoundaryFluxTerm(:f, collisions; weight = :energy, coefficient = -1),
                     row_terms...),
                 density_row(fill(n, 3)), thermal_energy_equation(),
-                total_energy_equation(:f, grid; region)]
+                total_energy_equation(:f, grid; region = moment_region)]
         end
         theta = T0 / Constants.ELECTRON_REST_ENERGY
         u0 = zeros(length(layout))
@@ -435,12 +435,21 @@ import ForwardDiff
         unknown_values(u0, layout, 2) .= T0
         unknown_values(u0, layout, 3) .= n
         volumes = grid.radial_grid.spatial_jacobian .* grid.radial_grid.r_widths
-        envelope = momentum_envelope(region, grid, 1)
+        # the envelope of the hot region at radius ir: a fixed limit, or the threshold of the
+        # temperature of the state u
+        function envelope_at(moment_region, u, ir)
+            moment_region.limit isa ThermalMomentum ||
+                return momentum_envelope(moment_region, grid, ir)
+            T = unknown_values(u, layout, 2)[ir]
+            p0 = moment_region.limit.factor * sqrt(2T / Constants.ELECTRON_REST_ENERGY)
+            return momentum_envelope!(zeros(40), moment_region, m, p0)
+        end
         # the moment of the transport over the hot region from apply!, per radius [W/m³]
-        function transport_moment(op, u)
+        function transport_moment(op, u, moment_region)
             df = apply!(zeros(size(grid)), op, kinetic_array(u, layout, 1))
             moments = zeros(3)
             for ir in 1:3, j in 1:2, i in 1:40
+                envelope = envelope_at(moment_region, u, ir)
                 moments[ir] += envelope[i] * Runes2P._kinetic_energy(m.p_centers[i]) *
                                df[i, j, ir] * phase_space_jacobian(grid, ir)[i, j] *
                                m.p_widths[i] * m.xi_widths[j] /
@@ -450,25 +459,29 @@ import ForwardDiff
         end
         values_of(u, k) = unknown_values(u, layout, k)
         dt = 1e-7
-        function run(coefficient; updates = ())
+        function run(coefficient; updates = (), moment_region = region,
+                temperatures = fill(T0, 3))
             collisions = fp()
             op = transport_operator(; filled = isempty(updates))
             transport = FokkerPlanckTerm(:f, op)
-            equations = equations_of(collisions, transport,
-                KineticEnergyChangeTerm(transport; region, coefficient))
-            system = EquationSystem(layout, equations; time_scale = 1e-7, initial_state = u0)
+            equations = equations_of(collisions, transport, moment_region,
+                KineticEnergyChangeTerm(transport; region = moment_region, coefficient))
+            initial = copy(u0)
+            unknown_values(initial, layout, 2) .= temperatures
+            system = EquationSystem(layout, equations; time_scale = 1e-7, initial_state = initial)
             update_list = [RechesterRosenbluthUpdate(op, t -> 2e-3; major_radius = 6.2)
                            for _ in updates]
             if !isempty(updates)
                 op.advection_r .= -2e3
             end
             solution = integrate(
-                system, u0, [0.0, dt]; stepper = FixedSteps(), updates = Tuple(update_list))
+                system, initial, [0.0, dt]; stepper = FixedSteps(), updates = Tuple(update_list))
             start, finish = solution.states[:, 1], solution.states[:, 2]
             rows = [first(Runes2P.unknown_range(layout, 2, ir)) for ir in 1:3]
             outflow = Runes2P.rhs!(
                 zeros(length(finish)), equations[2].terms[1], finish, layout, 2, 0.0)[rows]
-            return (; start, finish, outflow, moment = transport_moment(op, finish))
+            return (; start, finish, outflow,
+                moment = transport_moment(op, finish, moment_region))
         end
         with = run(1.0)
         # the transport moves energy at each radius, and its moment integrates to zero
@@ -494,6 +507,20 @@ import ForwardDiff
         change = (values_of(updated.finish, 5) .- values_of(updated.start, 5)) ./ dt
         @test maximum(abs.(updated.moment .- with.moment)) < 1e-6 * scale
         @test maximum(abs.(change .- (updated.moment .+ updated.outflow))) < 1e-12 * scale
+        # a threshold that follows a temperature that differs between the radii: the row holds
+        # the transport over the hot region of each radius at the temperature of the end of the
+        # step, whose column the Newton iteration takes, and the moment no longer integrates to
+        # zero, since the transport carries electrons across the threshold. Measured: |∫P| of
+        # 3.0e-6 of ∫|P| (7.5e-17 with one threshold, above), small since the bump lies well
+        # above the threshold
+        thermal = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor = 3))
+        profiled = run(1.0; moment_region = thermal, temperatures = [100.0, 70.0, 40.0])
+        change = (values_of(profiled.finish, 5) .- values_of(profiled.start, 5)) ./ dt
+        thermal_scale = maximum(abs, profiled.moment)
+        @test maximum(abs.(change .- (profiled.moment .+ profiled.outflow))) <
+              1e-12 * thermal_scale
+        @test abs(sum(volumes .* profiled.moment)) >
+              1e-7 * sum(volumes .* abs.(profiled.moment))
     end
 
     @testset "radial transport set after the build under the total energy" begin

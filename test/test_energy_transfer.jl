@@ -16,6 +16,9 @@
 # a face changes its side, two small systems that step and the allocations. The work of the
 # collisions on the electrons that cross the interface (InterfaceCollisionWorkTerm): its parts
 # of the flux, its Jacobian, its checks and the rebuilds of the coefficients that it keeps.
+# The energy of radial transport (KineticEnergyChangeTerm of a Fokker-Planck term): its
+# moment against that of the applied operator, its volume integral, its Jacobian, its
+# allocations and its source.
 using ForwardDiff: ForwardDiff
 using Random: Xoshiro
 using SparseArrays: findnz, sparse
@@ -1659,6 +1662,13 @@ using SparseArrays: findnz, sparse
             record = Runes2P.describe(term, DescriptionContext())
             @test record["kinetic"] == "f" && record["coefficient"] == 1.0
             @test haskey(record, "source") && haskey(record, "region")
+            # and a region that follows the temperature, that of a run of the total energy
+            thermal = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor = 5))
+            thermal_record = Runes2P.describe(
+                KineticEnergyChangeTerm(FokkerPlanckTerm(:f, op); region = thermal),
+                DescriptionContext())
+            @test thermal_record["region"] ==
+                  Runes2P.describe(thermal, DescriptionContext())
         end
     end
 end

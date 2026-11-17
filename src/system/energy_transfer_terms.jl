@@ -3,7 +3,7 @@
 # electrons (bound electrons, bremsstrahlung, synchrotron), the energy and the particles
 # that electrons carry out of the hot-tail grid through the interface, the work of the
 # electron-electron collisions on the electrons that cross it, and the energy that
-# a source term gives a distribution. Included after operators/field_particle.jl, whose
+# a source term or radial transport gives a distribution. Included after operators/field_particle.jl, whose
 # electron-electron operator it uses, and after system/avalanche_terms.jl, whose
 # RosenbluthPutvinskiSourceTerm the energy of a source dispatches on.
 
@@ -1508,7 +1508,8 @@ In the row of the temperature under [`total_energy_equation`](@ref) the system r
 term for each Fokker-Planck term with radial transport of a distribution of the total
 energy, with that term itself, a positive coefficient and the region of the energy moment
 of that distribution. The cold electrons then neither pay nor gain the energy that the
-transport of the hot electrons moves.
+transport of the hot electrons moves. The region of the hot electrons is a choice of this
+package (see the docs page *Choices of this package*).
 """
 struct KineticEnergyChangeTerm{S, E, C} <: EquationTerm
     kinetic::Symbol
