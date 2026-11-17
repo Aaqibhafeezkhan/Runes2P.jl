@@ -210,11 +210,16 @@ const HEATING_RUN_DEFAULT_FIRST_STEP = 5e-5
             @info "f_re at compat = runes2p against DREAM's, after the first step and at " *
                   "the last: $(distributions[2]), $(distributions[end]); the density of " *
                   "f_re over the run against its start: $drift"
-            # Measured: the energy change of the operator rises from 0 to 473 W/m³, DREAM's
-            # moment on the same states is 7.68e4 to 7.81e4 W/m³. Nearly all of f_re sits
-            # in the first momentum cell (p = 0.25), below which there is no cell for the
-            # friction to carry it to, so the energy change of the operator is small; the
-            # moment counts the friction of that cell in full.
+            # Measured: the energy change of the operator falls from 1.39e5 to 1.36e5 W/m³,
+            # DREAM's moment on the same states rises from 7.68e4 to 7.81e4 W/m³ over the steps,
+            # and the energy change is 1.77 to 1.78 times the moment at each step. Nearly all of
+            # f_re sits in the first momentum cell (p = 0.25). The field of 1.5 V/m beats the
+            # friction at the face p = 0.5 above it, so the momentum faces take the upwind side
+            # of the whole advection there, the value of the first cell. The friction on the
+            # free electrons then carries that cell's electrons down through the face, and the
+            # energy change counts that flux with the energy step between the first two cells,
+            # 2.13 times the moment of that friction at the cell centre (the refinement of this
+            # ratio is on the docs page "Energy and current balance").
             # The run takes lagged = :ions in place of :all and the superthermal
             # frequencies, since the electron-electron operator has no ultra-relativistic
             # form (runaway_heating_example). At p = 0.25 the superthermal frequencies give
@@ -222,17 +227,17 @@ const HEATING_RUN_DEFAULT_FIRST_STEP = 5e-5
             # (_collisional_slowing_down and _deflection_frequency of
             # src/physics/collision_frequencies.jl), so f_re differs from
             # DREAM's by 0.46 of its largest value after the first step and 0.76 at the
-            # last. T_cold ends 2.9e-4 below DREAM's: the form of the heating takes about
-            # 3.2e-4 (the difference of the two heatings over the 5 µs, about 0.39 J/m³,
+            # last. T_cold ends 2.8e-4 above DREAM's: the form of the heating gives about
+            # 2.5e-4 (the difference of the two heatings over the 5 µs, about 0.30 J/m³,
             # over the heat capacity 1.5 e n_cold of 12 J/(m³ eV)), and the ohmic heating at
             # the end of the step adds about 3e-5, as at compat = dream.
-            # The bounds: the energy change at the start is 0, at most 1e-12 of the moment;
-            # it is never negative; its largest value is 6.2e-3 of the smallest moment,
-            # below 1e-2; the smallest moment is 7.68e4 W/m³, above 7e4 W/m³.
-            @test abs(energy_change[1]) <= 1e-12 * minimum(moments)
+            # The bounds: the energy change is never negative; it is 1.7 to 1.85 times the
+            # moment at every step; the smallest moment is 7.68e4 W/m³, above 7e4 W/m³; T_cold
+            # at the last step is 2.77e-4 above DREAM's, between 2e-4 and 3.5e-4.
             @test all(>=(0), energy_change)
-            @test maximum(energy_change) < 1e-2 * minimum(moments)
+            @test all(1.7 .< energy_change ./ moments .< 1.85)
             @test all(moments .> 7e4)
+            @test 2e-4 < (T[end] - T_dream[end]) / T_dream[end] < 3.5e-4
             # no flux through p = 0, as at compat = dream: the density of f_re changes by
             # 6.0e-16 of its start over the run, round-off
             @test drift < HEATING_RUN_DENSITY

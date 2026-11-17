@@ -52,17 +52,15 @@ and by [`InterfaceEnergyFluxTerm`](@ref) at the interface to a runaway grid. The
   only on average and only where the screening window is open: from the ionization
   potential up to the mean excitation energy it takes none.
 
-With linear schemes of `source` the term takes the moment of the two operators applied to
-`f`, whose face values take the side of their own advection. A flux limiter in a scheme of
-`source`, in p, in ξ or in r, makes the term nonlinear in `f`. The momentum face values of
-both operators then take the upwind side of the whole advection of `source`, also under a
-linear momentum scheme: its collisions and its electric field, of the plasma or of the
-field unknown, as the residual of `source` evaluates them. That face value depends on `f`
-and on the side alone, so the field part, the free-electron part and the sinks sum to the
-momentum flux of `source` face by face. Exponential fitting in p is the exception: its
-face value follows the coefficients of each operator, not the side, so the parts do not
-sum to the flux there. The term takes the moment in the form of the momentum faces, since
-the pitch fluxes sum to zero over a momentum row:
+The momentum face values of both operators take the upwind side of the whole advection of
+`source` under every momentum scheme with a side: `:upwind`, `:quick`,
+`:upwind_second_order` and the flux limiters. The whole advection is that of the collisions
+and the electric field, of the plasma or of the field unknown, as the residual of `source`
+evaluates them. That face value depends on `f` and on the side alone, so the field part,
+the free-electron part and the sinks sum to the momentum flux of `source` face by face. A
+flux limiter in ξ or in r takes the same form under any momentum scheme. The term takes the
+moment in the form of the momentum faces, since the pitch fluxes sum to zero over a
+momentum row:
 
 ```math
 L = −\\frac{1}{V'} \\sum_j Δξ_j \\sum_k (ε_k − ε_{k−1})\\, F_{kj},
@@ -70,10 +68,19 @@ L = −\\frac{1}{V'} \\sum_j Δξ_j \\sum_k (ε_k − ε_{k−1})\\, F_{kj},
 
 with `ε_k = w_k mₑc²(γ_k − 1)` [J] of momentum cell `k` (`ε_0 = 0`) and `F_{kj}` the momentum
 flux of `C_a − C_b` through the lower face of cell `(k, j)` times `𝒱'`. The term reads the
-sign of the whole advection, not of the field alone, and has no column of the field
-unknown. Where a face changes its side, each part jumps, while their sum, the momentum
-flux of `source`, stays continuous. The Jacobian holds the derivative of the limiter at a
-fixed side.
+sign of the whole advection, not of the field alone. It lists the field unknown among its
+dependencies but has no column of it. Where a face changes its side, each part jumps, while
+their sum, the momentum flux of `source`, stays continuous. The Jacobian takes the side as
+fixed and holds the derivative of the limiter, where there is one.
+
+The momentum schemes without a side, `:central` and `:exponential_fitting`, with linear
+schemes in ξ and r, give the term the moment of the two operators applied to `f`. The
+central face value does not depend on the side, so the parts sum to the flux under it as
+well. The face value of exponential fitting follows the coefficients of each operator, so
+the parts do not sum to the flux there, with or without a limiter in ξ or r. Where the
+diffusion of an operator is not positive, as in the superthermal collisions, which have no
+energy diffusion, exponential fitting takes the upwind side of the advection of that
+operator alone.
 
 The term takes the plasma of `source` in the same treatment: implicit, with the columns of
 the temperature and density unknowns, or lagged at the state of the start of the step. A
@@ -141,10 +148,18 @@ function _loss_plasma_unknowns(term::KineticEnergyLossTerm)
     end
 end
 # Whether the loss takes the form of the momentum faces (_face_energy_moment), with the parts
-# on the side of the whole advection of the source: exactly when a flux limiter makes the
-# operator of the source nonlinear in f. A linear source takes the moment of the applied
-# operators, each on the side of its own advection.
-_face_form(term::KineticEnergyLossTerm) = !is_linear(term.source.operator)
+# on the side of the whole advection of the source: when the momentum face value has a side,
+# under upwind and the four-point schemes, or when a flux limiter in any direction makes the
+# operator of the source nonlinear in f. The pitch fluxes leave the moment and the parts
+# carry no radial transport, so the sides of ξ and r do not enter. A linear source with the
+# central scheme or exponential fitting in p, whose face value has no side, takes the moment
+# of the applied operators.
+function _face_form(term::KineticEnergyLossTerm)
+    operator = term.source.operator
+    return _has_side(operator.p_scheme) || !is_linear(operator)
+end
+# whether the momentum face value of a scheme takes the upwind side of the advection
+_has_side(scheme::Symbol) = scheme === :upwind || is_four_point_scheme(scheme)
 # the field unknown whose sign the face form reads, without a column of its own
 function _side_field_unknowns(term::KineticEnergyLossTerm)
     field = term.source.electric_field
