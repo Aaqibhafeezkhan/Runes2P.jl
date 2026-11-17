@@ -1110,7 +1110,8 @@ end
 
 function settings_fields(::Type{<:InterfaceCollisionWorkTerm})
     (described = (:interface, :coefficient),
-        derived = (:plasma_key, :settings, :source, :advection, :diffusion))
+        derived = (:plasma_key, :collision_settings, :operator_rebuilds, :rebuilds,
+            :advection, :diffusion))
 end
 
 function describe(term::InterfaceRowTerm, context::DescriptionContext)

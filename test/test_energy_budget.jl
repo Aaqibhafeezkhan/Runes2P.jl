@@ -200,27 +200,32 @@ import ForwardDiff
             AdvectionDiffusion(grid; scheme = :exponential_fitting, p_upper_boundary = :interface);
             plasma, settings = lower.settings)
         other_interface = MomentumInterfaceTerm(:f, :runaway, other, re)
-        @test_throws "its collision work at the interface of f reads the interface of another term" Runes2P._check_plasma_pairings([Equation(
-                                                                                                                                        :f,
-                                                                                                                                        TimeDerivative(),
-                                                                                                                                        lower,
-                                                                                                                                        other,
-                                                                                                                                        interface,
-                                                                                                                                        other_interface);
-                                                                                                                                    Equation(
-                                                                                                                                        :runaway,
-                                                                                                                                        TimeDerivative(),
-                                                                                                                                        re,
-                                                                                                                                        interface,
-                                                                                                                                        other_interface);
-                                                                                                                                    row(
-                                                                                                                                        crossing,
-                                                                                                                                        KineticEnergyLossTerm(
-                                                                                                                                            other;
-                                                                                                                                            part = :sinks,
-                                                                                                                                            region),
-                                                                                                                                        InterfaceEnergyFluxTerm(interface), InterfaceCollisionWorkTerm(other_interface));
-                                                                                                                                    energy])
+        f_both = Equation(:f, TimeDerivative(), lower, other, interface, other_interface)
+        re_both = Equation(:runaway, TimeDerivative(), re, interface, other_interface)
+        row_other = row(crossing, KineticEnergyLossTerm(other; part = :sinks, region),
+            InterfaceEnergyFluxTerm(interface), InterfaceCollisionWorkTerm(other_interface))
+        @test_throws "its collision work at the interface of f reads the interface of another term" Runes2P._check_plasma_pairings([
+            f_both, re_both, row_other, energy...])
+        # two terms of the work of one interface count it twice
+        @test_throws "count the work more than once" two(
+            crossing, InterfaceEnergyFluxTerm(interface), work, work)
+        # the work at the interface of a distribution outside W_tot: the electrons that cross
+        # there are not in W_tot, so the row refuses the term
+        g_lower = FokkerPlanckTerm(:g,
+            AdvectionDiffusion(grid; scheme = :exponential_fitting, p_upper_boundary = :interface);
+            plasma, settings = lower.settings)
+        g_interface = MomentumInterfaceTerm(:g, :runaway, g_lower, re)
+        g_equations = [Equation(:f, TimeDerivative(), term),
+            Equation(:g, TimeDerivative(), g_lower, g_interface),
+            Equation(:runaway, TimeDerivative(), re, g_interface)]
+        @test Runes2P._check_plasma_pairings([g_equations; row(sinks, outflow); energy]) ===
+              nothing
+        @test_throws "InterfaceCollisionWorkTerm reads the interface of g, whose distribution is not in the total energy" Runes2P._check_plasma_pairings([g_equations;
+                                                                                                                                                          row(
+                                                                                                                                                              sinks,
+                                                                                                                                                              outflow,
+                                                                                                                                                              InterfaceCollisionWorkTerm(g_interface));
+                                                                                                                                                          energy])
         # radial transport and knock-on secondaries on the grid of f have no row term: the
         # system refuses them
         transport = AdvectionDiffusion(grid; scheme = :central, r_boundary = :absorbing)
@@ -825,18 +830,29 @@ import ForwardDiff
                 unknown_values(state, layout, 6)[1] + W_re
             end
             flux = interface_flux(interface, solution.states[:, end], layout, 1)
-            return (totals .- totals[1]) ./ totals[1], flux
+            return (totals .- totals[1]) ./ totals[1], flux, solution, totals[1]
         end
         # without the work the system refuses the row
         @test_throws "add InterfaceCollisionWorkTerm" run()
-        drift, flux = run(InterfaceCollisionWorkTerm(interface))
+        drift, flux, _, _ = run(InterfaceCollisionWorkTerm(interface))
         @test flux < 0
         # a coefficient of −1e-30, which the check accepts, stands for a row without the work
-        missed, _ = run(InterfaceCollisionWorkTerm(interface; coefficient = -1e-30))
-        @info "the total energy of two grids: drifts by $(maximum(abs, drift)) of W_tot with the work of the collisions at the interface, by $(maximum(abs, missed)) without it"
-        # measured: a drift of 1.2e-16 of W_tot with the work, 3.9e-7 without it
+        missed, _, without, start = run(InterfaceCollisionWorkTerm(interface; coefficient = -1e-30))
+        # without the term the sum drifts by minus the time integral of the term, the energy that
+        # the cold electrons would gain: backward Euler takes the term at the end of each step
+        cold_work = InterfaceCollisionWorkTerm(interface)
+        work_at(k) = only(unknown_values(
+            Runes2P.rhs!(zeros(length(u0)), cold_work, without.states[:, k], layout, 3,
+                without.times[k]),
+            layout, 3))
+        dt = without.times[2] - without.times[1]
+        integral = [0.0; cumsum([-dt * work_at(k) for k in 2:6])] ./ start
+        @info "the total energy of two grids: drifts by $(maximum(abs, drift)) of W_tot with the work of the collisions at the interface, by $(maximum(abs, missed)) without it, minus the integral of the work $(maximum(abs, integral)); the drift without it less that integral: $(maximum(abs, missed .- integral))"
+        # measured: a drift of 1.2e-16 of W_tot with the work, 3.9e-7 without it, which equals minus
+        # the time integral of the term to 2.0e-16 of W_tot
         @test maximum(abs, drift) < 1e-12
         @test maximum(abs, missed) > 1e3 * max(maximum(abs, drift), 1e-15)
+        @test maximum(abs, missed .- integral) <= 1e-3 * maximum(abs, missed)
     end
 
     @testset "DREAM's fluid heating by runaways" begin

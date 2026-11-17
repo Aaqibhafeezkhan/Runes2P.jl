@@ -1603,7 +1603,8 @@ end
 # The work of the electron-electron collisions on the electrons that cross the interface of
 # the Fokker-Planck term `term` of `d`: the row of a total energy lists one
 # InterfaceCollisionWorkTerm of the interface of each of its InterfaceEnergyFluxTerms
-# `crossings`, charged to the cold electrons, and none of an interface of another term of `d`
+# `crossings`, charged to the cold electrons, and none of an interface of another term of `d`.
+# A second term of one interface would count the work twice.
 function _check_interface_collision_work(row, total, d, term, crossings, listed)
     works = [t
              for t in listed if t isa InterfaceCollisionWorkTerm && t.interface.lower === d]
@@ -1612,6 +1613,12 @@ function _check_interface_collision_work(row, total, d, term, crossings, listed)
             throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
                                 "and its collision work at the interface of $d reads the interface of another term " *
                                 "of $d: give it the interface of this term"))
+        end
+        copies = count(w -> w.interface === t.interface, works)
+        if copies > 1
+            throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
+                                "and it holds $copies terms of the collision work at the interface of $d, which " *
+                                "count the work more than once: keep one"))
         end
         if !(t.coefficient < 0)
             throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
@@ -1625,6 +1632,24 @@ function _check_interface_collision_work(row, total, d, term, crossings, listed)
                                 "and the electron-electron collisions do work on the electrons of $d that cross " *
                                 "the interface, which no term of the row charges to the cold electrons: add " *
                                 "InterfaceCollisionWorkTerm of the interface of its InterfaceEnergyFluxTerm"))
+        end
+    end
+    return nothing
+end
+
+# Each InterfaceCollisionWorkTerm in the row `row` of the total energy `total` reads an
+# interface whose lower distribution is one of the `distributions` in W_hot. The electrons
+# that cross the interface of another distribution are outside W_tot, and the row would charge
+# the work on them to the cold electrons.
+function _check_collision_work_interfaces(row, total, distributions)
+    for work in row.terms
+        work isa InterfaceCollisionWorkTerm || continue
+        lower = work.interface.lower
+        if !(lower in distributions)
+            throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, and " *
+                                "its InterfaceCollisionWorkTerm reads the interface of $lower, whose distribution is " *
+                                "not in the total energy: the row would charge the work of the collisions there to " *
+                                "the cold electrons. Remove the term, or put $lower into $total"))
         end
     end
     return nothing
@@ -1649,13 +1674,15 @@ end
 # carries: radial transport of f, knock-on secondaries on its grid, a prescribed loss rate, a
 # Maxwellian source, and a LinearTerm with a nonzero coefficient, which moves electrons into
 # f from a kinetic unknown or out of it. The row refuses an energy term of a source outside
-# the equations of the distributions of W_hot, whose knock-ons are not in W_tot. The checks
+# the equations of the distributions of W_hot, whose knock-ons are not in W_tot, and a work
+# term of an interface whose lower distribution is not in W_hot. The checks
 # read the coefficients of the operators as they are, so a run repeats them before its first
 # step (_check_run).
 function _check_total_energy_rows(equations)
     for (; row, total, closures, distributions) in _total_energy_rows(equations)
         listed = row.terms
         _check_energy_change_sources(row, total, distributions, equations)
+        _check_collision_work_interfaces(row, total, distributions)
         for d in distributions, equation in equations
 
             equation.unknown === d || continue
