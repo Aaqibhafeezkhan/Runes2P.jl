@@ -54,8 +54,9 @@ and by [`InterfaceEnergyFluxTerm`](@ref) at the interface to a runaway grid. The
 
 The momentum face values of both operators take the upwind side of the whole advection of
 `source` under every momentum scheme with a side: `:upwind`, `:quick`,
-`:upwind_second_order` and the flux limiters. The whole advection is that of the collisions
-and the electric field, of the plasma or of the field unknown, as the residual of `source`
+`:upwind_second_order` and the flux limiters, the four-point schemes among them on a grid
+of at least three momentum cells. The whole advection is that of the collisions and the
+electric field, of the plasma or of the field unknown, as the residual of `source`
 evaluates them. That face value depends on `f` and on the side alone, so the field part,
 the free-electron part and the sinks sum to the momentum flux of `source` face by face. A
 flux limiter in ξ or in r takes the same form under any momentum scheme. The term takes the
@@ -148,18 +149,18 @@ function _loss_plasma_unknowns(term::KineticEnergyLossTerm)
     end
 end
 # Whether the loss takes the form of the momentum faces (_face_energy_moment), with the parts
-# on the side of the whole advection of the source: when the momentum face value has a side,
-# under upwind and the four-point schemes, or when a flux limiter in any direction makes the
-# operator of the source nonlinear in f. The pitch fluxes leave the moment and the parts
-# carry no radial transport, so the sides of ξ and r do not enter. A linear source with the
-# central scheme or exponential fitting in p, whose face value has no side, takes the moment
-# of the applied operators.
+# on the side of the whole advection of the source, a choice of this package (see the docs
+# page *Choices of this package*): when the momentum face value has a side, under upwind and
+# the four-point schemes, or when a flux limiter in any direction makes the operator of the
+# source nonlinear in f. The pitch fluxes leave the moment and the parts carry no radial
+# transport, so the sides of ξ and r do not enter. A linear source with the central scheme or
+# exponential fitting in p, whose face value has no side, takes the moment of the applied
+# operators. On a grid of fewer than three momentum cells a four-point scheme has no side,
+# and the face form then gives the moment of the applied operators to round-off.
 function _face_form(term::KineticEnergyLossTerm)
     operator = term.source.operator
-    return _has_side(operator.p_scheme) || !is_linear(operator)
+    return face_value_takes_side(operator.p_scheme) || !is_linear(operator)
 end
-# whether the momentum face value of a scheme takes the upwind side of the advection
-_has_side(scheme::Symbol) = scheme === :upwind || is_four_point_scheme(scheme)
 # the field unknown whose sign the face form reads, without a column of its own
 function _side_field_unknowns(term::KineticEnergyLossTerm)
     field = term.source.electric_field

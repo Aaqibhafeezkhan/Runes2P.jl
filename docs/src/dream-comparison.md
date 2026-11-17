@@ -385,13 +385,22 @@ In DREAM's source:
 Runes2P's default is the energy change of the electron-electron operator of the grid ([`KineticEnergyLossTerm`](@ref)), whose momentum faces take the upwind side of the whole advection under a scheme with a side, such as `:upwind`.
 That operator takes no flux through ``p_\mathrm{max}``, so the electrons that cross it give no energy to the cold electrons.
 DREAM's moment, [`FrictionEnergyTransferTerm`](@ref), also counts the energy that the friction carries out of the grid through ``p = 0`` where that flux is applied (`p_zero_boundary = :outflow`).
-The test case `runaway_heating_example` (`test/example_cases.jl`) takes the option at `compat = dream`.
+The test case `runaway_heating_example` (`test/example_cases.jl`) takes the option at `compat = :dream`.
 It is compared with DREAM's run in `test_runaway_heating_dream.jl`.
 
-At `compat = runes2p` the case takes the energy change, on momentum cells 0.5 ``m_e c`` wide with nearly all of ``f_\mathrm{re}`` in the first.
-The field of 1.5 V/m beats the friction at the face above that cell, so the energy change is 1.39e5 W/m³ at the start, where DREAM's moment is 7.81e4 W/m³.
-After the 5 µs of the case, ``T_\mathrm{cold}`` is 2.8e-4 of DREAM's value above it.
-The energy change converges to the moment of the friction at the cell centres as the momentum cells are refined ([The side on a coarse momentum grid](model/energy-current.md#The-side-on-a-coarse-momentum-grid)).
+At `compat = :runes2p` the case takes the energy change under the momentum scheme `:upwind`, which the case sets.
+The default of [`fokker_planck_operator`](@ref), exponential fitting, has no side.
+The momentum cells of the case are 0.5 ``m_e c`` wide, and nearly all of ``f_\mathrm{re}`` sits in the first.
+The field of 1.5 V/m beats the friction at the face above that cell, so the energy change is 1.39e5 W/m³ at the start.
+
+The moment [`FrictionEnergyTransferTerm`](@ref) at DREAM's settings, which Runes2P evaluates on the same states, is 7.81e4 W/m³ at the start.
+Over the steps the energy change is 1.772 to 1.779 times that moment.
+The table of [The side on a coarse momentum grid](model/energy-current.md#The-side-on-a-coarse-momentum-grid) gives 2.127 at the same width, since it divides by the friction moment at the collision settings of the grid.
+That moment is 6.53e4 W/m³ at the start, 0.837 of the moment at DREAM's settings.
+
+At the end of the 5 µs, (Runes2P − DREAM) / DREAM of ``T_\mathrm{cold}`` is +2.8e-4.
+The heating differs by about 0.30 J/m³ over the run, which the heat capacity of 12 J/(m³ eV) turns into 2.5e-4 of ``T_\mathrm{cold}``.
+The ohmic heating at the end of the step adds 3e-5 (`test_runaway_heating_dream.jl`).
 
 **Relativistic corrections of Gould's bremsstrahlung.**
 The coefficients of ``T/m_ec^2`` are these.

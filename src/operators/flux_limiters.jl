@@ -17,6 +17,11 @@ const NONLINEAR_SCHEMES = (:tcdf, :muscl, :smart, :ospre, :van_albada)
 is_four_point_scheme(scheme::Symbol) = scheme in FOUR_POINT_SCHEMES
 is_nonlinear_scheme(scheme::Symbol) = scheme in NONLINEAR_SCHEMES
 stencil_half_width(scheme::Symbol) = is_four_point_scheme(scheme) ? 2 : 1
+# Whether the advective face value of a scheme depends on the upwind side of the advection:
+# upwind and the four-point schemes. The central scheme and exponential fitting have no side.
+# On a direction of fewer than three cells the four-point schemes fall back to the central
+# face value and have no side there either, which this test of the scheme alone does not see.
+face_value_takes_side(scheme::Symbol) = scheme === :upwind || is_four_point_scheme(scheme)
 
 # DREAM's slope ratio r = y'(face)/y'(upstream), with y' the differences between the
 # downstream and upstream cells and between the two upstream cells; ±1e5 where the

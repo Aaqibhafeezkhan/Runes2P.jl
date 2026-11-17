@@ -93,7 +93,8 @@ function runaway_heating_term(compat::Symbol, source::FokkerPlanckTerm, grid, pl
 end
 
 """
-    runaway_heating_example(; compat=:dream, lagged=compat === :dream ? :all : :ions)
+    runaway_heating_example(; compat=:dream, lagged=compat === :dream ? :all : :ions,
+                            field=1.5, momentum_cells=100)
 
 The case `heating` of reference/dream/cases/initial_state.py: the runaway grid of DREAM's
 examples/init_f_re/generate.py (Mathias Hoppe, 2024-11-22) on one radius with the cold
@@ -128,16 +129,21 @@ the plasma of the start of the step, as DREAM's semi-implicit steps (`LINEAR_IMP
 `:ions`, the default at `:runes2p`, is Runes2P's default treatment of the plasma in the
 term, with only the ion densities taken at the start of the step.
 
+`field` [V/m] is the prescribed electric field, 1.5 V/m in the case (initial_state.py:67,
+generate.py:35); another value serves the tests of a field near the one where a momentum face
+of `f_re` changes its upwind side. `momentum_cells` is the number of uniform momentum cells
+to p = 50, 100 in the case; another number serves the refinement of the momentum grid.
+
 Needs the ADF11 tables of deuterium. Returns a named tuple with the `system`, its `layout`,
 the `initial_state`, the `times` of the case, the kinetic `grid`, the Fokker-Planck term
 `fokker_planck` of `f_re`, the `heating` term and the `prescribed` part of the plasma.
 """
 function runaway_heating_example(; compat::Symbol = :dream,
-        lagged = compat === :dream ? :all : :ions)
+        lagged = compat === :dream ? :all : :ions, field::Real = 1.5,
+        momentum_cells::Integer = 100)
     compat in (:dream, :runes2p) ||
         throw(ArgumentError("compat must be :dream or :runes2p, not $compat"))
     # reference/dream/cases/initial_state.py, after examples/init_f_re/generate.py
-    field = 1.5                  # V/m, initial_state.py:67 (generate.py:35)
     deuterium = 5e19             # m⁻³, initial_state.py:68 (generate.py:36)
     # eV, initial_state.py:69 (generate.py:37), the start (:181)
     temperature = 100.0
@@ -148,7 +154,7 @@ function runaway_heating_example(; compat::Symbol = :dream,
     # generate.py:64)
     nr = 1                       # initial_state.py:177
     radial = RadialGrid(uniform_r_faces(nr, minor_radius))
-    momentum = MomentumGrid(uniform_p_faces(100, 0.0, 50.0),
+    momentum = MomentumGrid(uniform_p_faces(momentum_cells, 0.0, 50.0),
         biuniform_theta_xi_faces(40, 32, 0.5))
     grid = cylindrical_grid(momentum, radial)
     # 20 steps (initial_state.py:72, 183) over 5 µs, a choice of this package
