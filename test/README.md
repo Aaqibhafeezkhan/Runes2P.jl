@@ -72,7 +72,7 @@ julia --project=test test/runtests.jl --files test_grids.jl,test_layout.jl     #
 - `--results <path>` writes a TOML summary of the run: the commit, local changes, the optimisation level, the counts and the time per file.
 - The groups are independent, so they can run side by side in separate processes.
 
-The comparison tests read the reference sets of `Artifacts.toml`, which are downloaded at their first use (about 6.7 MB).
+The comparison tests read the reference sets of `Artifacts.toml`, which are downloaded at their first use (about 6.8 MB).
 Where the test nodes have no network, install them beforehand on a node that has:
 
 ```sh
@@ -105,6 +105,7 @@ The summary of `--results` records the level as `opt_level`, so that a run at `-
 | `RUNES2P_CHIANTI_DIR` | `~/chianti` | the CHIANTI database, for the regeneration test of the table of CHIANTI's cross sections |
 | `RUNES2P_JACOBIAN_CHUNK_SIZE` | none | the upper limit of the chunk size of the dual numbers of the sparse Jacobians |
 | `RUNES2P_REGRESSION_RTOL` | none, bit for bit | the relative tolerance of the pure-Julia regression values at `-O2`; the Full suite of CI sets `1e-13` |
+| `RUNES2P_REFERENCE_DIR` | none | the reference sets without an entry in `Artifacts.toml`, as `<folder>/<set>/<file>` |
 
 - `scripts/fetch_adas.py` fills the ADAS cache.
   No ADAS data is in the repository.
@@ -112,6 +113,9 @@ The summary of `--results` records the level as `opt_level`, so that a run at `-
 - Without the CHIANTI files the regeneration of `data/chianti_ionization.toml` by `scripts/generate_chianti_ionization.jl` is skipped.
   The table itself is in the repository and is tested without them.
 - `RUNES2P_JACOBIAN_CHUNK_SIZE=8` is recommended for the test suite: `env RUNES2P_JACOBIAN_CHUNK_SIZE=8 julia ...`.
+- A reference set without an entry in `Artifacts.toml`, such as a new set built by `reference/dream/run_all.sh` before its publication, is read from its folder in `RUNES2P_REFERENCE_DIR`.
+  That folder has the layout of `out/` that `run_all.sh` writes.
+  Without the variable, or without the file there, `reference_file` throws an error.
 
 ## Why the tests compile long
 
@@ -149,3 +153,7 @@ What is still compiled per case:
   An agreement with DREAM shows that both codes use the same method, not that the method is right.
 - A comparison with DREAM reads DREAM's output, written by a case script of `reference/dream/cases/`, with `reference_file` of `helpers.jl`, from the artifact of its set.
   The set's DREAM branch and commit are in the table of `helpers.jl`.
+  A set without an entry in `Artifacts.toml` is read from its folder in `RUNES2P_REFERENCE_DIR`.
+  Without the variable, or without the file there, `reference_file` throws an error.
+  `reference_available` is true for a file of a set with an entry in `Artifacts.toml`, and for a set without one when the folder of the set holds the file.
+  The check of the DREAM commits in `test_kinetic_operator_dream.jl` skips with `@test_skip` a file for which it is false.

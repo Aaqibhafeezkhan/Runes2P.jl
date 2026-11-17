@@ -4,22 +4,22 @@
 #
 # Usage: bash run_all.sh [<data directory>] [set ...]
 #   sets: dream-v26.5, dream-v26.5-disruption, dream-v26.5-initial-state, dream-v26.5-runaway-grid,
-#   dream-boltzmann-eqterm-93d27e17, gsl-2.8 (default: all)
+#   dream-v26.5-avalanche-rp, dream-boltzmann-eqterm-93d27e17, gsl-2.8 (default: all)
 #   The data directory defaults to the folder of this script. A first argument that is not
 #   the name of a set is taken as the data directory.
 #   ONLY="<script> ..." in the environment runs only those case scripts of the DREAM sets.
 #
 # The data directory holds pixi.toml, pixi.lock and scripts/ of this folder, and what
 # build_all.sh builds there: petsc/ and one directory per DREAM build with DREAM/ and build/
-# (dream-v26.5-disruption, dream-v26.5-initial-state and dream-v26.5-runaway-grid run on the build
-# of dream-v26.5).
+# (dream-v26.5-disruption, dream-v26.5-initial-state, dream-v26.5-runaway-grid and
+# dream-v26.5-avalanche-rp run on the build of dream-v26.5).
 # The case scripts are copied into <build>/cases/, because they find dreami, the DREAM checkout
 # and PETSc relative to their own folder. The outputs go to out/<set>/, the working files to
 # work/<set>/ and the logs to logs/.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 SET_NAMES=(dream-v26.5 dream-v26.5-disruption dream-v26.5-initial-state dream-v26.5-runaway-grid
-    dream-boltzmann-eqterm-93d27e17 gsl-2.8)
+    dream-v26.5-avalanche-rp dream-boltzmann-eqterm-93d27e17 gsl-2.8)
 DATA_DIR="$HERE"
 if [[ $# -gt 0 && " ${SET_NAMES[*]} " != *" $1 "* ]]; then
     DATA_DIR="$(cd "$1" && pwd)"
@@ -71,6 +71,13 @@ INITIAL_STATE_CASES=(
 # step 170; its own arguments in place of DISRUPTION_ARGS (RUNAWAY_GRID_ARGS)
 RUNAWAY_GRID_CASES=(
     "disruption_kinetic dream_disruption_runaway_small.h5 --runaway-grid --window-start 170"
+)
+# the kinetic Rosenbluth-Putvinski avalanche at three values of p_max of the hot-tail grid
+# (test/test_avalanche_rp_pmax_dream.jl)
+AVALANCHE_RP_CASES=(
+    "avalanche_kinetic dream_avalanche_rp_pmax5.h5 source=rp pmax=5 tmax=0.16 nt=384 windows=8 pcut=0.13 store=test"
+    "avalanche_kinetic dream_avalanche_rp_pmax10.h5 source=rp pmax=10 tmax=0.16 nt=384 windows=8 pcut=0.13 store=test"
+    "avalanche_kinetic dream_avalanche_rp_pmax20.h5 source=rp pmax=20 tmax=0.16 nt=384 windows=8 pcut=0.13 store=test"
 )
 BOLTZMANN_CASES=(
     "knockon_operator dream_knockon_operator.h5"
@@ -128,6 +135,8 @@ for set in "${SETS[@]}"; do
             # the assignment holds for this call only
             DISRUPTION_ARGS="$RUNAWAY_GRID_ARGS" \
                 run_dream_set "$set" dream-v26.5 ecdd5e146537c77602c9d7cc76b36100200e4b9a v26.5 "${RUNAWAY_GRID_CASES[@]}" ;;
+        dream-v26.5-avalanche-rp)
+            run_dream_set "$set" dream-v26.5 ecdd5e146537c77602c9d7cc76b36100200e4b9a v26.5 "${AVALANCHE_RP_CASES[@]}" ;;
         dream-boltzmann-eqterm-93d27e17)
             run_dream_set "$set" "$set" 93d27e1763827e19dafb1fe790e99c2688ad6d62 boltzmann-eqterm "${BOLTZMANN_CASES[@]}" ;;
         gsl-2.8)
