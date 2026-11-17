@@ -205,6 +205,26 @@ import ForwardDiff
         # check refuses it before the row check
         @test_throws "not a term of the system" check((term, rp), sinks, outflow,
             KineticEnergyChangeTerm(RosenbluthPutvinskiSourceTerm(:f, grid)))
+        # two sources in the equation of f: each needs its own energy term, matched by the
+        # identity of the source, not by the distribution
+        rp_low = RosenbluthPutvinskiSourceTerm(:f, grid; p_cutoff = 0.02)
+        @test check((term, rp, rp_low), sinks, outflow, KineticEnergyChangeTerm(rp),
+            KineticEnergyChangeTerm(rp_low)) === nothing
+        @test_throws "add KineticEnergyChangeTerm(source)" check(
+            (term, rp, rp_low), sinks, outflow, KineticEnergyChangeTerm(rp))
+        @test_throws "add KineticEnergyChangeTerm(source)" check(
+            (term, rp, rp_low), sinks, outflow, KineticEnergyChangeTerm(rp_low))
+        # the energy term of the source of a distribution outside W_tot: its knock-ons are not
+        # in W_tot, so the row refuses the term
+        rp_g = RosenbluthPutvinskiSourceTerm(:g, grid)
+        outside(row_terms...) = Runes2P._check_plasma_pairings([Equation(:f, TimeDerivative(), term, rp);
+                                                                Equation(:g, TimeDerivative(), rp_g);
+                                                                row(row_terms...); energy])
+        @test outside(sinks, outflow, KineticEnergyChangeTerm(rp)) === nothing
+        @test_throws "whose distribution is not in the total energy" outside(
+            sinks, outflow, KineticEnergyChangeTerm(rp), KineticEnergyChangeTerm(rp_g))
+        @test_throws "whose distribution is not in the total energy" outside(
+            sinks, outflow, KineticEnergyChangeTerm(rp_g))
         # a prescribed loss rate and a Maxwellian source move electrons with their energy out
         # of W_hot and into it, which no row term carries
         @test_throws "prescribed loss rate is refused" check(
@@ -425,9 +445,10 @@ import ForwardDiff
                             for k in 1:11]
             return times, temperatures
         end
-        # every knock-on in W_hot: the limit on the face below the first cell of the source
-        # gives an envelope of 1 in every cell of the source. Measured: |T − T₀|/T₀ of at
-        # most 2.8e-16, against the rise (T − T₀)/T₀ of 9.1e-2 of the second run.
+        # every knock-on in W_hot: the limit 0.02 lies a cell below the cutoff 0.04, the lower
+        # face of the first cell of the source, and gives an envelope of 1 in every cell of
+        # the source. Measured: |T − T₀|/T₀ of at most 2.8e-16, against the rise (T − T₀)/T₀
+        # of 9.1e-2 of the second run.
         times, temperatures = knockon_run(MomentumRegion(0.02))
         @test maximum(abs.(temperatures .- T0)) / T0 < 1e-12
         # no knock-on in W_hot: the cold electrons take their whole energy. Measured:

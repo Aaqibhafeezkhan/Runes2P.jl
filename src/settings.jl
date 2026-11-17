@@ -1078,7 +1078,7 @@ function describe(term::KineticEnergyLossTerm, context::DescriptionContext)
 end
 
 function settings_fields(::Type{<:KineticEnergyChangeTerm})
-    (described = (:kinetic, :source, :coefficient, :envelopes), derived = (:energies,))
+    (described = (:kinetic, :source, :coefficient, :region), derived = (:energies,))
 end
 
 function describe(term::KineticEnergyChangeTerm, context::DescriptionContext)
@@ -1086,7 +1086,10 @@ function describe(term::KineticEnergyChangeTerm, context::DescriptionContext)
     record["kinetic"] = String(term.kinetic)
     record["coefficient"] = term.coefficient
     record["source"] = describe(term.source, context)
-    return _describe_region!(record, term.envelopes, context)
+    if term.region !== nothing
+        record["region"] = describe(term.region, context)
+    end
+    return record
 end
 
 function settings_fields(::Type{<:FrictionEnergyTransferTerm})

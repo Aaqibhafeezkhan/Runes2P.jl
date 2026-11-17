@@ -1528,10 +1528,10 @@ end
 # The energy of the knock-ons that the Rosenbluth-Putvinski source `source` of the distribution
 # `d` creates, in the terms `listed` of the row of `temperature` that holds the time derivative
 # of `total`: one KineticEnergyChangeTerm of this very source, with a positive coefficient and
-# without a region. Without it the cold electrons would pay the energy of the knock-ons, since
-# the primaries, the fluid runaways above the grid, have no energy unknown. The whole grid
-# counts (a choice of this package): a knock-on below the threshold of W_hot joins the cold
-# electrons, one above it W_hot, and both are in W_tot.
+# without a region, since every knock-on is in W_tot. The term creates the energy of the
+# knock-ons in the system, a choice of this package: the primaries, the fluid runaways above
+# the grid, have no energy unknown, so no population pays it. The alternative that it rejects
+# charges that energy to the cold electrons, as a row without the term would.
 function _check_knockon_energy(source, listed, temperature, total, d)
     changes = [t for t in listed if t isa KineticEnergyChangeTerm && t.source === source]
     if isempty(changes)
@@ -1552,10 +1552,33 @@ function _check_knockon_energy(source, listed, temperature, total, d)
                             "$(change.coefficient), which does not add the energy of the knock-ons to the total: " *
                             "give it a positive coefficient"))
     end
-    if change.envelopes !== nothing
+    if change.region !== nothing
         throw(ArgumentError("the row of $temperature holds the time derivative of the total energy $total, and " *
                             "the energy term of the Rosenbluth-Putvinski source of $d takes a region, but every " *
                             "knock-on of the source is in $total: give it no region"))
+    end
+    return nothing
+end
+
+# Each KineticEnergyChangeTerm in the row `row` of the total energy `total` has a source that
+# is a term in the equation of one of the `distributions` in W_hot. The knock-ons of another
+# source are outside W_tot, and the row would give their energy to the cold electrons.
+function _check_energy_change_sources(row, total, distributions, equations)
+    for change in row.terms
+        change isa KineticEnergyChangeTerm || continue
+        in_total = false
+        for equation in equations
+            equation.unknown in distributions || continue
+            if any(t -> t === change.source, equation.terms)
+                in_total = true
+            end
+        end
+        if !in_total
+            throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, and " *
+                                "its KineticEnergyChangeTerm takes a source of $(change.kinetic), whose distribution " *
+                                "is not in the total energy: the row would give the energy of knock-ons outside " *
+                                "$total to the cold electrons. Remove the term, or put $(change.kinetic) into $total"))
+        end
     end
     return nothing
 end
@@ -1594,12 +1617,14 @@ end
 # Rosenbluth-Putvinski source over the whole grid, and refuses the channels that no row term
 # carries: radial transport of f, knock-on secondaries on its grid, a prescribed loss rate, a
 # Maxwellian source, and a LinearTerm with a nonzero coefficient, which moves electrons into
-# f from a kinetic unknown or out of it. The checks
-# read the coefficients of the operators as they are, so a run repeats them before its
-# first step (_check_run).
+# f from a kinetic unknown or out of it. The row refuses an energy term of a source outside
+# the equations of the distributions of W_hot, whose knock-ons are not in W_tot. The checks
+# read the coefficients of the operators as they are, so a run repeats them before its first
+# step (_check_run).
 function _check_total_energy_rows(equations)
     for (; row, total, closures, distributions) in _total_energy_rows(equations)
         listed = row.terms
+        _check_energy_change_sources(row, total, distributions, equations)
         for d in distributions, equation in equations
 
             equation.unknown === d || continue

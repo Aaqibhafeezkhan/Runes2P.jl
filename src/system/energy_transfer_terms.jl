@@ -3,7 +3,8 @@
 # electrons (bound electrons, bremsstrahlung, synchrotron), the energy and the particles
 # that electrons carry out of the hot-tail grid through the interface, and the energy that
 # a source term gives a distribution. Included after operators/field_particle.jl, whose
-# electron-electron operator it uses, and after system/avalanche_terms.jl.
+# electron-electron operator it uses, and after system/avalanche_terms.jl, whose
+# RosenbluthPutvinskiSourceTerm the energy of a source dispatches on.
 
 using SparseArrays: findnz, sparse
 
@@ -850,38 +851,43 @@ limit that follows the temperature or another function of time throws an `Argume
 
 In the row of the temperature under [`total_energy_equation`](@ref) the system requires this
 term for each Rosenbluth-Putvinski source of a distribution of the total energy, with that
-source itself, a positive coefficient and no region. The whole grid counts there, a choice of
-this package (see the docs page *Choices of this package*): a secondary below the threshold
-of the hot region joins the cold electrons, one above it the energy of the hot region, and
-both are in the total energy.
+source itself, a positive coefficient and no region, since every knock-on is in the total
+energy. It refuses the term there when its source is not in the equation of such a
+distribution. The term creates the energy of the knock-ons in the system, a choice of this
+package (see the docs page *Choices of this package*): their primaries, the fluid runaways
+above the grid, have no energy unknown, so no population pays it. The alternative, which the
+package rejects, charges that energy to the cold electrons.
+
+Next to [`RunawayFluidEnergyTransferTerm`](@ref) in the same row, the total energy gains the
+energy of the knock-ons twice, since the stopping power `e c E_c` of that heating includes
+the collisions that create them (see the docs page *Energy and current balance*). The term
+removes neither the thermal energy of the target electrons nor the ionization energy of a
+bound target, and DREAM removes neither.
 """
 struct KineticEnergyChangeTerm{S, E, C} <: EquationTerm
     kinetic::Symbol
     source::S
     coefficient::Float64
-    envelopes::E   # nothing, or the envelopes of the region per radius
+    region::E      # nothing, or the fixed region of `energies`, kept for the record and the checks
     energies::C    # the moments of the shapes of the source, of a form that the source type sets
 end
 function KineticEnergyChangeTerm(source; region::Union{Nothing, MomentumRegion} = nothing,
         coefficient::Real = 1.0)
-    kinetic, grid = _energy_change_source(source)
-    if region !== nothing
-        if !isempty(region_temperature(region)) || is_time_dependent(region)
-            throw(ArgumentError("KineticEnergyChangeTerm takes a region with a fixed limit, a number or one " *
-                                "number per radius: its energies are computed when it is built"))
-        end
+    kinetic = _energy_change_kinetic(source)
+    if region !== nothing && is_time_dependent(region)
+        throw(ArgumentError("KineticEnergyChangeTerm takes a region with a fixed limit, a number or one " *
+                            "number per radius: its energies are computed when it is built"))
     end
     energies = _energy_changes(source, region)
-    return KineticEnergyChangeTerm(kinetic, source, Float64(coefficient),
-        RegionEnvelopes(region, grid), energies)
+    return KineticEnergyChangeTerm(kinetic, source, Float64(coefficient), region, energies)
 end
 
-# the kinetic unknown and the grid of a source that the energy change takes
-function _energy_change_source(source)
+# the kinetic unknown of a source that the energy change takes
+function _energy_change_kinetic(source)
     throw(ArgumentError("KineticEnergyChangeTerm takes a RosenbluthPutvinskiSourceTerm as its source, not a " *
                         "$(nameof(typeof(source)))"))
 end
-_energy_change_source(source::RosenbluthPutvinskiSourceTerm) = (source.kinetic, source.grid)
+_energy_change_kinetic(source::RosenbluthPutvinskiSourceTerm) = source.kinetic
 
 # e⁺ and e⁻ per radius [J m³/s]: the energy moments of the shapes of the source with ξ* > 0
 # and ξ* < 0, over the region
@@ -890,12 +896,7 @@ function _energy_changes(source::RosenbluthPutvinskiSourceTerm, region)
     radii = radial_cell_count(grid)
     positive, negative = zeros(radii), zeros(radii)
     for ir in 1:radii
-        m = momentum_grid(grid, ir)
-        envelope = if region === nothing
-            nothing
-        else
-            momentum_envelope(region, m, momentum_limit(region, ir; radii))
-        end
+        envelope = region === nothing ? nothing : momentum_envelope(region, grid, ir)
         weights = _energy_weights(grid, ir)
         for j in axes(weights, 2), i in axes(weights, 1)
 
@@ -927,14 +928,12 @@ function validate(term::RosenbluthPutvinskiEnergyTerm, layout, row)
             throw(ArgumentError("KineticEnergyChangeTerm reads $name, a radial unknown with one component"))
         end
     end
-    _check_envelopes(term.envelopes, kinetic_grid(layout, id))
     return nothing
 end
 
 # e⁺ or e⁻ of radius ir, by the rule of the source for the sign of the field
 function _energy_change_at(term::RosenbluthPutvinskiEnergyTerm, u, layout, ir)
-    shape = _rp_shape(term.source, u, layout, ir)
-    if shape === term.source.positive[ir]
+    if _rp_positive_pitch(term.source, u, layout, ir)
         return term.energies.positive[ir]
     else
         return term.energies.negative[ir]
