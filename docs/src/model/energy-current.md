@@ -72,7 +72,7 @@ The row of the temperature then holds ``\mathrm{d}W_\mathrm{tot}/\mathrm{d}t``, 
 The row lists only the channels by which energy enters or leaves the electrons of the hot-tail grid:
 
 - The work of the field is ``E j_\mathrm{ohm} + E j_\mathrm{hot}`` (two [`ProductTerm`](@ref)s), where the ohmic current already leaves out the hot current, so each electron is counted once.
-- The radiation, the heat transport and the exchange with the ions are as in the row of the cold energy.
+- The radiation, the heat transport and the exchange with the ions are as in the row of the cold energy, except for the Rechester-Rosenbluth heat transport next to radial transport of `f` ([below](#Radial-transport-of-the-kinetic-electrons)).
 - The heating by the secondaries of a kinetic ionization ([`SecondaryHeatingTerm`](@ref)) moves their energy from the sinks to the cold electrons.
 - The sinks of the collisions of `f` are [`KineticEnergyLossTerm`](@ref) with `part = :sinks` over the hot region.
 - The outflow at ``p_\mathrm{max}`` is [`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` and `coefficient = -1`.
@@ -83,7 +83,7 @@ The row lists only the channels by which energy enters or leaves the electrons o
 The collisional transfer from the hot electrons to the cold ones does not appear in the row.
 Neither do the electrons that cross the threshold in momentum at one radius, nor the threshold that moves with the temperature.
 The time derivative acts on the energy of the hot region itself, so these exchanges inside ``W_\mathrm{tot}`` at one radius are exact for any time stepper.
-Electrons that radial transport carries across the threshold are not among them ([below](#Radial-transport-of-the-kinetic-electrons)).
+Radial transport moves electrons between radii, so it is not among these exchanges, and the row holds it as a term of its own ([below](#Radial-transport-of-the-kinetic-electrons)).
 
 ### What the system enforces
 
@@ -99,10 +99,11 @@ The docstring of [`total_energy_equation`](@ref) gives the conditions.
   A second [`InterfaceCollisionWorkTerm`](@ref) of one interface, which would count the work twice, is refused in every row, the row of the cold thermal energy alone included.
 - Radial transport of `f` changes the energy of `f` at each radius.
   A [`FokkerPlanckTerm`](@ref) of `f` whose operator holds nonzero radial coefficients requires one [`KineticEnergyChangeTerm`](@ref) of that very term in the row, without a region.
-  A Fokker-Planck term whose operator declares radial transport but holds no coefficients yet, as one built for a [`RechesterRosenbluthUpdate`](@ref), accepts the term.
-  A run checks the coefficients again before its first step, so the update passes only when the row holds the term from the build of the system.
-  The system checks that the coefficient is positive, and a coefficient of 1 closes the budget.
+  A Fokker-Planck term whose operator declares radial transport but holds no radial coefficients yet, as one built for a [`RechesterRosenbluthUpdate`](@ref), does not yet require it.
+  A run checks the radial coefficients again before its first step, so the update passes only when the row holds the term from the build of the system.
+- The system checks that the coefficient of that energy term is positive, and a coefficient of 1 closes the budget.
   A second energy term of one Fokker-Planck term is refused, and so is one whose Fokker-Planck term is not in the equation of a distribution in ``W_\mathrm{hot}``.
+  Next to it, a [`HeatTransportTerm`](@ref) with the Rechester-Rosenbluth diffusivity is refused, since it would move the heat of the bulk a second time.
 - A [`KnockOnTerm`](@ref) on the grid is refused, since no term carries the energy of the secondaries.
 - A [`RosenbluthPutvinskiSourceTerm`](@ref) creates knock-ons whose energy no other term carries.
   The row needs one [`KineticEnergyChangeTerm`](@ref) of that very source, without a region (below).
@@ -112,8 +113,11 @@ The docstring of [`total_energy_equation`](@ref) gives the conditions.
 - A [`LinearTerm`](@ref) with a nonzero coefficient in the equation of `f` is refused, since it moves electrons into `f` from a kinetic unknown or out of it.
 
 Each refused channel would take its energy from the cold electrons, or give it to them, at the radius where the electrons are moved, created or removed.
+
 A [`ParticleSourceTerm`](@ref) is accepted.
-With the constraint ``0 = n(f) - n_\mathrm{cold} - n_\mathrm{hot}`` for its magnitude, it moves electrons between the cold population and `f`.
+The cold density is the closure ``n_\mathrm{cold} = n_\mathrm{free} - n_\mathrm{hot} - n_\mathrm{re}``.
+Here ``n_\mathrm{hot}`` is the density of the hot region ([`DensityMomentTerm`](@ref) over it), and ``n_\mathrm{re}`` the runaway density where the system has one.
+With the constraint ``0 = n(f) - n_\mathrm{cold} - n_\mathrm{hot}`` for its magnitude, which keeps ``n(f)`` at ``n_\mathrm{free} - n_\mathrm{re}``, the source moves electrons between the cold population and `f`.
 The cold electrons therefore rightly pay the energy that its electrons bring into ``W_\mathrm{hot}``.
 A [`MaxwellianSourceTerm`](@ref) adds or removes electrons from outside the system, so no population of the system should pay or gain their energy.
 
@@ -138,7 +142,8 @@ with ``\gamma_\mathrm{cut}`` and ``\gamma_\mathrm{max}`` the Lorentz factors at 
 At ``p_\mathrm{cut} = 0.01``, ``p_\mathrm{max} = 0.8``, 10 eV and ``10^{20}\, \mathrm{m^{-3}}``, with the `:energy_dependent` logarithm, the ratio is 0.251.
 
 The term does not remove the thermal energy of the target electron.
-With ``n_\mathrm{cold} = n_\mathrm{free} - n_\mathrm{hot}`` and a [`ParticleSourceTerm`](@ref) that keeps ``n(f)`` at ``n_\mathrm{free}``, each knock-on above the threshold of the hot region takes one electron out of the cold population, while ``W_\mathrm{cold}`` keeps its thermal energy ``\tfrac{3}{2} T``.
+Take the closure of the cold density and the constraint of a [`ParticleSourceTerm`](@ref) (above).
+Each knock-on above the threshold of the hot region then takes one electron out of the cold population, while ``W_\mathrm{cold}`` keeps its thermal energy ``\tfrac{3}{2} T``.
 The cold electrons that remain therefore gain ``\tfrac{3}{2} T`` per such knock-on.
 That is 0.62 % of the term at 10 eV, ``p_\mathrm{cut} = 0.04`` and ``p_\mathrm{max} = 0.8``, where every knock-on lies above the threshold.
 A bound target, which ``n_\mathrm{tot}`` counts, does not pay its ionization energy either, and DREAM behaves the same in both respects.
@@ -146,39 +151,49 @@ A bound target, which ``n_\mathrm{tot}`` counts, does not pay its ionization ene
 ### Radial transport of the kinetic electrons
 
 Radial transport of `f`, such as the diffusion along stochastic field lines of [`add_rechester_rosenbluth_diffusion!`](@ref), is a [`FokkerPlanckTerm`](@ref) of its own.
-Its [`KineticEnergyChangeTerm`](@ref) is the energy moment of the radial part of its operator over the whole grid:
+Its operator may also hold coefficients in momentum, which other terms of the row count.
+Its [`KineticEnergyChangeTerm`](@ref) is the power density ``P_k`` [W/m³] that the radial coefficients of the operator give the electrons of `f` at radius ``k``, over the whole grid:
 
 ```math
-P_k = -\frac{1}{V'_k \Delta r_k} \sum_{ij} m_e c^2 (\gamma_i - 1)\, \Delta p_i\, \Delta\xi_j \left(\Phi_{ij,k+1} - \Phi_{ij,k}\right),
+P_k = -\frac{1}{V'_k \Delta r_k} \sum_{ij} m_e c^2 (\gamma_i - 1)\, \Delta p_i\, \Delta\xi_j \left(\Phi_{ij,k+1} - \Phi_{ij,k}\right).
 ```
 
-with ``k`` the radius, ``V'_k`` its spatial Jacobian (``V' = r`` in a cylinder) and ``\Delta r_k`` its width.
-``\Phi_{ij,k} = \mathcal{V}' \Gamma^r`` is the radial flux of the cell ``(i, j)`` through the inner face of radius ``k``, positive outward.
+``P_k`` is positive where the electrons at radius ``k`` gain energy.
+``V'_k`` is the spatial Jacobian of the radius (``V' = r`` in a cylinder) and ``\Delta r_k`` its width.
+``\Phi_{ij,k} = \mathcal{V}'_{ij,k} \Gamma^r_{ij,k}`` is the radial flux of the cell ``(i, j)`` through face ``k``, the inner face of radius ``k``, positive outward.
+``\mathcal{V}'_{ij,k}`` is the phase-space Jacobian on that face ([`phase_space_jacobian_r_faces`](@ref)).
 ``\Gamma^r = A^r f - D^{rr} \partial_r f`` is the radial flux density of [`AdvectionDiffusion`](@ref), and face ``N + 1`` is the edge of the plasma, with ``N`` the number of radii.
+
 The fluxes are those of the discretised equation of `f`.
 ``P_k`` is therefore the change that the transport makes to the energy of `f` at radius ``k``, to round-off.
 The term takes the whole grid, a choice of this package ([Choices of this package](../choices.md#Total-energy-of-the-electrons)).
-
 The transport only moves energy between the radii and out through the edge.
 The volume integral ``\sum_k V'_k \Delta r_k P_k`` is minus the energy flux out through the edge, the energy that the plasma loses there.
-It is zero for a closed edge, `r_boundary = :zero_flux`, whatever the threshold of the hot region at each radius.
 
-The row holds ``P_k``, while ``W_\mathrm{hot}`` changes by the same moment over the hot region alone, with the weight ``w_{i,k}`` of its envelope.
-Since ``W_\mathrm{cold} = W_\mathrm{tot} - W_\mathrm{hot}``, ``W_\mathrm{cold}`` changes by the moment with the weight ``1 - w_{i,k}``.
-It receives the energy that the transport moves with the electrons below the threshold.
-The energy of an electron therefore enters or leaves ``W_\mathrm{cold}`` at the radius where the electron lies below the threshold.
-An electron that the transport carries across a threshold that differs between the radii is among them.
+That integral is zero for an operator with a closed edge, `r_boundary = :zero_flux` of [`AdvectionDiffusion`](@ref), whatever the threshold of the hot region at each radius.
+The row holds ``P_k``.
+``W_\mathrm{hot}`` changes by the same moment over the hot region alone, with the envelope ``w_{i,k}`` of that region, from 0 below the threshold to 1 above it.
+Since ``W_\mathrm{cold} = W_\mathrm{tot} - W_\mathrm{hot}``, ``W_\mathrm{cold}`` changes by the moment with the weight ``1 - w_{i,k}``: the energy that the transport moves with the electrons below the threshold.
 
-The cold density of the fully kinetic mode is the closure ``n_\mathrm{cold} = n_\mathrm{free} - n_\mathrm{hot} - n_\mathrm{re}``, with ``n_\mathrm{free}`` given by the ions.
-It does not follow the electrons below the threshold, so ``T_\mathrm{cold}`` rises where the transport brings their energy and falls where it takes it.
-Where the transport changes ``n_\mathrm{hot}``, ``n_\mathrm{cold}`` changes by the opposite amount while ``W_\mathrm{cold}`` keeps its energy, as for a knock-on (above).
+An electron that the transport carries from radius ``k``, where it lies above the threshold, to radius ``k + 1``, where it lies below it, shows how this works:
 
-[`HeatTransportTerm`](@ref) is a separate model of the heat transport of the cold electrons: the diffusion of ``T_\mathrm{cold}``, with a prescribed diffusivity or that of Rechester and Rosenbluth.
+1. At radius ``k`` the electron leaves ``W_\mathrm{hot}``, and ``W_\mathrm{tot}`` loses the same energy through ``P_k``, so ``W_\mathrm{cold}`` there receives nothing from it.
+2. At radius ``k + 1`` it lies below the threshold, so ``W_\mathrm{hot}`` does not change, while ``P_{k+1}`` adds its energy to ``W_\mathrm{tot}``.
+3. Its energy therefore enters ``W_\mathrm{cold}`` at radius ``k + 1``.
+
+The cold density does not follow the electrons below the threshold, since it is the closure of the cold density (above), which reads ``n_\mathrm{hot}`` and not ``n(f)``.
+``T_\mathrm{cold}`` therefore rises where the transport brings their energy and falls where it takes it.
+Where the transport changes ``n_\mathrm{hot}``, ``n_\mathrm{cold}`` changes by the opposite amount, and that part of the change brings no energy to ``W_\mathrm{cold}``, as for a knock-on (above).
+
+A [`ParticleSourceTerm`](@ref) adds electrons to `f` with its shape, by default a Maxwellian at ``T_\mathrm{cold}``, at the rate of its magnitude, and the row has no term for their energy.
+Its part above the threshold changes ``W_\mathrm{hot}`` and is charged to the cold electrons, and its part below the threshold changes no term of the row.
+With the constraint above for its magnitude, the source refills `f` where the transport takes electrons out of it and drains it where the transport brings them.
+
+[`HeatTransportTerm`](@ref) is a separate model of the heat transport of the cold electrons, the diffusion of ``T_\mathrm{cold}``.
 Its Rechester-Rosenbluth diffusivity is the energy moment of the kinetic diffusion of [`add_rechester_rosenbluth_diffusion!`](@ref) on a Maxwellian of uniform density.
-With that model at the level of the transport of `f`, the energy of the bulk moves twice in radius.
-It moves once with the electrons of `f`, through this term, and once with the diffusion of ``T_\mathrm{cold}``.
-A run whose transport of `f` covers the bulk therefore takes the heat transport of the bulk from `f` alone.
-A prescribed diffusivity adds a heat diffusion of its own on top of it.
+Next to the energy term of the transport of `f`, that diffusivity would move the heat of the bulk a second time, so the row of the total energy refuses the pair, whatever its level.
+On a Maxwellian bulk of uniform density at a temperature profile on 8 radii, the two agree to 1 % at the six inner radii and to 13 % at the seventh, near the edge (`test/test_heat_transport.jl`).
+A prescribed diffusivity of [`HeatTransportTerm`](@ref) stays allowed, as a heat transport of the user's own on top of the kinetic transport.
 
 `test/test_energy_transfer.jl` compares the term with the moment of the operator applied to `f`, and `test/test_energy_budget.jl` closes the budget of ``W_\mathrm{tot}`` at each radius and in the volume with it.
 

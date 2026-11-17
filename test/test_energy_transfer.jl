@@ -1606,14 +1606,19 @@ using SparseArrays: findnz, sparse
             @test abs(crossing) > 1e-6 * sum(volume(grid) .* scales)
         end
 
-        @testset "the Jacobian ($label)" for (label, r_scheme, pitch) in (
-            ("central", :central, :one), ("TCDF", :tcdf, :one), ("QUICK", :quick, :one),
-            ("upwind, pitch grids per radius", :upwind, :per_radius),
-            ("exponential fitting", :exponential_fitting, :one))
-            grid = pitch === :one ? one_pitch(nonuniform_radii) :
-                   per_radius(nonuniform_radii)
+        jacobian_cases = [(r_scheme, pitch, r_faces, r_boundary)
+                          for (r_scheme, pitch) in (
+                                  (:central, :one), (:tcdf, :one), (:quick, :one),
+                                  (:upwind, :per_radius), (:exponential_fitting, :one)),
+                              r_faces in (uniform_r_faces(2, 0.8), uniform_r_faces(3, 0.8),
+                                  nonuniform_radii),
+                              r_boundary in (:zero_flux, :absorbing, :absorbing_dream)
+                          if pitch === :one || length(r_faces) == 6]
+        @testset "the Jacobian ($r_scheme, $pitch pitch grid, $(length(r_faces) - 1) radii, $r_boundary)" for (
+                r_scheme, pitch, r_faces, r_boundary) in jacobian_cases
+            grid = pitch === :one ? one_pitch(r_faces) : per_radius(r_faces)
             op = transport_operator(
-                grid, r_scheme, (:diffusion, :advection), true, :absorbing)
+                grid, r_scheme, (:diffusion, :advection), true, r_boundary)
             (; layout, u, term) = transport_case(grid, op)
             entries = Runes2P.sparsity!(Tuple{Int, Int}[], term, layout, 3)
             J = sparse(first.(entries), last.(entries),
@@ -1621,12 +1626,12 @@ using SparseArrays: findnz, sparse
             Runes2P.add_jacobian!(J, term, u, layout, 3, 0.0)
             rows = radial_rows(layout, 3)
             reference = ForwardDiff.jacobian(x -> row_values(term, layout, x), u)
-            @test count(!iszero, reference) > 100
+            @test count(!iszero, reference) > 50
             # every nonzero derivative is in the pattern, and the entries match it
             pattern = sparse(first.(entries), last.(entries),
                 trues(length(entries)), length(u), length(u))
             @test all(pattern[rows, :][findall(!iszero, reference)])
-            # Measured on 32 cases of the moment above: at most 2.8e-16 of the largest entry
+            # Measured over these 39 cases: at most 3.2e-16 of the largest entry
             @test maximum(abs.(Matrix(J[rows, :]) .- reference)) <=
                   1e-12 * maximum(abs, reference)
             @test Runes2P.dependencies(term) == [:f]
@@ -1642,7 +1647,7 @@ using SparseArrays: findnz, sparse
             out = zeros(length(u))
             f = kinetic_array(u, layout, 1)
             mode = Runes2P._radial_flux_mode(op)
-            @test call_allocation(Runes2P._transport_energy, op, f, nothing, 2, mode) == 0 skip = !OPTIMIZED
+            @test call_allocation(Runes2P._transport_energy, op, f, 2, mode) == 0 skip = !OPTIMIZED
             @test call_allocation(Runes2P.rhs!, out, term, u, layout, 3, 0.0) == 0 skip = !OPTIMIZED
             entries = Runes2P.sparsity!(Tuple{Int, Int}[], term, layout, 3)
             J = sparse(first.(entries), last.(entries),

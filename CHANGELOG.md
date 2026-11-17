@@ -8,7 +8,7 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Added
 
-- `KineticEnergyChangeTerm(source; region, coefficient)` takes a `FokkerPlanckTerm` with radial transport as `source` ([#306](https://github.com/osrep/Runes2P.jl/pull/306)).
+- `KineticEnergyChangeTerm(source::FokkerPlanckTerm; coefficient = 1)` takes a `FokkerPlanckTerm` with radial transport as `source` ([#306](https://github.com/osrep/Runes2P.jl/pull/306)).
   It is then the energy moment of the radial transport of that term over the whole grid, and it takes no region.
   The output format keeps its version: the record of the term has the form that 0.0.6 introduced.
 - `InterfaceCollisionWorkTerm(interface; coefficient = -1)` is the work of the electron-electron collisions on the electrons that cross a `MomentumInterfaceTerm`, for the row of the temperature ([#297](https://github.com/osrep/Runes2P.jl/pull/297)).
@@ -76,6 +76,9 @@ Until the first release, every change is listed under "Unreleased", with the sub
 - Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` and a run accept radial transport of a distribution whose energy is in the total, which they refused until now ([#306](https://github.com/osrep/Runes2P.jl/pull/306)).
   The row of the temperature then needs one `KineticEnergyChangeTerm` of each `FokkerPlanckTerm` of that distribution whose operator holds nonzero radial coefficients, without a region.
   A run accepts a `RechesterRosenbluthUpdate` on such a distribution when the row holds the term of the Fokker-Planck term of its operator.
+- In the row of the total energy, an `EquationSystem` refuses a `HeatTransportTerm` with the Rechester-Rosenbluth diffusivity next to the energy term of a radial transport ([#306](https://github.com/osrep/Runes2P.jl/pull/306)).
+  That term already moves the heat of the bulk with its electrons, and the diffusivity is the energy moment of the same kinetic diffusion.
+  A prescribed diffusivity stays allowed.
 - Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` accepts a `RosenbluthPutvinskiSourceTerm` in the equation of a distribution whose energy is in the total, which it refused until now ([#296](https://github.com/osrep/Runes2P.jl/pull/296)).
   The row of the temperature then needs one `KineticEnergyChangeTerm` of that very source, with a positive coefficient and without a region, since every knock-on is in the total energy.
   The term creates the energy of the knock-ons in the system, and no population pays it.

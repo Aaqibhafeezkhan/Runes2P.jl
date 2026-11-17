@@ -1614,6 +1614,31 @@ function _check_transport_energy(term, listed, temperature, total, d)
     return nothing
 end
 
+# The row `row` of the total energy `total` refuses the energy term of a radial transport of
+# f next to a HeatTransportTerm with the Rechester-Rosenbluth diffusivity, whatever its level.
+# The energy term over the whole grid already moves the thermal energy of the bulk with its
+# electrons, and that diffusivity is the energy moment of the same kinetic diffusion on a
+# Maxwellian (HeatTransportTerm), so the heat of the bulk would move twice. On a Maxwellian
+# bulk of uniform density at a temperature profile on 8 radii the two agree to 1 % at the
+# six inner radii (test/test_heat_transport.jl). A prescribed diffusivity is a heat transport
+# of the user's on top of the kinetic transport and stays allowed.
+function _check_bulk_heat_transport(row, total)
+    transported = [t.kinetic
+                   for t in row.terms
+                   if t isa KineticEnergyChangeTerm && t.source isa FokkerPlanckTerm]
+    isempty(transported) && return nothing
+    for heat in row.terms
+        heat isa HeatTransportTerm && heat.model === :rechester_rosenbluth || continue
+        throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, the " *
+                            "energy term of the radial transport of $(first(transported)) and a HeatTransportTerm " *
+                            "with the Rechester-Rosenbluth diffusivity, the energy moment of the same kinetic " *
+                            "diffusion on a Maxwellian: the heat of the bulk would move twice in radius. Take the " *
+                            "heat transport of the bulk from the transport of $(first(transported)) alone, or give " *
+                            "the HeatTransportTerm a prescribed diffusivity (diffusion or diffusion_at)"))
+    end
+    return nothing
+end
+
 # Each KineticEnergyChangeTerm in the row `row` of the total energy `total` has a source that
 # is a term in the equation of one of the `distributions` in W_hot. Another source gives its
 # energy to electrons outside W_tot, and the row would give that energy to the cold electrons.
@@ -1758,6 +1783,7 @@ function _check_total_energy_rows(equations)
         listed = row.terms
         _check_energy_change_sources(row, total, distributions, equations)
         _check_collision_work_interfaces(row, total, distributions)
+        _check_bulk_heat_transport(row, total)
         for d in distributions, equation in equations
 
             equation.unknown === d || continue

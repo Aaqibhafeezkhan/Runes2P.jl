@@ -1482,7 +1482,8 @@ bound target, and DREAM removes neither.
 
 The rate of a [`FokkerPlanckTerm`](@ref) is its radial transport alone, the divergence of
 the radial flux `Φ = 𝒱'Γʳ` of its operator ([`AdvectionDiffusion`](@ref)), positive outward,
-through the faces `k` and `k + 1` of the radius `k`, over the whole grid:
+through the faces `k` and `k + 1` of the radius `k`, over the whole grid. `P_k` [W/m³] is
+positive where the electrons at radius `k` gain energy:
 
 ```math
 P_k = -\\frac{1}{V'_k Δr_k} \\sum_{ij} m_e c^2 (γ_i − 1)\\, Δp_i Δξ_j \\left(Φ_{ij,k+1} − Φ_{ij,k}\\right),
@@ -1513,10 +1514,10 @@ that the transport moves with the electrons below the threshold of the hot regio
 the electrons that it carries across that threshold.
 
 The Rechester-Rosenbluth heat diffusivity of [`HeatTransportTerm`](@ref) is the energy moment
-of the same kinetic diffusion on a Maxwellian of uniform density. With that model at the
-level of this transport in one run, the energy of the bulk moves twice in radius, once with
-the electrons of `f` and once with the heat diffusion of the cold electrons. The docs page
-*Energy and current balance* has the details.
+of the same kinetic diffusion on a Maxwellian of uniform density, so next to this term it
+would move the heat of the bulk a second time. The row of the total energy refuses that
+pair, whatever the level of the heat transport, and accepts a prescribed diffusivity (see
+the docs page *Energy and current balance*).
 """
 struct KineticEnergyChangeTerm{S, E, C} <: EquationTerm
     kinetic::Symbol
@@ -1524,7 +1525,7 @@ struct KineticEnergyChangeTerm{S, E, C} <: EquationTerm
     coefficient::Float64
     region::E      # nothing, or the region of `energies`, kept for the record and the checks
     # the energy weights of the source, of a form that the source type sets: e⁺ and e⁻ of a
-    # Rosenbluth-Putvinski source, the envelopes of the region for radial transport
+    # Rosenbluth-Putvinski source, `nothing` for radial transport, which keeps none
     energies::C
 end
 function KineticEnergyChangeTerm(source; region::Union{Nothing, MomentumRegion} = nothing,
@@ -1670,21 +1671,20 @@ function validate(term::RadialTransportEnergyTerm, layout, row)
     return nothing
 end
 
-# The energy moment of the radial transport of `op` at radius ir: −(1/(V' Δr)) Σ_j Δξ_j Σ_i
-# w_i ε_i Δp_i (Φ_{ir+1} − Φ_ir), with the radial fluxes Φ of apply_radius! for the radial
-# mode `mode`, over the cells with volume. The envelope w is `nothing` (1, the whole grid) for
-# the term; a test takes the hot region with it. The number type follows f and the envelope.
-function _transport_energy(op::AdvectionDiffusion, f, envelope, ir, mode)
+# The energy moment of the radial transport of `op` at radius ir over the whole grid:
+# −(1/(V' Δr)) Σ_j Δξ_j Σ_i ε_i Δp_i (Φ_{ir+1} − Φ_ir), with the radial fluxes Φ of
+# apply_radius! for the radial mode `mode`, over the cells with volume. The number type
+# follows f and the coefficients.
+function _transport_energy(op::AdvectionDiffusion, f, ir, mode)
     m = op.momentum_grids[ir]
     rg = op.grid.radial_grid
-    T = promote_type(_flux_eltype(op, f), typeof(_envelope_value(envelope, 1) * 1.0))
+    T = _flux_eltype(op, f)
     moment = zero(T)
     @inbounds for j in 1:pitch_cell_count(m)
         row = zero(T)
         for i in 1:momentum_cell_count(m)
             op.jacobian_centers[i, j, ir] == 0 && continue
-            weight = _envelope_value(envelope, i) * _kinetic_energy(m.p_centers[i]) *
-                     m.p_widths[i]
+            weight = _kinetic_energy(m.p_centers[i]) * m.p_widths[i]
             iszero(weight) && continue
             divergence = _r_flux(op, f, i, j, ir, ir + 1, nothing, mode) -
                          _r_flux(op, f, i, j, ir, ir, nothing, mode)
@@ -1705,7 +1705,7 @@ function _add_transport_energy!(out, term::RadialTransportEnergyTerm, op, u, lay
         t, mode)
     f = kinetic_array(u, layout, unknown_id(layout, term.kinetic))
     for ir in 1:radial_cell_count(layout)
-        energy = _transport_energy(op, f, nothing, ir, mode)
+        energy = _transport_energy(op, f, ir, mode)
         out[first(unknown_range(layout, row, ir))] += term.coefficient * energy
     end
     return out
@@ -1807,9 +1807,11 @@ function _add_overlap_flux_columns!(J, layout, id, r, op, f, i, j, ir, k, weight
         V == 0 && continue
         left_cell = on_left ? j : overlap.left_cells[s]
         right_cell = on_left ? overlap.right_cells[s] : j
-        D = ForwardDiff.Dual{TransportRowTag, Float64, 2}
-        f_left = D(f[i, left_cell, k - 1], ForwardDiff.Partials((1.0, 0.0)))
-        f_right = D(f[i, right_cell, k], ForwardDiff.Partials((0.0, 1.0)))
+        D = ForwardDiff.Dual{TransportRowTag, eltype(f), 2}
+        f_left = D(f[i, left_cell, k - 1], ForwardDiff.Partials((
+            one(eltype(f)), zero(eltype(f)))))
+        f_right = D(f[i, right_cell, k], ForwardDiff.Partials((
+            zero(eltype(f)), one(eltype(f)))))
         F = _face_flux(op.r_scheme, op.advection_r[i, s, k], op.diffusion_r_r[i, s, k],
             f_left, f_right, distance, weight_left)
         partials = ForwardDiff.partials(F)

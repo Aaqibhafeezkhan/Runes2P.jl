@@ -170,21 +170,15 @@ No operator holds it, since neither grid takes a flux through the face in its en
 The cold electrons pay it because they are the targets of these collisions, which give them the energy that the electrons lose inside each grid.
 The rejected alternative leaves the work to no population, as a row without the term would, and the energy of the two grids is then not conserved across the face ([Energy and current balance](model/energy-current.md#The-energy-step-at-the-interface)).
 
-The energy term of radial transport takes the whole grid, so that the transport only moves the energy of the electrons between the radii and out through the edge.
-With a closed edge it conserves the total energy whatever the threshold of the hot region at each radius.
-The cold electrons receive the energy that the transport moves with the electrons below the threshold, which the bulk is ([Energy and current balance](model/energy-current.md#Radial-transport-of-the-kinetic-electrons)).
+The energy term of radial transport takes the whole grid, for two reasons.
+The transport then conserves the total energy exactly at any thresholds of the hot region.
+With a closed edge, the volume integral of the term stays below 1e-13 of that of the absolute values of its cells (`test/test_energy_transfer.jl`).
+The thermal energy of the electrons below the threshold, the bulk, then moves in radius with these electrons, into the cold electrons where they arrive ([Energy and current balance](model/energy-current.md#Radial-transport-of-the-kinetic-electrons)).
 
 The rejected alternative takes the hot region.
 The threshold of the hot region follows the temperature, so under a temperature profile it differs between the radii.
 An electron that the transport carries across it then leaves or joins the total energy, and no population pays its energy.
-With a closed edge and random states, the volume integral of the moment over the hot region is a fraction of the volume integral of the absolute values of the cells of the whole grid:
-
-| Thresholds | Fraction |
-|---|---|
-| fixed, 0.10 to 0.30 ``m_e c`` over five radii | 8.9e-6 to 1.1e-2 |
-| of a temperature profile from 400 eV to 60 eV | 2.3e-7 to 4.3e-5 |
-
-`test/test_energy_transfer.jl` measures both and checks that the moment over the whole grid integrates to zero there.
+`test/test_energy_transfer.jl` shows that the moment over the hot region does not integrate to zero there.
 
 ## Linear solvers
 

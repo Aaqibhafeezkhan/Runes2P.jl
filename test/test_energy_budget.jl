@@ -275,6 +275,23 @@ import ForwardDiff
             transport_energy)
         @test_throws "an energy of the cold electrons alone without a distribution" Runes2P._check_plasma_pairings([
             Equation(:f, TimeDerivative(), term, moving), cold_row, thermal_energy_equation()])
+        # the Rechester-Rosenbluth heat transport next to the energy term of radial transport
+        # moves the heat of the bulk twice, whatever its level: refused. A prescribed
+        # diffusivity is allowed, and so is the Rechester-Rosenbluth heat transport without
+        # the energy term, in a row of the total energy or of the cold thermal energy alone
+        rr_heat = HeatTransportTerm(; delta_b_over_b = 1e-3, major_radius = 6.2)
+        prescribed_heat = HeatTransportTerm(; diffusion = 1.0)
+        @test_throws "the heat of the bulk would move twice" check(
+            (term, moving), sinks, outflow, transport_energy, rr_heat)
+        @test check((term, moving), sinks, outflow, transport_energy, prescribed_heat) ===
+              nothing
+        @test check((term,), sinks, outflow, rr_heat) === nothing
+        cold_heat_row = Equation(
+            :cold_electron_temperature, TimeDerivative(:cold_thermal_energy),
+            rr_heat)
+        @test Runes2P._check_plasma_pairings([
+            Equation(:f, TimeDerivative(), term, moving), cold_heat_row,
+            thermal_energy_equation()]) === nothing
         # the knock-ons of the fluid runaways above the grid bring their energy into W_tot: the
         # row takes one energy term of this very source, with a positive coefficient and no
         # region
@@ -400,8 +417,9 @@ import ForwardDiff
         fp() = FokkerPlanckTerm(:f,
             AdvectionDiffusion(grid; scheme = :exponential_fitting, p_upper_boundary = :f_zero);
             plasma = PlasmaFromUnknowns(base), settings, synchrotron = false)
-        function transport_operator(; filled = true)
-            op = AdvectionDiffusion(grid; scheme = :central, cross_diffusion = false)
+        function transport_operator(; filled = true, r_boundary = :zero_flux, r_scheme = :central)
+            op = AdvectionDiffusion(grid; scheme = :central, r_scheme, r_boundary,
+                cross_diffusion = false)
             if filled
                 add_rechester_rosenbluth_diffusion!(op, 2e-3; major_radius = 6.2)
                 op.advection_r .= -2e3
@@ -461,12 +479,13 @@ import ForwardDiff
         values_of(u, k) = unknown_values(u, layout, k)
         dt = 1e-7
         function run(coefficient; updates = (), moment_region = region,
-                temperatures = fill(T0, 3))
+                temperatures = fill(T0, 3), heat = (), r_boundary = :zero_flux,
+                r_scheme = :central)
             collisions = fp()
-            op = transport_operator(; filled = isempty(updates))
+            op = transport_operator(; filled = isempty(updates), r_boundary, r_scheme)
             transport = FokkerPlanckTerm(:f, op)
             equations = equations_of(collisions, transport, moment_region,
-                KineticEnergyChangeTerm(transport; coefficient))
+                KineticEnergyChangeTerm(transport; coefficient), heat...)
             initial = copy(u0)
             unknown_values(initial, layout, 2) .= temperatures
             system = EquationSystem(layout, equations; time_scale = 1e-7, initial_state = initial)
@@ -481,7 +500,7 @@ import ForwardDiff
             rows = [first(Runes2P.unknown_range(layout, 2, ir)) for ir in 1:3]
             outflow = Runes2P.rhs!(
                 zeros(length(finish)), equations[2].terms[1], finish, layout, 2, 0.0)[rows]
-            return (;
+            return (; op,
                 start, finish, outflow, moment = transport_moment(op, finish, nothing),
                 hot = transport_moment(op, finish, moment_region))
         end
@@ -528,6 +547,36 @@ import ForwardDiff
         @test abs(sum(volumes .* (change .- profiled.outflow))) <
               1e-12 * thermal_volume_scale
         @test abs(sum(volumes .* profiled.hot)) > 1e-7 * thermal_volume_scale
+        # an absorbing edge and a four-point radial scheme: the same budget at each radius.
+        # The volume integral of P is minus the energy flux out through the edge, the
+        # particle flux of ε f there. Measured: at each radius 1.6e-14 (absorbing) and
+        # 2.7e-14 (TCDF) of the largest |P|, in the volume 1.7e-16 and 7.4e-17 of ∫|P|
+        energies = [Runes2P._kinetic_energy(p) for p in m.p_centers]
+        for (r_boundary, r_scheme) in ((:absorbing, :central), (:zero_flux, :tcdf))
+            case = run(1.0; r_boundary, r_scheme)
+            change = (values_of(case.finish, 5) .- values_of(case.start, 5)) ./ dt
+            case_scale = maximum(abs, case.moment)
+            @test maximum(abs.(change .- (case.moment .+ case.outflow))) <
+                  1e-12 * case_scale
+            edge = radial_particle_flux(
+                case.op, energies .* kinetic_array(case.finish, layout, 1), 4)
+            if r_boundary === :absorbing
+                @test edge > 0
+            end
+            @test abs(sum(volumes .* case.moment) + edge) <
+                  1e-13 * sum(volumes .* abs.(case.moment))
+        end
+        # the Rechester-Rosenbluth heat transport next to the term is refused when the system
+        # is built; a prescribed diffusivity steps, and the heat transport moves energy
+        # between the radii alone
+        rr_heat = HeatTransportTerm(; delta_b_over_b = 2e-3, major_radius = 6.2)
+        @test_throws "the heat of the bulk would move twice" run(1.0; heat = (rr_heat,))
+        heated = run(1.0; heat = (HeatTransportTerm(; diffusion = 1.0),),
+            temperatures = [100.0, 70.0, 40.0])
+        change = (values_of(heated.finish, 5) .- values_of(heated.start, 5)) ./ dt
+        @test all(isfinite, heated.finish)
+        @test abs(sum(volumes .* (change .- heated.outflow))) <
+              1e-12 * sum(volumes .* abs.(heated.moment))
     end
 
     @testset "radial transport set after the build under the total energy" begin

@@ -243,6 +243,8 @@ term without a region, for the change of the energy of all of `kinetic` by the t
 each radius. The run requires it before its first step for a
 [`RechesterRosenbluthUpdate`](@ref) that sets the transport. The system refuses a row that
 misses one of these terms. It refuses two energy terms of one source. It refuses a
+[`HeatTransportTerm`](@ref) with the Rechester-Rosenbluth diffusivity next to the energy
+term of a radial transport, which already moves the heat of the bulk. It refuses a
 `KineticEnergyChangeTerm` whose source is not in the equation of a distribution in the total
 energy, since the energy that it counts is outside the total. It refuses an
 `InterfaceCollisionWorkTerm` of an interface whose lower distribution, that of the grid
