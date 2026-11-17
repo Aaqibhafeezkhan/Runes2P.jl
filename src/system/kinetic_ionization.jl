@@ -457,8 +457,8 @@ closure of the cold density; without this term it is born at zero energy.
   of the knock-on term `knockon_term` at each radius ([`secondary_energy_below`](@ref),
   [`beb_secondary_energy_below`](@ref)). The secondaries above it count with zero energy.
   A distribution receives them only where the target density of `knockon_term` counts the
-  bound electrons and its knock-on grid holds their momenta, since the term produces only
-  into the cells of that grid between the cutoff and the kinematic maximum
+  bound electrons and its knock-on grid holds their momenta, since the knock-on term produces
+  only into the cells of that grid between the cutoff and the kinematic maximum
   ([`KnockOnKernels`](@ref)). The term reads the cutoff of `knockon_term` at each evaluation,
   so it follows [`KnockOnCutoffUpdate`](@ref), and the cutoff, which is no unknown, adds no
   column to the Jacobian. The knock-on term creates its secondaries with the cross section

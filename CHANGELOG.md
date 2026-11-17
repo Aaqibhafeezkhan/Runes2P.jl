@@ -12,7 +12,7 @@ Until the first release, every change is listed under "Unreleased", with the sub
   The secondaries above the cutoff, which the knock-on term puts into a distribution, are no longer counted twice.
   The heating reads the cutoff at each evaluation, so it follows a `KnockOnCutoffUpdate`.
   The settings record of the term holds the knock-on term under the key `knockon_term` with this cut.
-- With `cut = :knockon`, `EquationSystem` requires `term` in the system with the kinetic unknown of the ionization as its primary ([#294](https://github.com/osrep/Runes2P.jl/pull/294)).
+- With `cut = :knockon`, `EquationSystem` requires the knock-on term `term` in the system with the kinetic unknown of the ionization as its primary ([#294](https://github.com/osrep/Runes2P.jl/pull/294)).
   It refuses a `term` on `:cold_electron_density` or `:runaway_density`, which count free electrons only.
   Next to a knock-on term of the same primary on `:total_electron_density`, `term` must be such a term.
 - `secondary_energy_below` and `beb_secondary_energy_below` give the energy per ionization of the secondaries below a cut, for the spectra of Opal et al. and of Kim and Rudd ([#294](https://github.com/osrep/Runes2P.jl/pull/294)).
