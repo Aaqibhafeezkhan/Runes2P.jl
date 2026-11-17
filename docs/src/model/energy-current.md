@@ -104,6 +104,11 @@ The docstring of [`total_energy_equation`](@ref) gives the conditions.
 - The system checks that the coefficient of that energy term is positive, and a coefficient of 1 closes the budget.
   A second energy term of one Fokker-Planck term is refused, and so is one whose Fokker-Planck term is not in the equation of a distribution in ``W_\mathrm{hot}``.
   Next to it, a [`HeatTransportTerm`](@ref) with the Rechester-Rosenbluth diffusivity is refused, since it would move the heat of the bulk a second time.
+- A [`FokkerPlanckTerm`](@ref) of `f` without collisions, with no plasma and no coefficient source, is refused when its operator holds coefficients in momentum that change the energy of `f`.
+  These are the advection and diffusion in ``p``, the cross diffusion of the flux in ``p``, and a flux through ``p_\mathrm{min}`` or ``p = 0``.
+  No term of the row carries that energy, since the sinks and the outflow at ``p_\mathrm{max}`` belong to the terms with collisions.
+  Pitch coefficients move no energy, and the coefficients of a unit field are the work ``E j_\mathrm{hot}``, so both stay allowed.
+  A run checks the coefficients again before its first step.
 - A [`KnockOnTerm`](@ref) on the grid is refused, since no term carries the energy of the secondaries.
 - A [`RosenbluthPutvinskiSourceTerm`](@ref) creates knock-ons whose energy no other term carries.
   The row needs one [`KineticEnergyChangeTerm`](@ref) of that very source, without a region (below).
@@ -151,7 +156,7 @@ A bound target, which ``n_\mathrm{tot}`` counts, does not pay its ionization ene
 ### Radial transport of the kinetic electrons
 
 Radial transport of `f`, such as the diffusion along stochastic field lines of [`add_rechester_rosenbluth_diffusion!`](@ref), is a [`FokkerPlanckTerm`](@ref) of its own.
-Its operator may also hold coefficients in momentum, which other terms of the row count.
+Under the total energy its operator holds radial and pitch coefficients alone: no term of the row carries the energy that coefficients in momentum would move, and the system refuses them (below).
 Its [`KineticEnergyChangeTerm`](@ref) is the power density ``P_k`` [W/m³] that the radial coefficients of the operator give the electrons of `f` at radius ``k``, over the whole grid:
 
 ```math

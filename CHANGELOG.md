@@ -85,6 +85,10 @@ Until the first release, every change is listed under "Unreleased", with the sub
 - In the row of the total energy, an `EquationSystem` refuses a `HeatTransportTerm` with the Rechester-Rosenbluth diffusivity next to the energy term of a radial transport ([#306](https://github.com/osrep/Runes2P.jl/pull/306)).
   That term already moves the heat of the bulk with its electrons, and the diffusivity is the energy moment of the same kinetic diffusion.
   A prescribed diffusivity stays allowed.
+- In the row of the total energy, an `EquationSystem` and a run refuse a `FokkerPlanckTerm` without collisions whose operator holds coefficients in momentum ([#306](https://github.com/osrep/Runes2P.jl/pull/306)).
+  Such a term has no plasma and no coefficient source, and its coefficients in momentum change the energy of the distribution.
+  No term of the row carries that energy, so the cold electrons paid or gained it until now.
+  Radial and pitch coefficients, and the coefficients of a unit field, stay allowed.
 - Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` accepts a `RosenbluthPutvinskiSourceTerm` in the equation of a distribution whose energy is in the total, which it refused until now ([#296](https://github.com/osrep/Runes2P.jl/pull/296)).
   The row of the temperature then needs one `KineticEnergyChangeTerm` of that very source, with a positive coefficient and without a region, since every knock-on is in the total energy.
   The term creates the energy of the knock-ons in the system, and no population pays it.

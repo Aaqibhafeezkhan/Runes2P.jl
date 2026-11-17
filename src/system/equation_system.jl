@@ -1525,6 +1525,21 @@ _region_of(envelopes) = envelopes === nothing ? nothing : envelopes.region
 function _moves_in_radius(term::FokkerPlanckTerm)
     any(!iszero, term.operator.diffusion_r_r) || any(!iszero, term.operator.advection_r)
 end
+# Whether the operator of a term holds coefficients that change the energy of f: those of the
+# flux in p (advection, diffusion and the p-ξ cross diffusion of that flux) and the fluxes
+# through p_min and p = 0 that its boundaries take. The energy of a cell depends on p alone, so
+# the pitch fluxes, the ξ-p cross term among them, move no energy. The coefficients of a unit
+# field (`unit_field_advection_p`) are left out: the work of the field is E j_hot in the row.
+function _moves_in_energy(term::FokkerPlanckTerm)
+    op = term.operator
+    any(!iszero, op.advection_p) && return true
+    any(!iszero, op.diffusion_p_p) && return true
+    any(!iszero, op.diffusion_p_xi) && return true
+    if op.p_lower_boundary === :prescribed && any(!iszero, op.p_flux_at_lower_boundary)
+        return true
+    end
+    return op.p_zero_boundary === :outflow && any(!iszero, op.advection_p_times_p2_at_zero)
+end
 
 # The energy of the knock-ons that the Rosenbluth-Putvinski source `source` of the distribution
 # `d` creates, in the terms `listed` of the row of `temperature` that holds the time derivative
@@ -1857,6 +1872,19 @@ function _check_total_energy_rows(equations)
                 if term isa FokkerPlanckTerm &&
                    (_moves_in_radius(term) || _has_energy_change(listed, term))
                     _check_transport_energy(term, listed, row.unknown, total, d)
+                end
+                # a Fokker-Planck term without collisions (no plasma and no coefficient
+                # source) has no sinks term or boundary term of the row, so its momentum
+                # coefficients would move energy of f without a channel
+                if term isa FokkerPlanckTerm && !_has_collisions(term) &&
+                   _moves_in_energy(term)
+                    throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy " *
+                                        "$total, and the FokkerPlanckTerm of $d without collisions (no plasma and no " *
+                                        "coefficient source) holds coefficients in momentum (advection_p, " *
+                                        "diffusion_p_p, diffusion_p_xi, or a flux through p_min or p = 0) that change " *
+                                        "the energy of $d, which no term of the row carries: the cold electrons would " *
+                                        "pay or gain it. Keep radial and pitch coefficients alone in that operator, or " *
+                                        "give the momentum part a plasma as collisions"))
                 end
                 if term isa KnockOnTerm
                     throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *

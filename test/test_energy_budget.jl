@@ -235,6 +235,18 @@ import ForwardDiff
         moving = FokkerPlanckTerm(:f, transport)
         transport_energy = KineticEnergyChangeTerm(moving)
         @test check((term, moving), sinks, outflow, transport_energy) === nothing
+        # a Fokker-Planck term without collisions whose operator holds coefficients in
+        # momentum changes the energy of f without a channel of the row: refused. Pitch
+        # coefficients move no energy and stay allowed
+        stirred = AdvectionDiffusion(grid; scheme = :central, r_boundary = :absorbing)
+        add_rechester_rosenbluth_diffusion!(stirred, 1e-3; major_radius = 6.2)
+        stirred.advection_p .= -50.0
+        stirred_term = FokkerPlanckTerm(:f, stirred)
+        @test_throws "coefficients in momentum" check(
+            (term, stirred_term), sinks, outflow, KineticEnergyChangeTerm(stirred_term))
+        scattered = AdvectionDiffusion(grid; scheme = :central)
+        scattered.diffusion_xi_xi .= 1e3
+        @test check((term, FokkerPlanckTerm(:f, scattered)), sinks, outflow) === nothing
         @test_throws "add KineticEnergyChangeTerm(term)" check((term, moving), sinks, outflow)
         @test_throws "more than once" check(
             (term, moving), sinks, outflow, transport_energy, transport_energy)
@@ -710,6 +722,11 @@ import ForwardDiff
             with_term, u0, [0.0, 1e-8]; stepper = FixedSteps(), updates = (update,))
         @test all(isfinite, solution.states)
         @test any(!iszero, transport.diffusion_r_r)
+        # coefficients in momentum set by hand after the build: the run refuses them
+        transport.advection_p .= -50.0
+        @test_throws "coefficients in momentum" integrate(
+            with_term, u0, [0.0, 1e-8]; stepper = FixedSteps(), updates = (update,))
+        fill!(transport.advection_p, 0.0)
         fill!(transport.diffusion_r_r, 0.0)
         twice = equations(KineticEnergyChangeTerm(moving), KineticEnergyChangeTerm(moving))
         @test_throws "more than once" EquationSystem(

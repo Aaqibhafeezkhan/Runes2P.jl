@@ -256,6 +256,9 @@ would pay or gain their energy at the radius where the electrons are moved, crea
 removed:
 
 - Knock-on secondaries on its grid ([`KnockOnTerm`](@ref)) are refused.
+- A [`FokkerPlanckTerm`](@ref) without collisions, with no plasma and no coefficient
+  source, whose operator holds coefficients in momentum is refused: no term of the row
+  carries the energy that they move.
 - A prescribed loss rate ([`LossRateTerm`](@ref)) and a Maxwellian source
   ([`MaxwellianSourceTerm`](@ref)) are refused.
 - A [`LinearTerm`](@ref) with a nonzero coefficient in the time derivative of `kinetic`,

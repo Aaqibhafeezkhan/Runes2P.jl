@@ -335,6 +335,9 @@ For each distribution in ``W_\mathrm{hot}`` the system therefore requires in tha
 The terms of the sinks, of ``p_\mathrm{max}`` and of the work at the interface take a negative coefficient, and the terms of the knock-ons and of the radial transport a positive one.
 The system checks only the sign of these coefficients, and a coefficient of 1 or −1 closes the budget.
 
+It refuses a [`FokkerPlanckTerm`](@ref) without collisions, with no plasma and no coefficient source, whose operator holds coefficients in momentum.
+These change the energy of that distribution, and no term of the row carries that energy.
+
 It refuses [`KnockOnTerm`](@ref), [`LossRateTerm`](@ref), [`MaxwellianSourceTerm`](@ref) and a [`LinearTerm`](@ref) with a nonzero coefficient in the equation of that distribution, since no term of the row carries their energy.
 It refuses a [`KineticEnergyChangeTerm`](@ref) in the row whose source is not in the equation of a distribution in ``W_\mathrm{hot}``, since the energy that it counts is outside ``W_\mathrm{tot}``.
 It refuses a second [`KineticEnergyChangeTerm`](@ref) of one source, a Rosenbluth-Putvinski source or a Fokker-Planck term of radial transport.
