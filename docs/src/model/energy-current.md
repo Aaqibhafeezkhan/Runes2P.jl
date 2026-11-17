@@ -75,6 +75,7 @@ The row lists only the channels by which energy enters or leaves the electrons o
 - The sinks of the collisions of `f` are [`KineticEnergyLossTerm`](@ref) with `part = :sinks` and the hot region.
 - The outflow at ``p_\mathrm{max}`` is [`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` and `coefficient = -1`.
 - The channel of the electrons that cross to a runaway grid is [`InterfaceEnergyFluxTerm`](@ref).
+- The knock-ons of the fluid runaways above the grid bring the energy of [`KineticEnergyChangeTerm`](@ref) of the [`RosenbluthPutvinskiSourceTerm`](@ref), over the whole grid.
 
 The collisional transfer from the hot electrons to the cold ones does not appear in the row.
 Neither do the electrons that cross the threshold, nor the threshold that moves with the temperature.
@@ -93,7 +94,8 @@ The docstring of [`total_energy_equation`](@ref) gives the conditions.
   The system refuses it when it is built, and a run checks the coefficients again before its first step.
   A [`RechesterRosenbluthUpdate`](@ref) sets the coefficients of its operator in the run, so the run refuses the update before its first step.
 - A [`KnockOnTerm`](@ref) on the grid is refused, since no term carries the energy of the secondaries.
-- A [`RosenbluthPutvinskiSourceTerm`](@ref) is refused, since its primaries have no energy unknown.
+- A [`RosenbluthPutvinskiSourceTerm`](@ref) creates knock-ons whose energy no other term carries.
+  The row needs one [`KineticEnergyChangeTerm`](@ref) of that very source, with a positive coefficient and without a region (below).
 - A [`LossRateTerm`](@ref) and a [`MaxwellianSourceTerm`](@ref) are refused, since no term carries the energy of the electrons that they remove or add.
 - A [`LinearTerm`](@ref) with a nonzero coefficient in the equation of `f` is refused, since it moves electrons into `f` from a kinetic unknown or out of it.
 
@@ -102,6 +104,11 @@ A [`ParticleSourceTerm`](@ref) is accepted.
 With the constraint ``0 = n(f) - n_\mathrm{cold} - n_\mathrm{hot}`` for its magnitude, it moves electrons between the cold population and `f`.
 The cold electrons therefore rightly pay the energy that its electrons bring into ``W_\mathrm{hot}``.
 A [`MaxwellianSourceTerm`](@ref) adds or removes electrons from outside the system, so no population of the system should pay or gain their energy.
+
+The energy of the Rosenbluth-Putvinski source counts over the whole grid, a choice of this package ([Choices of this package](../choices.md#Total-energy-of-the-electrons)).
+The primaries of the source are the fluid runaways above the grid, which have no energy unknown in the system.
+The source only creates secondaries, as DREAM's does, so their energy is created in the system and enters ``W_\mathrm{tot}``.
+A secondary below the threshold of the hot region heats the cold electrons, and one above it joins ``W_\mathrm{hot}``.
 
 ### Why the hot-tail grid only
 

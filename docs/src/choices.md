@@ -152,6 +152,15 @@ The cutoff is a face of the knock-on grid, kept while the target lies between it
 The lower bound keeps the cutoff above the thermal momentum, so that the momentum and energy that the knock-on source creates without a matching loss stay small.
 DREAM's documentation gives an upper bound for `pCutAvalanche`, the critical momentum, and no lower bound.
 
+## Total energy of the electrons
+
+| Choice | Value |
+|---|---|
+| region of the energy of the knock-ons of [`RosenbluthPutvinskiSourceTerm`](@ref) in the row of [`total_energy_equation`](@ref) | the whole grid: [`KineticEnergyChangeTerm`](@ref) without a region |
+
+The secondaries below the threshold of the hot region heat the cold electrons, and those above it join the energy of the hot region.
+DREAM has no total energy of the electrons, so it makes no such choice.
+
 ## Linear solvers
 
 | Choice | Value |

@@ -324,11 +324,12 @@ For each distribution in ``W_\mathrm{hot}`` the system therefore requires in tha
 
 - the sinks of its collisions where they have any ([`KineticEnergyLossTerm`](@ref) with `part = :sinks`), over the region of the energy moment.
 - the energy that leaves through ``p_\mathrm{max}``, as [`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` or as [`InterfaceEnergyFluxTerm`](@ref) of the interface to the runaway grid.
+- the energy of the knock-ons of each [`RosenbluthPutvinskiSourceTerm`](@ref) in its equation, as one [`KineticEnergyChangeTerm`](@ref) of that source without a region.
 
-Each of these terms takes a negative coefficient.
+The terms of the sinks and of ``p_\mathrm{max}`` take a negative coefficient, and the term of the knock-ons a positive one.
 
 The system refuses radial transport of that distribution, since the system has no energy term for radial transport.
-It refuses [`KnockOnTerm`](@ref), [`RosenbluthPutvinskiSourceTerm`](@ref), [`LossRateTerm`](@ref), [`MaxwellianSourceTerm`](@ref) and a [`LinearTerm`](@ref) with a nonzero coefficient in the equation of that distribution, since no term of the row carries their energy.
+It refuses [`KnockOnTerm`](@ref), [`LossRateTerm`](@ref), [`MaxwellianSourceTerm`](@ref) and a [`LinearTerm`](@ref) with a nonzero coefficient in the equation of that distribution, since no term of the row carries their energy.
 A run repeats these checks before its first step, with the coefficients of the operators as they are then.
 It also refuses a [`RechesterRosenbluthUpdate`](@ref) that sets the radial transport of that distribution.
 The energy balance itself is on the page [Energy and current balance](energy-current.md).
