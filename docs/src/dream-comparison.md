@@ -9,8 +9,9 @@ The comparison is with DREAM release v26.5 and its branch `boltzmann-eqterm` at 
 The file and line citations of DREAM's source refer to commit `93d27e1` unless they name another version.
 
 Agreement with DREAM shows that the two codes use the same method, not that the method is right.
-The checks of the collision models that do not come from DREAM compare with the literature, with analytic limits and with a second operator of the code.
-The section [Comparisons](model/collisions.md#Comparisons) of the page "Collision models" lists them next to the comparisons with DREAM.
+Each piece of physics therefore also has a check that does not rely on DREAM: against the literature, an analytic limit, a manufactured solution or a second operator of the code.
+The model pages name these checks.
+The collision models collect theirs in one section, next to the comparisons with DREAM ([Collision models](model/collisions.md#Comparisons)).
 
 ## Features of DREAM
 
