@@ -128,7 +128,7 @@ DREAM has no floor, so a comparison that follows DREAM below 0.5 eV sets a lower
 
 As in DREAM, the conductivity forms ``\Theta = T e/(m_ec^2)`` from ``m_e``, ``c`` and ``e``, with ``T`` in eV.
 The rest of the package forms it as ``T`` divided by `ELECTRON_REST_ENERGY`.
-The two forms differ because the constants of the package are DREAM's literals, which are not of one CODATA set (the docstring of the module `Runes2P.Constants`).
+The two forms differ because the constants of the package are DREAM's literals, which are not of one CODATA set.
 Their relative difference, (first − second)/second, is 6.8e-9, so at ``T = 100 \times`` `ELECTRON_REST_ENERGY` the conductivity's ``\Theta`` lies just above the last column.
 A ``\Theta`` within the margin takes the last column, and a larger one throws a `DomainError`.
 DREAM throws for every ``\Theta`` above the table, so no option gives DREAM's behaviour.
