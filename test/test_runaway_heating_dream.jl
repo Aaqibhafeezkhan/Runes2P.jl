@@ -44,7 +44,7 @@ const HEATING_RUN_REPLAY = 1e-7
 const HEATING_RUN_DISTRIBUTION = 1e-5
 # 2.4e-16 without the flux through p = 0, round-off
 const HEATING_RUN_FIRST_STEP = 1e-14
-# 4.0e-16 (compat = dream) and 6.0e-16 (compat = runes2p) of the density of f_re at the
+# 4.0e-16 (compat = dream and compat = runes2p) of the density of f_re at the
 # start, round-off
 const HEATING_RUN_DENSITY = 1e-14
 # with the operator's default flux through p = 0 the first step departs from DREAM's by
@@ -236,7 +236,7 @@ const HEATING_RUN_DEFAULT_FIRST_STEP = 5e-5
             @test all(ratio -> 1.7 < ratio < 1.9, ratios)
             @test all(moments .> 7e4)
             # no flux through p = 0, as at compat = dream: the density of f_re changes by
-            # 6.0e-16 of its start over the run, round-off
+            # 4.0e-16 of its start over the run, round-off
             @test drift < HEATING_RUN_DENSITY
             # f_re against DREAM's, relative to DREAM's largest value: 0.458 after the first
             # step and 0.756 at the last, the difference of the collision frequencies

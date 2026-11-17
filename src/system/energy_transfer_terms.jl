@@ -405,24 +405,24 @@ end
 # tag of the dual numbers of the row of the face form in the columns of f
 struct LossRowTag end
 
-# The distribution f with the derivative of cell (i, j) in the partial of its color: the
-# momentum index modulo 4 and, with cross diffusion, the pitch index modulo 3. A momentum
-# face reads the momentum cells k − 2 to k + 1, mirrored ghost cells included, and with
-# cross diffusion the pitch cells j − 1 to j + 1, so each partial of its flux belongs to one cell.
-struct ColoredCells{N, X, T, A <: AbstractArray{T, 3}} <:
-       AbstractArray{ForwardDiff.Dual{LossRowTag, T, N}, 3}
+# The distribution f with the derivative of cell (i, j) in the partial of its color, the
+# momentum index modulo 4. A momentum face without cross diffusion reads the momentum cells
+# k − 2 to k + 1 of its pitch cell, mirrored ghost cells included, so each partial of its
+# flux belongs to one cell.
+struct ColoredCells{T, A <: AbstractArray{T, 3}} <:
+       AbstractArray{ForwardDiff.Dual{LossRowTag, T, 4}, 3}
     values::A
 end
-function ColoredCells{N, X}(values::AbstractArray{T, 3}) where {N, X, T}
-    ColoredCells{N, X, T, typeof(values)}(values)
+function ColoredCells(values::AbstractArray{T, 3}) where {T}
+    ColoredCells{T, typeof(values)}(values)
 end
 Base.size(a::ColoredCells) = size(a.values)
-@inline _cell_color(i, j, X) = mod(i, 4) + 1 + 4 * mod(j, X)
+@inline _cell_color(i) = mod(i, 4) + 1
 Base.@propagate_inbounds function Base.getindex(
-        a::ColoredCells{N, X, T}, i::Int, j::Int, ir::Int) where {N, X, T}
-    color = _cell_color(i, j, X)
-    seeds = ntuple(c -> T(c == color), Val(N))
-    return ForwardDiff.Dual{LossRowTag, T, N}(a.values[i, j, ir], ForwardDiff.Partials(seeds))
+        a::ColoredCells{T}, i::Int, j::Int, ir::Int) where {T}
+    color = _cell_color(i)
+    seeds = ntuple(c -> T(c == color), Val(4))
+    return ForwardDiff.Dual{LossRowTag, T, 4}(a.values[i, j, ir], ForwardDiff.Partials(seeds))
 end
 
 # the buffer of the row of one radius in the columns of f, kept by the term; the operator
@@ -444,14 +444,11 @@ end
 function _add_face_loss_jacobian!(J, term::KineticEnergyLossTerm, ops, f, grid, plasma,
         u, layout, row, t)
     side = _loss_side(term, u, layout, t)
-    cross = any(op -> op !== nothing && any(!iszero, op.diffusion_p_xi), ops)
-    if cross
-        _add_face_loss_columns!(
-            J, term, ops, ColoredCells{12, 3}(f), side, grid, u, layout, row, t)
-    else
-        _add_face_loss_columns!(
-            J, term, ops, ColoredCells{4, 1}(f), side, grid, u, layout, row, t)
+    # the collisions write no cross diffusion, whose flux would read the pitch neighbours
+    if any(op -> op !== nothing && any(!iszero, op.diffusion_p_xi), ops)
+        throw(ArgumentError("the face form of the energy loss takes operators without cross diffusion"))
     end
+    _add_face_loss_columns!(J, term, ops, ColoredCells(f), side, grid, u, layout, row, t)
     if _follows_unknowns(term)
         source = term.source.plasma
         with_ions = ion_dependency(source) !== nothing && !_lags_ions(term.source)
@@ -483,12 +480,11 @@ end
 # The columns of f: the flux of each momentum face with a nonzero weight once in dual
 # numbers of the colors of `colored`, its partials added to the cells the face reads
 function _add_face_loss_columns!(J, term::KineticEnergyLossTerm, ops,
-        colored::ColoredCells{N, X}, side, grid, u, layout, row, t) where {N, X}
+        colored::ColoredCells, side, grid, u, layout, row, t)
     id = unknown_id(layout, term.kinetic)
     a = first(ops)
     np, nxi, nr = size(grid)
     buffer = _loss_row_buffer!(term, np, nxi)
-    half = X ÷ 2
     for ir in 1:nr
         m = a.momentum_grids[ir]
         envelope = _envelope_at(term.envelopes, grid, ir, u, layout, t)
@@ -502,10 +498,8 @@ function _add_face_loss_columns!(J, term::KineticEnergyLossTerm, ops,
                 below = above
                 weight == 0 && continue
                 partials = ForwardDiff.partials(_part_flux(ops, colored, k, j, ir, side))
-                for jj in max(j - half, 1):min(j + half, nxi),
-                    i in max(k - 2, 1):min(k + 1, np)
-
-                    buffer[i, jj] += weight * partials[_cell_color(i, jj, X)]
+                for i in max(k - 2, 1):min(k + 1, np)
+                    buffer[i, j] += weight * partials[_cell_color(i)]
                 end
             end
         end

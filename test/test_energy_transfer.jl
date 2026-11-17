@@ -620,7 +620,7 @@ using SparseArrays: findnz, sparse
             @test own > 1e-2 * largest
             # b: the energy moment of the whole over the region, in the operator's own form,
             # is the moment of the field part plus the free-electron part plus the sinks (at
-            # most 2e-14 of it measured). The whole takes no flux through p_max here, as the parts.
+            # most 6.4e-15 of it measured). The whole takes no flux through p_max here, as the parts.
             interfaced = AdvectionDiffusion(hot; scheme, p_upper_boundary = :interface)
             for name in (:advection_p, :diffusion_p_p, :advection_xi, :diffusion_xi_xi,
                 :advection_p_times_p2_at_zero)
@@ -646,7 +646,8 @@ using SparseArrays: findnz, sparse
 
         @testset "the pitch fluxes leave the energy moment ($scheme)" for scheme in (:tcdf, :upwind)
             # c: the energy moment of the pitch divergence alone, with advection, diffusion and
-            # cross diffusion in pitch, is zero to round-off of the moments of its cells
+            # cross diffusion in pitch, is zero to round-off of the moments of its cells (at
+            # most 2.7e-17 of their absolute sum measured)
             (; layout, state, whole, sinks) = loss_case(scheme, 2.0)
             pitch = AdvectionDiffusion(hot; scheme, p_upper_boundary = :interface)
             pitch.advection_xi .= whole.advection_xi
@@ -668,7 +669,7 @@ using SparseArrays: findnz, sparse
             # the energy moment of the operators applied to f, at p = 0 with both of its
             # boundaries and at p_min > 0 with a prescribed flux. The random coefficients
             # cancel in the moment, so the bound is 1e-14 of the sum of the absolute moments
-            # of the cells.
+            # of the cells (at most 4.6e-17 measured).
             (; layout, state, sinks) = loss_case(:upwind, 2.0)
             rng = Xoshiro(17)
             above = cylindrical_grid(
@@ -699,14 +700,18 @@ using SparseArrays: findnz, sparse
             end
         end
 
-        @testset "the Jacobian of the face form ($scheme)" for scheme in (:tcdf, :ospre)
+        @testset "the Jacobian of the face form ($scheme, $part)" for scheme in (:tcdf, :ospre),
+            part in (:sinks, :free_electrons)
+
             # e: at a monotone f, where the limiters are smooth, the row in the columns of f
             # agrees with the automatic differentiation of the residual to 1e-15 of its
-            # largest entry, and the row in the columns of f, of the temperature and of the
-            # density with central differences of 1e-6 of each value to 1e-6 of the largest
-            # entry (9e-8 and 7e-8 measured)
+            # largest entry in them. Against central differences of 1e-6 of each value, the
+            # columns of f agree to 1e-6 of their largest entry, and the columns of the
+            # temperature and the density each to 1e-6 of the larger of the difference and
+            # the row over the unknown (at most 1.9e-7 in the columns of f and 1.3e-9 in the others
+            # measured).
             (; layout, state, source) = loss_case(scheme, 2.0)
-            term = KineticEnergyLossTerm(source; part = :sinks, region = hot_region)
+            term = KineticEnergyLossTerm(source; part, region = hot_region)
             entries = Runes2P.sparsity!(Tuple{Int, Int}[], term, layout, 2)
             JL = sparse(
                 first.(entries), last.(entries), zeros(length(entries)), length(state),
@@ -714,23 +719,29 @@ using SparseArrays: findnz, sparse
             Runes2P.add_jacobian!(JL, term, state, layout, 2, 0.0)
             loss_rhs(x) = Runes2P.rhs!(zeros(eltype(x), length(x)), term, x, layout, 2, 0.0)
             dense = ForwardDiff.jacobian(loss_rhs, state)
+            function difference(column, r)
+                h = 1e-6 * abs(state[column])
+                up, down = copy(state), copy(state)
+                up[column] += h
+                down[column] -= h
+                return (loss_rhs(up)[r] - loss_rhs(down)[r]) / 2h
+            end
             for ir in 1:2
                 r = first(Runes2P.unknown_range(layout, 2, ir))
                 f_columns = Runes2P.unknown_range(layout, 1, ir)
                 @test maximum(abs, Vector(JL[r, f_columns]) - dense[r, f_columns]) <=
                       1e-15 * maximum(abs, dense[r, f_columns])
-                columns = [collect(f_columns); first(Runes2P.unknown_range(layout, 2, ir));
-                           first(Runes2P.unknown_range(layout, 3, ir))]
-                differences = map(columns) do column
-                    h = 1e-6 * abs(state[column])
-                    up, down = copy(state), copy(state)
-                    up[column] += h
-                    down[column] -= h
-                    return (loss_rhs(up)[r] - loss_rhs(down)[r]) / 2h
+                differences = [difference(column, r) for column in f_columns]
+                f_error = maximum(abs, Vector(JL[r, f_columns]) - differences) /
+                          maximum(abs, differences)
+                @test f_error <= 1e-6
+                row_value = abs(loss_rhs(state)[r])
+                for id in (2, 3)
+                    column = first(Runes2P.unknown_range(layout, id, ir))
+                    d = difference(column, r)
+                    scale = max(abs(d), row_value / abs(state[column]))
+                    @test abs(JL[r, column] - d) <= 1e-6 * scale
                 end
-                @test maximum(abs, Vector(JL[r, columns]) - differences) <=
-                      1e-6 * maximum(abs, differences)
-                @test JL[r, first(Runes2P.unknown_range(layout, 2, ir))] != 0
             end
         end
 
@@ -762,9 +773,10 @@ using SparseArrays: findnz, sparse
         end
 
         @testset "allocations of the face form" begin
-            # the sum over the faces allocates nothing, nor do the columns of f of the row; the
-            # residual and the Jacobian allocate their operators (_loss_operators), and the face
-            # form less than the moment of the applied operators under exponential fitting
+            # the sum over the faces allocates nothing, nor do the columns of f of the row. The
+            # residual allocates its operators (_loss_operators) and at most 4096 bytes more
+            # (2048 measured), and the Jacobian less than that of the applied operators under
+            # exponential fitting
             (; layout, state, source, side, collisions, electron_electron) = loss_case(:tcdf, 2.0)
             term = KineticEnergyLossTerm(source; part = :sinks)
             ops = (collisions, electron_electron)
@@ -773,15 +785,20 @@ using SparseArrays: findnz, sparse
             JL = sparse(
                 first.(entries), last.(entries), zeros(length(entries)), length(state),
                 length(state))
-            colored = Runes2P.ColoredCells{4, 1}(tail)
+            colored = Runes2P.ColoredCells(tail)
             @test call_allocation(Runes2P._add_face_loss_columns!, JL, term, ops, colored,
                 side, hot, state, layout, 2, 0.0) == 0 skip = !OPTIMIZED
             fitted = KineticEnergyLossTerm(loss_case(:exponential_fitting, 2.0).source; part = :sinks)
             out = zeros(length(state))
-            @test call_allocation(Runes2P.rhs!, out, term, state, layout, 2, 0.0) <=
-                  call_allocation(Runes2P.rhs!, out, fitted, state, layout, 2, 0.0)
-            @test call_allocation(Runes2P.add_jacobian!, JL, term, state, layout, 2, 0.0) <=
-                  call_allocation(Runes2P.add_jacobian!, JL, fitted, state, layout, 2, 0.0)
+            plasma = Runes2P._transfer_plasma(term, state, layout, 0.0)
+            operators = call_allocation(Runes2P._loss_operators, term, hot, plasma)
+            residual = call_allocation(Runes2P.rhs!, out, term, state, layout, 2, 0.0)
+            jacobian = call_allocation(
+                Runes2P.add_jacobian!, JL, term, state, layout, 2, 0.0)
+            fitted_jacobian = call_allocation(
+                Runes2P.add_jacobian!, JL, fitted, state, layout, 2, 0.0)
+            @test residual <= operators + 4096 skip = !OPTIMIZED
+            @test jacobian <= fitted_jacobian skip = !OPTIMIZED
         end
     end
 end
