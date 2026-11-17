@@ -122,8 +122,9 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
                   lorentz_conductivity(T_last, 1e20, Z) *
                   normalized_conductivity(highest, 1 / (1 + Z)) / (32 / sqrt(2π)) rtol = 1e-14
         end
-        # just below the last column in the function's Θ the interpolation, not the clamp
-        T_below = T_last * (1 - 5e-9)
+        # 5e-9 below the last column in the function's Θ, from mₑc²/e, the interpolation and
+        # not the clamp
+        T_below = highest * mc2 * (1 - 5e-9)
         @test highest * (1 - margin) < dream_theta(T_below) < highest
         for Z in (1.0, 4.0)
             @test braams_karney_conductivity(1e20, T_below, Z) ≈
