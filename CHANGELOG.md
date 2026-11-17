@@ -13,7 +13,7 @@ Until the first release, every change is listed under "Unreleased", with the sub
   A region takes a fixed limit, and a limit that follows the temperature or time is refused.
   The settings record of a run holds the record of the term, and `OUTPUT_FORMAT_VERSION` is 0.0.6 for it and for the key `knockon_term` of a `SecondaryHeatingTerm` with `cut = :knockon`.
   A file of the format 0.0.5 reads as before.
-- `KineticEnergyLossTerm` takes a Fokker-Planck term with a flux limiter in a scheme, such as `:tcdf`, so a total-energy row accepts the sinks of a hot-tail grid under a limiter ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+- `KineticEnergyLossTerm` takes a Fokker-Planck term with a flux limiter in a scheme, such as `:tcdf`, so a total-energy row accepts the sinks of a hot-tail grid under a limiter ([#298](https://github.com/osrep/Runes2P.jl/pull/298)).
   The term then takes the moment in the form of the momentum faces, with both operators on the upwind side of the whole advection of the Fokker-Planck term.
   The term reads the sign of that advection, its collisions and its field, and lists the field unknown among its dependencies without a column.
   Its Jacobian holds the derivative of the limiter.
