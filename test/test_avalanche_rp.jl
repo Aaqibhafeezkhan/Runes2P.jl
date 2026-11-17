@@ -1,7 +1,9 @@
 # The Rosenbluth-Putvinski avalanche source of a hot-tail grid: its rate against the Møller
 # rate of an infinitely fast primary of the knock-on code, the number of electrons it
-# creates on the grid, the pitch of the knock-ons, and its Jacobian against central
-# differences.
+# creates on the grid, the pitch of the knock-ons and its Jacobian against central
+# differences; the energy of the knock-ons against its sum over the cells and the closed form
+# of the Møller rate.
+using SparseArrays: findnz
 
 @testset "Rosenbluth-Putvinski source" begin
     @testset "the rate is the Møller rate of a primary at the speed of light" begin
@@ -95,6 +97,140 @@
         record = describe(term, Runes2P.DescriptionContext())
         @test record["p_cutoff"] == 0.01 && record["runaway_density"] == "runaway_density"
         @test record["electric_field"] == "electric_field"
+    end
+
+    @testset "the energy of the knock-ons" begin
+        mec2 = Constants.ELECTRON_REST_ENERGY * Constants.ELEMENTARY_CHARGE
+        # A pitch grid with a face at +ξ* of one momentum cell above the cutoff and none at
+        # −ξ*: that cell receives knock-ons with ξ* < 0 alone, so the two signs differ.
+        p_faces = biuniform_p_faces(40, 15, 0.0, 0.05, 0.8)
+        centres = (p_faces[1:(end - 1)] .+ p_faces[2:end]) ./ 2
+        i0 = findfirst(>(0.3), centres)
+        star0 = sqrt((sqrt(1 + centres[i0]^2) - 1) / (sqrt(1 + centres[i0]^2) + 1))
+        xi_faces = collect(uniform_xi_faces(15))
+        xi_faces[argmin(abs.(xi_faces .- star0))] = star0
+        @test issorted(xi_faces) && !any(≈(-star0), xi_faces)
+        energy_grid = cylindrical_grid(MomentumGrid(p_faces, xi_faces), radial)
+        energy_layout = UnknownLayout(radial,
+            [RadialUnknown(:runaway_density; scale = 1e16),
+                RadialUnknown(:total_electron_density; scale = 1e20),
+                RadialUnknown(:electric_field), KineticUnknown(:f, energy_grid; scale = 1e19),
+                RadialUnknown(:heating; scale = 1e3)])
+        rp_source = RosenbluthPutvinskiSourceTerm(:f, energy_grid)
+        heating = KineticEnergyChangeTerm(rp_source)
+        row = unknown_id(energy_layout, :heating)
+        v = zeros(length(energy_layout))
+        unknown_values(v, energy_layout, 1) .= [3e15, 1e16]
+        unknown_values(v, energy_layout, 2) .= [1.5e20, 1.2e20]
+        Runes2P.validate(heating, energy_layout, row)
+
+        # Σ_i ε_i R_i over the momentum cells above the cutoff whose pitch cells hold s ξ*
+        # strictly, with the rate of each cell and its kinetic energy ε_i = mₑc²(γ_i − 1)
+        function expected_energy(s)
+            total = 0.0
+            for i in eachindex(centres)
+                p_faces[i + 1] <= 0.01 && continue
+                gamma = sqrt(1 + centres[i]^2)
+                star = s * sqrt((gamma - 1) / (gamma + 1))
+                any(j -> xi_faces[j] < star < xi_faces[j + 1], 1:15) || continue
+                rate = rosenbluth_putvinski_rate(max(p_faces[i], 0.01), p_faces[i + 1])
+                total += mec2 * (gamma - 1) * rate
+            end
+            return total
+        end
+        @test expected_energy(1) < (1 - 1e-3) * expected_energy(-1)
+        n_re_n_tot = [3e15 * 1.5e20, 1e16 * 1.2e20]
+        for fields in ([2.0, -1.5], [-2.0, 1.5])
+            unknown_values(v, energy_layout, 3) .= fields
+            out = Runes2P.rhs!(zeros(length(v)), heating, v, energy_layout, row, 0.0)
+            power = unknown_values(out, energy_layout, row)
+            for ir in 1:2
+                @test power[ir] ≈ n_re_n_tot[ir] * expected_energy(sign(fields[ir])) rtol = 1e-13
+            end
+        end
+        # without a field, the pitch of E ≥ 0
+        unsigned = KineticEnergyChangeTerm(
+            RosenbluthPutvinskiSourceTerm(:f, energy_grid; electric_field = nothing))
+        out = Runes2P.rhs!(zeros(length(v)), unsigned, v, energy_layout, row, 0.0)
+        @test unknown_values(out, energy_layout, row) ≈ n_re_n_tot .* expected_energy(1) rtol = 1e-13
+
+        # The closed form: the rate per unit γ is 2π r₀² c/(γ − 1)², so the energy per runaway
+        # and per electron of the total density is 2π r₀² c mₑc² ln[(γ_max − 1)/(γ_cut − 1)]
+        # for a cutoff on a face. The sum over the cells converges to it at second order
+        # (measured: relative errors 1.75e-2, 4.41e-3, 1.10e-3 and 2.76e-4 for 40 to 320 cells).
+        gamma_minus_one(p) = p^2 / (1 + sqrt(1 + p^2))
+        closed = 2π * Constants.CLASSICAL_ELECTRON_RADIUS^2 * Constants.SPEED_OF_LIGHT *
+                 mec2 *
+                 log(gamma_minus_one(0.8) / gamma_minus_one(0.04))
+        errors = map((40, 80, 160, 320)) do cells
+            refined = cylindrical_grid(
+                MomentumGrid(uniform_p_faces(cells, 0.0, 0.8), uniform_xi_faces(7)), radial)
+            refined_term = KineticEnergyChangeTerm(RosenbluthPutvinskiSourceTerm(
+                :f, refined; p_cutoff = 0.04, electric_field = nothing))
+            return abs(refined_term.energies.positive[1] - closed) / closed
+        end
+        @test errors[1] < 3e-2
+        orders = log2.(errors[1:(end - 1)] ./ errors[2:end])
+        @test all(order -> 1.9 < order < 2.1, orders)
+
+        # the Jacobian: the columns of n_re and n_tot against central differences, none of
+        # the field, whose sign enters without a derivative
+        unknown_values(v, energy_layout, 3) .= [2.0, -1.5]
+        system = EquationSystem(energy_layout,
+            [Equation(:runaway_density, TimeDerivative()),
+                Equation(:total_electron_density, TimeDerivative()),
+                Equation(:electric_field, TimeDerivative()),
+                Equation(:f, TimeDerivative(), rp_source),
+                Equation(:heating, TimeDerivative(), heating)];
+            initial_state = v)
+        J = jacobian_prototype(system)
+        jacobian!(J, system, v, 0.0)
+        rows = [first(unknown_range(energy_layout, row, ir)) for ir in 1:2]
+        rhs_rows(x) = (o = zeros(length(x)); rhs!(o, x, system, 0.0); o[rows])
+        for id in (1, 2), ir in 1:2
+
+            column = first(unknown_range(energy_layout, id, ir))
+            h = 1e-6 * v[column]
+            up, down = copy(v), copy(v)
+            up[column] += h
+            down[column] -= h
+            difference = (rhs_rows(up) - rhs_rows(down)) / 2h
+            @test maximum(abs, difference) > 0
+            @test maximum(abs, Vector(J[rows, column]) - difference) <=
+                  1e-8 * maximum(abs, difference)
+        end
+        field_columns = [first(unknown_range(energy_layout, 3, ir)) for ir in 1:2]
+        @test iszero(J[rows, field_columns])
+        @test all(c -> c ∉ field_columns, findnz(J[rows, :])[2])
+
+        # the record holds the source and the region; no allocation after the first call
+        record = describe(heating, Runes2P.DescriptionContext())
+        @test record["coefficient"] == 1.0 && record["kinetic"] == "f"
+        @test record["source"]["p_cutoff"] == 0.01
+        @test !haskey(record, "region")
+        fixed = KineticEnergyChangeTerm(rp_source; region = MomentumRegion(0.2))
+        @test describe(fixed, Runes2P.DescriptionContext())["region"]["limit"] == 0.2
+        out = zeros(length(v))
+        @test call_allocation(Runes2P.rhs!, out, heating, v, energy_layout, row, 0.0) == 0 skip = !OPTIMIZED
+
+        # a fixed region weights the cells by its envelope; a moving limit and another source
+        # are refused
+        above = KineticEnergyChangeTerm(rp_source; region = MomentumRegion(0.0))
+        @test above.energies.positive ≈ heating.energies.positive rtol = 1e-14
+        @test all(iszero, KineticEnergyChangeTerm(
+            rp_source; region = MomentumRegion(0.9)).energies.positive)
+        @test all(fixed.energies.positive .< heating.energies.positive)
+        @test_throws "fixed limit" KineticEnergyChangeTerm(
+            rp_source; region = MomentumRegion(ThermalMomentum(:cold_electron_temperature)))
+        @test_throws "fixed limit" KineticEnergyChangeTerm(
+            rp_source; region = MomentumRegion(t -> 0.2))
+        @test_throws DimensionMismatch KineticEnergyChangeTerm(
+            rp_source; region = MomentumRegion([0.1, 0.2, 0.3]))
+        @test_throws "takes a RosenbluthPutvinskiSourceTerm" KineticEnergyChangeTerm(
+            LinearTerm(:f))
+        @test_throws ArgumentError Runes2P.validate(heating, energy_layout, 4)
+        @test_throws DimensionMismatch Runes2P.validate(
+            KineticEnergyChangeTerm(term), energy_layout, row)
     end
 end
 

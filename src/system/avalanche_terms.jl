@@ -139,11 +139,16 @@ function validate(term::RosenbluthPutvinskiSourceTerm, layout, row)
     return nothing
 end
 
+# whether the knock-ons of radius ir take the pitch ξ* > 0: without a field, or with E ≥ 0
+function _rp_positive_pitch(term::RosenbluthPutvinskiSourceTerm, u, layout, ir)
+    term.electric_field === nothing && return true
+    E = unknown_values(u, layout, unknown_id(layout, term.electric_field))[ir]
+    return E >= 0
+end
+
 # the shape of radius ir with the pitch of the sign of the field
 function _rp_shape(term::RosenbluthPutvinskiSourceTerm, u, layout, ir)
-    term.electric_field === nothing && return term.positive[ir]
-    E = unknown_values(u, layout, unknown_id(layout, term.electric_field))[ir]
-    return E >= 0 ? term.positive[ir] : term.negative[ir]
+    _rp_positive_pitch(term, u, layout, ir) ? term.positive[ir] : term.negative[ir]
 end
 
 function rhs!(out, term::RosenbluthPutvinskiSourceTerm, u, layout, row, t)
