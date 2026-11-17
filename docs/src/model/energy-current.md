@@ -117,7 +117,7 @@ That heating gives the cold electrons ``e c\, E_c\, n_\mathrm{re}``, the whole c
 The knock-ons between the cutoff ``p_\mathrm{cut}`` of the source and ``p_\mathrm{max}`` take their energy from that loss, so with both terms in the row ``W_\mathrm{tot}`` gains their energy twice.
 DREAM has both terms too, in separate reservoirs: its equation of ``T_\mathrm{cold}`` holds ``e c\, E_c\, n_\mathrm{re}`` and no term of the source.
 
-Where all free electrons are cold and ``n_\mathrm{tot}`` equals their density, the ratio of the knock-on term to the heating is, in the limit of fine momentum cells,
+Where all free electrons are cold and ``n_\mathrm{tot}`` equals their density, the ratio of the power ``P`` of the knock-on term to the heating is, in the limit of fine momentum cells,
 
 ```math
 \frac{P}{e c\, E_c\, n_\mathrm{re}} = \frac{\ln[(\gamma_\mathrm{max} - 1)/(\gamma_\mathrm{cut} - 1)]}{2 \ln\Lambda_{ee}(p = 20)},
@@ -128,7 +128,7 @@ At ``p_\mathrm{cut} = 0.01``, ``p_\mathrm{max} = 0.8``, 10 eV and ``10^{20}\, \m
 
 The term does not remove the thermal energy of the target electron either.
 With ``n_\mathrm{cold} = n_\mathrm{free} - n_\mathrm{hot}`` and a [`ParticleSourceTerm`](@ref) that keeps ``n(f)`` at ``n_\mathrm{free}``, each knock-on takes one electron out of the cold population, while ``W_\mathrm{cold}`` keeps its thermal energy ``\tfrac{3}{2} T``.
-The cold electrons that remain therefore gain ``\tfrac{3}{2} T`` per knock-on, 0.62 % of the term at 10 eV and ``p_\mathrm{cut} = 0.04``.
+The cold electrons that remain therefore gain ``\tfrac{3}{2} T`` per knock-on, 0.62 % of the term at 10 eV, ``p_\mathrm{cut} = 0.04`` and ``p_\mathrm{max} = 0.8``.
 A bound target, which ``n_\mathrm{tot}`` counts, does not pay its ionization energy either, and DREAM behaves the same in both respects.
 
 ### Why the hot-tail grid only
