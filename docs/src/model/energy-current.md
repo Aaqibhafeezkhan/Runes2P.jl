@@ -173,9 +173,10 @@ That term is [`MomentumBoundaryFluxTerm`](@ref) at an outer boundary and [`Inter
 With the sinks charged to ``W_\mathrm{tot}``, the cold electrons receive exactly the free-electron part of what the hot electrons lose.
 
 A Fokker-Planck term with linear schemes gives the parts the moment of their operators applied to ``f``, whose face values take the side of their own advection.
-A flux limiter in a scheme of the Fokker-Planck term, such as `:tcdf` in ``p`` or in ``\xi``, makes the term nonlinear in ``f``.
+A flux limiter in a scheme of the Fokker-Planck term, in ``p``, in ``\xi`` or in ``r``, makes the term nonlinear in ``f``.
 The momentum face values of the parts then take the upwind side of the whole advection of the Fokker-Planck term, its collisions and its electric field.
 That face value depends on ``f`` and on the side alone, so the field part, the free-electron part and the sinks sum to the momentum flux of the term face by face.
+Exponential fitting in ``p`` is the exception: its face value follows the coefficients of each operator, so the parts do not sum to the flux there.
 On their own sides they would not: in a test of a 100 eV plasma at 2 V/m under the limiters, their sum differs from the flux by up to 0.18 of its largest value (`test/test_energy_transfer.jl`).
 
 Under a limiter the term takes the moment in the form of the momentum faces, since the pitch fluxes sum to zero over a momentum row:

@@ -617,7 +617,7 @@ using SparseArrays: findnz, sparse
             # Face by face, the field part, the free-electron part and the sinks with the side of
             # the whole sum to the momentum flux of the whole to round-off (2e-16 to 6e-16 of the
             # largest flux), while the parts on their own sides differ from it where the field
-            # beats the friction: by 0.077 to 0.18 of the largest flux under the limiters and
+            # beats the friction: by 0.070 to 0.18 of the largest flux under the limiters and
             # by 0.065 to 0.44 under the linear schemes, measured
             (; layout, state, side, whole, collisions,
                 electron_electron, field_part, source) = loss_case(

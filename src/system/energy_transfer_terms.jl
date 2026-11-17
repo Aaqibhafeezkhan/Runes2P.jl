@@ -53,13 +53,15 @@ and by [`InterfaceEnergyFluxTerm`](@ref) at the interface to a runaway grid. The
 
 With linear schemes of `source` the term takes the moment of the two operators applied to
 `f`, whose face values take the side of their own advection. A flux limiter in a scheme of
-`source`, such as `:tcdf` in p or in ξ, makes the term nonlinear in `f`. The momentum face
-values of both operators then take the upwind side of the whole advection of `source`,
-also under a linear momentum scheme: its collisions and its electric field, of the plasma
-or of the field unknown, as the residual of `source` evaluates them. That face value
-depends on `f` and on the side alone, so the field part, the free-electron part and the
-sinks sum to the momentum flux of `source` face by face. The term takes the moment in the
-form of the momentum faces, since the pitch fluxes sum to zero over a momentum row:
+`source`, in p, in ξ or in r, makes the term nonlinear in `f`. The momentum face values of
+both operators then take the upwind side of the whole advection of `source`, also under a
+linear momentum scheme: its collisions and its electric field, of the plasma or of the
+field unknown, as the residual of `source` evaluates them. That face value depends on `f`
+and on the side alone, so the field part, the free-electron part and the sinks sum to the
+momentum flux of `source` face by face. Exponential fitting in p is the exception: its
+face value follows the coefficients of each operator, not the side, so the parts do not
+sum to the flux there. The term takes the moment in the form of the momentum faces, since
+the pitch fluxes sum to zero over a momentum row:
 
 ```math
 L = −\\frac{1}{V'} \\sum_j Δξ_j \\sum_k (ε_k − ε_{k−1})\\, F_{kj},
