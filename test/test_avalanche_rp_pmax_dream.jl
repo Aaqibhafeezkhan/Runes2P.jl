@@ -25,7 +25,7 @@
 #   20    | 18.458 s⁻¹      | +1e-4         | -1.6e-2        | -1.8e-2        | -1.9e-3
 #
 # The ratio of the rates at p_max = 20 and 5 is 0.7759 in the set and 0.7735 with 56 pitch
-# cells: the rate falls by 22.4 % in the set and by 22.7 % with 56 pitch cells.
+# cells: with 56 pitch cells the fall of the rate is larger by about 0.2 percentage points.
 #
 # This is the same method in two codes. test_avalanche_rp.jl checks the rate of the source
 # between the cutoff and p_max against the Møller rate, independently of DREAM.
