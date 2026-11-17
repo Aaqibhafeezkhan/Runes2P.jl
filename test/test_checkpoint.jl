@@ -1025,6 +1025,34 @@ using HDF5
         @test [unknown_unit(whole.layout, name) for name in (:plasma_current, :T, :f)] ==
               ["MA", "eV", ""]
 
+        # a file of the format 0.0.5 reads as one of the current format: the format 0.0.6
+        # adds records of the settings that this run does not hold. The output reads with its
+        # units, and a resume from such a checkpoint repeats the run.
+        function relabel!(file, version)
+            h5open(file, "r+") do h5
+                delete_attribute(h5, "format_version")
+                attributes(h5)["format_version"] = version
+            end
+            return file
+        end
+        five = tempname() * ".h5"
+        write_output(five, whole)
+        relabel!(five, "0.0.5")
+        back = read_output(five)
+        @test back.states == whole.states
+        @test [unknown_unit(back.layout, name) for name in unknown_names(back.layout)] ==
+              [unknown_unit(whole.layout, name) for name in unknown_names(whole.layout)]
+        @test read_state(five).units == current.units
+        rm(five)
+        five = tempname() * ".h5"
+        cp(Runes2P.previous_checkpoint_file(checkpoint), five)
+        stored = read_checkpoint(relabel!(five, "0.0.5"))
+        @test stored.units == current.units
+        case = unit_case()
+        resumed = @test_logs integrate(case.system, case.u0, case.times; resume = stored)
+        @test resumed.states[:, end] == whole.states[:, end]
+        rm(five)
+
         # a resume warns for a unit stored in the checkpoint that differs from the declared
         # one, both nonempty, and copies the values unchanged
         stored = read_checkpoint(Runes2P.previous_checkpoint_file(checkpoint))

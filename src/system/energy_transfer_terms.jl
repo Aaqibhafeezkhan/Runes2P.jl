@@ -1,8 +1,9 @@
 # The energy that the distributions exchange with the total energy of the electrons: the
 # collisional transfer from the runaway grid to the cold electrons, the sinks of the hot
-# electrons (bound electrons, bremsstrahlung, synchrotron), and the energy and the particles
-# that electrons carry out of the hot-tail grid through the interface. Included after
-# operators/field_particle.jl, whose electron-electron operator it uses.
+# electrons (bound electrons, bremsstrahlung, synchrotron), the energy and the particles
+# that electrons carry out of the hot-tail grid through the interface, and the energy that
+# a source term gives a distribution. Included after operators/field_particle.jl, whose
+# electron-electron operator it uses, and after system/avalanche_terms.jl.
 
 using SparseArrays: findnz, sparse
 
@@ -813,6 +814,167 @@ function sparsity!(entries, term::InterfaceFluxTerm, layout, row)
         if field !== nothing
             push!(entries, (r, first(unknown_range(layout, unknown_id(layout, field), ir))))
         end
+    end
+    return entries
+end
+
+"""
+    KineticEnergyChangeTerm(source; region=nothing, coefficient=1)
+
+`coefficient` times the kinetic energy that the term `source` gives the electrons of its
+distribution per volume and second [W/m³], for a radial row with one component: the energy
+moment of the rate `S_ij` [m⁻³ s⁻¹] that `source` adds to the cell `(i, j)`,
+
+```math
+P = \\frac{1}{V'} \\sum_{ij} w_i\\, m_e c^2 (γ_i − 1)\\, S_{ij}\\, 𝒱'_{ij} Δp_i Δξ_j,
+```
+
+with the envelope `w` of `region` (1 without one, [`MomentumRegion`](@ref)). `source` is a
+[`RosenbluthPutvinskiSourceTerm`](@ref), and another source throws an `ArgumentError`. Its
+rate is bilinear in the runaway density `n_re` and the total density `n_tot` [m⁻³], so the
+power is `P = coefficient n_re n_tot e^±` at each radius, with
+
+```math
+e^\\pm = \\sum_i w_i\\, m_e c^2 (γ_i − 1)\\, R_i \\quad [\\mathrm{J\\, m^3/s}],
+```
+
+the sum over the momentum cells `i` whose pitch cells hold `±ξ*`, and `R_i` the rate
+[`rosenbluth_putvinski_rate`](@ref) of the cell above the cutoff of the source. The term
+computes `e⁺` and `e⁻` per radius from the shapes of `source` when it is built, so it counts
+exactly the cells that the source fills. It takes `e⁺` or `e⁻` by the sign of the electric
+field of the source, `e⁺` without one. The Jacobian holds the columns of `n_re` and
+`n_tot`, and the sign of the field enters without a derivative, as in the source.
+
+The limit of `region` is fixed: a number or one number per radius, in units of `mₑc`. A
+limit that follows the temperature or another function of time throws an `ArgumentError`.
+
+In the row of the temperature under [`total_energy_equation`](@ref) the system requires this
+term for each Rosenbluth-Putvinski source of a distribution of the total energy, with that
+source itself, a positive coefficient and no region. The whole grid counts there, a choice of
+this package (see the docs page *Choices of this package*): a secondary below the threshold
+of the hot region joins the cold electrons, one above it the energy of the hot region, and
+both are in the total energy.
+"""
+struct KineticEnergyChangeTerm{S, E, C} <: EquationTerm
+    kinetic::Symbol
+    source::S
+    coefficient::Float64
+    envelopes::E   # nothing, or the envelopes of the region per radius
+    energies::C    # the moments of the shapes of the source, of a form that the source type sets
+end
+function KineticEnergyChangeTerm(source; region::Union{Nothing, MomentumRegion} = nothing,
+        coefficient::Real = 1.0)
+    kinetic, grid = _energy_change_source(source)
+    if region !== nothing
+        if !isempty(region_temperature(region)) || is_time_dependent(region)
+            throw(ArgumentError("KineticEnergyChangeTerm takes a region with a fixed limit, a number or one " *
+                                "number per radius: its energies are computed when it is built"))
+        end
+        # the limit per radius, checked against the radii of the grid
+        momentum_limit(region, 1; radii = radial_cell_count(grid))
+    end
+    energies = _energy_changes(source, region)
+    return KineticEnergyChangeTerm(kinetic, source, Float64(coefficient),
+        RegionEnvelopes(region, grid), energies)
+end
+
+# the kinetic unknown and the grid of a source that the energy change takes
+function _energy_change_source(source)
+    throw(ArgumentError("KineticEnergyChangeTerm takes a RosenbluthPutvinskiSourceTerm as its source, not a " *
+                        "$(nameof(typeof(source)))"))
+end
+_energy_change_source(source::RosenbluthPutvinskiSourceTerm) = (source.kinetic, source.grid)
+
+# e⁺ and e⁻ per radius [J m³/s]: the energy moments of the shapes of the source with ξ* > 0
+# and ξ* < 0, over the region
+function _energy_changes(source::RosenbluthPutvinskiSourceTerm, region)
+    grid = source.grid
+    radii = radial_cell_count(grid)
+    positive, negative = zeros(radii), zeros(radii)
+    for ir in 1:radii
+        m = momentum_grid(grid, ir)
+        envelope = if region === nothing
+            nothing
+        else
+            momentum_envelope(region, m, momentum_limit(region, ir; radii))
+        end
+        weights = _energy_weights(grid, ir)
+        for j in axes(weights, 2), i in axes(weights, 1)
+
+            weight = _envelope_value(envelope, i) * weights[i, j]
+            positive[ir] += weight * source.positive[ir][i, j]
+            negative[ir] += weight * source.negative[ir][i, j]
+        end
+    end
+    return (; positive, negative)
+end
+
+const RosenbluthPutvinskiEnergyTerm = KineticEnergyChangeTerm{<:RosenbluthPutvinskiSourceTerm}
+
+dependencies(term::RosenbluthPutvinskiEnergyTerm) = dependencies(term.source)
+is_linear(::RosenbluthPutvinskiEnergyTerm) = false
+jacobian_assembly(::RosenbluthPutvinskiEnergyTerm) = :direct
+
+function validate(term::RosenbluthPutvinskiEnergyTerm, layout, row)
+    layout.kinds[row] === :radial && layout.sizes[row, 1] == 1 ||
+        throw(ArgumentError("KineticEnergyChangeTerm adds to a radial unknown with one component"))
+    id = unknown_id(layout, term.kinetic)
+    layout.kinds[id] === :kinetic ||
+        throw(ArgumentError("KineticEnergyChangeTerm needs a kinetic unknown"))
+    _same_momentum_grids(term.source.grid, kinetic_grid(layout, id)) ||
+        throw(DimensionMismatch("the grid of the source of KineticEnergyChangeTerm does not match $(term.kinetic)"))
+    for name in dependencies(term)
+        k = unknown_id(layout, name)
+        if !(layout.kinds[k] === :radial && layout.sizes[k, 1] == 1)
+            throw(ArgumentError("KineticEnergyChangeTerm reads $name, a radial unknown with one component"))
+        end
+    end
+    _check_envelopes(term.envelopes, kinetic_grid(layout, id))
+    return nothing
+end
+
+# e⁺ or e⁻ of radius ir, by the rule of the source for the sign of the field
+function _energy_change_at(term::RosenbluthPutvinskiEnergyTerm, u, layout, ir)
+    shape = _rp_shape(term.source, u, layout, ir)
+    if shape === term.source.positive[ir]
+        return term.energies.positive[ir]
+    else
+        return term.energies.negative[ir]
+    end
+end
+
+function rhs!(out, term::RosenbluthPutvinskiEnergyTerm, u, layout, row, t)
+    n_re = unknown_values(u, layout, unknown_id(layout, term.source.runaway_density))
+    n_tot = unknown_values(u, layout, unknown_id(layout, term.source.total_density))
+    for ir in 1:radial_cell_count(layout)
+        energy = _energy_change_at(term, u, layout, ir)
+        out[first(unknown_range(layout, row, ir))] += term.coefficient * n_re[ir] *
+                                                      n_tot[ir] * energy
+    end
+    return out
+end
+
+function add_jacobian!(J, term::RosenbluthPutvinskiEnergyTerm, u, layout, row, t)
+    re = unknown_id(layout, term.source.runaway_density)
+    tot = unknown_id(layout, term.source.total_density)
+    n_re, n_tot = unknown_values(u, layout, re), unknown_values(u, layout, tot)
+    for ir in 1:radial_cell_count(layout)
+        energy = term.coefficient * _energy_change_at(term, u, layout, ir)
+        r = first(unknown_range(layout, row, ir))
+        _add_entry!(J, r, first(unknown_range(layout, re, ir)), n_tot[ir] * energy)
+        _add_entry!(J, r, first(unknown_range(layout, tot, ir)), n_re[ir] * energy)
+    end
+    return J
+end
+
+# the columns of the two densities, whatever the sign of the field
+function sparsity!(entries, term::RosenbluthPutvinskiEnergyTerm, layout, row)
+    re = unknown_id(layout, term.source.runaway_density)
+    tot = unknown_id(layout, term.source.total_density)
+    for ir in 1:radial_cell_count(layout)
+        r = first(unknown_range(layout, row, ir))
+        push!(entries, (r, first(unknown_range(layout, re, ir))),
+            (r, first(unknown_range(layout, tot, ir))))
     end
     return entries
 end
