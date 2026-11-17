@@ -388,19 +388,14 @@ DREAM's moment, [`FrictionEnergyTransferTerm`](@ref), also counts the energy tha
 The test case `runaway_heating_example` (`test/example_cases.jl`) takes the option at `compat = :dream`.
 It is compared with DREAM's run in `test_runaway_heating_dream.jl`.
 
-At `compat = :runes2p` the case takes the energy change under the momentum scheme `:upwind`, which the case sets.
-The default of [`fokker_planck_operator`](@ref), exponential fitting, has no side.
-The momentum cells of the case are 0.5 ``m_e c`` wide, and nearly all of ``f_\mathrm{re}`` sits in the first.
-The field of 1.5 V/m beats the friction at the face above that cell, so the energy change is 1.39e5 W/m³ at the start.
+At `compat = :runes2p` the case takes the energy change under `:upwind`, which it sets in place of the default exponential fitting, which has no side.
+With cells 0.5 ``m_e c`` wide and nearly all of ``f_\mathrm{re}`` in the first, the field beats the friction at the face above it.
+The energy change is then 1.39e5 W/m³ at the start, 1.772 to 1.779 times DREAM's moment evaluated on the same states.
+The page [The side on a coarse momentum grid](model/energy-current.md#The-side-on-a-coarse-momentum-grid) gives 2.127, as it divides by the moment at the settings of the grid, 0.837 of the other.
 
-The moment [`FrictionEnergyTransferTerm`](@ref) at DREAM's settings, which Runes2P evaluates on the same states, is 7.81e4 W/m³ at the start.
-Over the steps the energy change is 1.772 to 1.779 times that moment.
-The table of [The side on a coarse momentum grid](model/energy-current.md#The-side-on-a-coarse-momentum-grid) gives 2.127 at the same width, since it divides by the friction moment at the collision settings of the grid.
-That moment is 6.53e4 W/m³ at the start, 0.837 of the moment at DREAM's settings.
-
-At the end of the 5 µs, (Runes2P − DREAM) / DREAM of ``T_\mathrm{cold}`` is +2.8e-4.
-The heating differs by about 0.30 J/m³ over the run, which the heat capacity of 12 J/(m³ eV) turns into 2.5e-4 of ``T_\mathrm{cold}``.
-The ohmic heating at the end of the step adds 3e-5 (`test_runaway_heating_dream.jl`).
+At the end of the 5 µs, (Runes2P − DREAM) / DREAM of ``T_\mathrm{cold}`` is +2.8e-4 (`test_runaway_heating_dream.jl`).
+The extra heating of about 0.30 J/m³ over the heat capacity of 12 J/(m³ eV) gives 2.5e-4 of it.
+The timing of the ohmic heating gives 3e-5.
 
 **Relativistic corrections of Gould's bremsstrahlung.**
 The coefficients of ``T/m_ec^2`` are these.
