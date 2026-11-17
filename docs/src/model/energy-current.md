@@ -156,11 +156,19 @@ The potential is stored in the ions and released at recombination ([`RadiatedPow
 The secondaries join the cold electrons through the closure of the cold density, and [`SecondaryHeatingTerm`](@ref) with `cut = :none` gives them their energy.
 [`ionization_energy_flows`](@ref) separates the two parts.
 
-[`EquationSystem`](@ref) requires the heating by secondaries where the sinks of `f` are booked with this friction, with the same spectrum and `cut = :none`.
+[`EquationSystem`](@ref) requires the heating by secondaries where the sinks of `f` are booked with this friction, with the same spectrum and `cut = :none` or `cut = :knockon`.
 With DREAM's `bound_friction = :bethe`, the friction does not hold the energy of each ionization, so the requirement does not apply ([`KineticEnergyLossTerm`](@ref)).
-Next to a [`KnockOnTerm`](@ref) on the bound electrons, [`SecondaryHeatingTerm`](@ref) with `cut = :none` counts the energy of the secondaries above the knock-on cutoff twice, since the knock-on term also puts them into `f`.
+
+Next to a [`KnockOnTerm`](@ref) on the bound electrons, [`SecondaryHeatingTerm`](@ref) with `cut = :none` counts the energy of the secondaries above the knock-on cutoff twice, since the knock-on term also puts them into a distribution.
+With `cut = :knockon` and the knock-on term as `knockon_term`, the heating gives the cold electrons only the energy of the secondaries below the knock-on cutoff at each radius ([`secondary_energy_below`](@ref), [`beb_secondary_energy_below`](@ref)).
+The heating reads the cutoff at each evaluation, so it follows [`KnockOnCutoffUpdate`](@ref).
+
+The system refuses `cut = :none` and `cut = :threshold` next to a knock-on term of the same primary whose target density is the unknown `:total_electron_density`, which counts the bound electrons.
+With `cut = :knockon`, `knockon_term` must then be such a term.
+The system refuses `cut = :knockon` with a knock-on term on `:cold_electron_density` or `:runaway_density`, which count free electrons only, since no term then puts the secondaries above the cutoff into a distribution.
+A target density given as values or under another name is not checked, since the system cannot tell which electrons it counts.
+
 Under the total energy the system refuses the knock-on term.
-In the row of the cold energy the system does not check the pair.
 
 ## Currents and conductivity
 

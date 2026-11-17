@@ -8,6 +8,14 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Added
 
+- `SecondaryHeatingTerm(...; cut = :knockon, knockon_term = term)` gives the cold electrons only the energy of the secondaries below the cutoff of the `KnockOnTerm` `term` at each radius ([#294](https://github.com/osrep/Runes2P.jl/pull/294)).
+  The secondaries above the cutoff, which the knock-on term puts into a distribution, are no longer counted twice.
+  The heating reads the cutoff at each evaluation, so it follows a `KnockOnCutoffUpdate`.
+  The settings record of the term holds the knock-on term under the key `knockon_term` with this cut.
+- With `cut = :knockon`, `EquationSystem` requires the knock-on term `term` in the system with the kinetic unknown of the ionization as its primary ([#294](https://github.com/osrep/Runes2P.jl/pull/294)).
+  It refuses a `term` on `:cold_electron_density` or `:runaway_density`, which count free electrons only.
+  Next to a knock-on term of the same primary on `:total_electron_density`, `term` must be such a term.
+- `secondary_energy_below` and `beb_secondary_energy_below` give the energy per ionization of the secondaries below a cut, for the spectra of Opal et al. and of Kim and Rudd ([#294](https://github.com/osrep/Runes2P.jl/pull/294)).
 - Every unknown carries a unit string, set by the keyword `unit` of `ScalarUnknown`, `RadialUnknown` and `KineticUnknown` and read by `unknown_unit` ([#288](https://github.com/osrep/Runes2P.jl/pull/288)).
   A scalar or radial unknown of a default name takes the unit of the table "Units of the unknowns", a `KineticUnknown` `"m^-3"`, and any other unknown the empty string.
   The output file stores the unit as the attribute `unit` of every entry of `unknowns`, of `time` and of the grid faces in `layout`, and `OUTPUT_FORMAT_VERSION` is 0.0.5 for it.
@@ -42,6 +50,8 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Changed
 
+- `EquationSystem` refuses `SecondaryHeatingTerm` with `cut = :none` or `cut = :threshold` next to a `KnockOnTerm` of the same primary on `:total_electron_density`, which counts the energy above the knock-on cutoff twice ([#294](https://github.com/osrep/Runes2P.jl/pull/294)).
+  `bound_friction = :ionization_split` accepts the heating with `cut = :knockon` as well as with `cut = :none`.
 - Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` refuses a `LossRateTerm`, a `MaxwellianSourceTerm` or a `LinearTerm` with a nonzero coefficient in the equation of a distribution whose energy is in the total ([#295](https://github.com/osrep/Runes2P.jl/pull/295)).
   Until now the cold electrons gained or paid the energy of the electrons that these terms remove or add, since no term of the row of the temperature carries it.
 - A run refuses a `RechesterRosenbluthUpdate` whose operator moves a distribution whose energy is in the total energy of the electrons ([#295](https://github.com/osrep/Runes2P.jl/pull/295)).

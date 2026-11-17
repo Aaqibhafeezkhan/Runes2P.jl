@@ -902,8 +902,8 @@ function _describe_radial_level(level, in_time::Bool, faces, context)
 end
 
 function settings_fields(::Type{<:SecondaryHeatingTerm})
-    (described = (:kinetic_ionization, :temperature, :cut, :spectrum, :widths),
-        derived = (:energies,))
+    described = (:kinetic_ionization, :temperature, :cut, :spectrum, :widths, :knockon_term)
+    return (; described, derived = (:energies,))
 end
 
 function describe(term::SecondaryHeatingTerm, context::DescriptionContext)
@@ -917,6 +917,9 @@ function describe(term::SecondaryHeatingTerm, context::DescriptionContext)
         record["widths"] = SettingsRecord(name => width for (name, width) in zip(term.kinetic_ionization.composition.names, term.widths))
     end
     #! format: on
+    if term.cut === :knockon
+        record["knockon_term"] = describe(term.knockon_term, context)
+    end
     return record
 end
 

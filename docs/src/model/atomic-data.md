@@ -201,6 +201,7 @@ Two spectra of the secondaries are available:
   It takes the widths of [`SECONDARY_SPECTRUM_WIDTHS`](@ref), measured on neutral gases.
 
 `:beb` is the default, a choice of this package.
+With `cut = :knockon` the heating takes, per ionization, the energy of the secondaries below the knock-on cutoff alone ([`beb_secondary_energy_below`](@ref), [`secondary_energy_below`](@ref)).
 [`ionization_energy_flows`](@ref) splits the energy that the kinetic ionization takes from ``f`` into the ionization potentials and the energy of the secondaries.
 DREAM has no heating by secondaries: [`KineticIonizationTerm`](@ref) alone is DREAM's model.
 
