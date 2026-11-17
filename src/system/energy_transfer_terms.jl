@@ -52,9 +52,33 @@ and by [`InterfaceEnergyFluxTerm`](@ref) at the interface to a runaway grid. The
   only on average and only where the screening window is open: from the ionization
   potential up to the mean excitation energy it takes none.
 
+With linear schemes of `source` the term takes the moment of the two operators applied to
+`f`, whose face values take the side of their own advection. A flux limiter in a scheme of
+`source`, in p, in ξ or in r, makes the term nonlinear in `f`. The momentum face values of
+both operators then take the upwind side of the whole advection of `source`, also under a
+linear momentum scheme: its collisions and its electric field, of the plasma or of the
+field unknown, as the residual of `source` evaluates them. That face value depends on `f`
+and on the side alone, so the field part, the free-electron part and the sinks sum to the
+momentum flux of `source` face by face. Exponential fitting in p is the exception: its
+face value follows the coefficients of each operator, not the side, so the parts do not
+sum to the flux there. The term takes the moment in the form of the momentum faces, since
+the pitch fluxes sum to zero over a momentum row:
+
+```math
+L = −\\frac{1}{V'} \\sum_j Δξ_j \\sum_k (ε_k − ε_{k−1})\\, F_{kj},
+```
+
+with `ε_k = w_k mₑc²(γ_k − 1)` [J] of momentum cell `k` (`ε_0 = 0`) and `F_{kj}` the momentum
+flux of `C_a − C_b` through the lower face of cell `(k, j)` times `𝒱'`. The term reads the
+sign of the whole advection, not of the field alone, and has no column of the field
+unknown. Where a face changes its side, each part jumps, while their sum, the momentum
+flux of `source`, stays continuous. The Jacobian holds the derivative of the limiter at a
+fixed side.
+
 The term takes the plasma of `source` in the same treatment: implicit, with the columns of
 the temperature and density unknowns, or lagged at the state of the start of the step. A
-region whose limit follows the temperature adds the column of its envelope.
+region whose limit follows the temperature adds the column of its envelope. The term builds
+its two operators from the plasma at every evaluation of its residual and its Jacobian.
 
 A lagged plasma (`lagged = :all` of `source`) is that of the last [`prepare_step!`](@ref)
 of the term, which [`residual!`](@ref) and the right-hand side of the system call before
@@ -71,6 +95,7 @@ struct KineticEnergyLossTerm{F <: FokkerPlanckTerm, E} <: EquationTerm
     coefficient::Float64
     envelopes::E                        # nothing, or the envelopes of the region per radius
     lagged_plasma::Base.RefValue{Any}   # the plasma of the start of the step, for a lagged source
+    row_buffer::Base.RefValue{Any}      # the entries of the row of a radius in the columns of f (face form)
 end
 function KineticEnergyLossTerm(source::FokkerPlanckTerm; part::Symbol = :free_electrons,
         region::Union{Nothing, MomentumRegion} = nothing,
@@ -84,7 +109,7 @@ function KineticEnergyLossTerm(source::FokkerPlanckTerm; part::Symbol = :free_el
     end
     return KineticEnergyLossTerm(
         source.unknown, source, part, value, RegionEnvelopes(region, source.operator.grid),
-        Ref{Any}(nothing))
+        Ref{Any}(nothing), Ref{Any}(nothing))
 end
 
 """
@@ -115,11 +140,23 @@ function _loss_plasma_unknowns(term::KineticEnergyLossTerm)
         return names
     end
 end
+# Whether the loss takes the form of the momentum faces (_face_energy_moment), with the parts
+# on the side of the whole advection of the source: exactly when a flux limiter makes the
+# operator of the source nonlinear in f. A linear source takes the moment of the applied
+# operators, each on the side of its own advection.
+_face_form(term::KineticEnergyLossTerm) = !is_linear(term.source.operator)
+# the field unknown whose sign the face form reads, without a column of its own
+function _side_field_unknowns(term::KineticEnergyLossTerm)
+    field = term.source.electric_field
+    return _face_form(term) && field !== nothing ? [field] : Symbol[]
+end
 function dependencies(term::KineticEnergyLossTerm)
-    unique([term.kinetic; _loss_plasma_unknowns(term);
+    unique([term.kinetic; _loss_plasma_unknowns(term); _side_field_unknowns(term);
             collect(Symbol, _region_unknowns(term.envelopes))])
 end
-is_linear(term::KineticEnergyLossTerm) = length(dependencies(term)) == 1
+function is_linear(term::KineticEnergyLossTerm)
+    length(dependencies(term)) == 1 && is_linear(term.source.operator)
+end
 jacobian_assembly(::KineticEnergyLossTerm) = :direct
 _coefficient_sources(term::KineticEnergyLossTerm) = (term.source,)
 
@@ -131,9 +168,6 @@ function validate(term::KineticEnergyLossTerm, layout, row)
         throw(ArgumentError("KineticEnergyLossTerm adds to a radial unknown with one component"))
     term.source.settings.mode in (:full, :superthermal) ||
         throw(ArgumentError("the energy loss takes collision mode :full or :superthermal"))
-    is_linear(term.source.operator) ||
-        throw(ArgumentError("the energy loss takes the collisions of a Fokker-Planck term with a linear scheme: a " *
-                            "flux limiter makes it depend on f nonlinearly"))
     term.source.plasma === nothing &&
         term.source.operator.coefficient_source[] === nothing &&
         throw(ArgumentError("the Fokker-Planck term of the energy loss has no plasma"))
@@ -234,12 +268,75 @@ function _loss_weights(term::KineticEnergyLossTerm, grid, ir, u, layout, t)
     return weights
 end
 
+# The advection that sets the upwind side of the faces in the face form: that of the
+# operator of the source at the state, with its field, which the residual of the source takes
+function _loss_side(term::KineticEnergyLossTerm, u, layout, t)
+    operator = _operator_at(term.source, u, layout, t)
+    return AdvectionSide(operator, _field_values(term.source.electric_field, u, layout))
+end
+
+# mₑc²(γ − 1) of momentum cell i times the envelope, or zero of its type for a cell without
+# volume, which apply_radius! leaves unchanged
+Base.@propagate_inbounds function _cell_energy(
+        op::AdvectionDiffusion, envelope, m, i, j, ir)
+    energy = _envelope_value(envelope, i) * _kinetic_energy(m.p_centers[i])
+    op.jacobian_centers[i, j, ir] == 0 && return zero(energy)
+    return energy
+end
+
+# F_a − F_b through p face k of the operators of the part, with the face values on the
+# side of `side`
+Base.@propagate_inbounds function _part_flux(ops, f, k, j, ir, side)
+    a, b = ops
+    flux = _p_flux(a, f, k, j, ir, nothing, nothing, side)
+    b === nothing && return flux
+    return flux - _p_flux(b, f, k, j, ir, nothing, nothing, side)
+end
+
+# The energy moment of C_a f − C_b f at radius ir in the form of the momentum faces: the
+# moment Σ_ij ε̃_i [C f]_ij 𝒱'_ij Δp_i Δξ_j / V', with ε̃ the energy times the envelope, is
+# −Σ_ij ε̃_i (F_{i+1,j} − F_{ij}) Δξ_j / V' plus the pitch divergence, which sums to zero over
+# a momentum row since no flux crosses ξ = ±1; the operators carry no radial transport.
+# Gathered per face: Σ_j Δξ_j Σ_k (ε̃_k − ε̃_{k−1}) F_{kj} / V', with ε̃_0 = 0 and no flux
+# through p_max, where the parts take the interface. The number type follows the operators,
+# f and the envelope. A weight of dual numbers is skipped only when its partials are zero as
+# well as its value (ForwardDiff's iszero), so the column of the temperature keeps a face
+# whose weight is zero at a limit of the region on that face.
+function _face_energy_moment(ops, f, side, envelope, ir)
+    a = first(ops)
+    m = a.momentum_grids[ir]
+    T = promote_type(_flux_eltype(a, f), typeof(_cell_energy(a, envelope, m, 1, 1, ir)))
+    moment = zero(T)
+    @inbounds for j in 1:pitch_cell_count(m)
+        row = zero(T)
+        below = zero(T)
+        for k in 1:momentum_cell_count(m)
+            above = _cell_energy(a, envelope, m, k, j, ir)
+            weight = above - below
+            below = above
+            iszero(weight) && continue
+            row += weight * _part_flux(ops, f, k, j, ir, side)
+        end
+        moment += m.xi_widths[j] * row
+    end
+    return moment / a.grid.radial_grid.spatial_jacobian[ir]
+end
+
 function rhs!(out, term::KineticEnergyLossTerm, u, layout, row, t)
     id = unknown_id(layout, term.kinetic)
     grid = kinetic_grid(layout, id)
     plasma = _transfer_plasma(term, u, layout, t)
     ops = _loss_operators(term, grid, plasma)
     f = kinetic_array(u, layout, id)
+    if _face_form(term)
+        side = _loss_side(term, u, layout, t)
+        for ir in 1:radial_cell_count(layout)
+            envelope = _envelope_at(term.envelopes, grid, ir, u, layout, t)
+            moment = _face_energy_moment(ops, f, side, envelope, ir)
+            out[first(unknown_range(layout, row, ir))] -= term.coefficient * moment
+        end
+        return out
+    end
     df = _loss_change(ops, f)
     for ir in 1:radial_cell_count(layout)
         loss_weights = _loss_weights(term, grid, ir, u, layout, t)
@@ -257,6 +354,10 @@ function add_jacobian!(J, term::KineticEnergyLossTerm, u, layout, row, t)
     plasma = _transfer_plasma(term, u, layout, t)
     ops = _loss_operators(term, grid, plasma)
     np, nxi, nr = size(grid)
+    f = kinetic_array(u, layout, id)
+    if _face_form(term)
+        return _add_face_loss_jacobian!(J, term, ops, f, grid, plasma, u, layout, row, t)
+    end
     # one product per operator for all radii: the operators couple no radii, so the value
     # of each cell belongs to the row of its own radius
     weights = reduce(vcat, (vec(_loss_weights(term, grid, ir, u, layout, t))
@@ -274,7 +375,6 @@ function add_jacobian!(J, term::KineticEnergyLossTerm, u, layout, row, t)
                     _kinetic_index(layout, id, radius + 1, momentum + 1, pitch + 1), -term.coefficient * value)
         #! format: on
     end
-    f = kinetic_array(u, layout, id)
     # the columns of the plasma unknowns: the operators of a plasma with derivative parts
     if _follows_unknowns(term)
         source = term.source.plasma
@@ -288,14 +388,10 @@ function add_jacobian!(J, term::KineticEnergyLossTerm, u, layout, row, t)
     if !isempty(temperature)
         df = _loss_change(ops, f)
         T_id = unknown_id(layout, only(temperature))
-        D = ForwardDiff.Dual{PlasmaColumnTag, Float64, 1}
         T = unknown_values(u, layout, T_id)
-        limit = term.envelopes.region.limit
         for ir in 1:nr
             m = momentum_grid(grid, ir)
-            p0 = limit.factor * sqrt(2 * D(T[ir], ForwardDiff.Partials((1.0,))) /
-                      Constants.ELECTRON_REST_ENERGY)
-            envelope = momentum_envelope!(zeros(D, momentum_cell_count(m)), term.envelopes.region, m, p0)
+            envelope = _temperature_envelope(term, grid, T, ir)
             energies = _energy_weights(grid, ir)
             value = 0.0
             for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
@@ -307,6 +403,140 @@ function add_jacobian!(J, term::KineticEnergyLossTerm, u, layout, row, t)
                 first(unknown_range(layout, T_id, ir)),
                 -term.coefficient * value)
         end
+    end
+    return J
+end
+
+# tag of the dual numbers of the row of the face form in the columns of f
+struct LossRowTag end
+
+# A momentum face k reads the momentum cells k − h to k + h − 1 of its pitch cell, mirrored
+# ghost cells included, with h the stencil half width of the four-point schemes, the widest
+# in p. Any 2h consecutive cells have different momentum indices modulo 2h, so 2h colors,
+# that index modulo 2h, give each partial of the flux of a face to one cell.
+const LOSS_STENCIL_HALF_WIDTH = stencil_half_width(first(FOUR_POINT_SCHEMES))
+const LOSS_ROW_COLORS = 2 * LOSS_STENCIL_HALF_WIDTH
+
+# The distribution f with the derivative of cell (i, j) in the partial of its color. The
+# operators of the term carry no cross diffusion, whose flux would read the pitch
+# neighbours: the collisions write none.
+struct ColoredCells{T, A <: AbstractArray{T, 3}} <:
+       AbstractArray{ForwardDiff.Dual{LossRowTag, T, LOSS_ROW_COLORS}, 3}
+    values::A
+end
+Base.size(a::ColoredCells) = size(a.values)
+@inline _cell_color(i) = mod(i, LOSS_ROW_COLORS) + 1
+Base.@propagate_inbounds function Base.getindex(
+        a::ColoredCells{T}, i::Int, j::Int, ir::Int) where {T}
+    color = _cell_color(i)
+    seeds = ntuple(c -> T(c == color), Val(LOSS_ROW_COLORS))
+    return ForwardDiff.Dual{LossRowTag, T, LOSS_ROW_COLORS}(
+        a.values[i, j, ir], ForwardDiff.Partials(seeds))
+end
+
+# the envelope of the region at radius ir in dual numbers of one partial, the derivative by
+# the temperature unknown T that moves its limit
+function _temperature_envelope(term::KineticEnergyLossTerm, grid, T, ir)
+    D = ForwardDiff.Dual{PlasmaColumnTag, Float64, 1}
+    m = momentum_grid(grid, ir)
+    limit = term.envelopes.region.limit
+    p0 = limit.factor * sqrt(2 * D(T[ir], ForwardDiff.Partials((1.0,))) /
+              Constants.ELECTRON_REST_ENERGY)
+    return momentum_envelope!(zeros(D, momentum_cell_count(m)), term.envelopes.region, m, p0)
+end
+
+# the buffer of the row of one radius in the columns of f, kept by the term; the operator
+# takes the same cell counts at all radii
+function _loss_row_buffer!(term::KineticEnergyLossTerm, np, nxi)
+    buffer = term.row_buffer[]
+    if !(buffer isa Matrix{Float64} && size(buffer) == (np, nxi))
+        buffer = zeros(np, nxi)
+        term.row_buffer[] = buffer
+    end
+    return buffer::Matrix{Float64}
+end
+
+# The Jacobian of the face form: the columns of f by the face fluxes of colored dual
+# numbers, the plasma columns by the operators of a plasma with derivative parts, and the
+# column of the temperature that moves the limit of the region. The side is read as a
+# number: the derivative of the face value takes the side as fixed, as the residual of the
+# source does.
+function _add_face_loss_jacobian!(J, term::KineticEnergyLossTerm, ops, f, grid, plasma,
+        u, layout, row, t)
+    side = _loss_side(term, u, layout, t)
+    _add_face_loss_columns!(J, term, ops, ColoredCells(f), side, grid, u, layout, row, t)
+    if _follows_unknowns(term)
+        source = term.source.plasma
+        with_ions = ion_dependency(source) !== nothing && !_lags_ions(term.source)
+        dual = dual_plasma(plasma, source.density !== nothing, with_ions)
+        dual_ops = _loss_operators(term, grid, dual)
+        _add_face_loss_plasma_columns!(
+            J, term, dual_ops, f, side, grid, with_ions, u, layout, row, t)
+    end
+    temperature = _region_unknowns(term.envelopes)
+    if !isempty(temperature)
+        T_id = unknown_id(layout, only(temperature))
+        T = unknown_values(u, layout, T_id)
+        for ir in 1:radial_cell_count(layout)
+            envelope = _temperature_envelope(term, grid, T, ir)
+            moment = _face_energy_moment(ops, f, side, envelope, ir)
+            _add_entry!(J, first(unknown_range(layout, row, ir)),
+                first(unknown_range(layout, T_id, ir)),
+                -term.coefficient * ForwardDiff.partials(moment, 1))
+        end
+    end
+    return J
+end
+
+# The columns of f: the flux of each momentum face with a nonzero weight once in dual
+# numbers of the colors of `colored`, its partials added to the cells the face reads
+function _add_face_loss_columns!(J, term::KineticEnergyLossTerm, ops,
+        colored::ColoredCells, side, grid, u, layout, row, t)
+    id = unknown_id(layout, term.kinetic)
+    a = first(ops)
+    np, nxi, nr = size(grid)
+    buffer = _loss_row_buffer!(term, np, nxi)
+    for ir in 1:nr
+        m = a.momentum_grids[ir]
+        envelope = _envelope_at(term.envelopes, grid, ir, u, layout, t)
+        volume = a.grid.radial_grid.spatial_jacobian[ir]
+        fill!(buffer, 0.0)
+        @inbounds for j in 1:nxi
+            below = 0.0
+            for k in 1:np
+                above = Float64(_cell_energy(a, envelope, m, k, j, ir))
+                weight = (above - below) * m.xi_widths[j] / volume
+                below = above
+                weight == 0 && continue
+                partials = ForwardDiff.partials(_part_flux(ops, colored, k, j, ir, side))
+                cells = max(k - LOSS_STENCIL_HALF_WIDTH, 1):min(k + LOSS_STENCIL_HALF_WIDTH - 1, np)
+                for i in cells
+                    buffer[i, j] += weight * partials[_cell_color(i)]
+                end
+            end
+        end
+        r = first(unknown_range(layout, row, ir))
+        for jj in 1:nxi, i in 1:np
+
+            value = buffer[i, jj]
+            value == 0 && continue
+            entry = -term.coefficient * value
+            _add_entry!(J, r, _kinetic_index(layout, id, ir, i, jj), entry)
+        end
+    end
+    return J
+end
+
+# the plasma columns of the face form with the operators of dual coefficients `ops`; the
+# number of partials is picked at run time, so the loop runs behind this barrier
+function _add_face_loss_plasma_columns!(J, term::KineticEnergyLossTerm, ops, f, side, grid,
+        with_ions, u, layout, row, t)
+    source = term.source.plasma
+    for ir in 1:radial_cell_count(layout)
+        envelope = _envelope_at(term.envelopes, grid, ir, u, layout, t)
+        value = -term.coefficient * _face_energy_moment(ops, f, side, envelope, ir)
+        columns = plasma_columns(source, layout, ir; with_ions)::Vector{Int}
+        _add_partials!(J, first(unknown_range(layout, row, ir)), columns, value)
     end
     return J
 end
@@ -325,9 +555,12 @@ function _add_loss_plasma_columns!(J, term::KineticEnergyLossTerm,
     return J
 end
 
+# the field of the face form gives the side alone and has no column
 function sparsity!(entries, term::KineticEnergyLossTerm, layout, row)
     id = unknown_id(layout, term.kinetic)
-    others = setdiff(dependencies(term), [term.kinetic])
+    others = setdiff(
+        [_loss_plasma_unknowns(term); collect(Symbol, _region_unknowns(term.envelopes))],
+        [term.kinetic])
     for ir in 1:radial_cell_count(layout)
         r = first(unknown_range(layout, row, ir))
         for s in unknown_range(layout, id, ir)
