@@ -413,9 +413,11 @@ using QuadGK: quadgk
     # written here from the paper: eqs. 2.7 and 2.10 (p. 5), 2.22 (p. 8), 2.25 (p. 9), 2.31
     # with k = 5 (p. 12). Two inputs come from the package: ā_j, checked against Table 1
     # (p. 10) to its printed digits, and I_j, which the paper takes from Sauer et al. (2015)
-    # without printing it. Fig. 4 at p = 0.03, on the steep rise of ν_s, checks I_j against
-    # the paper: its tolerance of 3 % allows I_j from about 5 % below to 3 % above the
-    # package's value.
+    # (Adv. Quantum Chem. 71, 29) without printing it. The package takes I_j from the later
+    # tables of Sauer, Sabin and Oddershede (2018) (test_data_files.jl). They give 219.5 eV
+    # for Ar⁺, against 219.4 eV in Table 6 (p. 35) of the 2015 paper. Fig. 4 at p = 0.03, on
+    # the steep rise of ν_s, checks I_j against the paper: its tolerance of 3 % allows I_j
+    # from about 5 % below to 3 % above the package's value.
     @testset "partial screening vs Hesslow et al. (2018)" begin
         T, n_e, n_Ar = 10.0, 1e20, 1e20
         Z, Z0 = 18, 1
