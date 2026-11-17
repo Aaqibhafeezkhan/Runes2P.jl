@@ -413,9 +413,6 @@ struct ColoredCells{T, A <: AbstractArray{T, 3}} <:
        AbstractArray{ForwardDiff.Dual{LossRowTag, T, 4}, 3}
     values::A
 end
-function ColoredCells(values::AbstractArray{T, 3}) where {T}
-    ColoredCells{T, typeof(values)}(values)
-end
 Base.size(a::ColoredCells) = size(a.values)
 @inline _cell_color(i) = mod(i, 4) + 1
 Base.@propagate_inbounds function Base.getindex(
