@@ -238,17 +238,27 @@ The energy of the electrons that cross there, that of the last momentum cell, be
 That term is [`MomentumBoundaryFluxTerm`](@ref) at an outer boundary and [`InterfaceEnergyFluxTerm`](@ref) at the interface to a runaway grid.
 With the sinks charged to ``W_\mathrm{tot}``, the cold electrons receive exactly the free-electron part of what the hot electrons lose.
 
-A Fokker-Planck term with linear schemes gives the parts the moment of their operators applied to ``f``, whose face values take the side of their own advection.
-A flux limiter in a scheme of the Fokker-Planck term, in ``p``, in ``\xi`` or in ``r``, makes the term nonlinear in ``f``.
-The momentum face values of the parts then take the upwind side of the whole advection of the Fokker-Planck term, its collisions and its electric field.
+The momentum face values of the parts take the upwind side of the whole advection of the Fokker-Planck term, the sum of its collisions and its electric field.
+This holds under every momentum scheme whose face value has a side: `:upwind`, `:quick`, `:upwind_second_order` and the flux limiters.
+The four-point schemes among them have a side on a grid of at least 3 momentum cells, and take the central face value on fewer.
+The field part is the flux of the electric field alone, the flux of the whole less those of the free-electron part and the sinks, and it takes the same side.
 That face value depends on ``f`` and on the side alone, so the field part, the free-electron part and the sinks sum to the momentum flux of the term face by face.
-On their own sides they would not: in a test of a 100 eV plasma at 2 V/m under the limiters, their sum differs from the flux by up to 0.18 of its largest value (`test/test_energy_transfer.jl`).
+
+With each operator of a part on the side of its own advection, the parts would miss that flux at every face where the advection of the operator and the whole advection have opposite signs.
+This happens where the field beats the friction.
+It also happens at the face ``p = 0`` under a four-point scheme with `p_zero_boundary = :outflow`, where the friction vanishes and the field alone sets the side.
+In a test of a 100 eV plasma at 2 V/m (`test/test_energy_transfer.jl`), their sum then differs from the flux of the whole by up to 0.18 of the largest face flux of the whole under the flux limiters.
+Under the linear schemes with a side it differs by up to 0.44 of that flux.
+
+The central scheme and exponential fitting in ``p`` have no side.
+With linear schemes in ``\xi`` and ``r`` the parts then take the moment of their operators applied to ``f``.
+The central face value is the same on either side, so the parts sum to the flux under it as well.
 
 Exponential fitting in ``p`` is the exception to that sum: its face value follows the coefficients of each operator, so the parts do not sum to the flux there.
-This holds for the faces inside a grid.
+This holds with or without a limiter in ``\xi`` or ``r``, and for the faces inside a grid.
 At the interface to a runaway grid every part takes the one face value of the whole flux, so the parts sum to the flux there under every scheme ([The energy step at the interface](#The-energy-step-at-the-interface)).
 
-Under a limiter the term takes the moment in the form of the momentum faces, since the pitch fluxes sum to zero over a momentum row:
+Under a momentum scheme with a side, and under a flux limiter in any direction, the term takes the moment in the form of the momentum faces, since the pitch fluxes sum to zero over a momentum row:
 
 ```math
 L = -\frac{1}{V'} \sum_j \Delta\xi_j \sum_k \left(\varepsilon_k - \varepsilon_{k-1}\right) F_{kj},
@@ -256,12 +266,47 @@ L = -\frac{1}{V'} \sum_j \Delta\xi_j \sum_k \left(\varepsilon_k - \varepsilon_{k
 
 with ``\varepsilon_k`` the energy ``w_k m_e c^2 (\gamma_k - 1)`` of momentum cell ``k``, ``\varepsilon_0 = 0``, and ``F_{kj}`` the momentum flux of ``C_a - C_b`` through the lower face of cell ``(k, j)``, multiplied by ``\mathcal{V}'``.
 The term reads the sign of the whole advection, not of the field alone, and has no column of the field unknown.
-Where a face changes its side, each part jumps, while their sum, the momentum flux of the Fokker-Planck term, stays continuous.
+Where a face changes its side, the whole advection passes through zero, so the momentum flux of the Fokker-Planck term, the sum of the parts, stays continuous.
+The advection of each part does not vanish there, so each part jumps as its face value moves from one cell to the other.
+
+With a row that feeds back on the side, Newton's method may not converge on an implicit step that straddles a change of side.
+An example is the temperature of the cold electrons heated by a runaway grid, since the friction that sets the side follows that temperature.
+Newton's iteration then alternates between the two sides, the step control halves the step, and the run continues with the result of the smaller steps.
+`test/test_runaway_heating_dream.jl` shows this under `:upwind` and under the flux limiter `:tcdf`.
 
 [`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` and [`InterfaceEnergyFluxTerm`](@ref) weight the flux at the top of the grid with the kinetic energy of the last momentum cell.
 That is the energy that the discrete energy moment of the grid loses with the electrons.
 The electrons that cross to the runaway grid take that energy with them and do not heat the cold ones with it.
 `test/test_energy_transfer.jl` and `test/test_energy_moment.jl` test these terms and the energy moment, and `test/test_friction_energy_transfer.jl` tests [`FrictionEnergyTransferTerm`](@ref).
+
+### The side on a coarse momentum grid
+
+This subsection shows how the shared side changes the free-electron part on a coarse momentum grid, and how both choices of the side converge.
+
+The shared side is the upwind side of the whole advection, which all parts take.
+Where the field beats the friction at a face, the face value of every part there is that of the cell below the face.
+The friction of the free electrons then carries electrons of that cell down through the face, and the term counts that flux with the step of the energy between the two cells.
+On its own side the friction would take the face value of the cell above the face, and would carry the electrons of a cell down through the face below it instead.
+On a coarse momentum grid the two give different energies to the cold electrons.
+
+The table holds the free-electron part divided by the friction moment at the cell centres.
+That moment is [`FrictionEnergyTransferTerm`](@ref) with the collision settings of the grid, on the same grid and state, and it is not an exact value.
+The state is the start of the test case `runaway_heating_example` at `compat = :runes2p`, at 100 eV and 1.5 V/m.
+In it ``f = 1`` in the momentum cells below ``p = 0.5\, m_e c`` of the last pitch cell and zero elsewhere, and only the width of the momentum cells varies.
+The column "Each part on its own side" is the moment of the operator applied to ``f``, each face on the side of the advection of its own operator, which the term does not take.
+
+| Momentum cell width [``m_e c``] | Shared side | Each part on its own side |
+|---|---|---|
+| 0.5 | 2.127 | 0.000 |
+| 0.25 | 1.543 | 0.486 |
+| 0.125 | 1.267 | 0.740 |
+| 0.0625 | 1.133 | 0.869 |
+
+- Both columns converge to 1 at first order in the cell width, from above and from below, and their mean at second order (`test/test_runaway_heating_dream.jl`).
+- At the width 0.5 the electrons fill the first momentum cell alone.
+  On their own side the friction carries them only through ``p = 0``, which the grid of the case closes, so that column is zero there.
+- The ratio 2.127 needs ``f`` in the forward pitch cell.
+  With ``f = 1`` in every pitch cell below ``p = 0.5\, m_e c`` it is 0.978 at the width 0.5, since the field does not beat the friction at that face in every pitch cell.
 
 ### The energy step at the interface
 

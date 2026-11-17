@@ -23,8 +23,9 @@ Until the first release, every change is listed under "Unreleased", with the sub
 - `KineticEnergyLossTerm` takes a Fokker-Planck term with a flux limiter in a scheme, such as `:tcdf`, so a total-energy row accepts the sinks of a hot-tail grid under a limiter ([#298](https://github.com/osrep/Runes2P.jl/pull/298)).
   The term then takes the moment in the form of the momentum faces, with both operators on the upwind side of the whole advection of the Fokker-Planck term.
   The term reads the sign of that advection, its collisions and its field, and lists the field unknown among its dependencies without a column.
+  The value of `dependencies` in its settings record then holds the field unknown, with no new key.
   Its Jacobian holds the derivative of the limiter.
-  A Fokker-Planck term with linear schemes gives the term the moment of the applied operators, as before.
+  A Fokker-Planck term with linear schemes gives the term the moment of the applied operators, except under the momentum schemes with a side (below).
 - `SecondaryHeatingTerm(...; cut = :knockon, knockon_term = term)` gives the cold electrons only the energy of the secondaries below the cutoff of the `KnockOnTerm` `term` at each radius ([#294](https://github.com/osrep/Runes2P.jl/pull/294)).
   The secondaries above the cutoff, which the knock-on term puts into a distribution, are no longer counted twice.
   The heating reads the cutoff at each evaluation, so it follows a `KnockOnCutoffUpdate`.
@@ -67,6 +68,11 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Changed
 
+- Under the momentum schemes `:upwind`, `:quick` and `:upwind_second_order`, `KineticEnergyLossTerm` takes both operators on the upwind side of the whole advection of the Fokker-Planck term, as under a flux limiter ([#307](https://github.com/osrep/Runes2P.jl/pull/307)).
+  Until now each operator took the side of its own advection there, and the field part, the free-electron part and the sinks did not sum to the momentum flux where the field beats the friction.
+  The term reads the sign of that advection, field included, and lists the field unknown among its dependencies, without a column of the Jacobian.
+  In the settings record of a run the term then holds the field unknown in the value of `dependencies` and can have `linear` false, with no new key.
+  The central scheme and exponential fitting in momentum keep the moment of the applied operators.
 - Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` refuses a row of the temperature with an `InterfaceEnergyFluxTerm` but without an `InterfaceCollisionWorkTerm` of the same interface that has a negative coefficient ([#297](https://github.com/osrep/Runes2P.jl/pull/297)).
   Until now no term carried the work of the electron-electron collisions on the electrons that cross the interface, and the energy of the two grids was not conserved across the face.
   The cold electrons now pay that work.
