@@ -704,7 +704,8 @@ the sinks therefore add up to the flux of the interface.
 The collisions are those of the plasma and the settings that the coefficients of the lower
 operator were last built from, so a lagged plasma or lagged ions of the Fokker-Planck term
 are taken as the flux takes them. The term keeps the coefficients of the face until the
-plasma values change. The settings take `mode = :full` or `:superthermal`. The row reads the
+operator is rebuilt from other plasma values, so a plasma state changed in place under the
+same coefficients of the operator is not seen. The settings take `mode = :full` or `:superthermal`. The row reads the
 cells of both grids at the face, the plasma columns of the Fokker-Planck term when its
 coefficients follow the plasma unknowns ([`has_plasma_columns`](@ref)), and the column of
 the field only with exponential fitting, whose weight depends on the field. The term
@@ -715,6 +716,7 @@ struct InterfaceCollisionWorkTerm{I <: MomentumInterfaceTerm} <: EquationTerm
     coefficient::Float64
     plasma_key::PlasmaKey               # the plasma values of `advection` and `diffusion`
     settings::Base.RefValue{Any}        # the collision settings of `advection` and `diffusion`
+    source::Base.RefValue{Any}          # the record of the coefficients of the operator they were read for
     advection::Vector{Float64}          # per radius: Aᵖ of the electron-electron collisions at the face
     diffusion::Vector{Float64}          # per radius: Dᵖᵖ of the electron-electron collisions at the face
 end
@@ -722,7 +724,7 @@ function InterfaceCollisionWorkTerm(
         interface::MomentumInterfaceTerm; coefficient::Real = -1.0)
     radii = radial_cell_count(interface.lower_grid)
     return InterfaceCollisionWorkTerm(interface, Float64(coefficient), PlasmaKey(),
-        Ref{Any}(nothing), zeros(radii), zeros(radii))
+        Ref{Any}(nothing), Ref{Any}(nothing), zeros(radii), zeros(radii))
 end
 
 # the two terms of the flux through an interface in a radial row
@@ -898,41 +900,65 @@ function _electron_electron_face!(advection, diffusion, interface::MomentumInter
 end
 
 # the electron-electron coefficients of the face for the operator `op` of the interface, from
-# the plasma and the settings its coefficients were built from: kept in the term while the
-# plasma values and the settings stay, and of their own evaluation for a plasma in dual numbers
-function _collision_face_coefficients!(term::InterfaceCollisionWorkTerm, op)
+# the plasma and the settings its coefficients were built from: kept in the term for an
+# operator of numbers, and of their own evaluation for an operator of dual coefficients
+function _collision_face_coefficients!(term::InterfaceCollisionWorkTerm, op::AdvectionDiffusion)
     built = op.coefficient_source[]
     if built === nothing
         throw(ArgumentError("the lower operator of the interface of InterfaceCollisionWorkTerm holds no collisions " *
                             "of a plasma: the term needs the plasma of its coefficients"))
     end
-    plasma = built.plasma
-    T = eltype(plasma.cold_electron_temperature)
-    if T !== Float64
-        radii = length(term.advection)
-        return _electron_electron_face!(zeros(T, radii), zeros(T, radii), term.interface,
-            plasma, built.settings)
+    if eltype(op.advection_p) === Float64
+        # the record of the coefficients changes with every rebuild: the same record, the same
+        # coefficients
+        if built !== term.source[]
+            _keep_face_coefficients!(term, built.plasma, built.settings)
+            term.source[] = built
+        end
+        return (term.advection, term.diffusion)::Tuple{Vector{Float64}, Vector{Float64}}
     end
+    radii = length(term.advection)
+    T = eltype(op.advection_p)
+    return _electron_electron_face!(zeros(T, radii), zeros(T, radii), term.interface,
+        built.plasma, built.settings)
+end
+
+# the kept coefficients of the face, rebuilt when the plasma values or the settings differ
+# from those they were built from
+function _keep_face_coefficients!(term::InterfaceCollisionWorkTerm, plasma::PlasmaState,
+        settings::CollisionSettings)
     changed = update_key!(term.plasma_key, plasma; electric_field = false)
-    if changed || term.settings[] !== built.settings
+    if changed || term.settings[] !== settings
         try
             _electron_electron_face!(
-                term.advection, term.diffusion, term.interface, plasma, built.settings)
+                term.advection, term.diffusion, term.interface, plasma, settings)
         catch
             reset_key!(term.plasma_key)
+            term.source[] = nothing
             rethrow()
         end
-        term.settings[] = built.settings
+        term.settings[] = settings
     end
-    return term.advection, term.diffusion
+    return nothing
 end
 
 function rhs!(out, term::InterfaceCollisionWorkTerm, u, layout, row, t)
     interface = term.interface
     op = _operator_at(interface.lower_term, u, layout, t)
+    return _add_collision_work!(
+        out, term, op, _electric_field_of(interface), u, layout, row)
+end
+
+# the rows with the operator `op` of the interface and the field of the unknown `field_name`
+# (nothing without one), whose types are known at run time only, so the loop runs behind this
+# barrier on the concrete types
+function _add_collision_work!(
+        out, term::InterfaceCollisionWorkTerm, op::AdvectionDiffusion,
+        field_name, u, layout, row)
+    interface = term.interface
+    field = _field_values(field_name, u, layout)
     advection, diffusion = _collision_face_coefficients!(term, op)
     lower, upper = unknown_id(layout, interface.lower), unknown_id(layout, interface.upper)
-    field = _field_values(_electric_field_of(interface), u, layout)
     for ir in 1:radial_cell_count(layout)
         f_lower = kinetic_view(u, layout, lower, ir)
         f_upper = kinetic_view(u, layout, upper, ir)

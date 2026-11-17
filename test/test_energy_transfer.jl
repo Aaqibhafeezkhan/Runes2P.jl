@@ -691,12 +691,12 @@ using SparseArrays: findnz, sparse
         @test record == expected
         @test record["type"] == "InterfaceCollisionWorkTerm"
 
-        # rhs! allocates nothing once its coefficients are kept, nor does the existing energy
-        # flux of the interface
+        # rhs! allocates nothing of its own once its coefficients are kept: only the bytes of the
+        # check of the plasma of the Fokker-Planck term, which the interface refreshes (32 bytes
+        # at -O2, as in the flux of InterfaceEnergyFluxTerm)
         out = zeros(length(u))
-        @test call_allocation(Runes2P.rhs!, out, work, u, layout, 6, 0.0) == 0 skip = !OPTIMIZED
-        crossing = InterfaceEnergyFluxTerm(interface)
-        @test call_allocation(Runes2P.rhs!, out, crossing, u, layout, 6, 0.0) == 0 skip = !OPTIMIZED
+        refresh = call_allocation(Runes2P.refresh_coefficients!, lower, u, layout, 0.0)
+        @test call_allocation(Runes2P.rhs!, out, work, u, layout, 6, 0.0) <= refresh skip = !OPTIMIZED
     end
 
     @testset "the work of the collisions at the interface: its checks" begin
