@@ -1,7 +1,8 @@
 # The energy that the distributions exchange with the total energy of the electrons: the
 # collisional transfer from the runaway grid to the cold electrons, the sinks of the hot
 # electrons (bound electrons, bremsstrahlung, synchrotron), the energy and the particles
-# that electrons carry out of the hot-tail grid through the interface, and the energy that
+# that electrons carry out of the hot-tail grid through the interface, the work of the
+# electron-electron collisions on the electrons that cross it, and the energy that
 # a source term gives a distribution. Included after operators/field_particle.jl, whose
 # electron-electron operator it uses, and after system/avalanche_terms.jl, whose
 # RosenbluthPutvinskiSourceTerm the energy of a source dispatches on.
@@ -116,8 +117,9 @@ end
 
 The power [W/m³] that the electrons of the unknown of `source` give to the free cold
 electrons by collisions: [`KineticEnergyLossTerm`](@ref) with `part = :free_electrons`, the
-transfer from the runaway grid to the cold electrons. The electrons that cross `p_max`
-exchange no energy with the cold electrons.
+transfer from the runaway grid to the cold electrons. The energy that the electrons carry
+through `p_max` is not in it. The work of the collisions on the electrons that cross the
+interface to a hot-tail grid is [`InterfaceCollisionWorkTerm`](@ref).
 """
 function free_electron_energy_transfer_term(source::FokkerPlanckTerm)
     KineticEnergyLossTerm(source; part = :free_electrons)
@@ -208,11 +210,11 @@ end
 
 # The operators C_a and C_b of the part, with the scheme and the lower boundaries of the
 # source. Both parts take no flux through p_max (the value :interface): the electrons that
-# cross there carry their energy across the edge of the grid, and neither the cold
-# electrons nor the sinks exchange it. In the row of the total energy that energy is the
-# boundary term's, MomentumBoundaryFluxTerm(...; weight = :energy) at an outer boundary and
-# InterfaceEnergyFluxTerm at the interface to a runaway grid, which a flux in either part
-# would count twice.
+# cross there carry the energy of their cell across the edge of the grid. In the row of the
+# total energy that energy is the boundary term's, MomentumBoundaryFluxTerm(...; weight =
+# :energy) at an outer boundary and InterfaceEnergyFluxTerm at the interface to a runaway
+# grid, which a flux in either part would count twice. The work of the collisions on the
+# electrons that cross the interface is InterfaceCollisionWorkTerm's.
 function _loss_operators(term::KineticEnergyLossTerm, grid, plasma)
     op = term.source.operator
     free = electron_electron_operator(
@@ -853,7 +855,9 @@ the electrons from that cell, so this is the energy that the discrete energy mom
 lower grid loses (the energy at the interface itself differs by about Δp/(2p)). With the default `coefficient = −1` in the row of
 the temperature it is the energy that leaves the total energy of the electrons on the
 hot-tail grid for the runaway grid ([`total_energy_equation`](@ref)), so the electrons that
-cross take their energy with them and do not heat the cold ones. When the flux follows the
+cross take their energy with them and do not heat the cold ones. The energy that they gain or
+lose between the two cells at the face is not in this term: the part of the
+electron-electron collisions is [`InterfaceCollisionWorkTerm`](@ref). When the flux follows the
 plasma unknowns of the Fokker-Planck term of the interface, the row has their columns
 ([`has_plasma_columns`](@ref)). The row reads the cells of both grids at the face, so the
 term assembles it itself ([`jacobian_assembly`](@ref)) and the coloring of the automatic
@@ -888,13 +892,105 @@ function InterfaceParticleFluxTerm(interface::MomentumInterfaceTerm; coefficient
     InterfaceParticleFluxTerm(interface, Float64(coefficient))
 end
 
+"""
+    InterfaceCollisionWorkTerm(interface::MomentumInterfaceTerm; coefficient=-1)
+
+`coefficient` times the work [W/m³] that the electron-electron collisions do on the
+electrons that cross the momentum interface, in a radial row: the part `Γ_ee` [m⁻³ s⁻¹] of
+[`interface_flux`](@ref) that the collisions with the free electrons drive, times the
+energy step between the first momentum cell of the upper grid and the last of the lower
+grid,
+
+```math
+P = Γ_{ee} \\left[E_k(p_{\\mathrm{up},1}) − E_k(p_{\\mathrm{low},N})\\right], \\quad E_k(p) = m_e c^2 (γ − 1).
+```
+
+`Γ_ee` is positive from the lower grid to the upper one. The step is positive, so `P` is
+positive where the collisions push electrons up through the face (the energy diffusion) and
+negative where they pull them down (the friction). An electron that crosses leaves the lower
+grid with the energy of its last cell and enters the upper grid with the energy of its first
+cell ([`InterfaceEnergyFluxTerm`](@ref)).
+
+No operator holds the step, since neither grid takes a flux through the face in its energy
+moments ([`KineticEnergyLossTerm`](@ref)). The cold electrons pay it for `Γ_ee`. The sinks
+pay it for the friction on bound electrons, the energy diffusion by bound electrons under
+partial screening, bremsstrahlung and synchrotron radiation. The row of a total energy
+credits the cold electrons with the part of the step of the field up to the face, which the
+runaway grid receives as well (see the section *The energy step at the interface* of the
+docs page *Energy and current balance*).
+
+With the default `coefficient = −1` in the row of the temperature the cold electrons pay the
+work of the electron-electron collisions, as they gain the energy that these collisions take
+from the electrons on either grid. Charging that work to the cold electrons is a choice of
+this package (see the docs page *Choices of this package*). In every row the system refuses
+a second `InterfaceCollisionWorkTerm` of one interface, which would count the work twice. In
+the row of a total energy ([`total_energy_equation`](@ref)) it requires one such term next to
+the [`InterfaceEnergyFluxTerm`](@ref) of the same interface, with a negative coefficient. It
+refuses there one of an interface whose lower distribution, that of the grid below the face,
+is not in the total energy. A row of the cold thermal energy alone ([`thermal_energy_equation`](@ref)) takes the term without these
+two conditions.
+
+Each overlap cell of the face carries the flux `Γ = A f_face − D (f_up − f_low)/Δp`. `A` and
+`D` are the coefficients of the lower operator at the face, the field included, and `Δp` is
+the distance of the two cell centres. The face value `f_face` is that of the scheme of the
+interface, which the whole coefficients set: the upwind side of `A`, the linear
+interpolation of `:central`, or, for exponential fitting, the weight `(B(−w) − 1)/w` of the
+lower cell with `B(x) = x/(eˣ − 1)` and `w = A Δp/D`. With `pitch_mapping = :dream` it is
+the upwind side of `A` against the upper value interpolated in the pitch.
+
+`Γ_ee` takes the same face value with the coefficients of the electron-electron collisions
+alone, `A_ee = −p ν_s,ee` [mₑc/s] and, in `mode = :full`, `D_ee = Θ γ ν_s,ee` [(mₑc)²/s].
+Here `p` is the momentum of the face [mₑc], `ν_s,ee` [s⁻¹] the slowing-down frequency on the
+free electrons and `Θ = T/(mₑc²)`, as in [`electron_electron_operator`](@ref). The parts of
+the field, of these collisions and of the sinks therefore add up to the flux of the
+interface.
+
+The term reads the plasma and the settings of the record of the coefficients of the lower
+operator at each evaluation, so a lagged plasma or lagged ions of the Fokker-Planck term are
+taken as the flux takes them. It compares the values of that plasma, not the object. So it
+agrees with the operator whenever the operator was rebuilt after the last change of that
+plasma, as in a run. It keeps the coefficients of the face. It rebuilds them when the
+Fokker-Planck term of the interface rebuilds its coefficients, or when those plasma values or
+settings differ from the kept ones.
+
+An operator not yet built from a plasma, such as that of a lagged term before its first
+[`prepare_step!`](@ref), holds no collisions, and the term is zero there. The settings take
+`mode = :full` or `:superthermal`.
+
+The row reads the cells of both grids at the face. It reads the plasma columns of the
+Fokker-Planck term when its coefficients follow the plasma unknowns
+([`has_plasma_columns`](@ref)). It reads the column of the field only with exponential
+fitting and `pitch_mapping = :overlap`, where the weight of the face follows the field. It
+reads none when a Fokker-Planck term with a plasma and `mode = :superthermal` holds the
+coefficients, since the energy diffusion is zero there and the face takes the upwind side.
+The term assembles the row itself ([`jacobian_assembly`](@ref)).
+"""
+struct InterfaceCollisionWorkTerm{I <: MomentumInterfaceTerm} <: EquationTerm
+    interface::I
+    coefficient::Float64
+    plasma_key::PlasmaKey                                 # the plasma values of the kept coefficients
+    collision_settings::Base.RefValue{CollisionSettings}  # their collision settings
+    operator_rebuilds::Base.RefValue{Int}                 # the rebuilds of the Fokker-Planck term at them
+    rebuilds::Base.RefValue{Int}                          # the number of their rebuilds
+    advection::Vector{Float64}                            # per radius: Aᵖ of the electron-electron collisions at the face
+    diffusion::Vector{Float64}                            # per radius: Dᵖᵖ of the electron-electron collisions at the face
+end
+function InterfaceCollisionWorkTerm(
+        interface::MomentumInterfaceTerm; coefficient::Real = -1.0)
+    radii = radial_cell_count(interface.lower_grid)
+    return InterfaceCollisionWorkTerm(interface, Float64(coefficient), PlasmaKey(),
+        Ref(CollisionSettings()), Ref(0), Ref(0), zeros(radii), zeros(radii))
+end
+
 # the two terms of the flux through an interface in a radial row
 const InterfaceFluxTerm = Union{InterfaceEnergyFluxTerm, InterfaceParticleFluxTerm}
+# the terms of a radial row that read the cells at the face of an interface
+const InterfaceRowTerm = Union{InterfaceFluxTerm, InterfaceCollisionWorkTerm}
 
-dependencies(term::InterfaceFluxTerm) = dependencies(term.interface)
-is_linear(term::InterfaceFluxTerm) = is_linear(term.interface)
-_coefficient_sources(term::InterfaceFluxTerm) = _coefficient_sources(term.interface)
-has_plasma_columns(term::InterfaceFluxTerm) = has_plasma_columns(term.interface)
+dependencies(term::InterfaceRowTerm) = dependencies(term.interface)
+is_linear(term::InterfaceRowTerm) = is_linear(term.interface)
+_coefficient_sources(term::InterfaceRowTerm) = _coefficient_sources(term.interface)
+has_plasma_columns(term::InterfaceRowTerm) = has_plasma_columns(term.interface)
 
 # coefficient times the factor of the flux at radius ir: the kinetic energy of the last
 # momentum cell of the lower grid, or 1 for the particles
@@ -906,10 +1002,36 @@ function _crossing_weight(term::InterfaceEnergyFluxTerm, ir)
     return term.coefficient * energy
 end
 
-function validate(term::InterfaceFluxTerm, layout, row)
+function validate(term::InterfaceRowTerm, layout, row)
     layout.kinds[row] === :radial && layout.sizes[row, 1] == 1 ||
         throw(ArgumentError("$(nameof(typeof(term))) adds to a radial unknown with one component"))
+    _validate_collisions(term)
     return validate(term.interface, layout, unknown_id(layout, term.interface.lower))
+end
+
+_validate_collisions(::InterfaceFluxTerm) = nothing
+function _validate_collisions(term::InterfaceCollisionWorkTerm)
+    settings = _interface_collision_settings(term.interface)
+    if settings === nothing
+        throw(ArgumentError("the lower operator of the interface of InterfaceCollisionWorkTerm holds no collisions " *
+                            "of a plasma: the term needs the plasma of its coefficients"))
+    end
+    settings.mode in (:full, :superthermal) ||
+        throw(ArgumentError("InterfaceCollisionWorkTerm takes collision mode :full or :superthermal, not " *
+                            ":$(settings.mode)"))
+    return nothing
+end
+
+# the collision settings of the coefficients of the lower operator of an interface, nothing
+# when no plasma builds them
+function _interface_collision_settings(interface::MomentumInterfaceTerm)
+    source = interface.lower_term
+    if source isa FokkerPlanckTerm && source.plasma !== nothing
+        return source.settings
+    end
+    built = _operator_of(source).coefficient_source[]
+    built === nothing && return nothing
+    return built.settings
 end
 
 function rhs!(out, term::InterfaceFluxTerm, u, layout, row, t)
@@ -920,7 +1042,254 @@ function rhs!(out, term::InterfaceFluxTerm, u, layout, row, t)
     return out
 end
 
-jacobian_assembly(::InterfaceFluxTerm) = :direct
+# coefficient times the energy step [J] of radius ir: the kinetic energy of the first momentum
+# cell of the upper grid less that of the last cell of the lower grid
+function _collision_work_weight(term::InterfaceCollisionWorkTerm, ir)
+    lower = momentum_grid(term.interface.lower_grid, ir).p_centers[end]
+    upper = momentum_grid(term.interface.upper_grid, ir).p_centers[1]
+    step = _kinetic_energy(upper) - _kinetic_energy(lower)
+    return term.coefficient * step
+end
+
+# The weight of the lower cell in the face value of exponential fitting, (B(−w) − 1)/w with
+# the Péclet number w = A Δp/D and B the Bernoulli function (`_bernoulli`): the flux
+# D/Δp (B(−w) f_low − B(w) f_up) is A (δ f_low + (1 − δ) f_up) − D (f_up − f_low)/Δp, since
+# B(−w) = B(w) + w. Near w = 0 the Taylor series to w⁷, whose next term, w⁹/47900160, is
+# below 2.1e-17 for |w| < 0.1.
+function _fitting_weight(w)
+    if abs(w) < 0.1
+        return 1 / 2 + w / 12 - w^3 / 720 + w^5 / 30240 - w^7 / 1209600
+    end
+    return (_bernoulli(-w) - 1) / w
+end
+
+# the face value of the flux of the scheme between two cell centres, set by the whole
+# coefficients A and D, so that Γ = A f_face − D (f_right − f_left)/distance is `_face_flux`
+@inline function _interface_face_value(scheme, A, D, f_left, f_right, distance, weight_left)
+    if scheme === :exponential_fitting
+        if D > 0
+            weight = _fitting_weight(A * distance / D)
+            return weight * f_left + (1 - weight) * f_right
+        end
+        return A >= 0 ? f_left : f_right
+    end
+    return _face_value(scheme, A, f_left, f_right, weight_left)
+end
+
+# Γᵖ of the part `A_part`, `D_part` of the coefficients at the face between lower pitch cell j
+# and upper pitch cell J, with the face value of the whole flux (`_interface_gamma`)
+Base.@propagate_inbounds function _interface_part_gamma(
+        interface::MomentumInterfaceTerm, op, A_part, D_part, f_lower, f_upper, j, J, ir,
+        distance, weight_left, field)
+    np = size(f_lower, 1)
+    A = _advection_p(op, field, np + 1, j, ir)
+    D = op.diffusion_p_p[np + 1, j, ir]
+    f_left = f_lower[np, j]
+    if interface.pitch_mapping === :dream
+        f_right = _dream_upper_value(interface, f_upper, j, ir)
+        f_face = A > 0 ? f_left : f_right
+        return A_part * f_face + D_part * (f_left - f_right) / distance
+    end
+    f_right = f_upper[1, J]
+    f_face = _interface_face_value(
+        interface.scheme, A, D, f_left, f_right, distance, weight_left)
+    return A_part * f_face - D_part * (f_right - f_left) / distance
+end
+
+# the flux per volume [m⁻³ s⁻¹] through the face at radius ir of the part `A_part`, `D_part` of
+# the coefficients, the same in every pitch cell, as `_interface_flux_of_cells` forms the flux
+function _interface_part_flux(interface::MomentumInterfaceTerm, op, A_part, D_part,
+        f_lower, f_upper, field, ir)
+    distance, weight_left = _interface_distance(interface, ir)
+    m = momentum_grid(interface.lower_grid, ir)
+    np = momentum_cell_count(m)
+    overlap = interface.overlaps[ir]
+    T = promote_type(eltype(f_lower), eltype(f_upper), eltype(op.advection_p),
+        typeof(A_part), typeof(D_part), _field_type(field))
+    total = zero(T)
+    @inbounds for j in 1:pitch_cell_count(m)
+        V = op.jacobian_p_faces[np + 1, j, ir]
+        # the overlap cells of lower cell j with their fractions, or the cell itself (:dream)
+        cell = zero(T)
+        if interface.pitch_mapping === :dream
+            cell += V * _interface_part_gamma(interface, op, A_part, D_part, f_lower,
+                f_upper, j, 0, ir, distance, weight_left, field)
+        end
+        if interface.pitch_mapping === :overlap
+            for s in overlap.left_ranges[j]
+                gamma = _interface_part_gamma(interface, op, A_part, D_part, f_lower,
+                    f_upper, j, overlap.right_cells[s], ir, distance, weight_left, field)
+                cell += overlap.left_fractions[s] * (V * gamma)
+            end
+        end
+        total += m.xi_widths[j] * cell
+    end
+    return total / interface.lower_grid.radial_grid.spatial_jacobian[ir]
+end
+
+_field_type(::Nothing) = Bool
+_field_type(field) = eltype(field)
+
+# Aᵖ and Dᵖᵖ of the electron-electron collisions at the face of every radius, of the plasma
+# `plasma` and the settings `settings`, into `advection` and `diffusion`: the coefficients of
+# `electron_electron_operator` at the last p face of the lower grid
+function _electron_electron_face!(advection, diffusion, interface::MomentumInterfaceTerm,
+        plasma::PlasmaState, settings::CollisionSettings)
+    model = CollisionModel(plasma, settings)
+    for ir in eachindex(advection)
+        p = last(momentum_grid(interface.lower_grid, ir).p_faces)
+        nu = _electron_electron_slowing_down_frequency(model, ir, p)
+        advection[ir] = -(p * nu)
+        diffusion[ir] = if settings.mode === :full
+            _normalized_temperature(model, ir) * sqrt(1 + p^2) * nu
+        else
+            zero(nu)
+        end
+    end
+    return advection, diffusion
+end
+
+# The record of the coefficients that `set_fokker_planck_coefficients!` writes for an operator
+# of numbers. The operator holds its record in a reference of unknown type, whose fields a read
+# would copy to the heap and a call with them would dispatch at run time.
+const FLOAT_COLLISION_RECORD = NamedTuple{
+    (:plasma, :settings, :synchrotron, :electric_field),
+    Tuple{PlasmaState{Float64}, CollisionSettings, Bool, Bool}}
+
+# the electron-electron coefficients of the face for the operator `op` of the interface, from
+# the plasma and the settings its coefficients were built from: kept in the term for an
+# operator of numbers, and of their own evaluation for an operator of dual coefficients
+function _collision_face_coefficients!(term::InterfaceCollisionWorkTerm, op::AdvectionDiffusion)
+    built = op.coefficient_source[]
+    # an operator not yet built from a plasma, such as that of a lagged term before its first
+    # preparation, holds no collisions, and its electrons cross without their work. The empty
+    # key makes the next build from a plasma rebuild the kept coefficients.
+    if built === nothing
+        fill!(term.advection, 0.0)
+        fill!(term.diffusion, 0.0)
+        reset_key!(term.plasma_key)
+        return (term.advection, term.diffusion)::Tuple{Vector{Float64}, Vector{Float64}}
+    end
+    if eltype(op.advection_p) === Float64
+        if built isa FLOAT_COLLISION_RECORD
+            # a record of a known type: its fields are read without a copy
+            _keep_face_coefficients!(term, built.plasma, built.settings)
+        else
+            _keep_face_coefficients!(term, built.plasma, built.settings)
+        end
+        return (term.advection, term.diffusion)::Tuple{Vector{Float64}, Vector{Float64}}
+    end
+    radii = length(term.advection)
+    T = eltype(op.advection_p)
+    return _electron_electron_face!(zeros(T, radii), zeros(T, radii), term.interface,
+        built.plasma, built.settings)
+end
+
+# the rebuilds of the coefficients of the lower operator of an interface: those of its
+# Fokker-Planck term, and none of an operator that no term rebuilds
+_operator_rebuild_count(source::FokkerPlanckTerm) = source.rebuilds[]
+_operator_rebuild_count(::AdvectionDiffusion) = 0
+
+# The kept coefficients of the face, rebuilt when the Fokker-Planck term of the interface
+# rebuilt its coefficients since, or when the plasma values or the settings differ from those
+# they were built from. The key compares the values of the plasma, not its object, so a plasma
+# state changed in place and an operator rebuilt by hand from it are seen. Settings of another
+# object are compared by their fields. The values are those of the plasma object of the
+# record: a change in place of that object without a rebuild of the operator moves the term
+# and not the operator. A run prepares both at the same time, so they agree there.
+function _keep_face_coefficients!(term::InterfaceCollisionWorkTerm, plasma::PlasmaState,
+        settings::CollisionSettings)
+    rebuilds = _operator_rebuild_count(term.interface.lower_term)
+    changed = update_key!(term.plasma_key, plasma; electric_field = false)
+    kept = term.collision_settings[]
+    other_settings = kept !== settings && !isequal(kept, settings)
+    if changed || other_settings || rebuilds != term.operator_rebuilds[]
+        try
+            _electron_electron_face!(
+                term.advection, term.diffusion, term.interface, plasma, settings)
+        catch
+            reset_key!(term.plasma_key)
+            rethrow()
+        end
+        term.collision_settings[] = settings
+        term.operator_rebuilds[] = rebuilds
+        term.rebuilds[] += 1
+    end
+    return nothing
+end
+
+function rhs!(out, term::InterfaceCollisionWorkTerm, u, layout, row, t)
+    interface = term.interface
+    op = _operator_at(interface.lower_term, u, layout, t)
+    return _add_collision_work!(
+        out, term, op, _electric_field_of(interface), u, layout, row)
+end
+
+# the rows with the operator `op` of the interface and the field of the unknown `field_name`
+# (nothing without one), whose types are known at run time only, so the loop runs behind this
+# barrier on the concrete types
+function _add_collision_work!(
+        out, term::InterfaceCollisionWorkTerm, op::AdvectionDiffusion,
+        field_name, u, layout, row)
+    interface = term.interface
+    field = _field_values(field_name, u, layout)
+    advection, diffusion = _collision_face_coefficients!(term, op)
+    lower, upper = unknown_id(layout, interface.lower), unknown_id(layout, interface.upper)
+    for ir in 1:radial_cell_count(layout)
+        f_lower = kinetic_view(u, layout, lower, ir)
+        f_upper = kinetic_view(u, layout, upper, ir)
+        flux = _interface_part_flux(interface, op, advection[ir], diffusion[ir],
+            f_lower, f_upper, field, ir)
+        work = _collision_work_weight(term, ir) * flux
+        out[first(unknown_range(layout, row, ir))] += work
+    end
+    return out
+end
+
+jacobian_assembly(::InterfaceRowTerm) = :direct
+
+# The field whose column the row holds: that of the interface for the fluxes, and for the
+# work of the collisions only where the weight of the face follows the field. The upwind side
+# and the linear interpolation have no derivative in the field. Exponential fitting has one
+# where the energy diffusion at the face is not zero.
+_row_field(term::InterfaceFluxTerm) = _electric_field_of(term.interface)
+function _row_field(term::InterfaceCollisionWorkTerm)
+    interface = term.interface
+    if interface.pitch_mapping === :overlap && interface.scheme === :exponential_fitting &&
+       _has_face_diffusion(interface.lower_term)
+        return _electric_field_of(interface)
+    end
+    return nothing
+end
+
+# Whether the operator of the interface may hold energy diffusion at the face, decided when the
+# pattern is built. A Fokker-Planck term with a plasma rebuilds its coefficients from its own
+# settings alone, and only `mode = :full` writes the energy diffusion, at every radius. An
+# operator without such a term may be rebuilt with other settings or take diffusion set by
+# hand after the pattern is built, so its row keeps the column.
+function _has_face_diffusion(source::FokkerPlanckTerm)
+    source.plasma === nothing || _writes_energy_diffusion(source.settings)
+end
+_has_face_diffusion(::AdvectionDiffusion) = true
+
+# the coefficients that the rate of a row reads besides the operator: none for the fluxes
+_row_coefficients(::InterfaceFluxTerm, op) = nothing
+function _row_coefficients(term::InterfaceCollisionWorkTerm, op)
+    _collision_face_coefficients!(term, op)
+end
+
+# the value of the row at radius ir from the cells at the face
+function _face_rate(term::InterfaceFluxTerm, coefficients, op, f_lower, f_upper, field, ir)
+    flux = _interface_flux_of_cells(term.interface, op, f_lower, f_upper, field, ir)
+    return _crossing_weight(term, ir) * flux
+end
+function _face_rate(
+        term::InterfaceCollisionWorkTerm, coefficients, op, f_lower, f_upper, field, ir)
+    advection, diffusion = coefficients
+    flux = _interface_part_flux(term.interface, op, advection[ir], diffusion[ir],
+        f_lower, f_upper, field, ir)
+    return _collision_work_weight(term, ir) * flux
+end
 
 # the columns of the row that one evaluation of the flux in dual numbers seeds: wide enough
 # for the face cells of two grids of 15 pitch cells and the field in one evaluation, with one
@@ -933,18 +1302,20 @@ const INTERFACE_COLUMN_CHUNK = 32
 # on them, a chunk of columns at a time in the order of sparsity!: the lower cells, the upper
 # cells, the field. The other cells of the distributions are not read, and the columns of
 # the plasma unknowns come from add_plasma_columns!
-function add_jacobian!(J, term::InterfaceFluxTerm, u, layout, row, t)
+function add_jacobian!(J, term::InterfaceRowTerm, u, layout, row, t)
     interface = term.interface
     op = _operator_at(interface.lower_term, u, layout, t)
+    coefficients = _row_coefficients(term, op)
     lower = unknown_id(layout, interface.lower)
     upper = unknown_id(layout, interface.upper)
-    field_name = _electric_field_of(interface)
-    field_values = _field_values(field_name, u, layout)
+    field_name = _row_field(term)
+    field_values = _field_values(_electric_field_of(interface), u, layout)
     nr = radial_cell_count(layout)
     D = ForwardDiff.Dual{LocalColumnTag, Float64, INTERFACE_COLUMN_CHUNK}
     lower_values = zeros(D, maximum(ir -> layout.shapes[lower, ir][2], 1:nr))
     upper_values = zeros(D, maximum(ir -> layout.shapes[upper, ir][2], 1:nr))
-    field = field_name === nothing ? nothing : zeros(D, nr)
+    # a field without its column enters with its value
+    field = field_name === nothing ? field_values : zeros(D, nr)
     for ir in 1:nr
         r = first(unknown_range(layout, row, ir))
         f_lower = kinetic_view(u, layout, lower, ir)
@@ -955,7 +1326,7 @@ function add_jacobian!(J, term::InterfaceFluxTerm, u, layout, row, t)
             view(lower_values, 1:lower_pitch_cells), lower_cells, lower_cells)
         face_upper = FaceCells(view(upper_values, 1:upper_pitch_cells), 1, upper_cells)
         column_count = lower_pitch_cells + upper_pitch_cells
-        if field !== nothing
+        if field_name !== nothing
             column_count += 1
         end
         for start in 1:INTERFACE_COLUMN_CHUNK:column_count
@@ -967,12 +1338,10 @@ function add_jacobian!(J, term::InterfaceFluxTerm, u, layout, row, t)
                 partial = lower_pitch_cells + k - start + 1
                 upper_values[k] = _seeded_dual(D, f_upper[1, k], partial)
             end
-            if field !== nothing
+            if field_name !== nothing
                 field[ir] = _seeded_dual(D, field_values[ir], column_count - start + 1)
             end
-            flux = _interface_flux_of_cells(
-                interface, op, face_lower, face_upper, field, ir)
-            rate = _crossing_weight(term, ir) * flux
+            rate = _face_rate(term, coefficients, op, face_lower, face_upper, field, ir)
             stop = min(start + INTERFACE_COLUMN_CHUNK - 1, column_count)
             for k in start:stop
                 column = _interface_column(
@@ -997,7 +1366,7 @@ function _interface_column(layout, lower, upper, field_name, ir, k, lower_pitch_
     return first(unknown_range(layout, unknown_id(layout, field_name), ir))
 end
 
-function plasma_column_sparsity!(entries, term::InterfaceFluxTerm, layout, row)
+function plasma_column_sparsity!(entries, term::InterfaceRowTerm, layout, row)
     source = term.interface.lower_term
     for ir in 1:radial_cell_count(layout)
         r = first(unknown_range(layout, row, ir))
@@ -1007,33 +1376,42 @@ function plasma_column_sparsity!(entries, term::InterfaceFluxTerm, layout, row)
     return entries
 end
 
-# the flux with the coefficients of the Fokker-Planck term in dual numbers
-function add_plasma_columns!(J, term::InterfaceFluxTerm, u, layout, row, t)
+# The rows with the coefficients of the Fokker-Planck term in dual numbers. For the work of the
+# collisions the face value of the whole flux and the electron-electron coefficients of the
+# face are both of the dual plasma of the operator.
+function add_plasma_columns!(J, term::InterfaceRowTerm, u, layout, row, t)
     source = term.interface.lower_term
     op, with_ions = _dual_coefficients!(source, u, layout, t)
-    return _add_crossing_plasma_columns!(J, term, op, with_ions, u, layout, row)
+    coefficients = _row_coefficients(term, op)
+    return _add_row_plasma_columns!(J, term, op, coefficients, with_ions, u, layout, row)
 end
 
-# the radial rows with the operator of dual coefficients `op`; the number of partials is
-# picked at run time, so the loop runs behind this barrier on the concrete type
-function _add_crossing_plasma_columns!(
-        J, term::InterfaceFluxTerm, op::AdvectionDiffusion, with_ions, u, layout, row)
-    source = term.interface.lower_term
+# The radial rows with the operator of dual coefficients `op` and the coefficients
+# `coefficients` of `_row_coefficients`. The number of partials is picked at run time, so the
+# loop runs behind this barrier on the concrete type.
+function _add_row_plasma_columns!(J, term::InterfaceRowTerm, op::AdvectionDiffusion,
+        coefficients, with_ions, u, layout, row)
+    interface = term.interface
+    source = interface.lower_term
+    lower, upper = unknown_id(layout, interface.lower), unknown_id(layout, interface.upper)
+    field = _field_values(_electric_field_of(interface), u, layout)
     for ir in 1:radial_cell_count(layout)
-        flux = _interface_flux(term.interface, op, u, layout, ir)
+        f_lower = kinetic_view(u, layout, lower, ir)
+        f_upper = kinetic_view(u, layout, upper, ir)
+        rate = _face_rate(term, coefficients, op, f_lower, f_upper, field, ir)
         r = first(unknown_range(layout, row, ir))
         columns = plasma_columns(source.plasma, layout, ir; with_ions)::Vector{Int}
-        _add_partials!(J, r, columns, _crossing_weight(term, ir) * flux)
+        _add_partials!(J, r, columns, rate)
     end
     return J
 end
 
 # the row reads the last momentum cells of the lower grid, the first of the upper grid, and
-# the field when the interface takes it
-function sparsity!(entries, term::InterfaceFluxTerm, layout, row)
+# the field of `_row_field`
+function sparsity!(entries, term::InterfaceRowTerm, layout, row)
     lower, upper = unknown_id(layout, term.interface.lower),
     unknown_id(layout, term.interface.upper)
-    field = _electric_field_of(term.interface)
+    field = _row_field(term)
     for ir in 1:radial_cell_count(layout)
         r = first(unknown_range(layout, row, ir))
         m_lower, m_upper = momentum_grid(kinetic_grid(layout, lower), ir),

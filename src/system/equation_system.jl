@@ -1296,7 +1296,7 @@ function _check_plasma_pairings(equations)
         #! format: off
         sources = if term isa Union{KineticEnergyLossTerm, KineticEnergyChangeTerm}
             (term.source,)
-        elseif term isa InterfaceFluxTerm
+        elseif term isa InterfaceRowTerm
             (term.interface,)
         else
             filter(s -> s isa FokkerPlanckTerm && is_state_dependent(s.plasma), _coefficient_sources(term))
@@ -1331,6 +1331,7 @@ function _check_plasma_pairings(equations)
     end
     _check_ion_pairings(equations)
     _check_sink_regions(equations)
+    _check_collision_work_counts(equations)
     _check_total_energy_rows(equations)
     lagged = [term for term in fokker_planck if _is_lagged(term)]
     isempty(lagged) && return nothing
@@ -1600,6 +1601,73 @@ function _total_energy_row(row, equations)
     return (; row, total, closures, distributions = unique(kinetic_names))
 end
 
+# The work of the electron-electron collisions on the electrons that cross the interface of
+# the Fokker-Planck term `term` of `d`: the row of a total energy lists one
+# InterfaceCollisionWorkTerm of the interface of each of its InterfaceEnergyFluxTerms
+# `crossings`, charged to the cold electrons, and none of an interface of another term of `d`.
+function _check_interface_collision_work(row, total, d, term, crossings, listed)
+    works = [t
+             for t in listed if t isa InterfaceCollisionWorkTerm && t.interface.lower === d]
+    for t in works
+        if t.interface.lower_term !== term
+            throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
+                                "and its collision work at the interface of $d reads the interface of another term " *
+                                "of $d: give it the interface of this term"))
+        end
+        if !(t.coefficient < 0)
+            throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
+                                "and its collision work at the interface of $d has the coefficient $(t.coefficient), " *
+                                "which gives the cold electrons the work that they pay: give it a negative coefficient"))
+        end
+    end
+    for crossing in crossings
+        if !any(t -> t.interface === crossing.interface, works)
+            throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
+                                "and the electron-electron collisions do work on the electrons of $d that cross " *
+                                "the interface, which no term of the row charges to the cold electrons: add " *
+                                "InterfaceCollisionWorkTerm of the interface of its InterfaceEnergyFluxTerm"))
+        end
+    end
+    return nothing
+end
+
+# Each InterfaceCollisionWorkTerm in the row `row` of the total energy `total` reads an
+# interface whose lower distribution is one of the `distributions` in W_hot. The electrons
+# that cross the interface of another distribution are outside W_tot, and the row would charge
+# the work on them to the cold electrons. A row of the cold thermal energy alone holds no
+# distribution, and its terms are not checked here.
+function _check_collision_work_interfaces(row, total, distributions)
+    isempty(distributions) && return nothing
+    for work in row.terms
+        work isa InterfaceCollisionWorkTerm || continue
+        lower = work.interface.lower
+        if !(lower in distributions)
+            throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, and " *
+                                "its InterfaceCollisionWorkTerm reads the interface of $lower, whose distribution is " *
+                                "not in the total energy: the row would charge the work of the collisions there to " *
+                                "the cold electrons. Remove the term, or put $lower into $total"))
+        end
+    end
+    return nothing
+end
+
+# Each row holds at most one InterfaceCollisionWorkTerm of an interface, since a second one
+# counts the work of the collisions twice. This holds in a row of every kind.
+function _check_collision_work_counts(equations)
+    for equation in equations
+        works = [t for t in equation.terms if t isa InterfaceCollisionWorkTerm]
+        for work in works
+            copies = count(w -> w.interface === work.interface, works)
+            if copies > 1
+                throw(ArgumentError("the row of $(equation.unknown) holds $copies terms of the collision work at the " *
+                                    "interface of $(work.interface.lower), which count the work more than once: " *
+                                    "keep one"))
+            end
+        end
+    end
+    return nothing
+end
+
 # The rows that hold the time derivative of a total energy with an algebraic equation, each
 # as the named tuple of _total_energy_row.
 function _total_energy_rows(equations)
@@ -1613,18 +1681,21 @@ end
 # the energy moments of the distributions in the closure of W_tot, so every change of W_hot
 # that no term of the row lists is charged to the cold electrons. For each distribution of
 # W_hot the row lists the sinks of its collisions, the energy that crosses p_max (the flux of
-# the boundary, or the interface to the runaway grid), the energy of the knock-ons of each
+# the boundary, or the interface to the runaway grid with the work of the electron-electron
+# collisions on the electrons that cross it), the energy of the knock-ons of each
 # Rosenbluth-Putvinski source over the whole grid, and refuses the channels that no row term
 # carries: radial transport of f, knock-on secondaries on its grid, a prescribed loss rate, a
 # Maxwellian source, and a LinearTerm with a nonzero coefficient, which moves electrons into
 # f from a kinetic unknown or out of it. The row refuses an energy term of a source outside
-# the equations of the distributions of W_hot, whose knock-ons are not in W_tot. The checks
+# the equations of the distributions of W_hot, whose knock-ons are not in W_tot, and a work
+# term of an interface whose lower distribution is not in W_hot. The checks
 # read the coefficients of the operators as they are, so a run repeats them before its first
 # step (_check_run).
 function _check_total_energy_rows(equations)
     for (; row, total, closures, distributions) in _total_energy_rows(equations)
         listed = row.terms
         _check_energy_change_sources(row, total, distributions, equations)
+        _check_collision_work_interfaces(row, total, distributions)
         for d in distributions, equation in equations
 
             equation.unknown === d || continue
@@ -1688,6 +1759,8 @@ function _check_total_energy_rows(equations)
                                                     "to the total in place of removing it: give it a negative coefficient"))
                             end
                         end
+                        _check_interface_collision_work(
+                            row, total, d, term, crossings, listed)
                     elseif !any(
                         t -> t isa MomentumBoundaryFluxTerm && t.kinetic === d &&
                              t.source === term &&

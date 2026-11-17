@@ -13,7 +13,9 @@
 # applied operators that a linear source keeps, the parts that sum to the moment of the
 # whole, the pitch fluxes that leave it, the face form of the linear schemes with an
 # envelope of dual numbers, the Jacobian, the sign of the field, the jump of the parts where
-# a face changes its side, two small systems that step and the allocations.
+# a face changes its side, two small systems that step and the allocations. The work of the
+# collisions on the electrons that cross the interface (InterfaceCollisionWorkTerm): its parts
+# of the flux, its Jacobian, its checks and the rebuilds of the coefficients that it keeps.
 using ForwardDiff: ForwardDiff
 using Random: Xoshiro
 using SparseArrays: findnz, sparse
@@ -516,6 +518,404 @@ using SparseArrays: findnz, sparse
             (du, x) -> rhs!(du, x, system, 0.0), zeros(length(layout)), u)
         largest = maximum(abs, reference)
         @test maximum(abs, Matrix(J) - reference) <= 1e-12 * largest
+    end
+
+    @testset "the work of the collisions at the interface ($(case))" for case in (
+        (mapping = :overlap, scheme = :upwind), (mapping = :overlap, scheme = :central),
+        (mapping = :overlap, scheme = :exponential_fitting),
+        (mapping = :overlap, scheme = :tcdf), (mapping = :dream, scheme = :upwind),
+        (mapping = :overlap, scheme = :exponential_fitting, peclet = :small),
+        (mapping = :overlap, scheme = :exponential_fitting, mode = :superthermal,
+        pitch = :per_radius),
+        (mapping = :overlap, scheme = :upwind, lagged = :all))
+        # Two grids that meet at p = 0.6 on two radii, the field an unknown, partial screening
+        # of argon, bremsstrahlung and synchrotron loss: the flux through the face is the part of
+        # the field, of the electron-electron collisions and of the sinks, each with the face
+        # value of the whole flux. The part of the electron-electron collisions times the energy
+        # step is the term. `:tcdf` is a limited scheme on the hot grid, whose interface flux is
+        # upwind; the other schemes are those of the interface on an operator of the same scheme.
+        # `peclet = :small` takes keV temperatures, cells of 0.02 on both sides of the face and a
+        # field near the friction, so that the Péclet number of exponential fitting spans 0.05 to
+        # above 1 over the pitch cells. `mode = :superthermal` has no energy diffusion, so
+        # exponential fitting is upwind there; `pitch = :per_radius` takes other pitch faces at
+        # the second radius. `lagged = :all` takes the plasma of the last preparation of the
+        # Fokker-Planck term, and the system is built before any.
+        (; mapping, scheme) = case
+        peclet, mode = get(case, :peclet, :large), get(case, :mode, :full)
+        pitch, lagged = get(case, :pitch, :uniform), get(case, :lagged, ())
+        temperatures = peclet === :small ? [5e3, 1e4] : [T0, 2T0]
+        radii = RadialGrid(uniform_r_faces(2, 0.5))
+        hot_p = uniform_p_faces(30, 0.0, 0.6)
+        hot = if pitch === :per_radius
+            cylindrical_grid(
+                [MomentumGrid(hot_p, uniform_xi_faces(4)),
+                    MomentumGrid(hot_p, -cos.(range(0, π; length = 5)))],
+                radii)
+        else
+            cylindrical_grid(MomentumGrid(hot_p, uniform_xi_faces(4)), radii)
+        end
+        upper_p = peclet === :small ? uniform_p_faces(100, 0.6, 2.6) :
+                  uniform_p_faces(20, 0.6, 5.0)
+        upper = runaway_grid(hot, upper_p[2:end], uniform_xi_faces(6))
+        mixed = PlasmaState(; cold_electron_temperature = temperatures,
+            ions = [IonSpecies("D", 1, 1, [n, 2n]), IonSpecies("Ar", 18, 2, [1e18, 3e18])],
+            electric_field = zeros(2), magnetic_field = fill(2.5, 2))
+        partial = CollisionSettings(; mode, screening = :partial)
+        plasma = PlasmaFromUnknowns(mixed)
+        lower = FokkerPlanckTerm(:f,
+            AdvectionDiffusion(hot; scheme, p_upper_boundary = :interface);
+            plasma, settings = partial, electric_field = :electric_field, lagged)
+        re = FokkerPlanckTerm(:runaway,
+            AdvectionDiffusion(upper; scheme = :exponential_fitting, p_lower_boundary = :interface);
+            plasma, settings = partial, electric_field = :electric_field)
+        interface_scheme = scheme === :tcdf ? (;) : (; scheme)
+        interface = MomentumInterfaceTerm(:f, :runaway, lower, re; pitch_mapping = mapping,
+            interface_scheme...)
+        @test interface.scheme === (scheme === :tcdf ? :upwind : scheme)
+        work = InterfaceCollisionWorkTerm(interface)
+        @test work.coefficient == -1
+        layout = UnknownLayout(radii,
+            [KineticUnknown(:f, hot; scale = 1e16),
+                KineticUnknown(:runaway, upper; scale = 1e14),
+                RadialUnknown(:electric_field; scale = 10.0),
+                RadialUnknown(:cold_electron_temperature; scale = 100.0),
+                RadialUnknown(:cold_electron_density; scale = 1e19), RadialUnknown(:work)])
+        prescribed(name, values) = Equation(name, Algebraic(), PrescribedValueTerm(values),
+            LinearTerm(name; coefficient = -1))
+        rng = Xoshiro(17)
+        hot_m, upper_m = momentum_grid(hot, 1), momentum_grid(upper, 1)
+        state(field) = begin
+            u = zeros(length(layout))
+            for ir in 1:2
+                kinetic_view(u, layout, 1, ir) .= [1e16 * exp(-p / 0.15) *
+                                                   (1 + 0.3 * rand(rng))
+                                                   for p in hot_m.p_centers, _ in 1:4]
+                kinetic_view(u, layout, 2, ir) .= [2e14 * exp(-p / 2) *
+                                                   (1 + 0.3 * rand(rng))
+                                                   for p in upper_m.p_centers, _ in 1:6]
+            end
+            unknown_values(u, layout, 3) .= field
+            unknown_values(u, layout, 4) .= temperatures
+            unknown_values(u, layout, 5) .= [n, 2n]
+            return u
+        end
+        step = energy_of(upper_m.p_centers[1]) - energy_of(hot_m.p_centers[end])
+        @test step > 0
+        # the Bernoulli function and the weight of the lower cell in the face value of
+        # exponential fitting, written out here
+        bernoulli(x) = x == 0 ? 1.0 : x / expm1(x)
+        fitting(w) = abs(w) < 1e-6 ? 0.5 + w / 12 : (bernoulli(-w) - 1) / w
+        # the field of each radius at which the Péclet number of the last pitch cell is w
+        function field_at_peclet(w)
+            op = Runes2P._operator_at(lower, state([0.0, 0.0]), layout, 0.0)
+            return map(1:2) do ir
+                distance, _ = Runes2P._interface_distance(interface, ir)
+                A = w * op.diffusion_p_p[31, 4, ir] / distance - op.advection_p[31, 4, ir]
+                A / op.unit_field_advection_p[31, 4, ir]
+            end
+        end
+        if lagged === :all
+            Runes2P.prepare_step!(lower, state([0.0, 0.0]), layout, 1, 0.0)
+        end
+        fields = if peclet === :small
+            (field_at_peclet(0.05), field_at_peclet(-0.05))
+        else
+            ([30.0, -20.0], [-30.0, 20.0])
+        end
+        for field in fields
+            u = state(field)
+            op = Runes2P._operator_at(lower, u, layout, 0.0)
+            if peclet === :small
+                for ir in 1:2
+                    distance, _ = Runes2P._interface_distance(interface, ir)
+                    w = [(op.advection_p[31, j, ir] +
+                          field[ir] * op.unit_field_advection_p[31, j, ir]) * distance /
+                         op.diffusion_p_p[31, j, ir] for j in 1:4]
+                    @test minimum(abs, w) < 0.1 && maximum(abs, w) > 1
+                end
+            end
+            ee = electron_electron_operator(hot, op.coefficient_source[].plasma, partial;
+                p_upper_boundary = :interface)
+            values = Runes2P.rhs!(zeros(length(u)), work, u, layout, 6, 0.0)
+            # the flux of the coefficients (A, D) of lower pitch cell j at radius ir, with the face
+            # value of the whole coefficients
+            function part(A_of, D_of, ir)
+                distance, weight_left = Runes2P._interface_distance(interface, ir)
+                f_l, f_u = kinetic_view(u, layout, 1, ir), kinetic_view(u, layout, 2, ir)
+                overlap = interface.overlaps[ir]
+                xi_widths = momentum_grid(hot, ir).xi_widths
+                total = 0.0
+                for j in 1:4
+                    A = op.advection_p[31, j, ir] +
+                        field[ir] * op.unit_field_advection_p[31, j, ir]
+                    D = op.diffusion_p_p[31, j, ir]
+                    V = op.jacobian_p_faces[31, j, ir]
+                    fl = f_l[30, j]
+                    if mapping === :dream
+                        fr = Runes2P._dream_upper_value(interface, f_u, j, ir)
+                        face = A > 0 ? fl : fr
+                        total += xi_widths[j] * V *
+                                 (A_of(j) * face - D_of(j) * (fr - fl) / distance)
+                        continue
+                    end
+                    for s in overlap.left_ranges[j]
+                        fr = f_u[1, overlap.right_cells[s]]
+                        weight = if interface.scheme === :upwind || D == 0
+                            A >= 0 ? 1.0 : 0.0
+                        elseif interface.scheme === :central
+                            weight_left
+                        else
+                            fitting(A * distance / D)
+                        end
+                        face = weight * fl + (1 - weight) * fr
+                        gamma = A_of(j) * face - D_of(j) * (fr - fl) / distance
+                        total += xi_widths[j] * overlap.left_fractions[s] * V * gamma
+                    end
+                end
+                return total / radii.spatial_jacobian[ir]
+            end
+            for ir in 1:2
+                flux = interface_flux(interface, u, layout, ir)
+                by_field = part(j -> field[ir] * op.unit_field_advection_p[31, j, ir], j -> 0.0, ir)
+                by_ee = part(j -> ee.advection_p[31, j, ir], j -> ee.diffusion_p_p[31, j, ir], ir)
+                by_sinks = part(j -> op.advection_p[31, j, ir] - ee.advection_p[31, j, ir],
+                    j -> op.diffusion_p_p[31, j, ir] - ee.diffusion_p_p[31, j, ir], ir)
+                @test by_field + by_ee + by_sinks ≈ flux rtol = 1e-12
+                @test by_ee != 0 && by_sinks != 0 && by_field != 0
+                # the term: −Γ_ee times the energy step
+                row_value = only(unknown_values(values, layout, 6)[ir:ir])
+                @test row_value ≈ -step * by_ee rtol = 1e-12
+            end
+        end
+
+        # the Jacobian of the row against central differences in every column, and against
+        # the AD of the residual in the columns of the distributions and the field, which the
+        # coefficients of the plasma do not hide
+        u = state(first(fields))
+        system = EquationSystem(layout,
+            [Equation(:f, TimeDerivative(), lower, interface),
+                Equation(:runaway, TimeDerivative(), re, interface),
+                prescribed(:electric_field, first(fields)),
+                prescribed(:cold_electron_temperature, temperatures),
+                prescribed(:cold_electron_density, [n, 2n]),
+                Equation(:work, Algebraic(), work, LinearTerm(:work; coefficient = -1))];
+            initial_state = u)
+        if lagged === :all
+            # the system is built and steps with a term never prepared before: its operator
+            # holds no collisions until the first preparation
+            fresh = FokkerPlanckTerm(:f,
+                AdvectionDiffusion(hot; scheme, p_upper_boundary = :interface);
+                plasma, settings = partial, electric_field = :electric_field, lagged)
+            fresh_interface = MomentumInterfaceTerm(:f, :runaway, fresh, re;
+                pitch_mapping = mapping, interface_scheme...)
+            @test fresh.operator.coefficient_source[] === nothing
+            # the work is zero until the first preparation, and nonzero after the first step
+            fresh_work = InterfaceCollisionWorkTerm(fresh_interface)
+            before = Runes2P.rhs!(zeros(length(u)), fresh_work, u, layout, 6, 0.0)
+            @test all(iszero, unknown_values(before, layout, 6))
+            fresh_system = EquationSystem(layout,
+                [Equation(:f, TimeDerivative(), fresh, fresh_interface),
+                    Equation(:runaway, TimeDerivative(), re, fresh_interface),
+                    system.equations[3:5]...,
+                    Equation(
+                        :work, Algebraic(), fresh_work, LinearTerm(:work; coefficient = -1))];
+                initial_state = u)
+            solution = integrate(fresh_system, u, [0.0, 1e-9]; stepper = FixedSteps())
+            @test all(solution.statistics.accepted)
+            @test all(!=(0), unknown_values(solution.states[:, 2], layout, 6))
+            # a lagged plasma has no columns: the stored Jacobian treats it as fixed
+            @test !Runes2P.has_plasma_columns(work)
+        end
+        J = jacobian_prototype(system)
+        jacobian!(J, system, u, 0.0)
+        rows = [first(Runes2P.unknown_range(layout, 6, ir)) for ir in 1:2]
+        # the rows of the term alone: with a lagged plasma that of its last preparation, as the
+        # stored Jacobian takes it
+        row_values(x) = Runes2P.rhs!(zeros(eltype(x), length(x)), work, x, layout, 6, 0.0)[rows]
+        differences = zeros(2, length(u))
+        for column in eachindex(u)
+            h = 1e-6 * max(abs(u[column]), 1.0)
+            up, down = copy(u), copy(u)
+            up[column] += h
+            down[column] -= h
+            differences[:, column] .= (row_values(up) .- row_values(down)) ./ (2h)
+        end
+        work_columns = setdiff(eachindex(u), rows)
+        for (k, r) in enumerate(rows)
+            largest = maximum(abs, differences[k, work_columns])
+            @test maximum(abs, Vector(J[r, work_columns]) .-
+                               differences[k, work_columns]) <=
+                  1e-6 * largest
+            # the plasma columns hold the derivative of the collision frequencies, and a lagged
+            # plasma has none
+            lagged === :all && continue
+            for name in (:cold_electron_temperature, :cold_electron_density)
+                column = first(Runes2P.unknown_range(layout, unknown_id(layout, name), k))
+                @test J[r, column] != 0
+                @test J[r, column] ≈ differences[k, column] rtol = 1e-5
+            end
+        end
+        field_columns = [first(Runes2P.unknown_range(layout, 3, ir)) for ir in 1:2]
+        stored = Set(zip(findnz(J)[1:2]...))
+        # the field enters through the upwind side or a fixed weight alone, except with exponential
+        # fitting, whose weight follows the Péclet number. Without energy diffusion
+        # (`mode = :superthermal`) the face is upwind, and the row holds no column of the field.
+        with_field = interface.scheme === :exponential_fitting && mapping === :overlap &&
+                     mode === :full
+        @test ((rows[1], field_columns[1]) in stored) == with_field
+        # the column of the field is about 1/w² of the others: at a large Péclet number below
+        # the resolution of the differences, near w = 1 against them
+        if with_field && peclet === :small
+            for (k, r) in enumerate(rows)
+                @test J[r, field_columns[k]] != 0
+                @test J[r, field_columns[k]] ≈ differences[k, field_columns[k]] rtol = 1e-5
+            end
+        end
+        dense = ForwardDiff.jacobian(row_values, u)
+        kinetic = vcat(collect(Runes2P.unknown_range(layout, 1, 1)),
+            collect(Runes2P.unknown_range(layout, 1, 2)),
+            collect(Runes2P.unknown_range(layout, 2, 1)), collect(Runes2P.unknown_range(layout, 2, 2)),
+            field_columns)
+        for (k, r) in enumerate(rows)
+            @test Vector(J[r, kinetic]) ≈ dense[k, kinetic] rtol = 1e-12
+        end
+
+        # the record: the record of a term with its coefficient and its interface
+        context = Runes2P.DescriptionContext()
+        record = describe(work, context)
+        expected = Runes2P._term_record(work)
+        expected["coefficient"] = -1.0
+        expected["interface"] = describe(interface, context)
+        @test record == expected
+        @test record["type"] == "InterfaceCollisionWorkTerm"
+
+        # rhs! allocates nothing of its own once its coefficients are kept: only the bytes of the
+        # check of the plasma of the Fokker-Planck term, which the interface refreshes (32 bytes
+        # at -O2, as in the flux of InterfaceEnergyFluxTerm)
+        out = zeros(length(u))
+        refresh = call_allocation(Runes2P.refresh_coefficients!, lower, u, layout, 0.0)
+        @test call_allocation(Runes2P.rhs!, out, work, u, layout, 6, 0.0) <= refresh skip = !OPTIMIZED
+    end
+
+    @testset "the work of the collisions at the interface: its checks" begin
+        # the collisions of a lower operator built by hand: no plasma, refused
+        hot = cylindrical_grid(MomentumGrid(uniform_p_faces(10, 0.0, 0.6), uniform_xi_faces(2)), rad)
+        upper = runaway_grid(hot, uniform_p_faces(5, 0.6, 5.0)[2:end])
+        bare = MomentumInterfaceTerm(:f, :runaway,
+            AdvectionDiffusion(hot; p_upper_boundary = :interface),
+            AdvectionDiffusion(upper; p_lower_boundary = :interface))
+        two = UnknownLayout(rad,
+            [
+                KineticUnknown(:f, hot), KineticUnknown(:runaway, upper), RadialUnknown(:work)])
+        @test_throws "holds no collisions" Runes2P.validate(InterfaceCollisionWorkTerm(bare), two, 3)
+        relativistic = fokker_planck_operator(hot, base,
+            CollisionSettings(mode = :ultra_relativistic, screening = :complete);
+            p_upper_boundary = :interface)
+        fast = MomentumInterfaceTerm(:f, :runaway, relativistic,
+            AdvectionDiffusion(upper; p_lower_boundary = :interface))
+        @test_throws "mode :full or :superthermal" Runes2P.validate(
+            InterfaceCollisionWorkTerm(fast), two, 3)
+        # an operator built from a plasma is accepted, and the work follows its collisions
+        built = fokker_planck_operator(hot, base, settings; p_upper_boundary = :interface)
+        accepted = MomentumInterfaceTerm(:f, :runaway, built,
+            AdvectionDiffusion(upper; p_lower_boundary = :interface))
+        @test Runes2P.validate(InterfaceCollisionWorkTerm(accepted), two, 3) === nothing
+        # its rhs! reads an operator that no Fokker-Planck term refreshes, and allocates nothing
+        w = zeros(length(two))
+        kinetic_array(w, two, 1) .= 1e16
+        kinetic_array(w, two, 2) .= 1e14
+        prescribed_work = InterfaceCollisionWorkTerm(accepted)
+        out = zeros(length(w))
+        @test only(Runes2P.rhs!(out, prescribed_work, w, two, 3, 0.0)[Runes2P.unknown_range(two, 3, 1)]) !=
+              0
+        @test call_allocation(Runes2P.rhs!, out, prescribed_work, w, two, 3, 0.0) == 0 skip = !OPTIMIZED
+        @test_throws "radial unknown with one component" Runes2P.validate(
+            InterfaceCollisionWorkTerm(accepted), two, 1)
+    end
+
+    @testset "the work of the collisions at the interface: its cache" begin
+        # The coefficients of the face that the term keeps are rebuilt once per change of one
+        # input of the electron-electron collisions, and not at an unchanged state. A plasma
+        # state changed in place, and an operator rebuilt by hand from it, give the values of a
+        # fresh term.
+        hot = cylindrical_grid(MomentumGrid(uniform_p_faces(10, 0.0, 0.6), uniform_xi_faces(2)), rad)
+        upper = runaway_grid(hot, uniform_p_faces(5, 0.6, 5.0)[2:end])
+        two = UnknownLayout(rad,
+            [
+                KineticUnknown(:f, hot), KineticUnknown(:runaway, upper), RadialUnknown(:work)])
+        w = zeros(length(two))
+        kinetic_array(w, two, 1) .= [1e16 * exp(-p / 0.1)
+                                     for p in momentum_grid(hot).p_centers, _ in 1:2,
+        _ in 1:1]
+        kinetic_array(w, two, 2) .= 1e13
+        row_value(term, t) = only(unknown_values(
+            Runes2P.rhs!(zeros(length(w)), term, w, two, 3, t), two, 3))
+        full = CollisionSettings(mode = :full, screening = :partial)
+        # one state, which the prescribed plasma returns at every time and the test changes in place
+        state = PlasmaState(; cold_electron_temperature = [100.0],
+            ions = [IonSpecies("D", 1, 1, [n]), IonSpecies("Ar", 18, 2, [1e17])],
+            electric_field = [5.0], magnetic_field = [2.0])
+        lower = FokkerPlanckTerm(
+            :f, AdvectionDiffusion(hot; p_upper_boundary = :interface);
+            plasma = PrescribedPlasma(t -> state), settings = full)
+        upper_op = AdvectionDiffusion(upper; p_lower_boundary = :interface)
+        interface = MomentumInterfaceTerm(:f, :runaway, lower, upper_op)
+        work = InterfaceCollisionWorkTerm(interface)
+        fresh(t) = row_value(InterfaceCollisionWorkTerm(interface), t)
+        start = row_value(work, 0.0)
+        @test start != 0
+        @test work.rebuilds[] == 1
+        # an unchanged state, at the same time and at another one: no rebuild
+        @test row_value(work, 0.0) == start
+        @test row_value(work, 1e-9) == start
+        @test work.rebuilds[] == 1
+        # one input alone, changed in place: one rebuild each, and the values of a fresh term
+        for (k, change!) in enumerate((
+            s -> s.cold_electron_temperature[1] = 150.0,
+            s -> s.cold_electron_density[1] *= 2,
+            s -> s.magnetic_field[1] = 3.0,
+            # the field alone: the Fokker-Planck term rebuilds its coefficients, which the
+            # count of its rebuilds shows, while the key of the term leaves the field out
+            s -> s.electric_field[1] = 8.0))
+            change!(state)
+            t = k * 1e-8
+            value = row_value(work, t)
+            @test work.rebuilds[] == 1 + k
+            @test value == fresh(t)
+            @test row_value(work, t) == value
+            @test work.rebuilds[] == 1 + k
+        end
+        @test row_value(work, 1.0) != start
+
+        # an operator rebuilt by hand from the state changed in place
+        op = fokker_planck_operator(hot, state, full; p_upper_boundary = :interface)
+        bare = MomentumInterfaceTerm(:f, :runaway, op, upper_op)
+        by_hand = InterfaceCollisionWorkTerm(bare)
+        fresh_bare() = row_value(InterfaceCollisionWorkTerm(bare), 0.0)
+        built = row_value(by_hand, 0.0)
+        @test built == fresh_bare()
+        @test row_value(by_hand, 0.0) == built
+        @test by_hand.rebuilds[] == 1
+        state.cold_electron_temperature[1] = 200.0
+        set_fokker_planck_coefficients!(op, state, full)
+        @test row_value(by_hand, 0.0) == fresh_bare()
+        @test row_value(by_hand, 0.0) != built
+        @test by_hand.rebuilds[] == 2
+        # cleared, the term is zero, and built again from an equal plasma it is rebuilt
+        zero_coefficients!(op)
+        @test row_value(by_hand, 0.0) == 0
+        set_fokker_planck_coefficients!(op, state, full)
+        @test row_value(by_hand, 0.0) == fresh_bare()
+        @test row_value(by_hand, 0.0) != 0
+        @test by_hand.rebuilds[] == 3
+        # equal settings of another object: no rebuild. Other settings: one rebuild.
+        set_fokker_planck_coefficients!(op, state, CollisionSettings(mode = :full, screening = :partial))
+        @test row_value(by_hand, 0.0) == fresh_bare()
+        @test by_hand.rebuilds[] == 3
+        set_fokker_planck_coefficients!(
+            op, state, CollisionSettings(mode = :superthermal, screening = :partial))
+        @test row_value(by_hand, 0.0) == fresh_bare()
+        @test by_hand.rebuilds[] == 4
     end
 
     @testset "the loss under schemes that depend on the side of the advection" begin

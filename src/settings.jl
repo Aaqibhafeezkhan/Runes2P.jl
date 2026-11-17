@@ -20,11 +20,13 @@ Since 0.0.5 a file stores units ([`write_output`](@ref)):
 - The dataset `time` carries the attribute `unit`, which is `"s"`.
 - The datasets of the grid faces in the group `layout` carry the attribute `unit`.
 
-Since 0.0.6 the settings record of a run may hold two more entries:
+Since 0.0.6 the settings record of a run may hold three more entries:
 
 - The record of [`KineticEnergyChangeTerm`](@ref), with its source and its region.
 - The key `knockon_term` in the record of a [`SecondaryHeatingTerm`](@ref) with
   `cut = :knockon`, the record of its knock-on term.
+- The record of [`InterfaceCollisionWorkTerm`](@ref), with its coefficient and its
+  interface.
 """
 const OUTPUT_FORMAT_VERSION = v"0.0.6"
 
@@ -1106,7 +1108,13 @@ function describe(term::FrictionEnergyTransferTerm, context::DescriptionContext)
     return _describe_plasma_source!(record, term.source, context)
 end
 
-function describe(term::InterfaceFluxTerm, context::DescriptionContext)
+function settings_fields(::Type{<:InterfaceCollisionWorkTerm})
+    (described = (:interface, :coefficient),
+        derived = (:plasma_key, :collision_settings, :operator_rebuilds, :rebuilds,
+            :advection, :diffusion))
+end
+
+function describe(term::InterfaceRowTerm, context::DescriptionContext)
     record = _term_record(term)
     record["coefficient"] = term.coefficient
     record["interface"] = describe(term.interface, context)

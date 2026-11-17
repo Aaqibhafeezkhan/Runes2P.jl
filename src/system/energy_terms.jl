@@ -234,12 +234,17 @@ Every other change of the energy of the hot region is charged to the cold electr
 `kinetic` that moves energy out of the electrons or into them: [`KineticEnergyLossTerm`](@ref)
 with `part = :sinks` for the bremsstrahlung, the synchrotron loss and the friction on bound
 electrons, `MomentumBoundaryFluxTerm(...; weight = :energy)` for an outflow at `p_max`,
-[`InterfaceEnergyFluxTerm`](@ref) for the runaway grid, and [`KineticEnergyChangeTerm`](@ref)
+[`InterfaceEnergyFluxTerm`](@ref) and [`InterfaceCollisionWorkTerm`](@ref) of the same
+interface for the runaway grid, and [`KineticEnergyChangeTerm`](@ref)
 of each [`RosenbluthPutvinskiSourceTerm`](@ref) for the energy of the knock-ons of the fluid
 runaways above the grid, over the whole grid. The system refuses a row that misses one of
 them, and a `KineticEnergyChangeTerm` whose source is not in the equation of a distribution
-in the total energy, since its knock-ons are outside the total. It also refuses the terms of
-the equation of `kinetic` for which the system has no energy term, since the cold electrons
+in the total energy, since its knock-ons are outside the total. It refuses an
+`InterfaceCollisionWorkTerm` of an interface whose lower distribution, that of the grid
+below the face, is not in the total energy, since the electrons that cross there are outside
+the total. A second `InterfaceCollisionWorkTerm` of one interface, which would count the work
+twice, is refused in a row of any kind. It also refuses the terms of the equation of
+`kinetic` for which the system has no energy term, since the cold electrons
 would pay or gain their energy at the radius where the electrons are moved, created or
 removed:
 
