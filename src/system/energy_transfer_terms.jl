@@ -679,8 +679,9 @@ grid with the energy of its last cell and enters the upper grid with the energy 
 cell ([`InterfaceEnergyFluxTerm`](@ref)).
 
 No operator holds the step, since neither grid takes a flux through the face in its energy
-moments ([`KineticEnergyLossTerm`](@ref)). The free electrons pay it for `Γ_ee`, and the
-sinks pay it for the friction on bound electrons, bremsstrahlung and synchrotron radiation.
+moments ([`KineticEnergyLossTerm`](@ref)). The free electrons pay it for `Γ_ee`. The sinks pay
+it for the friction on bound electrons, their energy diffusion under partial screening,
+bremsstrahlung and synchrotron radiation.
 The row of a total energy holds the step of the field only approximately, through the work
 of the field on the hot region ([`total_energy_equation`](@ref)).
 
@@ -908,6 +909,13 @@ function _electron_electron_face!(advection, diffusion, interface::MomentumInter
     return advection, diffusion
 end
 
+# The record of the coefficients that `set_fokker_planck_coefficients!` writes for an operator
+# of numbers. The operator holds its record in a reference of unknown type, whose fields a read
+# would copy to the heap and a call with them would dispatch at run time.
+const FLOAT_COLLISION_RECORD = NamedTuple{
+    (:plasma, :settings, :synchrotron, :electric_field),
+    Tuple{PlasmaState{Float64}, CollisionSettings, Bool, Bool}}
+
 # the electron-electron coefficients of the face for the operator `op` of the interface, from
 # the plasma and the settings its coefficients were built from: kept in the term for an
 # operator of numbers, and of their own evaluation for an operator of dual coefficients
@@ -923,7 +931,12 @@ function _collision_face_coefficients!(term::InterfaceCollisionWorkTerm, op::Adv
         return (term.advection, term.diffusion)::Tuple{Vector{Float64}, Vector{Float64}}
     end
     if eltype(op.advection_p) === Float64
-        _keep_face_coefficients!(term, built.plasma, built.settings)
+        if built isa FLOAT_COLLISION_RECORD
+            # a record of a known type: its fields are read without a copy
+            _keep_face_coefficients!(term, built.plasma, built.settings)
+        else
+            _keep_face_coefficients!(term, built.plasma, built.settings)
+        end
         return (term.advection, term.diffusion)::Tuple{Vector{Float64}, Vector{Float64}}
     end
     radii = length(term.advection)

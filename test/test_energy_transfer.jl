@@ -867,7 +867,10 @@ using SparseArrays: findnz, sparse
         for (k, change!) in enumerate((
             s -> s.cold_electron_temperature[1] = 150.0,
             s -> s.cold_electron_density[1] *= 2,
-            s -> s.magnetic_field[1] = 3.0))
+            s -> s.magnetic_field[1] = 3.0,
+            # the field alone: the Fokker-Planck term rebuilds its coefficients, which the
+            # count of its rebuilds shows, while the key of the term leaves the field out
+            s -> s.electric_field[1] = 8.0))
             change!(state)
             t = k * 1e-8
             value = row_value(work, t)

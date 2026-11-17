@@ -204,8 +204,9 @@ import ForwardDiff
         re_both = Equation(:runaway, TimeDerivative(), re, interface, other_interface)
         row_other = row(crossing, KineticEnergyLossTerm(other; part = :sinks, region),
             InterfaceEnergyFluxTerm(interface), InterfaceCollisionWorkTerm(other_interface))
-        @test_throws "its collision work at the interface of f reads the interface of another term" Runes2P._check_plasma_pairings([
-            f_both, re_both, row_other, energy...])
+        other_equations = [f_both, re_both, row_other, energy...]
+        other_message = "collision work at the interface of f reads the interface of another term"
+        @test_throws other_message Runes2P._check_plasma_pairings(other_equations)
         # two terms of the work of one interface count it twice
         @test_throws "count the work more than once" two(
             crossing, InterfaceEnergyFluxTerm(interface), work, work)
@@ -220,12 +221,10 @@ import ForwardDiff
             Equation(:runaway, TimeDerivative(), re, g_interface)]
         @test Runes2P._check_plasma_pairings([g_equations; row(sinks, outflow); energy]) ===
               nothing
-        @test_throws "InterfaceCollisionWorkTerm reads the interface of g, whose distribution is not in the total energy" Runes2P._check_plasma_pairings([g_equations;
-                                                                                                                                                          row(
-                                                                                                                                                              sinks,
-                                                                                                                                                              outflow,
-                                                                                                                                                              InterfaceCollisionWorkTerm(g_interface));
-                                                                                                                                                          energy])
+        g_row = row(sinks, outflow, InterfaceCollisionWorkTerm(g_interface))
+        g_system = [g_equations; g_row; energy]
+        outside_message = "reads the interface of g, whose distribution is not in the total energy"
+        @test_throws outside_message Runes2P._check_plasma_pairings(g_system)
         # radial transport and knock-on secondaries on the grid of f have no row term: the
         # system refuses them
         transport = AdvectionDiffusion(grid; scheme = :central, r_boundary = :absorbing)
