@@ -643,16 +643,18 @@ using SparseArrays: findnz, sparse
             @test own > 1e-2 * largest
         end
 
-        @testset "the parts sum to the moment of the whole ($scheme, E = $field)" for scheme in limiters,
+        @testset "the parts sum to the moment of the whole ($scheme, $xi_scheme, E = $field)" for (scheme, xi_scheme) in (
+                ((limiter, limiter) for limiter in limiters)..., (:upwind, :tcdf)),
             field in (2.0, -2.0)
 
             # the energy moment of the whole over the region, in the operator's own form, is the
             # moment of the field part plus the rows of the free-electron part and of the sinks
-            # (at most 6.4e-15 of it measured). The whole takes no flux through p_max here, as
-            # the parts.
+            # (at most 6.4e-15 of it measured), also with upwind in p and a limiter in ξ alone.
+            # The whole takes no flux through p_max here, as the parts.
             (; layout, state, side, whole, field_part, sinks, free, source) = loss_case(
-                scheme, field)
-            interfaced = AdvectionDiffusion(hot; scheme, p_upper_boundary = :interface)
+                scheme, field; xi_scheme)
+            interfaced = AdvectionDiffusion(
+                hot; scheme, xi_scheme, p_upper_boundary = :interface)
             for name in (:advection_p, :diffusion_p_p, :advection_xi, :diffusion_xi_xi,
                 :advection_p_times_p2_at_zero)
                 getfield(interfaced, name) .= getfield(whole, name)
@@ -694,6 +696,24 @@ using SparseArrays: findnz, sparse
                         magnetic_field = fill(5.0, 2))))
                 @test Runes2P._face_form(KineticEnergyLossTerm(source; part = :sinks)) ==
                       face
+            end
+        end
+
+        @testset "a limiter in ξ alone under exponential fitting in p ($part)" for part in (
+            :sinks, :free_electrons)
+            # exponential fitting takes no side, so the face form is the moment of the applied
+            # operators to round-off of the moments of the cells
+            (; layout, state, source) = loss_case(:exponential_fitting, 2.0; xi_scheme = :tcdf)
+            term = KineticEnergyLossTerm(source; part, region = hot_region)
+            @test Runes2P._face_form(term)
+            out = Runes2P.rhs!(zeros(length(state)), term, state, layout, 2, 0.0)
+            plasma = Runes2P._transfer_plasma(term, state, layout, 0.0)
+            df = Runes2P._loss_change(Runes2P._loss_operators(term, hot, plasma), tail)
+            for ir in 1:2
+                cells = Runes2P._loss_weights(term, hot, ir, state, layout, 0.0) .*
+                        view(df, :, :, ir)
+                @test abs(out[rows_of(layout)[ir]] + term.coefficient * sum(cells)) <=
+                      1e-14 * sum(abs, cells)
             end
         end
 
@@ -793,7 +813,10 @@ using SparseArrays: findnz, sparse
         jacobian_cases = (
             (:tcdf, :sinks, (;)), (:tcdf, :free_electrons, (;)), (:ospre, :sinks, (;)),
             (:ospre, :free_electrons, (;)), (:van_albada, :sinks, (;)),
-            (:tcdf, :sinks, (; boundaries = (; p_zero_boundary = :zero_flux))),
+            (:tcdf, :sinks, (; region = nothing, field = 200.0)),
+            (:tcdf, :sinks,
+                (; region = nothing, field = 200.0,
+                    boundaries = (; p_zero_boundary = :zero_flux))),
             (:tcdf, :sinks,
                 (; grid = above, boundaries = (; p_lower_boundary = :prescribed))),
             (:tcdf, :sinks, (; lagged = :all)), (:upwind, :sinks, (; xi_scheme = :tcdf)),
@@ -808,8 +831,12 @@ using SparseArrays: findnz, sparse
             # the row over the unknown (at most 1.9e-7 in the columns of f and 1.3e-9 in the others
             # measured). With the plasma lagged, the row has the column of the temperature
             # through the region alone.
-            (; layout, state, source, f0) = loss_case(scheme, 2.0; options...)
-            term = KineticEnergyLossTerm(source; part, region = hot_region)
+            # Without a region and at 200 V/m the faces near p = 0 carry weight and read the
+            # ghost cells.
+            field = get(options, :field, 2.0)
+            case_options = Base.structdiff(options, NamedTuple{(:field,)})
+            (; layout, state, source, f0) = loss_case(scheme, field; case_options...)
+            term = KineticEnergyLossTerm(source; part, region = get(options, :region, hot_region))
             if get(options, :lagged, :ions) === :all
                 Runes2P.prepare_step!(term, state, layout, 2, 0.0)
             end
@@ -845,6 +872,19 @@ using SparseArrays: findnz, sparse
                     @test abs(JL[r, column] - d) <= 1e-6 * scale
                 end
             end
+        end
+
+        @testset "the ghost cell at p = 0 enters the row without a region" begin
+            # The friction points to p = 0 at the faces near it, which then read no ghost cell.
+            # A field of 200 V/m, above the Dreicer field, turns the advection there at ξ of
+            # its sign, and the mirrored ghost cell of :outflow and the zero one of :zero_flux
+            # then give those faces different values, which the row holds without a region.
+            row(case) = Runes2P.rhs!(zeros(length(case.state)), case.sinks, case.state,
+                case.layout, 2, 0.0)[rows_of(case.layout)]
+            outflow = loss_case(:tcdf, 200.0; region = nothing)
+            zero_flux = loss_case(:tcdf, 200.0; region = nothing,
+                boundaries = (; p_zero_boundary = :zero_flux))
+            @test row(outflow) != row(zero_flux)
         end
 
         @testset "the sign of the field unknown" begin
