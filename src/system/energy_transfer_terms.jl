@@ -870,8 +870,6 @@ function KineticEnergyChangeTerm(source; region::Union{Nothing, MomentumRegion} 
             throw(ArgumentError("KineticEnergyChangeTerm takes a region with a fixed limit, a number or one " *
                                 "number per radius: its energies are computed when it is built"))
         end
-        # the limit per radius, checked against the radii of the grid
-        momentum_limit(region, 1; radii = radial_cell_count(grid))
     end
     energies = _energy_changes(source, region)
     return KineticEnergyChangeTerm(kinetic, source, Float64(coefficient),

@@ -116,8 +116,8 @@ using SparseArrays: findnz
                 RadialUnknown(:total_electron_density; scale = 1e20),
                 RadialUnknown(:electric_field), KineticUnknown(:f, energy_grid; scale = 1e19),
                 RadialUnknown(:heating; scale = 1e3)])
-        source = RosenbluthPutvinskiSourceTerm(:f, energy_grid)
-        heating = KineticEnergyChangeTerm(source)
+        rp_source = RosenbluthPutvinskiSourceTerm(:f, energy_grid)
+        heating = KineticEnergyChangeTerm(rp_source)
         row = unknown_id(energy_layout, :heating)
         v = zeros(length(energy_layout))
         unknown_values(v, energy_layout, 1) .= [3e15, 1e16]
@@ -180,7 +180,7 @@ using SparseArrays: findnz
             [Equation(:runaway_density, TimeDerivative()),
                 Equation(:total_electron_density, TimeDerivative()),
                 Equation(:electric_field, TimeDerivative()),
-                Equation(:f, TimeDerivative(), source),
+                Equation(:f, TimeDerivative(), rp_source),
                 Equation(:heating, TimeDerivative(), heating)];
             initial_state = v)
         J = jacobian_prototype(system)
@@ -208,24 +208,24 @@ using SparseArrays: findnz
         @test record["coefficient"] == 1.0 && record["kinetic"] == "f"
         @test record["source"]["p_cutoff"] == 0.01
         @test !haskey(record, "region")
-        fixed = KineticEnergyChangeTerm(source; region = MomentumRegion(0.2))
+        fixed = KineticEnergyChangeTerm(rp_source; region = MomentumRegion(0.2))
         @test describe(fixed, Runes2P.DescriptionContext())["region"]["limit"] == 0.2
         out = zeros(length(v))
         @test call_allocation(Runes2P.rhs!, out, heating, v, energy_layout, row, 0.0) == 0 skip = !OPTIMIZED
 
         # a fixed region weights the cells by its envelope; a moving limit and another source
         # are refused
-        above = KineticEnergyChangeTerm(source; region = MomentumRegion(0.0))
+        above = KineticEnergyChangeTerm(rp_source; region = MomentumRegion(0.0))
         @test above.energies.positive ≈ heating.energies.positive rtol = 1e-14
         @test all(iszero, KineticEnergyChangeTerm(
-            source; region = MomentumRegion(0.9)).energies.positive)
+            rp_source; region = MomentumRegion(0.9)).energies.positive)
         @test all(fixed.energies.positive .< heating.energies.positive)
         @test_throws "fixed limit" KineticEnergyChangeTerm(
-            source; region = MomentumRegion(ThermalMomentum(:cold_electron_temperature)))
+            rp_source; region = MomentumRegion(ThermalMomentum(:cold_electron_temperature)))
         @test_throws "fixed limit" KineticEnergyChangeTerm(
-            source; region = MomentumRegion(t -> 0.2))
+            rp_source; region = MomentumRegion(t -> 0.2))
         @test_throws DimensionMismatch KineticEnergyChangeTerm(
-            source; region = MomentumRegion([0.1, 0.2, 0.3]))
+            rp_source; region = MomentumRegion([0.1, 0.2, 0.3]))
         @test_throws "takes a RosenbluthPutvinskiSourceTerm" KineticEnergyChangeTerm(
             LinearTerm(:f))
         @test_throws ArgumentError Runes2P.validate(heating, energy_layout, 4)
