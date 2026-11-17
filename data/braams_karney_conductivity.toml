@@ -1,5 +1,5 @@
 [metadata]
-source = "DREAM, src/Equations/RunawayFluid.cpp (conductivityTmc2, conductivityX, conductivityBraams), after B. J. Braams and C. F. F. Karney, Phys. Fluids B 1, 1355 (1989), Table I, p. 1362: printed with 5 decimals, kept by DREAM with 4"
+source = "DREAM, src/Equations/RunawayFluid.cpp (conductivityTmc2, conductivityX, conductivityBraams), after B. J. Braams and C. F. F. Karney, Phys. Fluids B 1, 1355 (1989), doi:10.1063/1.858966, Table I, p. 1362: printed with 5 decimals, kept by DREAM with 4"
 version_or_date = "DREAM v26.5"
 licence = "MIT, see THIRD_PARTY_NOTICES.md"
 generator = "none: ported by hand from DREAM"
