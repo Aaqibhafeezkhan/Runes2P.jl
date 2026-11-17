@@ -854,6 +854,31 @@ import ForwardDiff
         @test maximum(abs, drift) < 1e-12
         @test maximum(abs, missed) > 1e3 * max(maximum(abs, drift), 1e-15)
         @test maximum(abs, missed .- integral) <= 1e-3 * maximum(abs, missed)
+
+        # a row of the cold thermal energy alone takes the term without the conditions of the
+        # total energy: the system builds and steps, and refuses a second term of one interface
+        cold_layout = UnknownLayout(radii,
+            [KineticUnknown(:f, hot; scale = 1e19),
+                KineticUnknown(:runaway, upper; scale = 1e16),
+                RadialUnknown(:cold_electron_temperature; scale = 100.0),
+                RadialUnknown(:cold_electron_density; scale = 1e19),
+                RadialUnknown(:cold_thermal_energy; scale = THERMAL_ENERGY_FACTOR * 1e21)])
+        cold_u0 = u0[1:length(cold_layout)]
+        function cold_system(row_terms...)
+            equations = [Equation(:f, TimeDerivative(), lower, interface),
+                Equation(:runaway, TimeDerivative(), re, interface),
+                Equation(:cold_electron_temperature, TimeDerivative(:cold_thermal_energy),
+                    row_terms...),
+                density_row([n]), thermal_energy_equation()]
+            return EquationSystem(
+                cold_layout, equations; time_scale = 1e-7, initial_state = cold_u0)
+        end
+        row_work = InterfaceCollisionWorkTerm(interface)
+        cold_solution = integrate(cold_system(row_work), cold_u0, [0.0, 1e-7];
+            stepper = FixedSteps())
+        @test all(cold_solution.statistics.accepted)
+        @test unknown_values(cold_solution.states[:, 2], cold_layout, 3)[1] != T0
+        @test_throws "count the work more than once" cold_system(row_work, row_work)
     end
 
     @testset "DREAM's fluid heating by runaways" begin

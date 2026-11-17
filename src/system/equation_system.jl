@@ -1331,6 +1331,7 @@ function _check_plasma_pairings(equations)
     end
     _check_ion_pairings(equations)
     _check_sink_regions(equations)
+    _check_collision_work_counts(equations)
     _check_total_energy_rows(equations)
     lagged = [term for term in fokker_planck if _is_lagged(term)]
     isempty(lagged) && return nothing
@@ -1604,7 +1605,6 @@ end
 # the Fokker-Planck term `term` of `d`: the row of a total energy lists one
 # InterfaceCollisionWorkTerm of the interface of each of its InterfaceEnergyFluxTerms
 # `crossings`, charged to the cold electrons, and none of an interface of another term of `d`.
-# A second term of one interface would count the work twice.
 function _check_interface_collision_work(row, total, d, term, crossings, listed)
     works = [t
              for t in listed if t isa InterfaceCollisionWorkTerm && t.interface.lower === d]
@@ -1613,12 +1613,6 @@ function _check_interface_collision_work(row, total, d, term, crossings, listed)
             throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
                                 "and its collision work at the interface of $d reads the interface of another term " *
                                 "of $d: give it the interface of this term"))
-        end
-        copies = count(w -> w.interface === t.interface, works)
-        if copies > 1
-            throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
-                                "and it holds $copies terms of the collision work at the interface of $d, which " *
-                                "count the work more than once: keep one"))
         end
         if !(t.coefficient < 0)
             throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
@@ -1640,8 +1634,10 @@ end
 # Each InterfaceCollisionWorkTerm in the row `row` of the total energy `total` reads an
 # interface whose lower distribution is one of the `distributions` in W_hot. The electrons
 # that cross the interface of another distribution are outside W_tot, and the row would charge
-# the work on them to the cold electrons.
+# the work on them to the cold electrons. A row of the cold thermal energy alone holds no
+# distribution, and its terms are not checked here.
 function _check_collision_work_interfaces(row, total, distributions)
+    isempty(distributions) && return nothing
     for work in row.terms
         work isa InterfaceCollisionWorkTerm || continue
         lower = work.interface.lower
@@ -1650,6 +1646,23 @@ function _check_collision_work_interfaces(row, total, distributions)
                                 "its InterfaceCollisionWorkTerm reads the interface of $lower, whose distribution is " *
                                 "not in the total energy: the row would charge the work of the collisions there to " *
                                 "the cold electrons. Remove the term, or put $lower into $total"))
+        end
+    end
+    return nothing
+end
+
+# Each row holds at most one InterfaceCollisionWorkTerm of an interface, since a second one
+# counts the work of the collisions twice. This holds in a row of every kind.
+function _check_collision_work_counts(equations)
+    for equation in equations
+        works = [t for t in equation.terms if t isa InterfaceCollisionWorkTerm]
+        for work in works
+            copies = count(w -> w.interface === work.interface, works)
+            if copies > 1
+                throw(ArgumentError("the row of $(equation.unknown) holds $copies terms of the collision work at the " *
+                                    "interface of $(work.interface.lower), which count the work more than once: " *
+                                    "keep one"))
+            end
         end
     end
     return nothing

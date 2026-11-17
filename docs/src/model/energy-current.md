@@ -91,7 +91,8 @@ The docstring of [`total_energy_equation`](@ref) gives the conditions.
 - The electrons that leave a Fokker-Planck term with collisions at ``p_\mathrm{max}``, or cross its interface to a runaway grid, take their energy with them.
   The row needs the energy flux of that boundary or interface.
   At the interface it also needs one [`InterfaceCollisionWorkTerm`](@ref) of the same interface, with a negative coefficient (below).
-  The row refuses a second such term of one interface, which would count the work twice, and the term of an interface whose lower distribution is not in ``W_\mathrm{hot}``.
+  The row refuses the term of an interface whose lower distribution is not in ``W_\mathrm{hot}``.
+  A second such term of one interface, which would count the work twice, is refused in every row, the row of the cold thermal energy alone included.
 - Radial transport of `f` is refused, since the system has no energy term for radial transport.
   The system refuses it when it is built, and a run checks the coefficients again before its first step.
   A [`RechesterRosenbluthUpdate`](@ref) sets the coefficients of its operator in the run, so the run refuses the update before its first step.
@@ -209,15 +210,17 @@ Each part of the flux through the face pays it for its electrons:
 
 | Part of the flux through the face | Pays the step | Term of the row |
 |---|---|---|
-| the field | the field | none: approximately in ``E j_\mathrm{hot}`` (below) |
+| the field | the field | none: the part up to the face in ``E j_\mathrm{hot}`` (below) |
 | the electron-electron collisions: friction and energy diffusion | the cold electrons | [`InterfaceCollisionWorkTerm`](@ref) |
 | the friction on bound electrons, their energy diffusion under partial screening, bremsstrahlung and synchrotron radiation | the sinks | none |
 
 The ions scatter the electrons in pitch only, so they move none across the face.
 The step of the sinks changes the energy of the runaway grid alone, which is outside ``W_\mathrm{tot}``, so the row takes no term for it.
 
+The row holds only the part of the step of the field up to the face, through ``E j_\mathrm{hot}``.
 The hot current ``j_\mathrm{hot}`` covers the cells of `f` up to the face, while the discrete field term of `f` works only up to the centre of the last cell.
 So ``E j_\mathrm{hot}`` holds about the field part of the flux through the face times ``E_\mathrm{face} - E_{\mathrm{low},N}``, with ``E_\mathrm{face}`` the kinetic energy at the face.
+That is roughly the fraction ``\Delta p_\mathrm{low}/(\Delta p_\mathrm{low} + \Delta p_\mathrm{up})`` of the step, with ``\Delta p_\mathrm{low}`` and ``\Delta p_\mathrm{up}`` the widths of the two cells at the face.
 The runaway grid receives the whole step as well, and the row takes no term for the difference, as for the gap at the threshold of the hot region ([The field work on the hot region](#The-field-work-on-the-hot-region)).
 
 Each part takes the face value of the whole flux: the upwind side, the linear interpolation or the weight of exponential fitting that the coefficients of all processes set.

@@ -67,7 +67,9 @@ Until the first release, every change is listed under "Unreleased", with the sub
 - Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` refuses a row of the temperature with an `InterfaceEnergyFluxTerm` but without the `InterfaceCollisionWorkTerm` of the same interface, with a negative coefficient ([#297](https://github.com/osrep/Runes2P.jl/pull/297)).
   Until now no term carried the work of the electron-electron collisions on the electrons that cross the interface, and the energy of the two grids was not conserved across the face.
   The cold electrons now pay that work.
-  The system refuses a second such term of one interface, which would count the work twice, and the term of an interface whose lower distribution is not in the total energy.
+  In every row the system refuses a second such term of one interface, which would count the work twice.
+  In the row of a total energy it also refuses the term of an interface whose lower distribution is not in the total energy.
+  A row of the cold thermal energy alone takes the term without the conditions of the total energy.
 - Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` accepts a `RosenbluthPutvinskiSourceTerm` in the equation of a distribution whose energy is in the total, which it refused until now ([#296](https://github.com/osrep/Runes2P.jl/pull/296)).
   The row of the temperature then needs one `KineticEnergyChangeTerm` of that very source, with a positive coefficient and without a region, since every knock-on is in the total energy.
   The term creates the energy of the knock-ons in the system, and no population pays it.

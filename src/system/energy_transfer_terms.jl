@@ -914,17 +914,21 @@ cell ([`InterfaceEnergyFluxTerm`](@ref)).
 No operator holds the step, since neither grid takes a flux through the face in its energy
 moments ([`KineticEnergyLossTerm`](@ref)). The free electrons pay it for `Γ_ee`. The sinks pay
 it for the friction on bound electrons, their energy diffusion under partial screening,
-bremsstrahlung and synchrotron radiation.
-The row of a total energy holds the step of the field only approximately, through the work
-of the field on the hot region ([`total_energy_equation`](@ref)).
+bremsstrahlung and synchrotron radiation. The row of a total energy holds only the part of
+the step of the field up to the face, through the work of the field on the hot region (see
+the section *The field work on the hot region* of the docs page *Energy and current
+balance*).
 
 With the default `coefficient = −1` in the row of the temperature the cold electrons pay the
 work of the electron-electron collisions, as they gain the energy that these collisions take
 from the electrons on either grid. Charging that work to the cold electrons is a choice of
-this package (see the docs page *Choices of this package*). Under
-[`total_energy_equation`](@ref) the system requires one such term next to the
-[`InterfaceEnergyFluxTerm`](@ref) of the same interface, with a negative coefficient. It
-refuses the term for an interface whose lower distribution is not in the total energy.
+this package (see the docs page *Choices of this package*). In every row the system refuses
+a second such term of one interface, which would count the work twice. In the row of a total
+energy ([`total_energy_equation`](@ref)) it requires one such term next to the
+[`InterfaceEnergyFluxTerm`](@ref) of the same interface, with a negative coefficient, and
+refuses one of an interface whose lower distribution is not in the total energy. A row of the
+cold thermal energy alone ([`thermal_energy_equation`](@ref)) takes the term without these
+two conditions.
 
 Each overlap cell of the face carries the flux `Γ = A f_face − D (f_up − f_low)/Δp`. `A` and
 `D` are the coefficients of the lower operator at the face, the field included, and `Δp` is
@@ -941,11 +945,13 @@ free electrons and `Θ = T/(mₑc²)`, as in [`electron_electron_operator`](@ref
 the field, of these collisions and of the sinks therefore add up to the flux of the
 interface.
 
-The collisions are those of the plasma and the settings that the coefficients of the lower
-operator were last built from, so a lagged plasma or lagged ions of the Fokker-Planck term
-are taken as the flux takes them. The term keeps the coefficients of the face. It rebuilds
-them when the Fokker-Planck term of the interface rebuilds its coefficients, and when the
-plasma values or the settings of the lower operator differ from those of the kept ones. An
+The term reads the plasma and the settings of the record of the coefficients of the lower
+operator at each evaluation, so a lagged plasma or lagged ions of the Fokker-Planck term are
+taken as the flux takes them. It compares the values of that plasma, so it agrees with the
+operator whenever the operator was rebuilt after the last change of that plasma, which a run
+does. It keeps the coefficients of the face and rebuilds them when the Fokker-Planck term of
+the interface rebuilds its coefficients, and when those plasma values or settings differ
+from the kept ones. An
 operator not yet built from a plasma, such as that of a lagged term before its first
 [`prepare_step!`](@ref), holds no collisions, and the term is zero there. The settings take
 `mode = :full` or `:superthermal`.
@@ -1187,7 +1193,9 @@ _operator_rebuild_count(::AdvectionDiffusion) = 0
 # rebuilt its coefficients since, or when the plasma values or the settings differ from those
 # they were built from. The key compares the values of the plasma, not its object, so a plasma
 # state changed in place and an operator rebuilt by hand from it are seen. Settings of another
-# object are compared by their fields.
+# object are compared by their fields. The values are those of the plasma object of the
+# record: a change in place of that object without a rebuild of the operator moves the term
+# and not the operator. A run prepares both at the same time, so they agree there.
 function _keep_face_coefficients!(term::InterfaceCollisionWorkTerm, plasma::PlasmaState,
         settings::CollisionSettings)
     rebuilds = _operator_rebuild_count(term.interface.lower_term)
