@@ -382,11 +382,16 @@ In DREAM's source:
   With it, the lower boundary of its advection in ``p`` is mirrored (`AD_BC_MIRRORED`) in place of Dirichlet (`src/Settings/Equations/distribution.cpp:234-237`).
 
 **Heating of the cold electrons by a runaway grid.**
-Runes2P's default is the energy change of the electron-electron operator of the grid, with the scheme of the grid, whose momentum faces take the side of the whole advection under a limiter ([`KineticEnergyLossTerm`](@ref)).
+Runes2P's default is the energy change of the electron-electron operator of the grid ([`KineticEnergyLossTerm`](@ref)), whose momentum faces take the upwind side of the whole advection under a scheme with a side, such as `:upwind`.
 That operator takes no flux through ``p_\mathrm{max}``, so the electrons that cross it give no energy to the cold electrons.
 DREAM's moment, [`FrictionEnergyTransferTerm`](@ref), also counts the energy that the friction carries out of the grid through ``p = 0`` where that flux is applied (`p_zero_boundary = :outflow`).
 The test case `runaway_heating_example` (`test/example_cases.jl`) takes the option at `compat = dream`.
 It is compared with DREAM's run in `test_runaway_heating_dream.jl`.
+
+At `compat = runes2p` the case takes the energy change, on momentum cells 0.5 ``m_e c`` wide with nearly all of ``f_\mathrm{re}`` in the first.
+The field of 1.5 V/m beats the friction at the face above that cell, so the energy change is 1.39e5 W/m³ at the start, where DREAM's moment is 7.81e4 W/m³.
+After the 5 µs of the case, ``T_\mathrm{cold}`` is 2.8e-4 of DREAM's value above it.
+The energy change converges to the moment of the friction at the cell centres as the momentum cells are refined ([The side on a coarse momentum grid](model/energy-current.md#The-side-on-a-coarse-momentum-grid)).
 
 **Relativistic corrections of Gould's bremsstrahlung.**
 The coefficients of ``T/m_ec^2`` are these.
