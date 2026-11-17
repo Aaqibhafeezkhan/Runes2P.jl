@@ -279,11 +279,21 @@ The docstring of [`IonEnergyExchangeTerm`](@ref) gives examples of the logarithm
 - The default knock-on operator against a quadrature reference, and its physics limits: `test/test_knockon_reference.jl`, `test/test_knockon_physics.jl`.
 - An avalanche run against DREAM's Boltzmann knock-on mode: `test/test_avalanche_dream.jl`.
 - The Rosenbluth-Putvinski source and the fluid growth rate against DREAM: `test/test_avalanche_rp_dream.jl`.
-- The avalanche of the Rosenbluth-Putvinski source with the external avalanche above the grid against DREAM's `AVALANCHE_MODE_KINETIC`, at ``p_\mathrm{max}`` = 5, 10 and 20: `test/test_avalanche_rp_pmax_dream.jl`.
-  The case is fully ionized deuterium at 100 eV and ``10^{20}\,\mathrm{m}^{-3}`` with ``E = 20\, E_c`` (``E_c`` the Connor-Hastie critical field), on a grid of 14 pitch cells and cells of 0.1 in momentum above ``p = 0.6``.
-  In this case the growth rate falls by 22.4 % from ``p_\mathrm{max} = 5`` to ``p_\mathrm{max} = 20``, since the primaries are the electrons beyond ``p_\mathrm{max}``.
-  With 56 pitch cells the fall of DREAM's rate is larger by about 0.2 percentage points.
-  The rates of the two codes differ by at most 3e-9 of DREAM's rate.
+- The avalanche of the Rosenbluth-Putvinski source against DREAM's `AVALANCHE_MODE_KINETIC`: `test/test_avalanche_rp_pmax_dream.jl`.
+  The runaway density takes the flux of ``f`` through ``p_\mathrm{max}``, the upper limit of the momentum grid, and the avalanche above it, [`ExternalAvalancheTerm`](@ref).
+  The test runs at ``p_\mathrm{max}`` = 5, 10 and 20 ``m_e c``.
+  The growth rates of the two codes differ by at most 3e-9 of DREAM's rate.
+  - The plasma is fully ionized deuterium with ``E = 20\, E_c`` (``E_c`` the Connor-Hastie critical field).
+    The cold electrons have a temperature of 100 eV.
+    The cold electrons and the deuterium ions each have a density of ``10^{20}\,\mathrm{m}^{-3}``.
+  - The grid has 14 pitch cells.
+    Its momentum cells are 0.01 ``m_e c`` wide below ``p = 0.6\, m_e c`` and 0.1 ``m_e c`` above.
+  - The growth rate of the runaway density in the last window of 20 ms falls by 22.4 % from ``p_\mathrm{max} = 5`` to ``p_\mathrm{max} = 20``.
+    The primaries of the source are the electrons beyond ``p_\mathrm{max}``.
+    On a longer grid a knock-on takes longer to become one.
+  - A run of DREAM with 56 pitch cells in place of 14 checks the pitch resolution.
+    There the rate falls by about 22.6 % over the same range.
+    That is about 0.2 percentage points more than with 14 pitch cells.
 - The growth rate of the Rosenbluth-Putvinski source against that of the knock-on operator in one avalanche run, whose primaries have a mean momentum of ``34\, m_e c``: `test/test_runaway_physics.jl`.
   The source gives 1.04 times the growth rate of the knock-on operator at the step of the test (1.03 extrapolated to a zero step).
 - The Dreicer rate with the self-consistent bulk against that with a fixed bulk: `test/test_populations.jl` ([below](#The-Dreicer-rate-with-a-self-consistent-bulk)).

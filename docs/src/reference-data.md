@@ -12,7 +12,7 @@ The generator scripts, the build of DREAM and the regeneration are in `reference
 | `dream-v26.5-disruption` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a`: the disruption chain from its initialization | 2 |
 | `dream-v26.5-initial-state` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a`: the starts of a run and the collisional heating of the cold electrons | 4 |
 | `dream-v26.5-runaway-grid` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a`: the disruption with a runaway grid | 1 |
-| `dream-v26.5-avalanche-rp` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a`: the kinetic Rosenbluth-Putvinski avalanche at three values of `p_max` | 3 |
+| `dream-v26.5-avalanche-rp` | DREAM release v26.5, commit `ecdd5e146537c77602c9d7cc76b36100200e4b9a`: the kinetic Rosenbluth-Putvinski avalanche at three grid limits `p_max` | 3 |
 | `dream-boltzmann-eqterm-93d27e17` | DREAM branch `boltzmann-eqterm`, commit `93d27e1763827e19dafb1fe790e99c2688ad6d62` | 6 |
 | `gsl-2.8` | GSL 2.8 of conda-forge | 1 |
 
@@ -79,12 +79,15 @@ The tests are in `test/`.
 The table `REFERENCE_FILES` of `test/helpers.jl` names the set of every file.
 For the output of a DREAM example it also names the last DREAM commit that changed the example.
 
-A new set that `run_all.sh` has built but that is not yet published has no entry in `test/Artifacts.toml`.
-Such a set is read from the folder `<set>/` of the directory in the environment variable `RUNES2P_REFERENCE_DIR`.
-That directory has the layout of `out/` that `run_all.sh` writes.
+A new set that `reference/dream/run_all.sh` has built but that is not yet published has no entry in `test/Artifacts.toml` ([Regeneration](#Regeneration)).
+Such a set is read from the directory in the environment variable `RUNES2P_REFERENCE_DIR`, as `<folder>/<set>/<file>`.
+That is the layout of `out/` that `run_all.sh` writes.
 Without the variable, or without the file there, `reference_file` throws an error.
-`reference_available(name)` of `test/helpers.jl` tells whether a file can be read.
-`test/test_kinetic_operator_dream.jl` uses it to skip such a file in its check of the DREAM commits and report it as broken.
+`reference_available(name)` of `test/helpers.jl` is true for a file of a set with an entry in `test/Artifacts.toml`.
+For a set without one, it is true when the folder of the set holds the file.
+
+`test/test_kinetic_operator_dream.jl` uses `reference_available` in its check of the DREAM commits.
+A file for which it is false is skipped and reported as broken (Julia's `@test_skip`).
 
 Every DREAM file records `dream_commit`, `dream_branch` and `petsc_version` as attributes.
 `test/test_kinetic_operator_dream.jl` checks the commit and the branch of every DREAM file against its set.
