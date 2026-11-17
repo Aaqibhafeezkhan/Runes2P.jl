@@ -542,7 +542,8 @@ using SparseArrays: findnz, sparse
         work = InterfaceCollisionWorkTerm(interface)
         @test work.coefficient == -1
         layout = UnknownLayout(radii,
-            [KineticUnknown(:f, hot; scale = 1e16), KineticUnknown(:runaway, upper; scale = 1e14),
+            [KineticUnknown(:f, hot; scale = 1e16),
+                KineticUnknown(:runaway, upper; scale = 1e14),
                 RadialUnknown(:electric_field; scale = 10.0),
                 RadialUnknown(:cold_electron_temperature; scale = 100.0),
                 RadialUnknown(:cold_electron_density; scale = 1e19), RadialUnknown(:work)])
@@ -553,9 +554,11 @@ using SparseArrays: findnz, sparse
         state(field) = begin
             u = zeros(length(layout))
             for ir in 1:2
-                kinetic_view(u, layout, 1, ir) .= [1e16 * exp(-p / 0.15) * (1 + 0.3 * rand(rng))
+                kinetic_view(u, layout, 1, ir) .= [1e16 * exp(-p / 0.15) *
+                                                   (1 + 0.3 * rand(rng))
                                                    for p in hot_m.p_centers, _ in 1:4]
-                kinetic_view(u, layout, 2, ir) .= [2e14 * exp(-p / 2) * (1 + 0.3 * rand(rng))
+                kinetic_view(u, layout, 2, ir) .= [2e14 * exp(-p / 2) *
+                                                   (1 + 0.3 * rand(rng))
                                                    for p in upper_m.p_centers, _ in 1:6]
             end
             unknown_values(u, layout, 3) .= field
@@ -583,14 +586,16 @@ using SparseArrays: findnz, sparse
                 overlap = interface.overlaps[ir]
                 total = 0.0
                 for j in 1:4
-                    A = op.advection_p[31, j, ir] + field[ir] * op.unit_field_advection_p[31, j, ir]
+                    A = op.advection_p[31, j, ir] +
+                        field[ir] * op.unit_field_advection_p[31, j, ir]
                     D = op.diffusion_p_p[31, j, ir]
                     V = op.jacobian_p_faces[31, j, ir]
                     fl = f_l[30, j]
                     if mapping === :dream
                         fr = Runes2P._dream_upper_value(interface, f_u, j, ir)
                         face = A > 0 ? fl : fr
-                        total += hot_m.xi_widths[j] * V * (A_of(j) * face - D_of(j) * (fr - fl) / distance)
+                        total += hot_m.xi_widths[j] * V *
+                                 (A_of(j) * face - D_of(j) * (fr - fl) / distance)
                         continue
                     end
                     for s in overlap.left_ranges[j]
@@ -652,7 +657,8 @@ using SparseArrays: findnz, sparse
         work_columns = setdiff(eachindex(u), rows)
         for (k, r) in enumerate(rows)
             largest = maximum(abs, differences[k, work_columns])
-            @test maximum(abs, Vector(J[r, work_columns]) .- differences[k, work_columns]) <=
+            @test maximum(abs, Vector(J[r, work_columns]) .-
+                               differences[k, work_columns]) <=
                   1e-6 * largest
             # the plasma columns hold the derivative of the collision frequencies
             for name in (:cold_electron_temperature, :cold_electron_density)
@@ -668,7 +674,8 @@ using SparseArrays: findnz, sparse
         with_field = interface.scheme === :exponential_fitting && mapping === :overlap
         @test ((rows[1], field_columns[1]) in stored) == with_field
         dense = ForwardDiff.jacobian(v -> rhs!(similar(v), v, system, 0.0), u)
-        kinetic = vcat(collect(Runes2P.unknown_range(layout, 1, 1)), collect(Runes2P.unknown_range(layout, 1, 2)),
+        kinetic = vcat(collect(Runes2P.unknown_range(layout, 1, 1)),
+            collect(Runes2P.unknown_range(layout, 1, 2)),
             collect(Runes2P.unknown_range(layout, 2, 1)), collect(Runes2P.unknown_range(layout, 2, 2)),
             field_columns)
         for r in rows
@@ -700,7 +707,8 @@ using SparseArrays: findnz, sparse
             AdvectionDiffusion(hot; p_upper_boundary = :interface),
             AdvectionDiffusion(upper; p_lower_boundary = :interface))
         two = UnknownLayout(rad,
-            [KineticUnknown(:f, hot), KineticUnknown(:runaway, upper), RadialUnknown(:work)])
+            [
+                KineticUnknown(:f, hot), KineticUnknown(:runaway, upper), RadialUnknown(:work)])
         @test_throws "holds no collisions" Runes2P.validate(InterfaceCollisionWorkTerm(bare), two, 3)
         relativistic = fokker_planck_operator(hot, base,
             CollisionSettings(mode = :ultra_relativistic, screening = :complete);

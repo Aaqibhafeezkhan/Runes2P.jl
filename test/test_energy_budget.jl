@@ -182,26 +182,45 @@ import ForwardDiff
         work = InterfaceCollisionWorkTerm(interface)
         @test two(crossing, InterfaceEnergyFluxTerm(interface), work) === nothing
         @test_throws "add InterfaceEnergyFluxTerm" two(crossing, work)
-        @test_throws "negative coefficient" two(crossing, InterfaceEnergyFluxTerm(interface; coefficient = 1), work)
+        @test_throws "negative coefficient" two(
+            crossing, InterfaceEnergyFluxTerm(interface; coefficient = 1), work)
         # the work of the collisions on the electrons that cross: required with the energy that
         # crosses, of the same interface, charged to the cold electrons
         @test_throws "add InterfaceCollisionWorkTerm" two(crossing, InterfaceEnergyFluxTerm(interface))
         @test_throws "gives the cold electrons the work that they pay" two(
-            crossing, InterfaceEnergyFluxTerm(interface), InterfaceCollisionWorkTerm(interface; coefficient = 1))
+            crossing, InterfaceEnergyFluxTerm(interface),
+            InterfaceCollisionWorkTerm(interface; coefficient = 1))
         # the work of a copy of the interface: the identity check refuses it before the row check
         copy_of_interface = MomentumInterfaceTerm(:f, :runaway, lower, re)
         @test_throws "not a term of the system" two(
-            crossing, InterfaceEnergyFluxTerm(interface), InterfaceCollisionWorkTerm(copy_of_interface))
+            crossing, InterfaceEnergyFluxTerm(interface),
+            InterfaceCollisionWorkTerm(copy_of_interface))
         # the work of the interface of another Fokker-Planck term of f
         other = FokkerPlanckTerm(:f,
             AdvectionDiffusion(grid; scheme = :exponential_fitting, p_upper_boundary = :interface);
             plasma, settings = lower.settings)
         other_interface = MomentumInterfaceTerm(:f, :runaway, other, re)
-        @test_throws "its collision work at the interface of f reads the interface of another term" Runes2P._check_plasma_pairings([
-            Equation(:f, TimeDerivative(), lower, other, interface, other_interface);
-            Equation(:runaway, TimeDerivative(), re, interface, other_interface);
-            row(crossing, KineticEnergyLossTerm(other; part = :sinks, region),
-                InterfaceEnergyFluxTerm(interface), InterfaceCollisionWorkTerm(other_interface)); energy])
+        @test_throws "its collision work at the interface of f reads the interface of another term" Runes2P._check_plasma_pairings([Equation(
+                                                                                                                                        :f,
+                                                                                                                                        TimeDerivative(),
+                                                                                                                                        lower,
+                                                                                                                                        other,
+                                                                                                                                        interface,
+                                                                                                                                        other_interface);
+                                                                                                                                    Equation(
+                                                                                                                                        :runaway,
+                                                                                                                                        TimeDerivative(),
+                                                                                                                                        re,
+                                                                                                                                        interface,
+                                                                                                                                        other_interface);
+                                                                                                                                    row(
+                                                                                                                                        crossing,
+                                                                                                                                        KineticEnergyLossTerm(
+                                                                                                                                            other;
+                                                                                                                                            part = :sinks,
+                                                                                                                                            region),
+                                                                                                                                        InterfaceEnergyFluxTerm(interface), InterfaceCollisionWorkTerm(other_interface));
+                                                                                                                                    energy])
         # radial transport and knock-on secondaries on the grid of f have no row term: the
         # system refuses them
         transport = AdvectionDiffusion(grid; scheme = :central, r_boundary = :absorbing)
@@ -611,7 +630,8 @@ import ForwardDiff
         interface = MomentumInterfaceTerm(:f, :runaway, lower, re)
         source = RosenbluthPutvinskiSourceTerm(:runaway, upper; p_cutoff = 0.6, electric_field = nothing)
         layout = UnknownLayout(radii,
-            [KineticUnknown(:f, hot; scale = 1e16), KineticUnknown(:runaway, upper; scale = 1e14),
+            [KineticUnknown(:f, hot; scale = 1e16),
+                KineticUnknown(:runaway, upper; scale = 1e14),
                 RadialUnknown(:electric_field; scale = 10.0),
                 RadialUnknown(:cold_electron_temperature; scale = 100.0),
                 RadialUnknown(:cold_electron_density; scale = 1e19),
@@ -622,8 +642,10 @@ import ForwardDiff
         u0 = zeros(length(layout))
         hot_m, upper_m = momentum_grid(hot), momentum_grid(upper)
         for ir in 1:2
-            kinetic_view(u0, layout, 1, ir) .= [1e16 * exp(-p / 0.15) for p in hot_m.p_centers, _ in 1:4]
-            kinetic_view(u0, layout, 2, ir) .= [2e14 * exp(-p / 2) for p in upper_m.p_centers, _ in 1:6]
+            kinetic_view(u0, layout, 1, ir) .= [1e16 * exp(-p / 0.15)
+                                                for p in hot_m.p_centers, _ in 1:4]
+            kinetic_view(u0, layout, 2, ir) .= [2e14 * exp(-p / 2)
+                                                for p in upper_m.p_centers, _ in 1:6]
         end
         values = Dict(:electric_field => field, :cold_electron_temperature => [T0, 2T0],
             :cold_electron_density => [n, 2n], :runaway_density => [1e16, 2e16],
@@ -644,7 +666,8 @@ import ForwardDiff
         value(term) = collect(unknown_values(
             Runes2P.rhs!(zeros(length(u)), term, u, layout, probe, dt), layout, probe))
         # the energy moment of a change `df` of a distribution on its grid, per radius
-        moment(grid, df) = [sum(Runes2P._energy_weights(grid, ir) .* view(df, :, :, ir)) for ir in 1:2]
+        moment(grid, df) = [sum(Runes2P._energy_weights(grid, ir) .* view(df, :, :, ir))
+                            for ir in 1:2]
         # the change of a distribution by the field alone, without a flux through the face or p_max
         function field_work(grid, boundaries)
             op = AdvectionDiffusion(grid; scheme = :central, boundaries...)
@@ -664,19 +687,24 @@ import ForwardDiff
 
         # the runaway grid alone: the field, the heating of the cold electrons, the sinks, the
         # outflow through its p_max, the influx through the interface and the knock-ons
-        field_re = field_work(upper, (p_lower_boundary = :interface, p_upper_boundary = :interface))
+        field_re = field_work(upper, (
+            p_lower_boundary = :interface, p_upper_boundary = :interface))
         heating_re = value(free_electron_energy_transfer_term(re))
         sinks_re = value(KineticEnergyLossTerm(re; part = :sinks, coefficient = 1))
         outflow = value(MomentumBoundaryFluxTerm(:runaway, re; weight = :energy))
         influx = change(:runaway, upper) .- moment(upper,
-            kinetic_array(Runes2P.rhs!(zeros(length(u)), re, u, layout, 2, dt) .+
-                          Runes2P.rhs!(zeros(length(u)), source, u, layout, 2, dt), layout, 2))
+            kinetic_array(
+                Runes2P.rhs!(zeros(length(u)), re, u, layout, 2, dt) .+
+                Runes2P.rhs!(zeros(length(u)), source, u, layout, 2, dt),
+                layout,
+                2))
         crossing = [interface_flux(interface, u, layout, ir) for ir in 1:2]
         @test maximum(abs, influx .- energy_of(upper_m.p_centers[1]) .* crossing) <=
               1e-12 * maximum(abs, change(:runaway, upper))
         knockons = value(KineticEnergyChangeTerm(source))
         channels_re = field_re .- heating_re .- sinks_re .- outflow .+ influx .+ knockons
-        scale_re = maximum(abs, hcat(field_re, heating_re, sinks_re, outflow, influx, knockons))
+        scale_re = maximum(abs, hcat(
+            field_re, heating_re, sinks_re, outflow, influx, knockons))
         @test maximum(abs, change(:runaway, upper) .- channels_re) <= 1e-12 * scale_re
 
         # the two grids together: the electrons that cross change the energy by the step between
@@ -707,9 +735,11 @@ import ForwardDiff
             return total / radii.spatial_jacobian[ir]
         end
         energy_step = energy_of(upper_m.p_centers[1]) - energy_of(hot_m.p_centers[end])
-        face_field = [energy_step * part(j -> field[ir] * op.unit_field_advection_p[31, j, ir], j -> 0.0, ir)
+        face_field = [energy_step *
+                      part(j -> field[ir] * op.unit_field_advection_p[31, j, ir], j -> 0.0, ir)
                       for ir in 1:2]
-        face_sinks = [energy_step * part(j -> op.advection_p[31, j, ir] - ee.advection_p[31, j, ir],
+        face_sinks = [energy_step *
+                      part(j -> op.advection_p[31, j, ir] - ee.advection_p[31, j, ir],
                           j -> op.diffusion_p_p[31, j, ir] - ee.diffusion_p_p[31, j, ir], ir)
                       for ir in 1:2]
         # the term: the energy that the cold electrons gain, the negative of the work that the
@@ -718,8 +748,9 @@ import ForwardDiff
         both = change(:f, hot) .+ change(:runaway, upper)
         without = field_f .+ field_re .+ face_field .- heating_f .- heating_re .- sinks_f .-
                   sinks_re .+ face_sinks .- outflow .+ knockons
-        scale = maximum(abs, hcat(field_f, field_re, face_field, heating_f, heating_re, sinks_f,
-            sinks_re, face_sinks, outflow, knockons))
+        scale = maximum(abs,
+            hcat(field_f, field_re, face_field, heating_f, heating_re, sinks_f,
+                sinks_re, face_sinks, outflow, knockons))
         miss = maximum(abs, both .- without)
         closure = maximum(abs, both .- (without .- cold_work))
         @info "the energy of two grids across the interface: misses by $(miss / scale) of the largest channel without the work of the collisions, $(closure / scale) with it; the work is $(cold_work) W/m³, the influx $(influx) W/m³"
@@ -743,7 +774,8 @@ import ForwardDiff
         hot = cylindrical_grid(MomentumGrid(uniform_p_faces(60, 0.0, 0.6), uniform_xi_faces(2)), radii)
         upper = runaway_grid(hot, uniform_p_faces(10, 0.6, 3.0)[2:end], uniform_xi_faces(3))
         hot_m, upper_m = momentum_grid(hot), momentum_grid(upper)
-        base = PlasmaState(; cold_electron_temperature = [T0], ions = [IonSpecies("D", 1, 1, [n])],
+        base = PlasmaState(;
+            cold_electron_temperature = [T0], ions = [IonSpecies("D", 1, 1, [n])],
             electric_field = [0.0], magnetic_field = [0.0])
         settings = CollisionSettings(mode = :full, screening = :complete, bremsstrahlung = :neglect)
         plasma = PlasmaFromUnknowns(base)
@@ -752,12 +784,14 @@ import ForwardDiff
             AdvectionDiffusion(hot; scheme = :exponential_fitting, p_upper_boundary = :interface);
             plasma, settings, synchrotron = false)
         re = FokkerPlanckTerm(:runaway,
-            AdvectionDiffusion(upper; scheme = :exponential_fitting, p_lower_boundary = :interface,
+            AdvectionDiffusion(
+                upper; scheme = :exponential_fitting, p_lower_boundary = :interface,
                 p_upper_boundary = :outflow);
             plasma, settings, synchrotron = false)
         interface = MomentumInterfaceTerm(:f, :runaway, lower, re)
         layout = UnknownLayout(radii,
-            [KineticUnknown(:f, hot; scale = 1e19), KineticUnknown(:runaway, upper; scale = 1e16),
+            [KineticUnknown(:f, hot; scale = 1e19),
+                KineticUnknown(:runaway, upper; scale = 1e16),
                 RadialUnknown(:cold_electron_temperature; scale = 100.0),
                 RadialUnknown(:cold_electron_density; scale = 1e19),
                 RadialUnknown(:cold_thermal_energy; scale = THERMAL_ENERGY_FACTOR * 1e21),
@@ -768,13 +802,15 @@ import ForwardDiff
         bulk .*= n / density(hot, reshape(bulk, size(bulk)..., 1))[1]
         tail = [1e16 * exp(-p / 0.3) for p in hot_m.p_centers, _ in 1:2]
         kinetic_view(u0, layout, 1, 1) .= bulk .+ tail
-        kinetic_view(u0, layout, 2, 1) .= [1e16 * exp(-p / 0.3) for p in upper_m.p_centers, _ in 1:3]
+        kinetic_view(u0, layout, 2, 1) .= [1e16 * exp(-p / 0.3)
+                                           for p in upper_m.p_centers, _ in 1:3]
         unknown_values(u0, layout, 3) .= T0
         unknown_values(u0, layout, 4) .= n
         function run(work_terms...)
             equations = [Equation(:f, TimeDerivative(), lower, interface),
                 Equation(:runaway, TimeDerivative(), re, interface),
-                Equation(:cold_electron_temperature, TimeDerivative(:total_electron_energy),
+                Equation(
+                    :cold_electron_temperature, TimeDerivative(:total_electron_energy),
                     InterfaceEnergyFluxTerm(interface), work_terms...,
                     free_electron_energy_transfer_term(re)),
                 density_row([n]), thermal_energy_equation(), total_energy_equation(:f, hot; region)]
@@ -784,7 +820,8 @@ import ForwardDiff
             # W_tot and the energy of the runaway grid, relative to W_tot at the start
             totals = map(1:6) do k
                 state = solution.states[:, k]
-                W_re = sum(Runes2P._energy_weights(upper, 1) .* kinetic_view(state, layout, 2, 1))
+                W_re = sum(Runes2P._energy_weights(upper, 1) .*
+                           kinetic_view(state, layout, 2, 1))
                 unknown_values(state, layout, 6)[1] + W_re
             end
             flux = interface_flux(interface, solution.states[:, end], layout, 1)

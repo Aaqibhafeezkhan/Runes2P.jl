@@ -1,7 +1,8 @@
 # The energy that the distributions exchange with the total energy of the electrons: the
 # collisional transfer from the runaway grid to the cold electrons, the sinks of the hot
 # electrons (bound electrons, bremsstrahlung, synchrotron), the energy and the particles
-# that electrons carry out of the hot-tail grid through the interface, and the energy that
+# that electrons carry out of the hot-tail grid through the interface, the work of the
+# electron-electron collisions on the electrons that cross it, and the energy that
 # a source term gives a distribution. Included after operators/field_particle.jl, whose
 # electron-electron operator it uses, and after system/avalanche_terms.jl, whose
 # RosenbluthPutvinskiSourceTerm the energy of a source dispatches on.
@@ -620,7 +621,9 @@ the electrons from that cell, so this is the energy that the discrete energy mom
 lower grid loses (the energy at the interface itself differs by about Δp/(2p)). With the default `coefficient = −1` in the row of
 the temperature it is the energy that leaves the total energy of the electrons on the
 hot-tail grid for the runaway grid ([`total_energy_equation`](@ref)), so the electrons that
-cross take their energy with them and do not heat the cold ones. When the flux follows the
+cross take their energy with them and do not heat the cold ones. The energy that they gain or
+lose between the two cells at the face is not in this term: the part of the
+electron-electron collisions is [`InterfaceCollisionWorkTerm`](@ref). When the flux follows the
 plasma unknowns of the Fokker-Planck term of the interface, the row has their columns
 ([`has_plasma_columns`](@ref)). The row reads the cells of both grids at the face, so the
 term assembles it itself ([`jacobian_assembly`](@ref)) and the coloring of the automatic
@@ -934,7 +937,8 @@ function rhs!(out, term::InterfaceCollisionWorkTerm, u, layout, row, t)
         f_upper = kinetic_view(u, layout, upper, ir)
         flux = _interface_part_flux(interface, op, advection[ir], diffusion[ir],
             f_lower, f_upper, field, ir)
-        out[first(unknown_range(layout, row, ir))] += _collision_work_weight(term, ir) * flux
+        work = _collision_work_weight(term, ir) * flux
+        out[first(unknown_range(layout, row, ir))] += work
     end
     return out
 end
@@ -955,7 +959,9 @@ end
 
 # the coefficients that the rate of a row reads besides the operator: none for the fluxes
 _row_coefficients(::InterfaceFluxTerm, op) = nothing
-_row_coefficients(term::InterfaceCollisionWorkTerm, op) = _collision_face_coefficients!(term, op)
+function _row_coefficients(term::InterfaceCollisionWorkTerm, op)
+    _collision_face_coefficients!(term, op)
+end
 
 # the value of the row at radius ir from the cells at the face
 function _face_rate(term::InterfaceFluxTerm, coefficients, op, f_lower, f_upper, field, ir)

@@ -8,6 +8,12 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Added
 
+- `InterfaceCollisionWorkTerm(interface; coefficient = -1)` is the work of the electron-electron collisions on the electrons that cross a `MomentumInterfaceTerm`, for the row of the temperature ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+  It is the part of the flux through the face that these collisions drive, at the face value of the whole flux, times an energy step.
+  The step is the energy of the first cell of the runaway grid less that of the last cell of the hot-tail grid.
+  Under the total energy of the electrons the row of the temperature needs it next to the `InterfaceEnergyFluxTerm` of the same interface, with a negative coefficient, so that the cold electrons pay that work.
+  Until now no term carried it, and the energy of the two grids was not conserved across the face.
+  The settings record of a run holds the record of the term, in the format 0.0.6.
 - `KineticEnergyChangeTerm(source; region, coefficient)` is the power that a source term gives its distribution, for the row of the temperature, with a `RosenbluthPutvinskiSourceTerm` as `source` ([#296](https://github.com/osrep/Runes2P.jl/pull/296)).
   It is the energy moment of the knock-ons of the fluid runaways above the grid, `n_re n_tot` times a sum over the cells that the source fills.
   A region takes a fixed limit, and a limit that follows the temperature or time is refused.

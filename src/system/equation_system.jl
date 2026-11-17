@@ -1605,7 +1605,8 @@ end
 # InterfaceCollisionWorkTerm of the interface of each of its InterfaceEnergyFluxTerms
 # `crossings`, charged to the cold electrons, and none of an interface of another term of `d`
 function _check_interface_collision_work(row, total, d, term, crossings, listed)
-    works = [t for t in listed if t isa InterfaceCollisionWorkTerm && t.interface.lower === d]
+    works = [t
+             for t in listed if t isa InterfaceCollisionWorkTerm && t.interface.lower === d]
     for t in works
         if t.interface.lower_term !== term
             throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
@@ -1642,7 +1643,8 @@ end
 # the energy moments of the distributions in the closure of W_tot, so every change of W_hot
 # that no term of the row lists is charged to the cold electrons. For each distribution of
 # W_hot the row lists the sinks of its collisions, the energy that crosses p_max (the flux of
-# the boundary, or the interface to the runaway grid), the energy of the knock-ons of each
+# the boundary, or the interface to the runaway grid with the work of the electron-electron
+# collisions on the electrons that cross it), the energy of the knock-ons of each
 # Rosenbluth-Putvinski source over the whole grid, and refuses the channels that no row term
 # carries: radial transport of f, knock-on secondaries on its grid, a prescribed loss rate, a
 # Maxwellian source, and a LinearTerm with a nonzero coefficient, which moves electrons into
@@ -1717,7 +1719,8 @@ function _check_total_energy_rows(equations)
                                                     "to the total in place of removing it: give it a negative coefficient"))
                             end
                         end
-                        _check_interface_collision_work(row, total, d, term, crossings, listed)
+                        _check_interface_collision_work(
+                            row, total, d, term, crossings, listed)
                     elseif !any(
                         t -> t isa MomentumBoundaryFluxTerm && t.kinetic === d &&
                              t.source === term &&

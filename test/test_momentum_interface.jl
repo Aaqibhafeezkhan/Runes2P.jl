@@ -524,7 +524,8 @@ end
                      for j in 1:3],
             upper = [Runes2P._kinetic_index(layout, 5, ir, 1, J) for ir in 1:2
                      for J in 1:20],
-            radial = [first(unknown_range(layout, id, ir)) for id in (6, 7, 9) for ir in 1:2])
+            radial = [first(unknown_range(layout, id, ir)) for id in (6, 7, 9)
+                      for ir in 1:2])
         ion_columns = [column for ir in 1:2 for column in unknown_range(layout, 1, ir)]
         if lagged == :ions
             for rows in row_groups

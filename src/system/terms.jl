@@ -180,8 +180,9 @@ _prepare_for_prototype!(::EquationTerm, u, layout, row, t) = nothing
 Add the entries `∂ rhs_term / ∂u` of a term with [`jacobian_assembly`](@ref)`(term) ===
 :direct` to the stored matrix `J` at the state `u` and the time `t` [s]. The entries lie in
 the pattern of `sparsity!`. A method may allocate work arrays per call, such as the dual
-numbers of [`ParticleSourceTerm`](@ref), [`InterfaceParticleFluxTerm`](@ref) and
-[`InterfaceEnergyFluxTerm`](@ref) or the row of [`KineticEnergyLossTerm`](@ref).
+numbers of [`ParticleSourceTerm`](@ref), [`InterfaceParticleFluxTerm`](@ref),
+[`InterfaceEnergyFluxTerm`](@ref) and [`InterfaceCollisionWorkTerm`](@ref) or the row of
+[`KineticEnergyLossTerm`](@ref).
 """
 function add_jacobian! end
 

@@ -145,7 +145,7 @@ A few properties decide how a term enters the system and its Jacobian:
 
 A row that holds every cell of a radius, such as a density moment, would take one color per cell in the colored AD.
 Such terms assemble their block directly, and the coloring sees the other terms alone.
-The flux through the momentum interface ([`InterfaceParticleFluxTerm`](@ref), [`InterfaceEnergyFluxTerm`](@ref)) reads the cells at the face of both grids and the field in one row, and assembles that row directly for the same reason.
+The flux through the momentum interface ([`InterfaceParticleFluxTerm`](@ref), [`InterfaceEnergyFluxTerm`](@ref), [`InterfaceCollisionWorkTerm`](@ref)) reads the cells at the face of both grids and the field in one row, and assembles that row directly for the same reason.
 A term whose rows read all charge states of a radius builds its block by one dual-number pass over a reduced layout ([`Runes2P.add_local_jacobian!`](@ref), [`Runes2P.local_layout`](@ref)).
 
 The knock-on term with an implicit primary ([`KnockOnTerm`](@ref)) is matrix-free, since its block is dense per radius.
@@ -324,9 +324,10 @@ For each distribution in ``W_\mathrm{hot}`` the system therefore requires in tha
 
 - the sinks of its collisions where they have any ([`KineticEnergyLossTerm`](@ref) with `part = :sinks`), over the region of the energy moment.
 - the energy that leaves through ``p_\mathrm{max}``, as [`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` or as [`InterfaceEnergyFluxTerm`](@ref) of the interface to the runaway grid.
+- at the interface to the runaway grid, the work of the electron-electron collisions on the electrons that cross, as [`InterfaceCollisionWorkTerm`](@ref) of the same interface.
 - the energy of the knock-ons of each [`RosenbluthPutvinskiSourceTerm`](@ref) in its equation, as one [`KineticEnergyChangeTerm`](@ref) of that source without a region.
 
-The terms of the sinks and of ``p_\mathrm{max}`` take a negative coefficient, and the term of the knock-ons a positive one.
+The terms of the sinks, of ``p_\mathrm{max}`` and of the work at the interface take a negative coefficient, and the term of the knock-ons a positive one.
 
 The system refuses radial transport of that distribution, since the system has no energy term for radial transport.
 It refuses [`KnockOnTerm`](@ref), [`LossRateTerm`](@ref), [`MaxwellianSourceTerm`](@ref) and a [`LinearTerm`](@ref) with a nonzero coefficient in the equation of that distribution, since no term of the row carries their energy.

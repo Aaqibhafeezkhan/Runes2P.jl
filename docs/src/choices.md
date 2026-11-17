@@ -157,11 +157,17 @@ DREAM's documentation gives an upper bound for `pCutAvalanche`, the critical mom
 | Choice | Value |
 |---|---|
 | who pays the energy of the knock-ons that [`RosenbluthPutvinskiSourceTerm`](@ref) creates, under [`total_energy_equation`](@ref) | no population: [`KineticEnergyChangeTerm`](@ref) creates it in the system |
+| who pays the work of the electron-electron collisions on the electrons that cross the interface to a runaway grid, under [`total_energy_equation`](@ref) | the cold electrons: [`InterfaceCollisionWorkTerm`](@ref) with `coefficient = -1` |
 
 The primaries of the source are the fluid runaways above the grid, which have no energy unknown.
 The rejected alternative charges the energy of the knock-ons to the cold electrons, which a row of the total energy without the term would do.
 The term takes no region, since every knock-on is in the total energy.
 DREAM's source also creates the knock-ons without taking their energy from a population, and DREAM has no total energy of the electrons ([Energy and current balance](model/energy-current.md#What-the-system-enforces)).
+
+The work of the collisions at the interface is the energy step between the two cells at the face times the part of the flux that the electron-electron collisions drive.
+No operator holds it, since neither grid takes a flux through the face in its energy moments.
+The cold electrons pay it because they are the targets of these collisions, which give them the energy that the electrons lose inside each grid.
+The rejected alternative leaves the work to no population, as a row without the term would, and the energy of the two grids is then not conserved across the face ([Energy and current balance](model/energy-current.md#The-energy-step-at-the-interface)).
 
 ## Linear solvers
 
