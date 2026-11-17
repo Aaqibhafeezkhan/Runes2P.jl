@@ -89,6 +89,52 @@ const CONDUCTIVITY_SETTINGS = CollisionSettings(
               1 - (7.4290 - 7.2736) / 7.4290 * (1e3 - 10) / 5109.9895 rtol = 1e-6
         @test_throws DomainError braams_karney_conductivity(1e20, -1.0, 1.0)
         @test_throws DomainError braams_karney_conductivity(1e20, 10.0, 0.0)
+        @test_throws DomainError braams_karney_conductivity(1e20, 0.0, 1.0)
+        # Θ as the function forms it, from mₑ, c and e as DREAM does
+        mc2 = Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT^2 /
+              Constants.ELEMENTARY_CHARGE
+        dream_theta(T) = T * Constants.ELEMENTARY_CHARGE /
+                         (Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT^2)
+        margin = Runes2P.BRAAMS_KARNEY_TEMPERATURE_MARGIN
+        # the margin covers the difference of the two forms of the rest energy (6.8e-9)
+        @test abs(mc2 / Constants.ELECTRON_REST_ENERGY - 1) < margin
+        # the first positive and the last column of the table, with T = Θ mₑc² in both forms
+        # of the rest energy: the formula with the Θ that the function forms, at most the last
+        # column
+        temperatures = Runes2P.BRAAMS_KARNEY_TEMPERATURES
+        @test first(temperatures) == 0
+        highest = last(temperatures)
+        for theta in (temperatures[2], highest),
+            rest in (mc2, Constants.ELECTRON_REST_ENERGY)
+
+            T = theta * rest
+            for Z in (1.0, 4.0)
+                @test braams_karney_conductivity(1e20, T, Z) ≈
+                      lorentz_conductivity(T, 1e20, Z) *
+                      normalized_conductivity(min(dream_theta(T), highest), 1 / (1 + Z)) /
+                      (32 / sqrt(2π)) rtol = 1e-14
+            end
+        end
+        # at the last column the table value itself
+        for Z in (1.0, 4.0)
+            @test braams_karney_conductivity(
+                1e20, highest *
+                      Constants.ELECTRON_REST_ENERGY, Z) ≈
+                  lorentz_conductivity(highest * Constants.ELECTRON_REST_ENERGY, 1e20, Z) *
+                  normalized_conductivity(highest, 1 / (1 + Z)) / (32 / sqrt(2π)) rtol = 1e-14
+        end
+        # the edge of the margin, in the function's own Θ: the last temperature taken and
+        # the first refused
+        T_edge = highest * Constants.ELECTRON_REST_ENERGY
+        while dream_theta(nextfloat(T_edge)) <= highest * (1 + margin)
+            T_edge = nextfloat(T_edge, 2^20)
+        end
+        while dream_theta(T_edge) > highest * (1 + margin)
+            T_edge = prevfloat(T_edge)
+        end
+        @test dream_theta(T_edge) <= highest * (1 + margin) < dream_theta(nextfloat(T_edge))
+        @test braams_karney_conductivity(1e20, T_edge, 1.0) > 0
+        @test_throws DomainError braams_karney_conductivity(1e20, nextfloat(T_edge), 1.0)
         # DREAM's fit of the conductivity of its kinetic operator
         @test test_particle_conductivity_fraction(1) ≈ 0.5132 atol = 1e-4
         @test test_particle_conductivity_fraction(2) ≈ 0.6384 atol = 1e-4

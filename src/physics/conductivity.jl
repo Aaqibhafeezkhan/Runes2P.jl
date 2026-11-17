@@ -35,6 +35,21 @@ tabulated in DREAM's `RunawayFluid.cpp` (`conductivityBraams`). Rows: X
 """
 const BRAAMS_KARNEY_TABLE = float_matrix(_BRAAMS_KARNEY_DATA["table"])
 
+"""
+    BRAAMS_KARNEY_TEMPERATURE_MARGIN
+
+The relative margin, 1e-8, by which `Θ = T/mₑc²` may exceed the last column of
+`BRAAMS_KARNEY_TEMPERATURES` in [`braams_karney_conductivity`](@ref), which then takes the
+last column. As in DREAM, that function forms `Θ` from `ELEMENTARY_CHARGE`, `ELECTRON_MASS`
+and `SPEED_OF_LIGHT`, while the rest of the package forms it from `ELECTRON_REST_ENERGY`.
+The constants of `Constants` are DREAM's, whose `mₑc²/e` lies 6.8e-9 below
+`ELECTRON_REST_ENERGY`, relative. So the temperature `100 ELECTRON_REST_ENERGY` of the last
+column has `Θ = 100 (1 + 6.8e-9)` there. The margin covers that difference, and a larger
+excess is a temperature outside the table (a choice of this package; see the docs page
+*Choices of this package*).
+"""
+const BRAAMS_KARNEY_TEMPERATURE_MARGIN = 1e-8
+
 # the interval of a sorted tuple that holds x, as the index of its lower end
 function _table_interval(points, x)
     first(points) <= x <= last(points) ||
@@ -107,6 +122,12 @@ density, and the table of [`normalized_conductivity`](@ref). This is DREAM's
 and Redl equals it, since the neoclassical correction is 1 without trapped particles. At low
 temperature and high charge it is the Lorentz conductivity ``64 \\sqrt{2\\pi} \\,
 \\varepsilon_0^2 T^{3/2} / (\\sqrt{m_e} \\, e^2 Z \\ln\\Lambda)``.
+
+As in DREAM, `Θ = T/mₑc²` is formed here from `mₑ`, `c` and `e`, which exceeds
+`T / ELECTRON_REST_ENERGY` by 6.8e-9 of it. A `Θ` above the last column of the table by
+at most `BRAAMS_KARNEY_TEMPERATURE_MARGIN` takes the last column, so that the temperature
+`100 ELECTRON_REST_ENERGY` [eV] is accepted. Where DREAM's `Θ` exceeds the table, DREAM
+throws.
 """
 function braams_karney_conductivity(free_electron_density, temperature, effective_charge)
     temperature > 0 || throw(DomainError(temperature, "the temperature must be positive"))
@@ -114,6 +135,14 @@ function braams_karney_conductivity(free_electron_density, temperature, effectiv
         throw(DomainError(effective_charge, "the effective charge must be positive"))
     energy = temperature * Constants.ELEMENTARY_CHARGE
     theta = energy / (Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT^2)
+    # a Θ above the last column by a round-off of the constants takes the last column, and
+    # a larger one is refused by the table
+    highest = last(BRAAMS_KARNEY_TEMPERATURES)
+    theta = if highest < theta <= highest * (1 + BRAAMS_KARNEY_TEMPERATURE_MARGIN)
+        oftype(theta, highest)
+    else
+        theta
+    end
     normalized = normalized_conductivity(theta, 1 / (1 + effective_charge))
     logarithm = thermal_coulomb_logarithm(free_electron_density, temperature)
     return 4π * Constants.VACUUM_PERMITTIVITY^2 * energy * sqrt(energy) /

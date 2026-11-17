@@ -1,6 +1,20 @@
 """
 Physical constants in SI units (electron rest energy in eV), with the values used by
 DREAM (`src/Constants.cpp`) so that coefficients can be compared with DREAM to round-off.
+These values are not of one CODATA set:
+
+- `CLASSICAL_ELECTRON_RADIUS` and `ELECTRON_MASS` equal CODATA 2014 (P. J. Mohr, D. B.
+  Newell and B. N. Taylor, Rev. Mod. Phys. 88, 035009 (2016),
+  doi:10.1103/RevModPhys.88.035009).
+- `ELEMENTARY_CHARGE` and `VACUUM_PERMITTIVITY` are CODATA 2014 rounded to 9 digits.
+- `VACUUM_PERMEABILITY` is 4π × 10⁻⁷ H/m rounded to 9 digits, which CODATA 2018 also rounds
+  to.
+- `ELECTRON_REST_ENERGY` and `FINE_STRUCTURE_CONSTANT` equal CODATA 2018 (E. Tiesinga et al.,
+  Rev. Mod. Phys. 93, 025010 (2021), doi:10.1103/RevModPhys.93.025010).
+- `SPEED_OF_LIGHT` is exact.
+
+So `ELECTRON_MASS * SPEED_OF_LIGHT^2 / ELEMENTARY_CHARGE` lies 6.8e-9 below
+`ELECTRON_REST_ENERGY`, relative.
 """
 module Constants
 

@@ -120,6 +120,17 @@ A mass in atomic mass units or in grams lies above it.
 The floor is the default of [`PlasmaFromUnknowns`](@ref) and of [`fluid_temperature_floors`](@ref).
 DREAM has no floor, so a comparison that follows DREAM below 0.5 eV sets a lower value.
 
+## Conductivity
+
+| Choice | Value |
+|---|---|
+| relative margin by which ``\Theta = T/m_ec^2`` may exceed the last column of the table of [`braams_karney_conductivity`](@ref), which then takes that column | `BRAAMS_KARNEY_TEMPERATURE_MARGIN = 1e-8` |
+
+As in DREAM, the conductivity forms ``\Theta`` from ``m_e``, ``c`` and ``e``, and the rest of the package from the rest energy in eV.
+With DREAM's constants the first form exceeds the second by 6.8e-9 of it, so the temperature 100 ``m_ec^2`` of the last column, ``\Theta = 100``, lies just above the table there.
+The margin of 1e-8 covers that difference.
+DREAM throws where its ``\Theta`` exceeds the table, so no option gives DREAM's behaviour.
+
 ## Grids
 
 | Choice | Value |
