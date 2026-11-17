@@ -69,7 +69,6 @@ Until the first release, every change is listed under "Unreleased", with the sub
   Until now each operator took the side of its own advection there, and the field part, the free-electron part and the sinks did not sum to the momentum flux where the field beats the friction.
   The term reads the sign of that advection, field included, and lists the field unknown among its dependencies, without a column of the Jacobian.
   In the settings record of a run the term then holds the field unknown in the value of `dependencies` and can have `linear` false, with no new key.
-  The heating of the cold electrons by `f_re` in the test case `runaway_heating_example` at `compat = :runes2p` is 1.39e5 W/m³ at the start, where it was 0.
   The central scheme and exponential fitting in momentum keep the moment of the applied operators.
 - Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` refuses a row of the temperature with an `InterfaceEnergyFluxTerm` but without an `InterfaceCollisionWorkTerm` of the same interface that has a negative coefficient ([#297](https://github.com/osrep/Runes2P.jl/pull/297)).
   Until now no term carried the work of the electron-electron collisions on the electrons that cross the interface, and the energy of the two grids was not conserved across the face.

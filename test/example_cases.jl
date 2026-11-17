@@ -130,8 +130,10 @@ the plasma of the start of the step, as DREAM's semi-implicit steps (`LINEAR_IMP
 term, with only the ion densities taken at the start of the step.
 
 `field` [V/m] is the prescribed electric field, 1.5 V/m in the case (initial_state.py:67,
-generate.py:35); another value serves the tests of a field near the one where a momentum face
-of `f_re` changes its upwind side. `momentum_cells` is the number of uniform momentum cells
+generate.py:35). It also sets the initial ohmic current, `field` times the conductivity, and
+the pitch cell of the forward start of `f_re` ([`fill_runaway_distribution!`](@ref)).
+Another value serves the tests of a field near the one where a momentum face of `f_re`
+changes its upwind side. `momentum_cells` is the number of uniform momentum cells
 to p = 50, 100 in the case; another number serves the refinement of the momentum grid.
 `scheme` is the scheme of the operator of `f_re`, `:upwind` in the case; another scheme with
 a side serves the tests of a change of side under it.

@@ -172,7 +172,8 @@ The rejected alternative leaves the work to no population, as a row without the 
 
 The parts of the energy loss take the side of the whole advection under `:upwind`, `:quick`, `:upwind_second_order` and the flux limiters, so that they sum to the momentum flux of the Fokker-Planck term face by face.
 The rejected alternative takes each operator of a part on the side of its own advection.
-The parts then miss the flux at every face where the advection of an operator and the whole advection have opposite signs, which happens where the field beats the friction.
+The parts then miss the flux at every face where the advection of an operator and the whole advection have opposite signs.
+That happens where the field beats the friction, and at ``p = 0`` under a four-point scheme with `p_zero_boundary = :outflow`, where the field alone sets the side.
 In a test at 2 V/m their sum differs there from the flux of the whole by up to 0.44 of the largest face flux of the whole (`test/test_energy_transfer.jl`).
 The shared side makes each part jump where a face changes its side, and an implicit step across that change may then need a smaller step ([Energy and current balance](model/energy-current.md#Energy-transfer-between-the-distributions)).
 

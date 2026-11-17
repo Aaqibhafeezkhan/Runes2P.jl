@@ -388,10 +388,10 @@ DREAM's moment, [`FrictionEnergyTransferTerm`](@ref), also counts the energy tha
 The test case `runaway_heating_example` (`test/example_cases.jl`) takes the option at `compat = :dream`.
 It is compared with DREAM's run in `test_runaway_heating_dream.jl`.
 
-The case sets `:upwind` at both `compat` values, from DREAM's script, and its side matters at `compat = :runes2p`, where the row holds the energy change.
+The case sets `:upwind` at both `compat` values, from DREAM's script, and the side matters at `compat = :runes2p` alone.
 With cells 0.5 ``m_e c`` wide and nearly all of ``f_\mathrm{re}`` in the first, the field beats the friction at the face above it.
-The energy change is then 1.39e5 W/m³ at the start, 1.772 to 1.779 times DREAM's moment evaluated on the same states.
-The page [The side on a coarse momentum grid](model/energy-current.md#The-side-on-a-coarse-momentum-grid) gives 2.127, as it divides by the moment at the settings of the grid, 0.837 of the other.
+The energy change is then 1.39e5 W/m³ at the start, 1.772 to 1.779 times DREAM's moment on the same states.
+The page [The side on a coarse momentum grid](model/energy-current.md#The-side-on-a-coarse-momentum-grid) gives 2.127, as it divides by the friction moment with the collision settings of the grid, which is 0.837 of DREAM's moment.
 
 At the end of the 5 µs, (Runes2P − DREAM) / DREAM of ``T_\mathrm{cold}`` is +2.8e-4 (`test_runaway_heating_dream.jl`).
 The extra heating of about 0.30 J/m³ over the heat capacity of 12 J/(m³ eV) gives 2.5e-4 of it.

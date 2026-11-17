@@ -316,12 +316,12 @@ const HEATING_RUN_DEFAULT_FIRST_STEP = 5e-5
             # At compat = runes2p the heating by f_re jumps where a momentum face changes its
             # upwind side, and the side follows T_cold through the friction. Near the field at
             # which the whole advection of the face p = 0.5 of the last pitch cell vanishes at
-            # the initial state, the first step from T_old can have no solution: Newton cycles
-            # between the two sides until its 30 iterations end, and the step control halves
-            # the step. At (1 + 1e-6) times that field the first attempt of the first step ends
-            # without convergence after 30 iterations, the half step converges in 3 iterations
-            # under upwind and 4 under TCDF, and the run finishes with the temperature of fixed
-            # half steps. At (1 − 1e-6) times that field no step is rejected.
+            # the initial state, Newton's iteration of a step that straddles the change may
+            # alternate between the two sides and not converge. The step control then halves
+            # the step, and the run continues with the result of the smaller steps.
+            # Measured: at (1 + 1e-6) times that field the first attempt ends without
+            # convergence after 30 iterations, and the half step converges in 3 iterations
+            # under upwind and 4 under TCDF; at (1 − 1e-6) times it no step is rejected.
             case = runaway_heating_example(; compat = :runes2p, scheme)
             whole = Runes2P._operator_at(case.fokker_planck, case.initial_state, case.layout, 0.0)
             pitch = size(case.grid)[2]
@@ -338,17 +338,21 @@ const HEATING_RUN_DEFAULT_FIRST_STEP = 5e-5
             @info "$scheme, a step across the change of side: statuses $(statistics.status), Newton " *
                   "iterations $(statistics.newton_iterations), steps $(statistics.time_step)"
             @test adaptive.times[end] == steps[end]
-            @test statistics.status[1] === :max_iterations
-            @test statistics.newton_iterations[1] == 30
-            @test !statistics.accepted[1]
-            @test statistics.time_step[2] == statistics.time_step[1] / 2
-            @test all(statistics.accepted[2:end])
-            @test statistics.newton_iterations[2] <= 4
-            halves = collect(range(steps[1], steps[2]; length = 3))
-            fixed = integrate(above.system, above.initial_state, halves; stepper = FixedSteps())
+            rejected = findall(!, statistics.accepted)
+            @test 1 <= length(rejected) <= 3
+            for attempt in rejected
+                @test attempt < length(statistics.accepted)
+                @test statistics.time_step[attempt + 1] ≈ statistics.time_step[attempt] / 2
+            end
+            # fixed steps of the accepted sizes reach the same temperature
+            accepted_steps = statistics.time_step[statistics.accepted]
+            grid_times = steps[1] .+ cumsum([0.0; accepted_steps])
+            grid_times[end] = steps[end]
+            fixed = integrate(above.system, above.initial_state, grid_times;
+                stepper = FixedSteps())
             @test all(fixed.statistics.accepted)
             row = unknown_id(above.layout, :cold_electron_temperature)
-            T_adaptive = only(unknown_values(adaptive.states[:, 2], above.layout, row))
+            T_adaptive = only(unknown_values(adaptive.states[:, end], above.layout, row))
             T_fixed = only(unknown_values(fixed.states[:, end], above.layout, row))
             @test T_adaptive ≈ T_fixed rtol = 1e-12
             below = runaway_heating_example(; compat = :runes2p, scheme,

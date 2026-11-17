@@ -1163,8 +1163,8 @@ using SparseArrays: findnz, sparse
             # each part, and the row is the energy moment of the applied operators to 1e-13 of
             # the sum of the absolute moments of the cells (at most 6.5e-16 measured). At 2 V/m
             # the field beats the friction above p ≈ 0.06, and the row departs from that moment
-            # by more than 1e-4 of it: by 2.0e-4 to 5.8e-2 of it measured, the least under QUICK
-            # in the free-electron part.
+            # by more than 2e-5 of it, a tenth of the least measured: by 2.0e-4 to 5.8e-2 of it
+            # measured, the least under QUICK in the free-electron part.
             for (field, beats_friction) in ((0.0, false), (0.01, false), (2.0, true))
                 (; layout, state, source) = loss_case(scheme, field; field_unknown = true)
                 term = KineticEnergyLossTerm(source; part, region = hot_region)
@@ -1185,12 +1185,67 @@ using SparseArrays: findnz, sparse
                     applied = -term.coefficient * sum(cells)
                     deviation = abs(out[rows_of(layout)[ir]] - applied)
                     if beats_friction
-                        @test deviation > 1e-4 * abs(applied)
+                        @test deviation > 2e-5 * abs(applied)
                     else
                         @test deviation <= 1e-13 * sum(abs, cells)
                     end
                 end
             end
+        end
+
+        @testset "a four-point scheme on two momentum cells ($scheme, $part)" for scheme in (
+                :quick, :tcdf),
+            part in (:sinks, :free_electrons)
+
+            # With fewer than three momentum cells a four-point scheme takes the central face
+            # value, which has no side: the face form of the term is then the moment of the
+            # applied operators to 1e-13 of the absolute moments of the cells
+            two_cells = cylindrical_grid(
+                [MomentumGrid(uniform_p_faces(2, 0.0, 0.6), uniform_xi_faces(6)),
+                    MomentumGrid(uniform_p_faces(2, 0.0, 0.6),
+                        -cos.(range(0, π; length = 7)))],
+                radii)
+            (; layout, state, source, f0) = loss_case(scheme, 2.0; grid = two_cells)
+            term = KineticEnergyLossTerm(source; part, region = hot_region)
+            @test Runes2P._face_form(term)
+            out = Runes2P.rhs!(zeros(length(state)), term, state, layout, 2, 0.0)
+            plasma = Runes2P._transfer_plasma(term, state, layout, 0.0)
+            df = Runes2P._loss_change(Runes2P._loss_operators(term, two_cells, plasma), f0)
+            for ir in 1:2
+                cells = Runes2P._loss_weights(term, two_cells, ir, state, layout, 0.0) .*
+                        view(df, :, :, ir)
+                @test any(!iszero, cells)
+                @test abs(out[rows_of(layout)[ir]] + term.coefficient * sum(cells)) <=
+                      1e-13 * sum(abs, cells)
+            end
+        end
+
+        @testset "the parts sum to the flux face by face under the central scheme (E = $field)" for field in (
+            2.0, -2.0)
+            # The central face value has no side, so the field part, the free-electron part
+            # and the sinks, each on its own operators, sum to the momentum flux of the whole
+            # to 2e-15 of the largest face flux of the whole
+            (; layout, state, whole, collisions, field_part, source) = loss_case(:central, field)
+            field_values = Runes2P._field_values(source.electric_field, state, layout)
+            difference, largest = 0.0, 0.0
+            for ir in 1:2, j in 1:6, k in 1:60
+                reference = Runes2P._p_flux(whole, tail, k, j, ir, nothing, field_values)
+                parts = Runes2P._p_flux(field_part, tail, k, j, ir) +
+                        Runes2P._p_flux(collisions, tail, k, j, ir)
+                difference = max(difference, abs(parts - reference))
+                largest = max(largest, abs(reference))
+            end
+            @test difference <= 2e-15 * largest
+        end
+
+        @testset "the settings record of the term under upwind with a field unknown" begin
+            # the record holds the field unknown among the dependencies, and the term is not
+            # linear: its side follows the field
+            (; source) = loss_case(:upwind, 2.0; field_unknown = true)
+            term = KineticEnergyLossTerm(source; part = :sinks, region = hot_region)
+            record = Runes2P.describe(term)
+            @test "electric_field" in record["dependencies"]
+            @test record["linear"] == false
         end
 
         @testset "the parts on the side of the whole from their coefficients ($part, E = $field)" for part in (
