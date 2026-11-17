@@ -172,20 +172,21 @@ The energy of the electrons that cross there belongs to the boundary term alone,
 That term is [`MomentumBoundaryFluxTerm`](@ref) at an outer boundary and [`InterfaceEnergyFluxTerm`](@ref) at the interface to a runaway grid.
 With the sinks charged to ``W_\mathrm{tot}``, the cold electrons receive exactly the free-electron part of what the hot electrons lose.
 
-Under a momentum scheme whose face value depends on the direction of the advection, the parts take the upwind side of the whole advection of the Fokker-Planck term.
-That advection holds the collisions and the electric field.
-These schemes are `:upwind`, `:quick`, `:upwind_second_order` and the flux limiters, such as `:tcdf`.
-Their face value depends on ``f`` and on that side alone, so the field part, the free-electron part and the sinks sum to the momentum flux of the term face by face.
-On their own sides they would not: in a test of a 100 eV plasma at 2 V/m their sum differs from the flux by up to 0.4 of its largest value (`test/test_energy_transfer.jl`).
+A Fokker-Planck term with linear schemes gives the parts the moment of their operators applied to ``f``, whose face values take the side of their own advection.
+A flux limiter in a scheme of the Fokker-Planck term, such as `:tcdf` in ``p`` or in ``\xi``, makes the term nonlinear in ``f``.
+The momentum face values of the parts then take the upwind side of the whole advection of the Fokker-Planck term, its collisions and its electric field.
+That face value depends on ``f`` and on the side alone, so the field part, the free-electron part and the sinks sum to the momentum flux of the term face by face.
+On their own sides they would not: in a test of a 100 eV plasma at 2 V/m under the limiters, their sum differs from the flux by up to 0.18 of its largest value (`test/test_energy_transfer.jl`).
 
-The term then takes the moment in the form of the momentum faces, since the pitch fluxes sum to zero over a momentum row:
+Under a limiter the term takes the moment in the form of the momentum faces, since the pitch fluxes sum to zero over a momentum row:
 
 ```math
 L = -\frac{1}{V'} \sum_j \Delta\xi_j \sum_k \left(\varepsilon_k - \varepsilon_{k-1}\right) F_{kj},
 ```
 
-with ``\varepsilon_k`` the energy ``w_k m_e c^2 (\gamma_k - 1)`` of momentum cell ``k`` and ``F_{kj}`` the momentum flux of ``C_a - C_b`` through the lower face of cell ``(k, j)``, multiplied by ``\mathcal{V}'``.
-The term reads the sign of the field unknown of the Fokker-Planck term and has no column of it.
+with ``\varepsilon_k`` the energy ``w_k m_e c^2 (\gamma_k - 1)`` of momentum cell ``k``, ``\varepsilon_0 = 0``, and ``F_{kj}`` the momentum flux of ``C_a - C_b`` through the lower face of cell ``(k, j)``, multiplied by ``\mathcal{V}'``.
+The term reads the sign of the whole advection, not of the field alone, and has no column of the field unknown.
+Where a face changes its side, each part jumps, while their sum, the momentum flux of the Fokker-Planck term, stays continuous.
 
 [`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` and [`InterfaceEnergyFluxTerm`](@ref) weight the flux at the top of the grid with the kinetic energy of the last momentum cell.
 That is the energy that the discrete energy moment of the grid loses with the electrons.

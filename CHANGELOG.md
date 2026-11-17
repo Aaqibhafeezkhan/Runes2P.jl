@@ -13,9 +13,11 @@ Until the first release, every change is listed under "Unreleased", with the sub
   A region takes a fixed limit, and a limit that follows the temperature or time is refused.
   The settings record of a run holds the record of the term, and `OUTPUT_FORMAT_VERSION` is 0.0.6 for it and for the key `knockon_term` of a `SecondaryHeatingTerm` with `cut = :knockon`.
   A file of the format 0.0.5 reads as before.
-- `KineticEnergyLossTerm` takes a Fokker-Planck term with a flux limiter, such as `:tcdf`, so a total-energy row accepts the sinks of a hot-tail grid under a limiter ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
-  Under `:upwind`, `:quick`, `:upwind_second_order` and the limiters, the term takes the moment in the form of the momentum faces, and its Jacobian holds the derivative of the limiter.
-  The term reads the sign of the field unknown of the Fokker-Planck term, which it lists among its dependencies without a column.
+- `KineticEnergyLossTerm` takes a Fokker-Planck term with a flux limiter in a scheme, such as `:tcdf`, so a total-energy row accepts the sinks of a hot-tail grid under a limiter ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+  The term then takes the moment in the form of the momentum faces, with both operators on the upwind side of the whole advection of the Fokker-Planck term.
+  The term reads the sign of that advection, its collisions and its field, and lists the field unknown among its dependencies without a column.
+  Its Jacobian holds the derivative of the limiter.
+  A Fokker-Planck term with linear schemes gives the term the moment of the applied operators, as before.
 - `SecondaryHeatingTerm(...; cut = :knockon, knockon_term = term)` gives the cold electrons only the energy of the secondaries below the cutoff of the `KnockOnTerm` `term` at each radius ([#294](https://github.com/osrep/Runes2P.jl/pull/294)).
   The secondaries above the cutoff, which the knock-on term puts into a distribution, are no longer counted twice.
   The heating reads the cutoff at each evaluation, so it follows a `KnockOnCutoffUpdate`.
@@ -62,11 +64,6 @@ Until the first release, every change is listed under "Unreleased", with the sub
   The row of the temperature then needs one `KineticEnergyChangeTerm` of that very source, with a positive coefficient and without a region, since every knock-on is in the total energy.
   The term creates the energy of the knock-ons in the system, and no population pays it.
   The row refuses a `KineticEnergyChangeTerm` whose source is not in the equation of a distribution in the total energy.
-- Under `:upwind`, `:quick` and `:upwind_second_order`, both operators of `KineticEnergyLossTerm` take the face values on the upwind side of the whole advection of the Fokker-Planck term, its collisions and its field ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
-  Until now each operator took the side of its own advection, so the field part, the free-electron part and the sinks did not sum to the momentum flux of the term where the field beats the friction.
-  In `runaway_heating_example` at `compat = :runes2p` (upwind, 1.5 V/m) the heating by `f_re` is now 1.36e5 to 1.39e5 W/m³ over the run, in place of 0 to 473 W/m³.
-  That is 1.77 to 1.78 times DREAM's moment `FrictionEnergyTransferTerm` on the same states.
-  `T_cold` ends 2.8e-4 above DREAM's in place of 2.9e-4 below it.
 - `EquationSystem` refuses `SecondaryHeatingTerm` with `cut = :none` or `cut = :threshold` next to a `KnockOnTerm` of the same primary on `:total_electron_density`, which counts the energy above the knock-on cutoff twice ([#294](https://github.com/osrep/Runes2P.jl/pull/294)).
   `bound_friction = :ionization_split` accepts the heating with `cut = :knockon` as well as with `cut = :none`.
 - Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` refuses a `LossRateTerm`, a `MaxwellianSourceTerm` or a `LinearTerm` with a nonzero coefficient in the equation of a distribution whose energy is in the total ([#295](https://github.com/osrep/Runes2P.jl/pull/295)).
