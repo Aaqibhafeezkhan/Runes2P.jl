@@ -25,7 +25,9 @@ holds the radial neighbours before the system is built. Build it with
 its stencil leaves out the corners of the 3×3 block in p and ξ. A
 [`PiecewiseConstant`](@ref) level needs its switch times among the time points of the run.
 DREAM interpolates the table of its `dBB` linearly in time and takes the value at the end of
-a step.
+a step. The run refuses the update on a distribution whose energy is in the total energy of
+the electrons ([`total_energy_equation`](@ref)), since the system has no energy term for
+radial transport.
 
 A level without [`forced_time_points`](@ref), any function other than a
 [`PiecewiseConstant`](@ref), is taken as continuous in time: its change at every step
@@ -99,6 +101,24 @@ function check_update(update::RechesterRosenbluthUpdate, system)
                                 "Fokker-Planck term of $(equation.unknown) with a plasma source, whose rebuild " *
                                 "clears it. Give the " *
                                 "radial transport an operator and a FokkerPlanckTerm of its own."))
+        end
+    end
+    # The transport of a distribution of the total energy of a row moves energy between the
+    # radii, and the system has no energy term for radial transport. The system refuses such
+    # transport when it is built, but this operator receives its coefficients in the run, so
+    # the check is made here.
+    for entry in _total_energy_rows(system.equations), equation in system.equations
+
+        equation.unknown in entry.distributions || continue
+        for term in equation.terms
+            if term isa FokkerPlanckTerm && term.operator === update.operator
+                throw(ArgumentError("the update $(update.name) sets the radial transport of $(equation.unknown), " *
+                                    "whose energy is in the total energy $(entry.total) of the row of " *
+                                    "$(entry.row.unknown), but the system has no energy term for radial " *
+                                    "transport: the cold electrons would gain or pay the energy that the " *
+                                    "transport moves between the radii. Radial transport of " *
+                                    "$(equation.unknown) is refused under the total energy"))
+            end
         end
     end
     return nothing

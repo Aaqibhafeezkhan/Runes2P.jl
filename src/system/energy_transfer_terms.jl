@@ -19,7 +19,11 @@ L = −\\frac{1}{V'} \\sum_{ij} w_i\\, m_e c^2 (γ_i − 1)\\, [C_a f − C_b f]
 ```
 
 with the envelope `w` of `region` (1 without one, [`MomentumRegion`](@ref)) and the
-operators of the plasma, collision settings, scheme and boundaries of `source`:
+operators of the plasma, collision settings, scheme and lower boundaries of `source`.
+Neither part takes a flux through `p_max`, whatever the upper boundary of `source`: the
+electrons that cross there carry their energy across the edge of the grid. That energy is
+counted by [`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` at an outer boundary
+and by [`InterfaceEnergyFluxTerm`](@ref) at the interface to a runaway grid. The parts:
 
 - `part = :free_electrons`: `C_a` the electron-electron part ([`electron_electron_operator`](@ref)),
   `C_b = 0`: the energy that the electrons give to the free cold electrons, the friction
@@ -85,7 +89,8 @@ end
 
 The power [W/m³] that the electrons of the unknown of `source` give to the free cold
 electrons by collisions: [`KineticEnergyLossTerm`](@ref) with `part = :free_electrons`, the
-transfer from the runaway grid to the cold electrons.
+transfer from the runaway grid to the cold electrons. The electrons that cross `p_max`
+exchange no energy with the cold electrons.
 """
 function free_electron_energy_transfer_term(source::FokkerPlanckTerm)
     KineticEnergyLossTerm(source; part = :free_electrons)
@@ -165,21 +170,22 @@ function _transfer_plasma(term::KineticEnergyLossTerm, u, layout, t)
     return _fokker_planck_plasma(term.source, u, layout, t)
 end
 
-# The operators C_a and C_b of the part, with the scheme and the boundaries of the source.
-# The sinks take no flux through p_max (the value :interface): the energy of the electrons
-# that leave there is that of MomentumBoundaryFluxTerm(...; weight = :energy) in the row of
-# the total energy, and with the flux of the source's boundary the sink part of it would be
-# counted twice.
+# The operators C_a and C_b of the part, with the scheme and the lower boundaries of the
+# source. Both parts take no flux through p_max (the value :interface): the electrons that
+# cross there carry their energy across the edge of the grid, and neither the cold
+# electrons nor the sinks exchange it. In the row of the total energy that energy is the
+# boundary term's, MomentumBoundaryFluxTerm(...; weight = :energy) at an outer boundary and
+# InterfaceEnergyFluxTerm at the interface to a runaway grid, which a flux in either part
+# would count twice.
 function _loss_operators(term::KineticEnergyLossTerm, grid, plasma)
     op = term.source.operator
-    upper = term.part === :sinks ? :interface : op.p_upper_boundary
     free = electron_electron_operator(
         grid, plasma, term.source.settings; scheme = op.p_scheme,
-        p_lower_boundary = op.p_lower_boundary, p_upper_boundary = upper,
+        p_lower_boundary = op.p_lower_boundary, p_upper_boundary = :interface,
         p_zero_boundary = op.p_zero_boundary)
     term.part === :free_electrons && return (free, nothing)
     collisions = AdvectionDiffusion(grid; p_scheme = op.p_scheme, xi_scheme = op.xi_scheme,
-        p_lower_boundary = op.p_lower_boundary, p_upper_boundary = upper,
+        p_lower_boundary = op.p_lower_boundary, p_upper_boundary = :interface,
         p_zero_boundary = op.p_zero_boundary)
     C = eltype(plasma.cold_electron_temperature)
     if C !== Float64

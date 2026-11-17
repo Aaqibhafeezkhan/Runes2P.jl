@@ -1479,6 +1479,10 @@ function _check_run(system::EquationSystem, u0, times, save_times, options::RunO
                                 "times and save_times), and only StepController takes save times between them"))
         end
     end
+    # the checks of the rows of a total energy read the coefficients of the operators, which
+    # may have changed since the system was built: set by hand or left by an update of an
+    # earlier run
+    _check_total_energy_rows(system.equations)
     updates = _checked_updates(options.updates)
     foreach(update -> check_update(update, system), updates)
     for update in updates, t in forced_time_points(update)

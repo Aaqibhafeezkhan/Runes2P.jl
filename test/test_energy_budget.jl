@@ -3,8 +3,9 @@
 # the row of the temperature holds, so that T follows from W_cold = W_tot − W_hot: the
 # transfer from a slowing-down tail to the cold electrons against the friction power of
 # superthermal electrons, the temperature of a cold plasma under a hot tail a hundred times
-# its energy, the chain that determines the temperature, and DREAM's fluid heating by
-# runaways.
+# its energy, the chain that determines the temperature, the checks of the row with the
+# losses that take no flux through p_max, the refusal of radial transport set after the
+# build, by an update or by hand, and DREAM's fluid heating by runaways.
 import ForwardDiff
 
 @testset "energy budget" begin
@@ -187,12 +188,36 @@ import ForwardDiff
         @test_throws "Radial transport" check((term, FokkerPlanckTerm(:f, transport)), sinks, outflow)
         @test_throws "fluid runaways above the grid" check(
             (term, RosenbluthPutvinskiSourceTerm(:f, grid)), sinks, outflow)
+        # a prescribed loss rate and a Maxwellian source move electrons with their energy out
+        # of W_hot and into it, which no row term carries
+        @test_throws "prescribed loss rate is refused" check(
+            (term, LossRateTerm(:f, [1e3, 1e3])), sinks, outflow)
+        @test_throws "Maxwellian source is refused" check(
+            (term, MaxwellianSourceTerm(:f, grid, T0; target_density = n, rate = 1e5)),
+            sinks, outflow)
+        # a LinearTerm of a kinetic unknown moves electrons into f or out of it, the same
+        # channel as the loss rate. With a zero coefficient it moves none.
+        @test_throws "LinearTerm of f in the equation of f" check(
+            (term, LinearTerm(:f; coefficient = -1e3)), sinks, outflow)
+        @test_throws "LinearTerm with a nonzero coefficient is refused" check(
+            (term, LinearTerm(:g; coefficient = [0.0, 1e3])), sinks, outflow)
+        @test check((term, LinearTerm(:f; coefficient = 0.0)), sinks, outflow) === nothing
+        @test check((term, LinearTerm(:g; coefficient = [0.0, 0.0])), sinks, outflow) ===
+              nothing
+        # in an algebraic equation of f a LinearTerm of f is the closure of the row
+        @test Runes2P._check_plasma_pairings([Equation(:f, Algebraic(), LinearTerm(:g),
+                                                  LinearTerm(:f; coefficient = -1));
+                                              row(); energy]) === nothing
         # a system without the total energy needs none of these row terms
         @test Runes2P._check_plasma_pairings([Equation(
             :f, TimeDerivative(), term, FokkerPlanckTerm(:f, transport))]) === nothing
+        @test Runes2P._check_plasma_pairings([Equation(
+            :f, TimeDerivative(), term, LossRateTerm(:f, [1e3, 1e3]),
+            MaxwellianSourceTerm(:f, grid, T0; target_density = n, rate = 1e5),
+            LinearTerm(:f; coefficient = -1e3))]) === nothing
 
-        # The sinks take no flux through p_max, whatever the boundary of the source: the energy
-        # of the electrons that leave is the boundary term's alone.
+        # Neither part of the loss takes a flux through p_max, whatever the boundary of the
+        # source: the energy of the electrons that cross it is the boundary term's alone.
         # A tail at the end of the grid, where the flux through p_max is large.
         layout = UnknownLayout(grid.radial_grid,
             [KineticUnknown(:f, grid; scale = 1e16),
@@ -206,14 +231,83 @@ import ForwardDiff
         end
         unknown_values(u, layout, 2) .= T0
         unknown_values(u, layout, 3) .= n
-        loss(boundary) = Runes2P.rhs!(zeros(length(u)),
-            KineticEnergyLossTerm(fp(boundary); part = :sinks, region = nothing),
+        loss(boundary, part) = Runes2P.rhs!(zeros(length(u)),
+            KineticEnergyLossTerm(fp(boundary); part, region = nothing),
             u, layout, 2, 0.0)[Runes2P.unknown_range(layout, 2, 1)]
-        reference = loss(:interface)
-        @test only(reference) != 0
-        for boundary in (:f_zero, :constant_flux)
-            @test loss(boundary) == reference
+        for part in (:sinks, :free_electrons)
+            reference = loss(:interface, part)
+            @test only(reference) != 0
+            for boundary in (:f_zero, :constant_flux)
+                @test loss(boundary, part) == reference
+            end
         end
+        # the electron-electron operator of the source carries electrons through p_max here,
+        # so the free-electron part of a source at :constant_flux would differ with the flux
+        source = fp(:constant_flux)
+        ee = electron_electron_operator(
+            grid, Runes2P.plasma_values(plasma, u, layout, 0.0), source.settings;
+            scheme = source.operator.p_scheme, p_upper_boundary = :constant_flux)
+        through_p_max = MomentumBoundaryFluxTerm(:f, ee; weight = :energy)
+        @test only(Runes2P.rhs!(zeros(length(u)), through_p_max, u, layout, 2, 0.0)[Runes2P.unknown_range(
+            layout, 2, 1)]) != 0
+    end
+
+    @testset "radial transport set after the build under the total energy" begin
+        # An operator of radial transport built by hand declares radial transport and holds no
+        # coefficients when the system is built, so the system accepts it. A
+        # RechesterRosenbluthUpdate sets its coefficients in the run, and the run refuses it
+        # while the distribution is in the total energy, as the system refuses transport set
+        # before it is built. Coefficients set by hand after the build are refused by the run.
+        T0, n = 100.0, 1e19
+        grid = cylindrical_grid(
+            MomentumGrid(uniform_p_faces(20, 0.0, 0.4), uniform_xi_faces(2)),
+            RadialGrid(uniform_r_faces(2, 0.5)))
+        base = PlasmaState(;
+            cold_electron_temperature = [T0, T0], ions = [IonSpecies("D", 1, 1, [n, n])],
+            electric_field = zeros(2), magnetic_field = zeros(2))
+        region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor = 5))
+        fp = FokkerPlanckTerm(:f,
+            AdvectionDiffusion(grid; scheme = :exponential_fitting, p_upper_boundary = :f_zero);
+            plasma = PlasmaFromUnknowns(base),
+            settings = CollisionSettings(mode = :full, screening = :complete, bremsstrahlung = :neglect))
+        transport = AdvectionDiffusion(grid; scheme = :central, r_boundary = :absorbing)
+        @test transport.radial_transport[] && all(iszero, transport.diffusion_r_r)
+        update = RechesterRosenbluthUpdate(transport, t -> 1e-3; major_radius = 6.2)
+        layout = UnknownLayout(grid.radial_grid,
+            [KineticUnknown(:f, grid; scale = 1e19),
+                RadialUnknown(:cold_electron_temperature; scale = 100.0),
+                RadialUnknown(:cold_electron_density; scale = 1e19),
+                RadialUnknown(:cold_thermal_energy; scale = THERMAL_ENERGY_FACTOR * 1e21),
+                RadialUnknown(:total_electron_energy; scale = THERMAL_ENERGY_FACTOR * 1e21)])
+        equations = [Equation(:f, TimeDerivative(), fp, FokkerPlanckTerm(:f, transport)),
+            Equation(:cold_electron_temperature, TimeDerivative(:total_electron_energy),
+                PrescribedValueTerm([0.0, 0.0]), KineticEnergyLossTerm(fp; part = :sinks, region),
+                MomentumBoundaryFluxTerm(:f, fp; weight = :energy, coefficient = -1)),
+            density_row([n, n]), thermal_energy_equation(), total_energy_equation(:f, grid; region)]
+        theta = T0 / Constants.ELECTRON_REST_ENERGY
+        u0 = zeros(length(layout))
+        for ir in 1:2
+            kinetic_view(u0, layout, 1, ir) .= [n * exp(-p^2 / (2theta))
+                                                for p in momentum_grid(grid).p_centers,
+            _ in 1:2]
+        end
+        unknown_values(u0, layout, 2) .= T0
+        unknown_values(u0, layout, 3) .= n
+        # accepted when built: the operator moves nothing yet
+        system = EquationSystem(layout, equations; time_scale = 1e-7, initial_state = u0)
+        @test system isa EquationSystem
+        @test_throws "sets the radial transport of f" integrate(
+            system, u0, [0.0, 1e-8]; stepper = FixedSteps(), updates = (update,))
+        # the same coefficients set by hand on the built system: the run refuses them before
+        # its first step, also when it resumes, and the system refuses them when it is built
+        add_rechester_rosenbluth_diffusion!(transport, 1e-3; major_radius = 6.2)
+        @test_throws "Radial transport of f is refused" integrate(
+            system, u0, [0.0, 1e-8]; stepper = FixedSteps())
+        @test_throws "Radial transport of f is refused" integrate(
+            system, u0, [0.0, 1e-8]; stepper = FixedSteps(),
+            resume = joinpath(mktempdir(), "missing.h5"))
+        @test_throws "Radial transport of f is refused" EquationSystem(
+            layout, equations; time_scale = 1e-7, initial_state = u0)
     end
 
     @testset "a cold plasma under a hot tail" begin

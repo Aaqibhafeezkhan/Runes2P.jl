@@ -378,6 +378,7 @@ In DREAM's source:
 
 **Heating of the cold electrons by a runaway grid.**
 Runes2P's default is the energy change of the electron-electron operator of the grid, with a linear scheme of the operator.
+That operator takes no flux through ``p_\mathrm{max}``, so the electrons that cross it give no energy to the cold electrons.
 DREAM's moment, [`FrictionEnergyTransferTerm`](@ref), also counts the energy that the friction carries out of the grid through ``p = 0`` where that flux is applied (`p_zero_boundary = :outflow`).
 The test case `runaway_heating_example` (`test/example_cases.jl`) takes the option at `compat = dream`.
 It is compared with DREAM's run in `test_runaway_heating_dream.jl`.
