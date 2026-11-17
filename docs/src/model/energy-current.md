@@ -127,8 +127,9 @@ with ``\gamma_\mathrm{cut}`` and ``\gamma_\mathrm{max}`` the Lorentz factors at 
 At ``p_\mathrm{cut} = 0.01``, ``p_\mathrm{max} = 0.8``, 10 eV and ``10^{20}\, \mathrm{m^{-3}}``, with the `:energy_dependent` logarithm, the ratio is 0.251.
 
 The term does not remove the thermal energy of the target electron.
-With ``n_\mathrm{cold} = n_\mathrm{free} - n_\mathrm{hot}`` and a [`ParticleSourceTerm`](@ref) that keeps ``n(f)`` at ``n_\mathrm{free}``, each knock-on takes one electron out of the cold population, while ``W_\mathrm{cold}`` keeps its thermal energy ``\tfrac{3}{2} T``.
-The cold electrons that remain therefore gain ``\tfrac{3}{2} T`` per knock-on, 0.62 % of the term at 10 eV, ``p_\mathrm{cut} = 0.04`` and ``p_\mathrm{max} = 0.8``.
+With ``n_\mathrm{cold} = n_\mathrm{free} - n_\mathrm{hot}`` and a [`ParticleSourceTerm`](@ref) that keeps ``n(f)`` at ``n_\mathrm{free}``, each knock-on above the threshold of the hot region takes one electron out of the cold population, while ``W_\mathrm{cold}`` keeps its thermal energy ``\tfrac{3}{2} T``.
+The cold electrons that remain therefore gain ``\tfrac{3}{2} T`` per such knock-on.
+That is 0.62 % of the term at 10 eV, ``p_\mathrm{cut} = 0.04`` and ``p_\mathrm{max} = 0.8``, where every knock-on lies above the threshold.
 A bound target, which ``n_\mathrm{tot}`` counts, does not pay its ionization energy either, and DREAM behaves the same in both respects.
 
 ### Why the hot-tail grid only
