@@ -471,10 +471,14 @@ unknown `:total_electron_density`, which counts the bound electrons, it refuses 
 and `cut = :threshold`, and `knockon_term` must be such a term. It refuses `cut = :knockon`
 with a knock-on term on `:cold_electron_density` or `:runaway_density`, which count free
 electrons only. It does not check a target density given as values or under another name.
+In a row of the total energy ([`total_energy_equation`](@ref)) it refuses the term when the
+region of `kinetic_ionization` differs from the region of the energy moment of its
+distribution: the heating would then give the cold electrons the energy of ionizations by
+electrons outside the hot region, which no term charges.
 
 The secondaries above the cutoff carry a large share of the energy. As an illustration,
-with two energies that come from no reference, take the secondaries above 1 keV of the
-ionization of a neutral atom by a primary of 1.3 MeV:
+take the secondaries above 1 keV of the ionization of a neutral atom by a primary of
+1.3 MeV, two energies chosen only for the example:
 
 - With the binary-encounter-Bethe spectrum, the default, they carry 41.8 % of the energy of
   every secondary for Ar⁰ and 41.1 % for D⁰.

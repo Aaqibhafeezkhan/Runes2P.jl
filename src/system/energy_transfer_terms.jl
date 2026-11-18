@@ -35,13 +35,16 @@ and by [`InterfaceEnergyFluxTerm`](@ref) at the interface to a runaway grid. The
   operator, without the energy that the friction carries out through `p = 0`; that term
   itself, as a moment, is [`FrictionEnergyTransferTerm`](@ref). With `coefficient = 1` it
   is the channel of the runaway grid into the total energy of the electrons on the
-  hot-tail grid ([`total_energy_equation`](@ref)).
+  hot-tail grid ([`total_energy_equation`](@ref)). The row of a total energy refuses this
+  part for a distribution in that total, since the transfer stays inside it.
 - `part = :sinks`: `C_a` the collisions of `source` without the field, `C_b` their
   electron-electron part: the energy that leaves the electrons by the friction on bound
   electrons (excitation and ionization), bremsstrahlung and synchrotron radiation. With
   `coefficient = −1` and the hot region of the total energy as `region` it is the loss of
   that total, so the cold electrons receive exactly the free-electron part of what the hot
-  electrons lose. Both operators are applied, since the weights of exponential fitting
+  electrons lose. That needs the three parts to sum to the momentum flux of `source` (below),
+  which holds under every momentum scheme but exponential fitting, and under exponential
+  fitting without a field. Both operators are applied, since the weights of exponential fitting
   depend on all coefficients of an operator. With `bound_friction = :ionization_split` of
   [`CollisionSettings`](@ref) the friction on bound electrons holds the energy of the
   kinetic ionization ([`KineticIonizationTerm`](@ref)) up to the discretization and the
@@ -623,6 +626,9 @@ of unknowns its Jacobian holds the columns of the temperature, the density and, 
 plasma reads them, the ion charge states, as DREAM's. The weights of the moment are kept
 until the plasma values change. A [`PlasmaState`](@ref) given as `plasma` is read once, so a
 change made to it in place afterwards is not seen.
+
+The row of a total energy ([`total_energy_equation`](@ref)) refuses the term for a
+distribution in that total, since the transfer stays inside it.
 """
 struct FrictionEnergyTransferTerm{S} <: EquationTerm
     kinetic::Symbol
@@ -944,7 +950,8 @@ the row of a total energy ([`total_energy_equation`](@ref)) it requires one such
 the [`InterfaceEnergyFluxTerm`](@ref) of the same interface, with a negative coefficient. It
 refuses there one of an interface whose lower distribution, that of the grid below the face,
 is not in the total energy. A row of the cold thermal energy alone ([`thermal_energy_equation`](@ref)) takes the term without these
-two conditions.
+two conditions. There the term adds the work that the moments of
+[`free_electron_energy_transfer_term`](@ref) of the two grids leave out.
 
 Each overlap cell of the face carries the flux `Γ = A f_face − D (f_up − f_low)/Δp`. `A` and
 `D` are the coefficients of the lower operator at the face, the field included, and `Δp` is
@@ -1484,7 +1491,9 @@ In the row of the temperature under [`total_energy_equation`](@ref) the system r
 term for each Rosenbluth-Putvinski source of a distribution of the total energy, with that
 source of the system itself and no region, since every knock-on is in the total energy. The
 system checks the sign of the coefficient, and a coefficient of 1 closes the budget. It
-refuses the term there when its source is not in the equation of such a distribution. The
+refuses the term there when its source is not in the equation of such a distribution. A row
+of the cold thermal energy alone ([`thermal_energy_equation`](@ref)) holds no distribution,
+and the system refuses the term there. The
 term creates the energy of the knock-ons in the system, a choice of this
 package (see the docs page *Choices of this package*): their primaries, the fluid runaways
 above the grid, have no energy unknown, so no population pays it. The alternative, which the

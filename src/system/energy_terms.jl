@@ -233,7 +233,8 @@ Every other change of the energy of the hot region is charged to the cold electr
 `W_cold = W_tot − W_hot`. The row must therefore list each term of the equation of
 `kinetic` that moves energy out of the electrons or into them: [`KineticEnergyLossTerm`](@ref)
 with `part = :sinks` for the bremsstrahlung, the synchrotron loss and the friction on bound
-electrons, `MomentumBoundaryFluxTerm(...; weight = :energy)` for an outflow at `p_max`,
+electrons, `MomentumBoundaryFluxTerm(...; weight = :energy)` for an outflow at `p_max` of
+each Fokker-Planck term with collisions or with the field as an unknown,
 [`InterfaceEnergyFluxTerm`](@ref) and [`InterfaceCollisionWorkTerm`](@ref) of the same
 interface for the runaway grid, and [`KineticEnergyChangeTerm`](@ref)
 of each [`RosenbluthPutvinskiSourceTerm`](@ref) for the energy of the knock-ons of the fluid
@@ -250,7 +251,12 @@ energy, since the energy that it counts is outside the total. It refuses an
 `InterfaceCollisionWorkTerm` of an interface whose lower distribution, that of the grid
 below the face, is not in the total energy, since the electrons that cross there are outside
 the total. A second `InterfaceCollisionWorkTerm` of one interface, which would count the work
-twice, is refused in a row of any kind. It also refuses the terms of the equation of
+twice, is refused in a row of any kind.
+It refuses the transfer of `kinetic` to the cold electrons ([`KineticEnergyLossTerm`](@ref)
+with `part = :free_electrons`, [`FrictionEnergyTransferTerm`](@ref)), which stays inside the
+total. It refuses a [`SecondaryHeatingTerm`](@ref) whose kinetic ionization takes another
+region than the energy moment, since it would heat the cold electrons with ionizations that
+no term charges. It also refuses the terms of the equation of
 `kinetic` for which the system has no energy term, since the cold electrons
 would pay or gain their energy at the radius where the electrons are moved, created or
 removed:
@@ -258,13 +264,15 @@ removed:
 - Knock-on secondaries on its grid ([`KnockOnTerm`](@ref)) are refused.
 - A [`FokkerPlanckTerm`](@ref) without collisions, with no plasma and no coefficient
   source, whose operator holds coefficients in momentum is refused: no term of the row
-  carries the energy that they move.
+  carries the energy that they move. The coefficients of a unit field are not among them.
+- A prescribed flux through `p_min` of a Fokker-Planck term with collisions is refused.
 - A prescribed loss rate ([`LossRateTerm`](@ref)) and a Maxwellian source
   ([`MaxwellianSourceTerm`](@ref)) are refused.
 - A [`LinearTerm`](@ref) with a nonzero coefficient in the time derivative of `kinetic`,
   which moves electrons into `kinetic` from a kinetic unknown or out of it, is refused.
 
-The checks read the coefficients of the operators as they are, and a run repeats them
+The checks go by term type, and the system does not check a term of a type that they do not
+name. They read the coefficients of the operators as they are, and a run repeats them
 before its first step.
 
 A [`ParticleSourceTerm`](@ref) is accepted. With the constraint

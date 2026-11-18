@@ -72,6 +72,14 @@ Until the first release, every change is listed under "Unreleased", with the sub
   Such a term has no plasma and no coefficient source, and its coefficients in momentum change the energy of the distribution.
   No term of the row carries that energy, so the cold electrons paid or gained it until now.
   Radial and pitch coefficients, and the coefficients of a unit field, stay allowed.
+- In the row of the total energy, an `EquationSystem` and a run refuse more channels of a distribution whose energy is in the total ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+  A `FokkerPlanckTerm` without collisions that carries the field as an unknown needs the `MomentumBoundaryFluxTerm` of the energy at `p_max`, as a term with collisions does.
+  Until now the cold electrons gained the energy of the electrons that its field moves out through `p_max`.
+  A prescribed flux through `p_min` of a `FokkerPlanckTerm` with collisions is refused.
+- In the row of the total energy, an `EquationSystem` refuses more terms for a distribution whose energy is in the total ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+  It refuses `KineticEnergyLossTerm` with `part = :free_electrons` and `FrictionEnergyTransferTerm` of such a distribution, which counted its transfer to the cold electrons twice.
+  The same terms of a runaway grid outside the total stay allowed.
+  It refuses a `SecondaryHeatingTerm` whose kinetic ionization takes another region than the energy moment, before `bound_friction = :ionization_split` asks for that heating.
 - Under `:upwind`, `:quick`, `:upwind_second_order` and the flux limiters, `KineticEnergyLossTerm` takes the moment in the form of the momentum faces ([#298](https://github.com/osrep/Runes2P.jl/pull/298), [#307](https://github.com/osrep/Runes2P.jl/pull/307)).
   Both of its operators then take the upwind side of the whole advection of its Fokker-Planck term, field included.
   Under the first three each operator took its own side until now, so the field part, the free-electron part and the sinks did not sum to the momentum flux where the field beats the friction.
