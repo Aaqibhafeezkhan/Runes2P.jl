@@ -1,3 +1,9 @@
+# Whether a loop over `nr` radii runs on the threads of Julia. With one thread the loops stay
+# plain, which allocate nothing. The radii of such a loop write disjoint data, and each
+# entry takes its additions in the order of the serial loop, so the result does not depend on
+# the number of threads.
+_threads_over_radii(nr) = Threads.nthreads() > 1 && nr > 1
+
 """
     AdvectionDiffusion{T,C}
 
@@ -850,8 +856,22 @@ function apply!(
     limiter_state === nothing || size(limiter_state) == size(f) ||
         throw(DimensionMismatch("limiter_state must match the grid"))
     radial_mode = _radial_flux_mode(op)
-    @inbounds for ir in 1:radial_cell_count(op.grid)
+    nr = radial_cell_count(op.grid)
+    if _threads_over_radii(nr)
+        _apply_radii_threaded!(df, op, f, nr, scale, limiter_state, electric_field, radial_mode)
+        return df
+    end
+    @inbounds for ir in 1:nr
         apply_radius!(df, op, f, ir, scale, limiter_state, electric_field, radial_mode)
+    end
+    return df
+end
+
+# the loop over the radii of `apply!` on the threads of Julia, behind a function barrier
+function _apply_radii_threaded!(
+        df, op, f, nr, scale, limiter_state, electric_field, radial_mode)
+    Threads.@threads for ir in 1:nr
+        @inbounds apply_radius!(df, op, f, ir, scale, limiter_state, electric_field, radial_mode)
     end
     return df
 end
