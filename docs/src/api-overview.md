@@ -5,9 +5,10 @@ The API reference is generated from the docstrings in `src/` and `ext/`.
 ## Pages
 
 - [Grids](api/grids.md): momentum, pitch and radial grids, the kinetic grid, radial profiles, momentum regions.
-- [Physics](api/physics.md): plasma state, Coulomb logarithm, collision frequencies, conductivity, runaway rates, constants.
+- [Physics](api/physics.md): plasma state, atomic data and ionization, Coulomb logarithm, collision frequencies, conductivity, runaway rates, constants.
 - [Operators](api/operators.md): the advection–diffusion operator, Fokker–Planck coefficients, radial transport, knock-on and field–particle collisions.
 - [Equation system](api/system.md): the unknown layout, equation terms, equations and the system, Jacobians.
+  The terms include the particle sources and the avalanche, conductivity and induction, the electron energy and its transfer, heating, radiation and heat transport, and the ion terms.
 - [Solvers and runs](api/solvers.md): linear solvers, Newton, time stepping, interval updates, checkpoints, the progress log, run settings.
 - [Extensions](extensions.md): HDF5 output and checkpoints, SciML functions, interpolated radial profiles, the linear solver of MKL PARDISO.
 
