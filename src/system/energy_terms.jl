@@ -252,11 +252,14 @@ energy, since the energy that it counts is outside the total. It refuses an
 below the face, is not in the total energy, since the electrons that cross there are outside
 the total. A second `InterfaceCollisionWorkTerm` of one interface, which would count the work
 twice, is refused in a row of any kind.
-It refuses the transfer of `kinetic` to the cold electrons ([`KineticEnergyLossTerm`](@ref)
-with `part = :free_electrons`, [`FrictionEnergyTransferTerm`](@ref)), which stays inside the
-total. It refuses a [`SecondaryHeatingTerm`](@ref) whose kinetic ionization takes another
-region than the energy moment, since it would heat the cold electrons with ionizations that
-no term charges. It also refuses the terms of the equation of
+The system refuses the transfer of `kinetic` to the cold electrons
+([`KineticEnergyLossTerm`](@ref) with `part = :free_electrons`,
+[`FrictionEnergyTransferTerm`](@ref)), which stays inside the total. The system refuses the
+sinks term and the energy flux through `p_max` of a distribution outside the total, which
+loses that energy itself. When the system is built, it refuses a
+[`SecondaryHeatingTerm`](@ref) whose kinetic ionization takes another region than the energy
+moment, since the heating would then not match the ionizations that the sinks charge. The
+system also refuses the terms of the equation of
 `kinetic` for which the system has no energy term, since the cold electrons
 would pay or gain their energy at the radius where the electrons are moved, created or
 removed:
@@ -264,15 +267,21 @@ removed:
 - Knock-on secondaries on its grid ([`KnockOnTerm`](@ref)) are refused.
 - A [`FokkerPlanckTerm`](@ref) without collisions, with no plasma and no coefficient
   source, whose operator holds coefficients in momentum is refused: no term of the row
-  carries the energy that they move. The coefficients of a unit field are not among them.
-- A prescribed flux through `p_min` of a Fokker-Planck term with collisions is refused.
+  carries the energy that they move. The coefficients of a unit field, those of the field
+  term at 1 V/m that a term with the field unknown multiplies with `E`
+  ([`set_unit_field_coefficients!`](@ref)), are not among them.
+- A Fokker-Planck term without collisions that carries the field unknown is refused in a
+  distribution with an interface to a runaway grid, whatever its own `p_upper_boundary`:
+  put the field on the Fokker-Planck term with collisions at the interface.
+- A nonzero prescribed flux through `p_min` of a Fokker-Planck term with collisions is
+  refused. A zero flux passes.
 - A prescribed loss rate ([`LossRateTerm`](@ref)) and a Maxwellian source
   ([`MaxwellianSourceTerm`](@ref)) are refused.
 - A [`LinearTerm`](@ref) with a nonzero coefficient in the time derivative of `kinetic`,
   which moves electrons into `kinetic` from a kinetic unknown or out of it, is refused.
 
 The checks read the coefficients of the operators as they are, and a run repeats them
-before its first step.
+before its first step, except the region of the heating by secondaries.
 
 A [`ParticleSourceTerm`](@ref) is accepted. With the constraint
 `0 = n(f) − n_cold − n_hot` for its magnitude, it moves electrons between the cold

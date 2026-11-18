@@ -213,15 +213,24 @@ import ForwardDiff
         # two terms of the work of one interface count it twice
         @test_throws "count the work more than once" two(
             crossing, InterfaceEnergyFluxTerm(interface), work, work)
-        # the transfer of the runaway grid to the cold electrons enters W_tot from outside it
-        # and stays allowed, in both forms
+        # the transfer of the runaway grid to the cold electrons enters W_tot from outside
+        # it and stays allowed, in both forms
         @test two(crossing, InterfaceEnergyFluxTerm(interface), work,
             free_electron_energy_transfer_term(re)) === nothing
         @test two(crossing, InterfaceEnergyFluxTerm(interface), work,
             FrictionEnergyTransferTerm(:runaway, upper, plasma)) === nothing
-        # a term without collisions that carries the field unknown next to the interface: its
-        # field moves electrons through its own p_max, which needs the boundary term. With
-        # its top at the interface it is refused: the field belongs to the term of the interface
+        # the sinks and the energy flux through p_max of the runaway grid: that grid loses
+        # the energy itself, so the row would charge it to the cold electrons as well
+        @test_throws "loses that energy itself" two(
+            crossing, InterfaceEnergyFluxTerm(interface),
+            work, KineticEnergyLossTerm(re; part = :sinks))
+        @test_throws "loses that energy itself" two(
+            crossing, InterfaceEnergyFluxTerm(interface),
+            work, MomentumBoundaryFluxTerm(:runaway, re; weight = :energy, coefficient = -1))
+        # a term without collisions that carries the field unknown next to the interface, at
+        # either upper boundary: the electrons that its field moves would not reach the
+        # runaway grid, so it is refused. Without an interface it needs the boundary term
+        # (the testset of the field as an unknown below)
         field_out = FokkerPlanckTerm(:f, AdvectionDiffusion(grid; scheme = :central);
             electric_field = :electric_field)
         field_in = FokkerPlanckTerm(:f,
@@ -239,13 +248,12 @@ import ForwardDiff
                                                                                interface);
                                                                            row(row_terms...);
                                                                            energy])
-        @test_throws "through p_max" beside(
-            field_out, crossing, InterfaceEnergyFluxTerm(interface), work)
-        @test beside(field_out, crossing, InterfaceEnergyFluxTerm(interface), work,
-            MomentumBoundaryFluxTerm(:f, field_out; weight = :energy, coefficient = -1)) ===
-              nothing
-        @test_throws "give the field unknown (electric_field)" beside(
-            field_in, crossing, InterfaceEnergyFluxTerm(interface), work)
+        field_outflow = MomentumBoundaryFluxTerm(:f, field_out; weight = :energy, coefficient = -1)
+        @test_throws "Put the field unknown (electric_field)" beside(field_out, crossing,
+            InterfaceEnergyFluxTerm(interface), work, field_outflow)
+        @test_throws "Put the field unknown (electric_field)" beside(field_in, crossing,
+            InterfaceEnergyFluxTerm(interface), work)
+        @test check((term, field_out), sinks, outflow, field_outflow) === nothing
         # the work at the interface of a distribution outside W_tot: the electrons that cross
         # there are not in W_tot, so the row refuses the term
         g_lower = FokkerPlanckTerm(:g,
@@ -429,7 +437,7 @@ import ForwardDiff
         @test_throws "would count it twice" check((term,), sinks, outflow,
             FrictionEnergyTransferTerm(:f, grid, plasma))
         # a prescribed flux through p_min of a term with collisions brings electrons into f
-        # whose energy no row term carries; a zero flux brings none
+        # whose energy no row term carries. A zero flux brings none
         above_grid = cylindrical_grid(
             MomentumGrid(uniform_p_faces(60, 0.05, 0.4), uniform_xi_faces(2)),
             RadialGrid(uniform_r_faces(2, 0.5)))
@@ -758,12 +766,13 @@ import ForwardDiff
     end
 
     @testset "the field as an unknown in a term without collisions" begin
-        # The coefficients of a unit field are not counted among the coefficients in momentum:
-        # their work is the product of the field and the hot current, which the row holds.
-        # The field also moves electrons out through p_max, here at 50 V/m under :upwind
-        # with a pedestal of 1e16 m⁻³ up to p_max, so the row needs the boundary term of the
-        # field term as well. With it, W_cold changes by the gap between E j_hot and the work
-        # of the discrete field term alone. Measured: 2.7e-4 of the boundary term
+        # The coefficients of a unit field are not counted among the coefficients in
+        # momentum: their work is the product of the field and the hot current, which the
+        # row holds. The field also moves electrons out through p_max, here at 50 V/m under
+        # :upwind with a pedestal of 1e16 m⁻³ up to p_max, so the row needs the boundary
+        # term of the field term as well. With it, W_cold changes by the gap between E j_hot
+        # and the work of the discrete field term alone. Measured: 2.7e-4 of the boundary
+        # term
         T0, n, E = 100.0, 1e19, 50.0
         grid = cylindrical_grid(
             MomentumGrid(uniform_p_faces(30, 0.0, 0.4), uniform_xi_faces(2)),

@@ -72,15 +72,17 @@ Until the first release, every change is listed under "Unreleased", with the sub
   Such a term has no plasma and no coefficient source, and its coefficients in momentum change the energy of the distribution.
   No term of the row carries that energy, so the cold electrons paid or gained it until now.
   Radial and pitch coefficients, and the coefficients of a unit field, stay allowed.
-- In the row of the total energy, an `EquationSystem` and a run refuse more channels of a distribution whose energy is in the total ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
+  A term with the field as an unknown then needs the energy term of its boundary at `p_max` ([#325](https://github.com/osrep/Runes2P.jl/pull/325)).
+- Under the total energy of the electrons, an `EquationSystem` and a run check more boundaries of a distribution whose energy is in the total ([#325](https://github.com/osrep/Runes2P.jl/pull/325)).
   A `FokkerPlanckTerm` without collisions that carries the field as an unknown needs the `MomentumBoundaryFluxTerm` of the energy at `p_max`, as a term with collisions does.
   Until now the cold electrons gained the energy of the electrons that its field moves out through `p_max`.
-  Such a term with `p_upper_boundary = :interface` is refused, and the field goes to the term with collisions at the interface.
-  A prescribed flux through `p_min` of a `FokkerPlanckTerm` with collisions is refused.
-- In the row of the total energy, an `EquationSystem` refuses more terms for a distribution whose energy is in the total ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
-  It refuses `KineticEnergyLossTerm` with `part = :free_electrons` and `FrictionEnergyTransferTerm` of such a distribution, which counted its transfer to the cold electrons twice.
+  Such a term is refused in a distribution with an interface to a runaway grid, whatever its own `p_upper_boundary`, and the field goes on the term with collisions at the interface.
+  A nonzero prescribed flux through `p_min` of a `FokkerPlanckTerm` with collisions is refused, and a zero flux passes.
+- Under the total energy of the electrons, the row of the temperature refuses more terms that would charge the cold electrons wrongly ([#325](https://github.com/osrep/Runes2P.jl/pull/325)).
+  An `EquationSystem` and a run refuse `KineticEnergyLossTerm` with `part = :free_electrons` and `FrictionEnergyTransferTerm` of a distribution in the total, whose transfer the cold energy already receives.
   The same terms of a runaway grid outside the total stay allowed.
-  It refuses a `SecondaryHeatingTerm` whose kinetic ionization takes another region than the energy moment, before `bound_friction = :ionization_split` asks for that heating.
+  They also refuse the sinks term and the energy flux through `p_max` of a distribution outside the total, which loses that energy itself.
+  An `EquationSystem` refuses a `SecondaryHeatingTerm` whose kinetic ionization takes another region than the energy moment.
 - Under `:upwind`, `:quick`, `:upwind_second_order` and the flux limiters, `KineticEnergyLossTerm` takes the moment in the form of the momentum faces ([#298](https://github.com/osrep/Runes2P.jl/pull/298), [#307](https://github.com/osrep/Runes2P.jl/pull/307)).
   Both of its operators then take the upwind side of the whole advection of its Fokker-Planck term, field included.
   Under the first three each operator took its own side until now, so the field part, the free-electron part and the sinks did not sum to the momentum flux where the field beats the friction.

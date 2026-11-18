@@ -195,12 +195,14 @@ The energy term of radial transport takes the whole grid, for two reasons.
 The transport then conserves the total energy exactly at any thresholds of the hot region.
 With a closed edge, the volume integral of the term stays below 1e-13 of that of the absolute values of its cells (`test/test_energy_transfer.jl`).
 The thermal energy of the electrons below the threshold, the bulk, then moves in radius with these electrons, into the cold electrons where they arrive ([Energy and current balance](model/energy-current.md#Radial-transport-of-the-kinetic-electrons)).
-Where the density has a gradient, this drives the cold electrons towards a uniform ``n T^{3/2}``, not a uniform ``T``, as that section states.
 
 The rejected alternative takes the hot region.
 The threshold of the hot region follows the temperature, so under a temperature profile it differs between the radii.
 An electron that the transport carries across it then leaves or joins the total energy, and no population pays its energy.
 `test/test_energy_transfer.jl` shows that the moment over the hot region does not integrate to zero there.
+
+The choice has a drawback: where the density has a gradient, the term carries heat at a uniform temperature.
+Under the Rechester-Rosenbluth diffusion it drives the cold electrons towards a uniform ``n T^{3/2}``, not a uniform ``T`` ([Energy and current balance](model/energy-current.md#Radial-transport-of-the-kinetic-electrons)).
 
 ## Linear solvers
 

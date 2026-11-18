@@ -29,14 +29,19 @@ The channels of this row:
 | friction of fluid runaways | [`RunawayFluidEnergyTransferTerm`](@ref) |
 | collisions of the runaway grid with the cold electrons | [`free_electron_energy_transfer_term`](@ref) |
 | friction of the hot-tail distribution on the cold electrons, without the full collision frequencies | [`FrictionEnergyTransferTerm`](@ref) |
-| electron-electron work on the electrons that cross a momentum interface to a runaway grid | [`InterfaceCollisionWorkTerm`](@ref) |
+| electron-electron work on the electrons that cross a momentum interface to a runaway grid (optional) | [`InterfaceCollisionWorkTerm`](@ref) |
 
 [`IonEnergyExchangeTerm`](@ref) with `side = :ions` is the same exchange in the row of the ion energies, so the two sides are antisymmetric.
 [`RunawayFluidEnergyTransferTerm`](@ref) is DREAM's heating by runaways without a runaway grid, the power ``e c\, E_c\, n_\mathrm{re}``: runaways at the speed of light against the friction of the critical field ``E_c``, with the Coulomb logarithm at ``p = 20\, m_e c``.
 With a runaway grid, [`free_electron_energy_transfer_term`](@ref) takes its place: the energy moment of the electron-electron collisions of that grid.
-At a momentum interface, [`InterfaceCollisionWorkTerm`](@ref) adds the electron-electron work on the electrons that cross it, which the moments of [`free_electron_energy_transfer_term`](@ref) of both grids leave out (`test/test_energy_budget.jl`).
 
-The channels other than [`SecondaryHeatingTerm`](@ref) and [`InterfaceCollisionWorkTerm`](@ref) are those of DREAM's equation of ``T_\mathrm{cold}`` (`src/Settings/Equations/T_cold.cpp`, DREAM v26.5).
+[`InterfaceCollisionWorkTerm`](@ref) is optional in this row.
+It belongs there, with `coefficient = -1`, where a hot-tail grid and a runaway grid share a momentum interface and the row holds [`free_electron_energy_transfer_term`](@ref) of both grids.
+Neither moment holds the electron-electron work on the electrons that cross the interface, so without the term the cold electrons miss that work.
+In the two-grid test of `test/test_energy_budget.jl` the work is 71 W/m³ and 146 W/m³ at the two radii, and with it the energy of the two grids closes to 6.0e-16 of the largest channel.
+
+DREAM's equation of ``T_\mathrm{cold}`` (`src/Settings/Equations/T_cold.cpp`, DREAM v26.5) has every channel of the table but [`SecondaryHeatingTerm`](@ref) and [`InterfaceCollisionWorkTerm`](@ref).
+For the transfer from the runaway grid DREAM takes the form of [`FrictionEnergyTransferTerm`](@ref), and [`free_electron_energy_transfer_term`](@ref) is this package's form of that channel (below).
 With `radiation = :dream` and `bremsstrahlung_corrections = :dream`, [`RadiatedPowerTerm`](@ref) takes DREAM's radiation.
 DREAM adds the collisional transfer from a runaway grid in every mode, and from a hot-tail grid in every mode but one:
 
@@ -90,14 +95,14 @@ Radial transport moves electrons between radii, so it is not among these exchang
 
 Every change of ``W_\mathrm{hot}`` that the row does not list is charged to the cold electrons.
 [`EquationSystem`](@ref) therefore checks the row against the equation of `f`.
-The check is a list of term types, below, and the system does not check a term of a type that is not on the list.
+The check is the list of checks below, by term type and by boundary condition, and the system does not check a term that no item names.
 The docstring of [`total_energy_equation`](@ref) gives the conditions.
 
 - Collisions with sinks (synchrotron loss, bremsstrahlung stopping power, partial or no screening) remove energy from `f`, so the row needs the sinks term.
-- The electrons that leave a Fokker-Planck term at ``p_\mathrm{max}``, or cross its interface to a runaway grid, take their energy with them.
+- The electrons that leave a Fokker-Planck term at ``p_\mathrm{max}`` take their energy with them, and the row needs the energy flux of that boundary.
   This holds for a term with collisions, and for a term without collisions that carries the field as an unknown.
-  The row needs the energy flux of that boundary or interface.
-  At the interface it also needs one [`InterfaceCollisionWorkTerm`](@ref) of the same interface, with a negative coefficient (below).
+- The electrons that cross the interface of a Fokker-Planck term with collisions to a runaway grid take their energy with them, and the row needs the energy flux of that interface.
+  It also needs one [`InterfaceCollisionWorkTerm`](@ref) of the same interface, with a negative coefficient (below).
   The row refuses the term of an interface whose lower distribution, that of the grid below the face, is not in ``W_\mathrm{hot}``.
   A second [`InterfaceCollisionWorkTerm`](@ref) of one interface, which would count the work twice, is refused in every row, the row of the cold thermal energy alone included.
 - Radial transport of `f` changes the energy of `f` at each radius.
@@ -111,12 +116,14 @@ The docstring of [`total_energy_equation`](@ref) gives the conditions.
   These are the advection and diffusion in ``p``, the cross diffusion of the flux in ``p``, and a flux through ``p_\mathrm{min}`` or ``p = 0``.
   No term of the row carries that energy.
   A run checks the coefficients again before its first step.
-- Pitch coefficients move no energy and stay allowed in such a term.
-  The coefficients of a unit field are allowed too, and their work is the term ``E j_\mathrm{hot}``, which the row must hold.
-  The system does not check that the row holds it.
-  The field also moves electrons through ``p_\mathrm{max}``, so such a term needs the energy flux of its boundary, as above.
-  With `p_upper_boundary = :interface` such a term is refused, since the interface terms belong to the Fokker-Planck term with collisions, which then takes the field.
-- A prescribed flux through ``p_\mathrm{min}`` (`p_lower_boundary = :prescribed`) of a Fokker-Planck term with collisions is refused, since no term of the row carries the energy of the electrons that it brings.
+  Pitch coefficients move no energy and stay allowed in such a term.
+- A term without collisions may carry the field as an unknown (`electric_field` of [`FokkerPlanckTerm`](@ref)).
+  Its advection is then the field times the coefficients of a unit field, 1 V/m ([`set_unit_field_coefficients!`](@ref)), and these coefficients are allowed.
+  Their work is the term ``E j_\mathrm{hot}``, which the row must hold, and the system does not check that the row holds it.
+  Such a term is refused in a distribution with an interface to a runaway grid, whatever its own `p_upper_boundary`, since the electrons that its field moves would not cross the interface.
+  Put the field on the Fokker-Planck term with collisions at the interface instead.
+- A nonzero prescribed flux through ``p_\mathrm{min}`` (`p_lower_boundary = :prescribed`) of a Fokker-Planck term with collisions is refused, since no term of the row carries the energy of the electrons that it brings.
+  A zero `p_flux_at_lower_boundary`, or `p_lower_boundary = :zero_flux`, passes.
 - A [`KnockOnTerm`](@ref) on the grid is refused, since no term carries the energy of the secondaries.
 - A [`RosenbluthPutvinskiSourceTerm`](@ref) creates knock-ons whose energy no other term carries.
   The row needs one [`KineticEnergyChangeTerm`](@ref) of that very source, without a region (below).
@@ -124,19 +131,22 @@ The docstring of [`total_energy_equation`](@ref) gives the conditions.
   The row refuses a [`KineticEnergyChangeTerm`](@ref) whose source is not in the equation of a distribution in ``W_\mathrm{hot}``, since the energy that it counts is outside ``W_\mathrm{tot}``.
 - A [`LossRateTerm`](@ref) and a [`MaxwellianSourceTerm`](@ref) are refused, since no term carries the energy of the electrons that they remove or add.
 - A [`LinearTerm`](@ref) with a nonzero coefficient in the equation of `f` is refused, since it moves electrons into `f` from a kinetic unknown or out of it.
-- The row refuses the transfer of `f` to the cold electrons, [`KineticEnergyLossTerm`](@ref) with `part = :free_electrons` and [`FrictionEnergyTransferTerm`](@ref) of `f`.
+- The row refuses the transfer of `f` to the cold electrons: [`KineticEnergyLossTerm`](@ref) with `part = :free_electrons`, [`free_electron_energy_transfer_term`](@ref) and [`FrictionEnergyTransferTerm`](@ref) of `f`.
   That transfer stays inside ``W_\mathrm{tot}``, and ``W_\mathrm{cold} = W_\mathrm{tot} - W_\mathrm{hot}`` already receives it, so the term would count it twice.
   The same terms of a runaway grid outside ``W_\mathrm{tot}`` stay allowed.
-- The row refuses a [`SecondaryHeatingTerm`](@ref) whose kinetic ionization of `f` takes another region than the energy moment of `f`.
-  Such a heating gives the cold electrons the energy of ionizations by electrons outside ``W_\mathrm{hot}``, and the sinks term does not charge that energy.
+- The row refuses the sinks term and the energy flux through ``p_\mathrm{max}`` of a distribution outside ``W_\mathrm{tot}``, such as a runaway grid.
+  That distribution loses the energy itself, so the cold electrons would pay it as well.
+- The row refuses a [`SecondaryHeatingTerm`](@ref) whose kinetic ionization of `f` takes another region than the energy moment of `f`, wider or narrower.
+  Such a heating gives the cold electrons the energy of secondaries whose ionizations the sinks term does not charge, or leaves out secondaries that it does charge.
   The remedy is the region of the energy moment on the [`KineticIonizationTerm`](@ref).
-  Under `bound_friction = :ionization_split` the `ionization_threshold` of [`CollisionSettings`](@ref) then takes the same factor.
-  The system gives this refusal before it asks for the heating that the split requires.
+  Under `bound_friction = :ionization_split`, which requires the heating, the ionization takes a thermal threshold, a [`ThermalMomentum`](@ref) whose factor multiplies the thermal momentum.
+  The energy moment then needs a [`ThermalMomentum`](@ref) region too, and the `ionization_threshold` of [`CollisionSettings`](@ref) its factor, which the message of the refusal names.
 
 Each refused channel would take its energy from the cold electrons, or give it to them, at the radius where the electrons are moved, created or removed.
 
-A [`FieldParticleTerm`](@ref) is not on the list.
-The change of ``W_\mathrm{hot}`` that it makes therefore goes to the cold electrons, as the collisional transfer does.
+The check does not cover a [`FieldParticleTerm`](@ref) in the equation of `f`.
+That is a gap of the check, not a statement about the physics: the change of ``W_\mathrm{hot}`` that the term makes goes to the cold electrons unchecked.
+No term of the row can carry it today.
 
 A [`ParticleSourceTerm`](@ref) is accepted.
 The cold density is the closure ``n_\mathrm{cold} = n_\mathrm{free} - n_\mathrm{hot} - n_\mathrm{re}``.
@@ -219,11 +229,20 @@ Next to the energy term of the transport of `f`, that diffusivity would move the
 On a Maxwellian bulk of uniform density at a temperature profile on 8 radii, the two agree to 1 % at the six inner radii and to 13 % at the seventh, near the edge (`test/test_heat_transport.jl`).
 A prescribed diffusivity of [`HeatTransportTerm`](@ref) stays allowed, as a heat transport of the user's own on top of the kinetic transport.
 
-The energy term of the transport of `f` does not replace the Rechester-Rosenbluth heat transport where the density has a gradient.
-It drives the cold electrons towards a uniform ``n T^{3/2}``, not a uniform ``T``.
-The diffusion of `f` has no ambipolar constraint, so at a uniform temperature it moves electrons down the gradient of the density, with their energy.
+Where the density has a gradient, the energy term of the transport of `f` carries heat even at a uniform temperature, unlike the heat transport of the temperature.
+The diffusion of `f` has no ambipolar constraint, so it moves electrons down the gradient of the density, with their energy.
 The particle source refills `f` where the electrons leave and drains it where they arrive, and that refill carries no energy in the row (above).
-At a uniform 100 eV the term carries 2.0 times the temperature per electron that the transport moves, where the heat transport of the temperature carries none (`test/test_heat_transport.jl`).
+At a uniform 100 eV under the Rechester-Rosenbluth diffusion, the term carries an energy of 2.0 T per transported electron, with ``T`` the temperature.
+That measured value equals the analytic ``\langle \varepsilon v \rangle / \langle v \rangle = 2T`` of a flux proportional to ``v`` over a Maxwellian, and the heat transport of the temperature carries none (`test/test_heat_transport.jl`).
+
+In that test the term cools the inner radii, where the density is high, by −7.7e3 W/m³ each, and heats the outermost radius by +2.5e4 W/m³.
+The Rechester-Rosenbluth diffusion grows as ``|v_\parallel| \propto \sqrt{T}``, so its particle flux follows the gradient of ``n \sqrt{T}`` and its energy flux that of ``n T^{3/2}``.
+The term therefore vanishes at a uniform ``n T^{3/2}``, and the cold electrons tend towards that state, not towards a uniform ``T``.
+That equilibrium follows from the ratio of the fluxes, not from a computed time evolution.
+A radial diffusion independent of ``p`` carries 1.5 T per transported electron in the same test, and tends towards a uniform ``n T``.
+
+A row of the total energy has no remedy for this in the package today.
+A row of the cold thermal energy with [`HeatTransportTerm`](@ref) and the Rechester-Rosenbluth diffusivity gives a uniform ``T``.
 
 `test/test_energy_transfer.jl` compares the term with the moment of the operator applied to `f`, and `test/test_energy_budget.jl` closes the budget of ``W_\mathrm{tot}`` at each radius and in the volume with it.
 
@@ -266,9 +285,14 @@ with the envelope ``w`` of the region.
 Neither part takes a flux through ``p_\mathrm{max}``, whatever the upper boundary of the Fokker-Planck term.
 The energy of the electrons that cross there, that of the last momentum cell, belongs to the boundary term alone, so it is not counted twice, and the cold electrons do not exchange it.
 That term is [`MomentumBoundaryFluxTerm`](@ref) at an outer boundary and [`InterfaceEnergyFluxTerm`](@ref) at the interface to a runaway grid.
-With the sinks charged to ``W_\mathrm{tot}``, the cold electrons receive exactly the free-electron part of what the hot electrons lose.
-This holds where the field part, the free-electron part and the sinks sum to the momentum flux of the Fokker-Planck term (below).
+
+With the sinks charged to ``W_\mathrm{tot}``, the cold electrons receive exactly the free-electron part of what the hot electrons lose, under two conditions.
+First, the field part, the flux of the electric field alone, together with the free-electron part and the sinks sums to the momentum flux of the Fokker-Planck term (below).
 That is the case under every momentum scheme but exponential fitting, and under exponential fitting without a field.
+Under exponential fitting with a field the parts do not sum to that flux, the rest goes to the cold electrons, and the system does not refuse it.
+
+Second, with a field the cold electrons also receive the gap between ``E j_\mathrm{hot}`` and the work of the discrete field term ([The field work on the hot region](#The-field-work-on-the-hot-region)).
+In a test at 50 V/m that gap is 2.7e-4 of the energy flux through ``p_\mathrm{max}`` (`test/test_energy_budget.jl`).
 
 The momentum face values of the parts take the upwind side of the whole advection of the Fokker-Planck term, the sum of its collisions and its electric field.
 This holds under every momentum scheme whose face value has a side: `:upwind`, `:quick`, `:upwind_second_order` and the flux limiters.

@@ -307,7 +307,7 @@ A mismatch gives a result that is wrong without an error, so [`EquationSystem`](
 | the same | a target density that counts the bound electrons, not `:cold_electron_density` or `:runaway_density` | the energy of the secondaries above the cutoff is lost |
 | [`SecondaryHeatingTerm`](@ref) and a [`KnockOnTerm`](@ref) of the same primary on `:total_electron_density` | `cut = :knockon`, with that knock-on term as `knockon_term` | the energy of the secondaries above the cutoff is counted twice |
 | a sinks term and an energy moment over a thermal region | the region | the sinks of the bulk are charged as well |
-| [`SecondaryHeatingTerm`](@ref) in a row of the total energy and the energy moment of the distribution of its ionization | the region of the [`KineticIonizationTerm`](@ref) | the cold electrons gain the energy of ionizations that no term charges |
+| [`SecondaryHeatingTerm`](@ref) in a row of the total energy, and the energy moment of its distribution | one region for its ionization and the moment, also without a region or with a fixed limit, which the first row does not compare | the cold electrons gain the energy of ionizations that no term charges |
 
 ### Ions
 
@@ -327,7 +327,8 @@ For each distribution in ``W_\mathrm{hot}`` the system therefore requires in tha
 
 - the sinks of its collisions where they have any ([`KineticEnergyLossTerm`](@ref) with `part = :sinks`), over the region of the energy moment.
 - the energy that leaves through ``p_\mathrm{max}``, as [`MomentumBoundaryFluxTerm`](@ref) with `weight = :energy` or as [`InterfaceEnergyFluxTerm`](@ref) of the interface to the runaway grid.
-  Each Fokker-Planck term with collisions requires it, and so does each Fokker-Planck term without collisions that carries the field as an unknown.
+  Each Fokker-Planck term with collisions requires it.
+  So does each Fokker-Planck term without collisions that carries the field as an unknown, through its boundary at ``p_\mathrm{max}``.
 - at the interface to the runaway grid, the work of the electron-electron collisions on the electrons that cross, as [`InterfaceCollisionWorkTerm`](@ref) of the same interface.
 - the energy of the knock-ons of each [`RosenbluthPutvinskiSourceTerm`](@ref) in its equation, as one [`KineticEnergyChangeTerm`](@ref) of that source without a region.
 - the change of its energy by radial transport, as one [`KineticEnergyChangeTerm`](@ref) over the whole grid, without a region.
@@ -337,24 +338,30 @@ For each distribution in ``W_\mathrm{hot}`` the system therefore requires in tha
 The terms of the sinks, of ``p_\mathrm{max}`` and of the work at the interface take a negative coefficient, and the terms of the knock-ons and of the radial transport a positive one.
 The system checks only the sign of these coefficients, and a coefficient of 1 or −1 closes the budget.
 
-It refuses a [`FokkerPlanckTerm`](@ref) without collisions, with no plasma and no coefficient source, whose operator holds coefficients in momentum.
+The system refuses a [`FokkerPlanckTerm`](@ref) without collisions, with no plasma and no coefficient source, whose operator holds coefficients in momentum.
 These change the energy of that distribution, and no term of the row carries that energy.
-The coefficients of a unit field are not among them.
-It refuses a prescribed flux through ``p_\mathrm{min}`` of a Fokker-Planck term with collisions, whose energy no term of the row carries.
+The coefficients of a unit field are not among them: these are the coefficients of the field term at 1 V/m, which a term that carries the field unknown multiplies with ``E`` ([`set_unit_field_coefficients!`](@ref)).
+Such a term is refused in a distribution with an interface to the runaway grid, whatever its own `p_upper_boundary`: put the field on the Fokker-Planck term with collisions at the interface.
+The system refuses a nonzero prescribed flux through ``p_\mathrm{min}`` of a Fokker-Planck term with collisions, whose energy no term of the row carries, and accepts a zero one.
 
-It refuses [`KnockOnTerm`](@ref), [`LossRateTerm`](@ref), [`MaxwellianSourceTerm`](@ref) and a [`LinearTerm`](@ref) with a nonzero coefficient in the equation of that distribution, since no term of the row carries their energy.
+The system refuses [`KnockOnTerm`](@ref), [`LossRateTerm`](@ref), [`MaxwellianSourceTerm`](@ref) and a [`LinearTerm`](@ref) with a nonzero coefficient in the equation of that distribution, since no term of the row carries their energy.
 
 The system refuses a [`KineticEnergyChangeTerm`](@ref) in the row whose source is not in the equation of a distribution in ``W_\mathrm{hot}``, since the energy that it counts is outside ``W_\mathrm{tot}``.
 It refuses a second [`KineticEnergyChangeTerm`](@ref) of one source, a Rosenbluth-Putvinski source or a Fokker-Planck term of radial transport.
-A row of the cold thermal energy alone holds no distribution, and the system refuses every [`KineticEnergyChangeTerm`](@ref) there.
 
 The system refuses in the row the transfer of a distribution in ``W_\mathrm{hot}`` to the cold electrons, [`KineticEnergyLossTerm`](@ref) with `part = :free_electrons` and [`FrictionEnergyTransferTerm`](@ref).
 ``W_\mathrm{cold}`` already receives that transfer, and the same terms of a runaway grid outside ``W_\mathrm{tot}`` stay allowed.
+The system refuses the sinks term and the energy flux through ``p_\mathrm{max}`` of a distribution outside ``W_\mathrm{tot}``, which loses that energy itself.
 
 Next to the energy term of radial transport, the system refuses a [`HeatTransportTerm`](@ref) with the Rechester-Rosenbluth diffusivity, which would move the heat of the bulk a second time ([Energy and current balance](energy-current.md#Radial-transport-of-the-kinetic-electrons)).
 It refuses an [`InterfaceCollisionWorkTerm`](@ref) of an interface whose lower distribution, that of the grid below the face, is not in ``W_\mathrm{hot}``.
 A second [`InterfaceCollisionWorkTerm`](@ref) of one interface is refused in a row of every kind, the row of the cold thermal energy alone included.
 
-A run repeats these checks before its first step, with the coefficients of the operators as they are then.
+A run repeats these checks before its first step, with the coefficients of the operators as they are then, except the region of [`SecondaryHeatingTerm`](@ref), which the build checks.
 So a [`RechesterRosenbluthUpdate`](@ref) that sets the radial transport of that distribution passes only when the row holds the term from the build of the system.
 The energy balance itself is on the page [Energy and current balance](energy-current.md).
+
+### Rows of the cold thermal energy
+
+The row of the cold thermal energy alone, `TimeDerivative(:cold_thermal_energy)`, holds no distribution.
+The system refuses every [`KineticEnergyChangeTerm`](@ref) there, and a second [`InterfaceCollisionWorkTerm`](@ref) of one interface as in every row.

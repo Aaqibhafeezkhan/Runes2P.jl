@@ -42,10 +42,14 @@ and by [`InterfaceEnergyFluxTerm`](@ref) at the interface to a runaway grid. The
   electrons (excitation and ionization), bremsstrahlung and synchrotron radiation. With
   `coefficient = −1` and the hot region of the total energy as `region` it is the loss of
   that total, so the cold electrons receive exactly the free-electron part of what the hot
-  electrons lose. That needs the three parts to sum to the momentum flux of `source` (below),
-  which holds under every momentum scheme but exponential fitting, and under exponential
-  fitting without a field. Both operators are applied, since the weights of exponential fitting
-  depend on all coefficients of an operator. With `bound_friction = :ionization_split` of
+  electrons lose, under two conditions. First, the field part, the flux of the electric
+  field alone, together with the free-electron part and the sinks sums to the momentum flux
+  of `source` (below). That holds under every momentum scheme but exponential fitting, and
+  under exponential fitting without a field. Under exponential fitting with a field the rest
+  goes to the cold electrons without a refusal. Second, with a field the cold electrons also
+  receive the gap between `E j_hot` and the work of the discrete field term. Both operators
+  are applied, since the weights of exponential fitting depend on all coefficients of an
+  operator. With `bound_friction = :ionization_split` of
   [`CollisionSettings`](@ref) the friction on bound electrons holds the energy of the
   kinetic ionization ([`KineticIonizationTerm`](@ref)) up to the discretization and the
   width of the threshold (see there): the ionization
@@ -950,8 +954,10 @@ the row of a total energy ([`total_energy_equation`](@ref)) it requires one such
 the [`InterfaceEnergyFluxTerm`](@ref) of the same interface, with a negative coefficient. It
 refuses there one of an interface whose lower distribution, that of the grid below the face,
 is not in the total energy. A row of the cold thermal energy alone ([`thermal_energy_equation`](@ref)) takes the term without these
-two conditions. There the term adds the work that the moments of
-[`free_electron_energy_transfer_term`](@ref) of the two grids leave out.
+two conditions, the requirement next to the interface energy term and the refusal of a
+distribution outside the total. It is optional there. With `coefficient = −1` it adds the
+work that the moments of [`free_electron_energy_transfer_term`](@ref) of the two grids leave
+out, where the row holds that term of both grids.
 
 Each overlap cell of the face carries the flux `Γ = A f_face − D (f_up − f_low)/Δp`. `A` and
 `D` are the coefficients of the lower operator at the face, the field included, and `Δp` is

@@ -146,10 +146,12 @@ const BESSEL_J0_FIRST_ZERO = 2.404825557695773
         @test all(r -> isapprox(r, 1; atol = 1e-2), ratio[1:(nr - 2)])
 
         # Under a density gradient at a uniform temperature of 100 eV the heat transport of
-        # the temperature is zero, while the energy term of the kinetic transport carries
-        # 2 T per electron that the transport moves at each radius. The row of the total
-        # energy therefore drives the cold electrons towards a uniform n T^(3/2), not a
-        # uniform T. Measured: 2.0 at every radius
+        # the temperature is zero, while the energy term of the kinetic transport carries an
+        # energy of 2 T per transported electron, the analytic ⟨ε v⟩/⟨v⟩ = 2T of a flux
+        # proportional to v over a Maxwellian. It cools the inner radii, where the density
+        # is high, and heats the outermost one. A radial diffusion independent of p carries
+        # 1.5 T. Measured: 2.0002 for the Rechester-Rosenbluth diffusion and 1.5004 for a
+        # constant one, at every radius
         flat = fill(100.0, nr)
         profile = [n * (1 + 2 * (1 - (r / a)^2)) for r in rad.r_centers]
         for ir in 1:nr, (i, p) in enumerate(momentum_grid(grid).p_centers)
@@ -160,17 +162,24 @@ const BESSEL_J0_FIRST_ZERO = 2.404825557695773
         f .*= reshape(profile ./ density(grid, f), 1, 1, :)
         unknown_values(u, layout, 2) .= flat
         unknown_values(u, layout, 3) .= profile
-        moved = Runes2P.rhs!(
-            zeros(length(u)), KineticEnergyChangeTerm(FokkerPlanckTerm(:f, op)), u, layout, 4,
-            0.0)[rows]
-        df = zeros(size(f))
-        Runes2P.apply!(df, op, f)
-        per_electron = moved ./ (e .* flat .* density(grid, df))
+        function moved_energy(transport)
+            moved = Runes2P.rhs!(zeros(length(u)),
+                KineticEnergyChangeTerm(FokkerPlanckTerm(:f, transport)), u, layout, 4, 0.0)[rows]
+            df = zeros(size(f))
+            Runes2P.apply!(df, transport, f)
+            return moved, moved ./ (e .* flat .* density(grid, df))
+        end
+        moved, per_electron = moved_energy(op)
+        constant = AdvectionDiffusion(grid; cross_diffusion = false)
+        constant.diffusion_r_r .= 1.0
+        _, per_electron_constant = moved_energy(constant)
         uniform_t, _ = heat_rhs(
             HeatTransportTerm(; delta_b_over_b = delta, major_radius = R0),
             heat_layout(nr; a), flat, profile)
-        @info "kinetic transport down a density gradient at 100 eV: energy per electron moved $(per_electron) T, heat transport of T $(uniform_t) W/m³"
+        @info "kinetic transport down a density gradient at 100 eV: energy per transported electron $(per_electron) T (constant diffusion $(per_electron_constant) T), power $(moved) W/m³, heat transport of T $(uniform_t) W/m³"
         @test all(r -> isapprox(r, 2; rtol = 1e-2), per_electron)
+        @test all(r -> isapprox(r, 1.5; rtol = 1e-2), per_electron_constant)
+        @test all(<(0), moved[1:(nr - 1)]) && moved[nr] > 0
         @test all(iszero, uniform_t)
     end
 
