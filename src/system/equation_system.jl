@@ -1131,6 +1131,7 @@ function _check_plasma_pairings(equations)
                                 "electrons as hot: give them one region"))
         end
     end
+    _check_heating_regions(equations)
     # the friction of bound_friction = :ionization_split charges f for the ionization that the
     # kinetic ionization of the system counts: the same threshold, and the heating by the
     # secondaries gives the cold electrons the moment that f pays
@@ -1190,6 +1191,11 @@ function _check_plasma_pairings(equations)
                 end
             end
             if books_sinks && !any(heating -> heating.kinetic_ionization === k, heatings)
+                # the region comes first: the heating that the message below asks for is
+                # refused under a total energy whose moment takes another region
+                for entry in _total_energy_rows(equations)
+                    _check_ionization_region(entry, k, true)
+                end
                 throw(ArgumentError("the Fokker-Planck term of $(owner.unknown) takes bound_friction = " *
                                     ":ionization_split and its sinks leave the electrons (KineticEnergyLossTerm with " *
                                     "part = :sinks), and the system has no SecondaryHeatingTerm of its kinetic " *
@@ -1525,11 +1531,13 @@ _region_of(envelopes) = envelopes === nothing ? nothing : envelopes.region
 function _moves_in_radius(term::FokkerPlanckTerm)
     any(!iszero, term.operator.diffusion_r_r) || any(!iszero, term.operator.advection_r)
 end
-# Whether the operator of a term holds coefficients that change the energy of f: those of the
-# flux in p (advection, diffusion and the p-ξ cross diffusion of that flux) and the fluxes
-# through p_min and p = 0 that its boundaries take. The energy of a cell depends on p alone, so
-# the pitch fluxes, the ξ-p cross term among them, move no energy. The coefficients of a unit
-# field (`unit_field_advection_p`) are left out: the work of the field is E j_hot in the row.
+# Whether the operator of a term holds coefficients that change the energy of f: those of
+# the flux in p (advection, diffusion and the p-ξ cross diffusion of that flux) and the
+# fluxes through p_min and p = 0 that its boundaries take. The energy of a cell depends on p
+# alone, so the pitch fluxes, the ξ-p cross term among them, move no energy. The
+# coefficients of a unit field (`unit_field_advection_p`) are left out: the work of the
+# field is E j_hot in the row, and its flux through p_max needs the boundary term of the row
+# (_check_total_energy_rows).
 function _moves_in_energy(term::FokkerPlanckTerm)
     op = term.operator
     any(!iszero, op.advection_p) && return true
@@ -1647,9 +1655,11 @@ function _check_bulk_heat_transport(row, total)
         throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, the " *
                             "energy term of the radial transport of $(first(transported)) and a HeatTransportTerm " *
                             "with the Rechester-Rosenbluth diffusivity, the energy moment of the same kinetic " *
-                            "diffusion on a Maxwellian: the heat of the bulk would move twice in radius. Take the " *
-                            "heat transport of the bulk from the transport of $(first(transported)) alone, or give " *
-                            "the HeatTransportTerm a prescribed diffusivity (diffusion or diffusion_at)"))
+                            "diffusion on a Maxwellian: the heat of the bulk would move twice in radius. Give " *
+                            "the HeatTransportTerm a prescribed diffusivity (diffusion or diffusion_at), or remove " *
+                            "it. The transport of $(first(transported)) is not the same heat transport: at a " *
+                            "uniform temperature it carries heat down a density gradient (docs page Energy and " *
+                            "current balance)"))
     end
     return nothing
 end
@@ -1681,6 +1691,86 @@ function _check_energy_change_sources(row, total, distributions, equations)
                                 "the source gives electrons outside $total. Remove the term, or put " *
                                 "$(change.kinetic) into $total"))
         end
+    end
+    return nothing
+end
+
+# The row `row` of the total energy `total` refuses the transfer to the cold electrons from
+# one of the `distributions` in W_hot: KineticEnergyLossTerm with part = :free_electrons and
+# FrictionEnergyTransferTerm. W_cold = W_tot − W_hot already receives that transfer, so the
+# row would count it twice. The same terms of a distribution outside W_tot stay allowed.
+function _check_internal_transfer(row, total, distributions)
+    for transfer in row.terms
+        transfer isa Union{KineticEnergyLossTerm, FrictionEnergyTransferTerm} || continue
+        transfer isa KineticEnergyLossTerm && transfer.part !== :free_electrons && continue
+        transfer.kinetic in distributions || continue
+        throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, and " *
+                            "its $(nameof(typeof(transfer))) gives the cold electrons the energy that " *
+                            "$(transfer.kinetic) loses to them by collisions. That transfer stays inside $total, " *
+                            "and the cold energy, $total less the energy of $(transfer.kinetic), already receives " *
+                            "it, so the row would count it twice: remove the term. The transfer from a " *
+                            "distribution outside $total, such as a runaway grid, stays allowed"))
+    end
+    return nothing
+end
+
+# The row `row` of the total energy `total` refuses the sinks term and the energy flux
+# through p_max of a distribution outside the `distributions` of W_hot. That distribution
+# loses the energy itself, so the row would charge the same loss to the cold electrons.
+function _check_outside_losses(row, total, distributions)
+    isempty(distributions) && return nothing
+    for loss in row.terms
+        sinks = loss isa KineticEnergyLossTerm && loss.part === :sinks
+        outflow = loss isa MomentumBoundaryFluxTerm && loss.weight === :energy
+        (sinks || outflow) || continue
+        loss.kinetic in distributions && continue
+        throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, and " *
+                            "its $(nameof(typeof(loss))) charges a loss of $(loss.kinetic), whose distribution is " *
+                            "not in $total and loses that energy itself: the cold electrons would pay it as well. " *
+                            "Remove the term, or put $(loss.kinetic) into $total"))
+    end
+    return nothing
+end
+
+# The heating by the secondaries of the kinetic ionization `ionization` in the row of the
+# total energy `entry` (a named tuple of _total_energy_row): where its distribution is in
+# W_hot, its region is that of the energy moment. Over a wider region the heating gives the
+# cold electrons the secondaries of ionizations that the sinks term does not charge, and over
+# a narrower one it leaves out secondaries that the sinks term charges. `split` is true under
+# bound_friction = :ionization_split, whose ionization takes a ThermalMomentum threshold.
+function _check_ionization_region(entry, ionization, split)
+    (; row, total, closures, distributions) = entry
+    d = ionization.kinetic
+    d in distributions || return nothing
+    moment = _energy_moment(closures, d)
+    _same_region(_region_of(ionization.envelopes), _region_of(moment.envelopes)) &&
+        return nothing
+    remedy = if split
+        "Under bound_friction = :ionization_split the threshold of the ionization is a " *
+        "ThermalMomentum: give the energy moment a ThermalMomentum region (region of " *
+        "total_energy_equation), the ionization the same region, and CollisionSettings the " *
+        "ionization_threshold of its factor"
+    else
+        "Give the KineticIonizationTerm the region of the energy moment"
+    end
+    throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, and the " *
+                        "kinetic ionization of $d takes another region than the energy moment of $d, wider or " *
+                        "narrower. Its heating by secondaries (SecondaryHeatingTerm) would then not match the " *
+                        "ionizations that the sinks term of the row charges. " * remedy))
+end
+
+# Each SecondaryHeatingTerm in a row of the total energy takes a kinetic ionization over the
+# region of the energy moment of its distribution (_check_ionization_region).
+function _check_heating_regions(equations)
+    for entry in _total_energy_rows(equations), term in entry.row.terms
+
+        term isa SecondaryHeatingTerm || continue
+        d = term.kinetic_ionization.kinetic
+        split = any(
+            t -> t isa FokkerPlanckTerm && t.unknown === d &&
+                 t.settings.bound_friction === :ionization_split,
+            Iterators.flatten(equation.terms for equation in equations))
+        _check_ionization_region(entry, term.kinetic_ionization, split)
     end
     return nothing
 end
@@ -1780,38 +1870,48 @@ end
 
 # The row of a total energy holds the time derivative of W_tot = W_cold + W_hot, with W_hot
 # the energy moments of the distributions in the closure of W_tot, so every change of W_hot
-# that no term of the row lists is charged to the cold electrons. For each distribution of
-# W_hot the row lists the sinks of its collisions, the energy that crosses p_max (the flux of
-# the boundary, or the interface to the runaway grid with the work of the electron-electron
-# collisions on the electrons that cross it), the energy of the knock-ons of each
-# Rosenbluth-Putvinski source over the whole grid, the energy that each Fokker-Planck term
-# with radial transport moves over the whole grid, and refuses the channels that no row
-# term carries: knock-on secondaries on its grid, a prescribed loss rate, a Maxwellian
-# source, and a LinearTerm with a nonzero coefficient, which moves electrons into f from a
-# kinetic unknown or out of it. The row refuses an energy term of a source outside the
-# equations of the distributions of W_hot, whose energy is not in W_tot, and a work term of
-# an interface whose lower distribution is not in W_hot. The checks read the coefficients of
-# the operators as they are, so a run repeats them before its first step (_check_run), and a
-# RechesterRosenbluthUpdate checks the transport that it sets in the run (check_update).
+# that no term of the row lists is charged to the cold electrons. The checks go by term
+# type and by boundary condition, and a term of a type that they do not name passes without
+# a check, its change of W_hot going to the cold electrons. For each distribution of
+# W_hot the row lists the sinks of its collisions, the energy that crosses p_max for each
+# Fokker-Planck term with collisions or with the field unknown (the flux of the boundary, or
+# the interface to the runaway grid with the work of the electron-electron collisions on the
+# electrons that cross it), the energy of the knock-ons of each Rosenbluth-Putvinski source
+# over the whole grid, the energy that each Fokker-Planck term with radial transport moves
+# over the whole grid, and refuses the channels that no row term carries: knock-on
+# secondaries on its grid, a prescribed loss rate, a Maxwellian source, a prescribed flux
+# through p_min of a term with collisions, and a LinearTerm with a nonzero coefficient,
+# which moves electrons into f from a kinetic unknown or out of it. The row refuses a
+# transfer from W_hot to the cold electrons, which W_cold already receives, an energy term
+# of a source outside the equations of the distributions of W_hot, whose energy is not in
+# W_tot, and a work term of an interface whose lower distribution is not in W_hot. The
+# checks read the coefficients of the operators as they are, so a run repeats them before
+# its first step (_check_run), and a RechesterRosenbluthUpdate checks the transport that it
+# sets in the run (check_update).
 function _check_total_energy_rows(equations)
     for (; row, total, closures, distributions) in _total_energy_rows(equations)
         listed = row.terms
         _check_energy_change_sources(row, total, distributions, equations)
         _check_collision_work_interfaces(row, total, distributions)
         _check_bulk_heat_transport(row, total)
+        _check_internal_transfer(row, total, distributions)
+        _check_outside_losses(row, total, distributions)
         for d in distributions, equation in equations
 
             equation.unknown === d || continue
             moment = _energy_moment(closures, d)
             for term in equation.terms
-                if term isa FokkerPlanckTerm && _has_collisions(term)
+                # a term without collisions that carries the field unknown moves electrons
+                # through p_max as well, and needs the boundary term but no sinks
+                if term isa FokkerPlanckTerm &&
+                   (_has_collisions(term) || term.electric_field !== nothing)
                     # the sinks term of this Fokker-Planck term, charged as a loss, over the
                     # region of the energy moment
                     sinks = [t
                              for t in listed
                              if t isa KineticEnergyLossTerm && t.source === term &&
                                     t.part === :sinks]
-                    if _has_sinks(term) && isempty(sinks)
+                    if _has_collisions(term) && _has_sinks(term) && isempty(sinks)
                         throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy " *
                                             "$total, and the collisions of $d have sinks (radiation or bound electrons) " *
                                             "that no term of the row lists, so the cold electrons would pay them: add " *
@@ -1832,6 +1932,21 @@ function _check_total_energy_rows(equations)
                         end
                     end
                     boundary = term.operator.p_upper_boundary
+                    # a field term without collisions in a distribution with an interface:
+                    # its field moves electrons through its own p_max, not into the runaway
+                    # grid
+                    at_interface = any(
+                        t -> t isa FokkerPlanckTerm &&
+                             t.operator.p_upper_boundary === :interface,
+                        equation.terms)
+                    if !_has_collisions(term) && at_interface
+                        throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy " *
+                                            "$total, and the FokkerPlanckTerm of $d without collisions carries the field " *
+                                            "with p_upper_boundary = :$boundary in a distribution with an interface to " *
+                                            "a runaway grid, whose terms belong to the collisions: the electrons that " *
+                                            "its field moves would not cross the interface. Put the field unknown " *
+                                            "(electric_field) on the FokkerPlanckTerm with collisions at the interface"))
+                    end
                     if boundary === :interface
                         crossings = [t
                                      for t in listed
@@ -1869,13 +1984,23 @@ function _check_total_energy_rows(equations)
                                             "coefficient = -1) of this term"))
                     end
                 end
+                if term isa FokkerPlanckTerm && _has_collisions(term) &&
+                   term.operator.p_lower_boundary === :prescribed &&
+                   any(!iszero, term.operator.p_flux_at_lower_boundary)
+                    throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy " *
+                                        "$total, and the FokkerPlanckTerm of $d takes a prescribed flux through p_min " *
+                                        "(p_lower_boundary = :prescribed), whose energy no term of the row carries: " *
+                                        "the cold electrons would pay or gain it. Take p_lower_boundary = :zero_flux, " *
+                                        "or a zero p_flux_at_lower_boundary"))
+                end
                 if term isa FokkerPlanckTerm &&
                    (_moves_in_radius(term) || _has_energy_change(listed, term))
                     _check_transport_energy(term, listed, row.unknown, total, d)
                 end
                 # a Fokker-Planck term without collisions (no plasma and no coefficient
-                # source) has no sinks term or boundary term of the row, so its momentum
-                # coefficients would move energy of f without a channel
+                # source) has no sinks term of the row, and its boundary term carries the
+                # flux of the field alone, so its momentum coefficients would move energy of
+                # f without a channel
                 if term isa FokkerPlanckTerm && !_has_collisions(term) &&
                    _moves_in_energy(term)
                     throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy " *

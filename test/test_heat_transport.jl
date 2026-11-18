@@ -2,8 +2,8 @@
 # of a uniform diffusivity in a cylinder, the energy balance with the edge flux, the
 # Rechester-Rosenbluth heat flux against the energy moment of the kinetic Rechester-
 # Rosenbluth operator on Maxwellians, the same against the energy term of the kinetic
-# transport on a temperature profile, the Jacobian, and the switch times of a level that
-# changes in time.
+# transport on a temperature profile and down a density gradient, the Jacobian, and the
+# switch times of a level that changes in time.
 
 # J₀ by its series, enough for 0 ≤ x ≤ 3
 _bessel_j0(x) = sum((-1)^k * (x / 2)^(2k) / factorial(big(k))^2 for k in 0:30) |> Float64
@@ -144,6 +144,51 @@ const BESSEL_J0_FIRST_ZERO = 2.404825557695773
             heat_layout(nr; a), T, fill(n, nr))
         ratio = kinetic ./ fluid
         @test all(r -> isapprox(r, 1; atol = 1e-2), ratio[1:(nr - 2)])
+
+        # Under a density gradient at a uniform temperature of 100 eV the heat transport of
+        # the temperature is zero, while the energy term of the kinetic transport carries an
+        # energy of 2 times the temperature per transported electron. That is the analytic
+        # ratio of the energy flux to the particle flux for a flux proportional to v over a
+        # Maxwellian. The term is negative at the inner radii, where the density is high, and
+        # positive at the outermost one. A radial diffusion independent of p carries 1.5 times
+        # the temperature. Measured on n = 1e19 (3 − 2 r²/a²) m⁻³ at 8 radii:
+        # - Rechester-Rosenbluth at δB/B = 2e-3: 2.0002 per electron, −7.329e5 W/m³ at radii
+        #   1 to 7 and +2.394e6 W/m³ at radius 8.
+        # - D = 1 m²/s: 1.5004 per electron, −7.692e3 W/m³ at radii 1 to 7 and +2.513e4 W/m³
+        #   at radius 8.
+        flat = fill(100.0, nr)
+        profile = [n * (1 + 2 * (1 - (r / a)^2)) for r in rad.r_centers]
+        for ir in 1:nr, (i, p) in enumerate(momentum_grid(grid).p_centers)
+
+            f[i, :, ir] .= exp(-p^2 / (1 + sqrt(1 + p^2)) /
+                               (flat[ir] / Constants.ELECTRON_REST_ENERGY))
+        end
+        f .*= reshape(profile ./ density(grid, f), 1, 1, :)
+        unknown_values(u, layout, 2) .= flat
+        unknown_values(u, layout, 3) .= profile
+        function moved_energy(transport)
+            local power = Runes2P.rhs!(zeros(length(u)),
+                KineticEnergyChangeTerm(FokkerPlanckTerm(:f, transport)), u, layout, 4, 0.0)[rows]
+            local df = zeros(size(f))
+            Runes2P.apply!(df, transport, f)
+            return power, power ./ (e .* flat .* density(grid, df))
+        end
+        rr_power, rr_per_electron = moved_energy(op)
+        constant = AdvectionDiffusion(grid; cross_diffusion = false)
+        constant.diffusion_r_r .= 1.0
+        constant_power, constant_per_electron = moved_energy(constant)
+        uniform_t, _ = heat_rhs(
+            HeatTransportTerm(; delta_b_over_b = delta, major_radius = R0),
+            heat_layout(nr; a), flat, profile)
+        @info "kinetic transport down a density gradient at 100 eV: Rechester-Rosenbluth $(rr_per_electron) T per electron, $(rr_power) W/m³; constant diffusion $(constant_per_electron) T per electron, $(constant_power) W/m³; heat transport of T $(uniform_t) W/m³"
+        @test all(r -> isapprox(r, 2; rtol = 1e-2), rr_per_electron)
+        @test all(r -> isapprox(r, 1.5; rtol = 1e-2), constant_per_electron)
+        for power in (rr_power, constant_power)
+            @test all(<(0), power[1:(nr - 1)]) && power[nr] > 0
+        end
+        @test all(isapprox(-7.329e5; rtol = 1e-2), rr_power[1:(nr - 1)])
+        @test rr_power[nr] ≈ 2.394e6 rtol = 1e-2
+        @test all(iszero, uniform_t)
     end
 
     @testset "Jacobian" begin

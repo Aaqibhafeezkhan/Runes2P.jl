@@ -201,6 +201,9 @@ The threshold of the hot region follows the temperature, so under a temperature 
 An electron that the transport carries across it then leaves or joins the total energy, and no population pays its energy.
 `test/test_energy_transfer.jl` shows that the moment over the hot region does not integrate to zero there.
 
+The choice has a drawback: where the density has a gradient, the term carries heat at a uniform temperature.
+Under the Rechester-Rosenbluth diffusion it drives the cold electrons towards a uniform ``n T^{3/2}``, not a uniform ``T`` ([Energy and current balance](model/energy-current.md#Radial-transport-of-the-kinetic-electrons)).
+
 ## Linear solvers
 
 | Choice | Value |

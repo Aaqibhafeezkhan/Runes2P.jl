@@ -213,6 +213,47 @@ import ForwardDiff
         # two terms of the work of one interface count it twice
         @test_throws "count the work more than once" two(
             crossing, InterfaceEnergyFluxTerm(interface), work, work)
+        # the transfer of the runaway grid to the cold electrons enters W_tot from outside
+        # it and stays allowed, in both forms
+        @test two(crossing, InterfaceEnergyFluxTerm(interface), work,
+            free_electron_energy_transfer_term(re)) === nothing
+        @test two(crossing, InterfaceEnergyFluxTerm(interface), work,
+            FrictionEnergyTransferTerm(:runaway, upper, plasma)) === nothing
+        # the sinks and the energy flux through p_max of the runaway grid: that grid loses
+        # the energy itself, so the row would charge it to the cold electrons as well
+        @test_throws "loses that energy itself" two(
+            crossing, InterfaceEnergyFluxTerm(interface),
+            work, KineticEnergyLossTerm(re; part = :sinks))
+        @test_throws "loses that energy itself" two(
+            crossing, InterfaceEnergyFluxTerm(interface),
+            work, MomentumBoundaryFluxTerm(:runaway, re; weight = :energy, coefficient = -1))
+        # a term without collisions that carries the field unknown next to the interface, at
+        # either upper boundary: the electrons that its field moves would not reach the
+        # runaway grid, so it is refused. Without an interface it needs the boundary term
+        # (the testset of the field as an unknown below)
+        field_out = FokkerPlanckTerm(:f, AdvectionDiffusion(grid; scheme = :central);
+            electric_field = :electric_field)
+        field_in = FokkerPlanckTerm(:f,
+            AdvectionDiffusion(grid; scheme = :central, p_upper_boundary = :interface);
+            electric_field = :electric_field)
+        beside(field_term, row_terms...) = Runes2P._check_plasma_pairings([Equation(:f,
+                                                                               TimeDerivative(),
+                                                                               lower,
+                                                                               field_term,
+                                                                               interface);
+                                                                           Equation(
+                                                                               :runaway,
+                                                                               TimeDerivative(),
+                                                                               re,
+                                                                               interface);
+                                                                           row(row_terms...);
+                                                                           energy])
+        field_outflow = MomentumBoundaryFluxTerm(:f, field_out; weight = :energy, coefficient = -1)
+        @test_throws "Put the field unknown (electric_field)" beside(field_out, crossing,
+            InterfaceEnergyFluxTerm(interface), work, field_outflow)
+        @test_throws "Put the field unknown (electric_field)" beside(field_in, crossing,
+            InterfaceEnergyFluxTerm(interface), work)
+        @test check((term, field_out), sinks, outflow, field_outflow) === nothing
         # the work at the interface of a distribution outside W_tot: the electrons that cross
         # there are not in W_tot, so the row refuses the term
         g_lower = FokkerPlanckTerm(:g,
@@ -387,6 +428,35 @@ import ForwardDiff
         @test check((term, LinearTerm(:f; coefficient = 0.0)), sinks, outflow) === nothing
         @test check((term, LinearTerm(:g; coefficient = [0.0, 0.0])), sinks, outflow) ===
               nothing
+        # the transfer of f to the cold electrons stays inside W_tot, which W_cold already
+        # receives: the row would count it twice, in either form
+        @test_throws "would count it twice" check((term,), sinks, outflow,
+            KineticEnergyLossTerm(term; part = :free_electrons))
+        @test_throws "would count it twice" check((term,), sinks, outflow,
+            free_electron_energy_transfer_term(term))
+        @test_throws "would count it twice" check((term,), sinks, outflow,
+            FrictionEnergyTransferTerm(:f, grid, plasma))
+        # a prescribed flux through p_min of a term with collisions brings electrons into f
+        # whose energy no row term carries. A zero flux brings none
+        above_grid = cylindrical_grid(
+            MomentumGrid(uniform_p_faces(60, 0.05, 0.4), uniform_xi_faces(2)),
+            RadialGrid(uniform_r_faces(2, 0.5)))
+        function fed(flux)
+            op = AdvectionDiffusion(above_grid; scheme = :exponential_fitting,
+                p_lower_boundary = :prescribed, p_upper_boundary = :f_zero)
+            op.p_flux_at_lower_boundary .= flux
+            return FokkerPlanckTerm(:f, op; plasma, synchrotron = false,
+                settings = CollisionSettings(mode = :full, screening = :complete, bremsstrahlung = :neglect))
+        end
+        for (flux, refused) in ((1e20, true), (0.0, false))
+            source = fed(flux)
+            at_p_max = MomentumBoundaryFluxTerm(:f, source; weight = :energy, coefficient = -1)
+            if refused
+                @test_throws "prescribed flux through p_min" check((source,), at_p_max)
+            else
+                @test check((source,), at_p_max) === nothing
+            end
+        end
         # in an algebraic equation of f a LinearTerm of f is the closure of the row
         @test Runes2P._check_plasma_pairings([Equation(:f, Algebraic(), LinearTerm(:g),
                                                   LinearTerm(:f; coefficient = -1));
@@ -696,9 +766,14 @@ import ForwardDiff
     end
 
     @testset "the field as an unknown in a term without collisions" begin
-        # The coefficients of a unit field are not counted among the coefficients in momentum:
-        # their work is the product of the field and the hot current, which the row holds
-        T0, n = 100.0, 1e19
+        # The coefficients of a unit field are not counted among the coefficients in
+        # momentum: their work is the product of the field and the hot current, which the
+        # row holds. The field also moves electrons out through p_max, here at 50 V/m under
+        # :upwind with a constant 1e16 added to every cell of f up to p_max, so the row
+        # needs the boundary term of the field term as well. With it, W_cold changes by the
+        # gap between E j_hot and the work of the discrete field term alone. Measured:
+        # |dW_cold/dt| is 2.7e-4 of the energy flux through p_max
+        T0, n, E = 100.0, 1e19, 50.0
         grid = cylindrical_grid(
             MomentumGrid(uniform_p_faces(30, 0.0, 0.4), uniform_xi_faces(2)),
             RadialGrid(uniform_r_faces(2, 0.5)))
@@ -712,28 +787,40 @@ import ForwardDiff
                 RadialUnknown(:cold_electron_density; scale = 1e19),
                 RadialUnknown(:cold_thermal_energy; scale = THERMAL_ENERGY_FACTOR * 1e21),
                 RadialUnknown(:total_electron_energy; scale = THERMAL_ENERGY_FACTOR * 1e21)])
-        field_term = FokkerPlanckTerm(:f, AdvectionDiffusion(grid; scheme = :central);
+        field_term = FokkerPlanckTerm(:f, AdvectionDiffusion(grid; scheme = :upwind);
             electric_field = :electric_field)
-        equations = [Equation(:f, TimeDerivative(), field_term),
-            Equation(:electric_field, Algebraic(), PrescribedValueTerm([1.0, 1.0]),
+        outflow = MomentumBoundaryFluxTerm(:f, field_term; weight = :energy, coefficient = -1)
+        equations(row_terms...) = [Equation(:f, TimeDerivative(), field_term),
+            Equation(:electric_field, Algebraic(), PrescribedValueTerm([E, E]),
                 minus(:electric_field)),
             Equation(:hot_electron_current_density, Algebraic(),
                 CurrentMomentTerm(:f, grid; region), minus(:hot_electron_current_density)),
             Equation(:cold_electron_temperature, TimeDerivative(:total_electron_energy),
-                ProductTerm(:electric_field, :hot_electron_current_density)),
+                ProductTerm(:electric_field, :hot_electron_current_density), row_terms...),
             density_row([n, n]), thermal_energy_equation(), total_energy_equation(:f, grid; region)]
         theta = T0 / Constants.ELECTRON_REST_ENERGY
         u0 = zeros(length(layout))
         for ir in 1:2
-            kinetic_view(u0, layout, 1, ir) .= [n * exp(-p^2 / 2theta)
+            kinetic_view(u0, layout, 1, ir) .= [n * exp(-p^2 / 2theta) + 1e16
                                                 for p in m.p_centers, _ in 1:2]
         end
-        unknown_values(u0, layout, 2) .= 1.0
+        unknown_values(u0, layout, 2) .= E
         unknown_values(u0, layout, 4) .= T0
         unknown_values(u0, layout, 5) .= n
-        system = EquationSystem(layout, equations; time_scale = 1e-7, initial_state = u0)
-        solution = integrate(system, u0, [0.0, 1e-8]; stepper = FixedSteps())
-        @test all(isfinite, solution.states)
+        @test_throws "through p_max" EquationSystem(
+            layout, equations(); time_scale = 1e-7, initial_state = u0)
+        system = EquationSystem(layout, equations(outflow); time_scale = 1e-7, initial_state = u0)
+        dt = 1e-8
+        solution = integrate(system, u0, [0.0, dt]; stepper = FixedSteps())
+        start, finish = solution.states[:, 1], solution.states[:, 2]
+        rows = [first(Runes2P.unknown_range(layout, 4, ir)) for ir in 1:2]
+        through_p_max = Runes2P.rhs!(zeros(length(finish)), outflow, finish, layout, 4, dt)[rows]
+        cold_change = (unknown_values(finish, layout, 6) .-
+                       unknown_values(start, layout, 6)) ./
+                      dt
+        @info "a field term without collisions: dW_cold/dt $(cold_change) W/m³ against the energy through p_max $(through_p_max) W/m³"
+        @test all(<(-1e5), through_p_max)
+        @test all(abs.(cold_change) .< 1e-3 .* abs.(through_p_max))
     end
 
     @testset "radial transport set after the build under the total energy" begin

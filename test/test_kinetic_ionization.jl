@@ -987,6 +987,53 @@ end
             closure...]
         @test_throws "SecondaryHeatingTerm(kinetic_ionization)" Runes2P._check_plasma_pairings(booked())
         @test Runes2P._check_plasma_pairings(booked(heating)) === nothing
+        # under a total energy the sinks charge f for the ionizations over the hot region,
+        # so the heating by secondaries takes an ionization over that region. Another region
+        # heats the cold electrons for ionizations that no term charges: refused, before the
+        # split asks for the heating
+        hot = region(5)
+        function under_total(source, ionization, heat...; moment = hot)
+            row = Equation(
+                :cold_electron_temperature, TimeDerivative(:total_electron_energy),
+                KineticEnergyLossTerm(source; part = :sinks, region = moment),
+                MomentumBoundaryFluxTerm(:f, source; weight = :energy, coefficient = -1), heat...)
+            closures = [
+                thermal_energy_equation(), total_energy_equation(:f, grid; region = moment)]
+            return Runes2P._check_plasma_pairings([Equation(:f, TimeDerivative(), source),
+                Equation(:ion_densities, TimeDerivative(), ionization), row, closures...,
+                closure...])
+        end
+        whole = KineticIonizationTerm(composition, :f, grid)
+        whole_split = fp(0.0)
+        for heat in ((), (SecondaryHeatingTerm(whole; spectrum = :opal),))
+            @test_throws "another region than the energy moment" under_total(
+                whole_split, whole, heat...)
+        end
+        @test under_total(fp(5.0), k5, SecondaryHeatingTerm(k5; spectrum = :opal)) ===
+              nothing
+        # an energy moment over a fixed limit cannot pair with the split, whose ionization
+        # takes a thermal threshold: the message asks for a thermal region of the moment
+        @test_throws "give the energy moment a ThermalMomentum region" under_total(
+            fp(5.0), k5, SecondaryHeatingTerm(k5; spectrum = :opal); moment = MomentumRegion(0.1))
+        # the same under DREAM's Bethe friction, which asks for no heating, and with a fixed
+        # limit, which the comparison of thermal thresholds does not see
+        bethe = FokkerPlanckTerm(:f, operator(); plasma = from_unknowns, settings = CollisionSettings())
+        fixed = KineticIonizationTerm(composition, :f, grid; region = MomentumRegion(0.1))
+        for ionization in (whole, fixed)
+            @test_throws "Give the KineticIonizationTerm the region of the energy moment" under_total(
+                bethe, ionization, SecondaryHeatingTerm(ionization))
+            @test under_total(bethe, ionization) === nothing
+        end
+        # the remedy of the split only under the split
+        @test_throws "Under bound_friction = :ionization_split" under_total(
+            whole_split, whole, SecondaryHeatingTerm(whole; spectrum = :opal))
+        bethe_message = try
+            under_total(bethe, whole, SecondaryHeatingTerm(whole))
+        catch error
+            sprint(showerror, error)
+        end
+        @test !occursin("ionization_split", bethe_message)
+        @test under_total(bethe, k5, SecondaryHeatingTerm(k5)) === nothing
         @test_throws "cut = :none" Runes2P._check_plasma_pairings(system(threshold))
         @test_throws "different widths" Runes2P._check_plasma_pairings(system(other))
         # DREAM's Bethe friction pairs with any kinetic ionization
