@@ -18,7 +18,7 @@ The rules below cover the branches, the checks of a pull request, its review, it
   The lint (below), the code style check, the format check, the component tests and the docs build run on every push to a pull request.
   The full suite runs once a pull request into `dev` or `main` is marked ready, and again on every push after that.
   A merge into `dev` or `main` runs the lint, the code style check, the format check and the component tests again, on `dev` with the deployment of the docs in place of the docs build.
-  The full suite runs on every push to `dev`, whatever the push changes, and once a week.
+- The full suite runs on every push to `dev`, whatever the push changes, and once a week.
   A newer push to `dev` cancels the run of the older one, since the newer run tests that commit too.
   The check of the cancelled run passes and says so, unless a job failed first, and a run cancelled at the tip of `dev` fails.
 - A pull request that changes no code skips the component tests and the full suite.
