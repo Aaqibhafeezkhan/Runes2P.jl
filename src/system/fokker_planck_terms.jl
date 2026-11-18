@@ -349,27 +349,42 @@ end
 # start of the run, and each cell adds at its offset in the run
 function _add_kinetic_plasma_columns!(J, term::FokkerPlanckTerm,
         df::Array{<:ForwardDiff.Dual{<:Any, <:Any, N}, 3}, with_ions, layout, row) where {N}
-    np, nxi, nr = size(df)
-    values = nonzeros(J)
+    nr = size(df, 3)
+    if _threads_over_radii(nr)
+        Threads.@threads for ir in 1:nr
+            _add_kinetic_plasma_columns_radius!(J, term, df, with_ions, layout, row, ir)
+        end
+        return J
+    end
     for ir in 1:nr
-        columns = plasma_columns(term.plasma, layout, ir; with_ions)::Vector{Int}
-        if length(columns) != N
-            throw(DimensionMismatch("$(length(columns)) plasma columns for $N partials"))
-        end
-        rows = unknown_range(layout, row, ir)
-        # the cells of the row unknown match those of `df`, so the offsets stay inside the
-        # run, which the `@inbounds` below relies on
-        if layout.shapes[row, ir] != (np, nxi)
-            throw(DimensionMismatch("the cells of the row unknown at radius $ir differ from those of the term"))
-        end
-        starts = ntuple(k -> _run_start(J, rows, columns[k]), Val(N))
-        for j in 1:nxi, i in 1:np
+        _add_kinetic_plasma_columns_radius!(J, term, df, with_ions, layout, row, ir)
+    end
+    return J
+end
 
-            offset = _kinetic_index(layout, row, ir, i, j) - first(rows)
-            partials = ForwardDiff.partials(df[i, j, ir])
-            @inbounds for k in 1:N
-                values[starts[k] + offset] += partials[k]
-            end
+# the plasma columns of radius `ir`: its rows and columns are its own, so the radii write
+# disjoint stored values
+function _add_kinetic_plasma_columns_radius!(J, term::FokkerPlanckTerm,
+        df::Array{<:ForwardDiff.Dual{<:Any, <:Any, N}, 3}, with_ions, layout, row, ir) where {N}
+    np, nxi, _ = size(df)
+    values = nonzeros(J)
+    columns = plasma_columns(term.plasma, layout, ir; with_ions)::Vector{Int}
+    if length(columns) != N
+        throw(DimensionMismatch("$(length(columns)) plasma columns for $N partials"))
+    end
+    rows = unknown_range(layout, row, ir)
+    # the cells of the row unknown match those of `df`, so the offsets stay inside the
+    # run, which the `@inbounds` below relies on
+    if layout.shapes[row, ir] != (np, nxi)
+        throw(DimensionMismatch("the cells of the row unknown at radius $ir differ from those of the term"))
+    end
+    starts = ntuple(k -> _run_start(J, rows, columns[k]), Val(N))
+    for j in 1:nxi, i in 1:np
+
+        offset = _kinetic_index(layout, row, ir, i, j) - first(rows)
+        partials = ForwardDiff.partials(df[i, j, ir])
+        @inbounds for k in 1:N
+            values[starts[k] + offset] += partials[k]
         end
     end
     return J
