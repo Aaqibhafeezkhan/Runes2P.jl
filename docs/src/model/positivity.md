@@ -190,7 +190,7 @@ The limits the system sets:
 A step whose solution lies below a temperature floor is refused and repeated shorter.
 DREAM applies the same rule with limit 0 and repeats no step.
 It damps ``T_\mathrm{cold}``, ``n_\mathrm{tot}``, ``n_\mathrm{cold}``, where they are unknowns ``W_\mathrm{cold}``, ``W_i`` and the species densities ``N_i``, and the sum ``\sum_{i, Z_0} Z_0^2 n_{i, Z_0}`` at each radius (`src/Solver/SolverNonLinear.cpp:441-508`).
-The charge states have no limit of their own there (see [Comparison with DREAM](../dream-comparison.md)).
+The charge states have no limit of their own there (see [Departures from DREAM](../dream-departures.md#Behaviour-without-an-option-for-DREAM's)).
 
 ## Tests
 

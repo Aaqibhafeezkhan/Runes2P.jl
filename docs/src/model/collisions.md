@@ -231,6 +231,8 @@ With a hot-tail and a runaway grid the pairings of the two grids share one cutof
 A fluid runaway density above a grid creates knock-ons as well.
 [`RosenbluthPutvinskiSourceTerm`](@ref) is DREAM's kinetic Rosenbluth-Putvinski source, the knock-ons of a primary at the speed of light ([`rosenbluth_putvinski_rate`](@ref)).
 It is the source of M. N. Rosenbluth and S. V. Putvinski, Nucl. Fusion 37, 1355 (1997), doi:10.1088/0029-5515/37/10/I03.
+[`KineticEnergyChangeTerm`](@ref) is the energy that the source gives the distribution, for the row of the temperature ([Energy and current balance](energy-current.md#The-total-energy-in-the-fully-kinetic-mode)).
+
 [`ExternalAvalancheTerm`](@ref) is the avalanche growth rate of the fluid runaways that DREAM uses above the grid.
 The rate is that of L. Hesslow et al., Nucl. Fusion 59, 084004 (2019), doi:10.1088/1741-4326/ab26c2, with the [`fluid_avalanche_growth_rate`](@ref) of the [`effective_critical_field`](@ref) and the [`avalanche_critical_momentum`](@ref).
 The fluid growth rate takes the collision settings of DREAM's `RunawayFluid` ([`runaway_fluid_settings`](@ref)), not those of the kinetic equation.

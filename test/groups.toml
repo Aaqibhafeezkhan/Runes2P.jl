@@ -59,8 +59,8 @@ files = ["test_prescribed_fokker_planck.jl", "test_newton_krylov.jl"]
 [[group]]
 name = "quick-7"
 tier = "quick"
-# 7.6 minutes
-files = ["test_energy_budget.jl", "test_progress_log.jl"]
+# 21.7 minutes
+files = ["test_energy_budget.jl"]
 
 [[group]]
 name = "quick-8"
@@ -107,8 +107,8 @@ files = ["test_plasma_columns.jl"]
 [[group]]
 name = "quick-15"
 tier = "quick"
-# 3.9 minutes
-files = ["test_momentum_interface.jl"]
+# 4.2 minutes
+files = ["test_momentum_interface.jl", "test_progress_log.jl"]
 
 [[group]]
 name = "full-1"
@@ -174,10 +174,10 @@ files = ["test_disruption_chain_dream.jl", "test_first_step_field.jl"]
 [[group]]
 name = "full-11"
 tier = "full"
-# 7.5 minutes: the disruption case in the superthermal mode end to end and its phases from
+# 11.2 minutes: the disruption case in the superthermal mode end to end and its phases from
 # DREAM's state, the initialization of the fully kinetic case, the heating of the cold
-# electrons by a runaway grid, and the kinetic Rosenbluth-Putvinski avalanche at three p_max
-# (0.8 minutes)
+# electrons by a runaway grid (5.2 minutes alone at -O2), and the kinetic
+# Rosenbluth-Putvinski avalanche at three p_max (0.8 minutes)
 files = [
     "test_disruption_superthermal_dream.jl",
     "test_disruption_initialization_dream.jl",

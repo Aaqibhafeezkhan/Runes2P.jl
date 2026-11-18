@@ -987,6 +987,53 @@ end
             closure...]
         @test_throws "SecondaryHeatingTerm(kinetic_ionization)" Runes2P._check_plasma_pairings(booked())
         @test Runes2P._check_plasma_pairings(booked(heating)) === nothing
+        # under a total energy the sinks charge f for the ionizations over the hot region,
+        # so the heating by secondaries takes an ionization over that region. Another region
+        # heats the cold electrons for ionizations that no term charges: refused, before the
+        # split asks for the heating
+        hot = region(5)
+        function under_total(source, ionization, heat...; moment = hot)
+            row = Equation(
+                :cold_electron_temperature, TimeDerivative(:total_electron_energy),
+                KineticEnergyLossTerm(source; part = :sinks, region = moment),
+                MomentumBoundaryFluxTerm(:f, source; weight = :energy, coefficient = -1), heat...)
+            closures = [
+                thermal_energy_equation(), total_energy_equation(:f, grid; region = moment)]
+            return Runes2P._check_plasma_pairings([Equation(:f, TimeDerivative(), source),
+                Equation(:ion_densities, TimeDerivative(), ionization), row, closures...,
+                closure...])
+        end
+        whole = KineticIonizationTerm(composition, :f, grid)
+        whole_split = fp(0.0)
+        for heat in ((), (SecondaryHeatingTerm(whole; spectrum = :opal),))
+            @test_throws "another region than the energy moment" under_total(
+                whole_split, whole, heat...)
+        end
+        @test under_total(fp(5.0), k5, SecondaryHeatingTerm(k5; spectrum = :opal)) ===
+              nothing
+        # an energy moment over a fixed limit cannot pair with the split, whose ionization
+        # takes a thermal threshold: the message asks for a thermal region of the moment
+        @test_throws "give the energy moment a ThermalMomentum region" under_total(
+            fp(5.0), k5, SecondaryHeatingTerm(k5; spectrum = :opal); moment = MomentumRegion(0.1))
+        # the same under DREAM's Bethe friction, which asks for no heating, and with a fixed
+        # limit, which the comparison of thermal thresholds does not see
+        bethe = FokkerPlanckTerm(:f, operator(); plasma = from_unknowns, settings = CollisionSettings())
+        fixed = KineticIonizationTerm(composition, :f, grid; region = MomentumRegion(0.1))
+        for ionization in (whole, fixed)
+            @test_throws "Give the KineticIonizationTerm the region of the energy moment" under_total(
+                bethe, ionization, SecondaryHeatingTerm(ionization))
+            @test under_total(bethe, ionization) === nothing
+        end
+        # the remedy of the split only under the split
+        @test_throws "Under bound_friction = :ionization_split" under_total(
+            whole_split, whole, SecondaryHeatingTerm(whole; spectrum = :opal))
+        bethe_message = try
+            under_total(bethe, whole, SecondaryHeatingTerm(whole))
+        catch error
+            sprint(showerror, error)
+        end
+        @test !occursin("ionization_split", bethe_message)
+        @test under_total(bethe, k5, SecondaryHeatingTerm(k5)) === nothing
         @test_throws "cut = :none" Runes2P._check_plasma_pairings(system(threshold))
         @test_throws "different widths" Runes2P._check_plasma_pairings(system(other))
         # DREAM's Bethe friction pairs with any kinetic ionization
@@ -999,5 +1046,261 @@ end
               nothing
         @test SecondaryHeatingTerm(k5).cut === :none
         @test_throws ArgumentError SecondaryHeatingTerm(k5; cut = :other)
+        # the cut at the knock-on cutoff takes a knock-on term of f that is in the system
+        knock = KnockOnTerm(:f, KnockOnOperator(grid, grid, 0.1); target_density = :total_electron_density)
+        on_values = KnockOnTerm(:f, KnockOnOperator(grid, grid, 0.1); target_density = [
+            1e19, 1e19])
+        of_g = KnockOnTerm(:g, KnockOnOperator(grid, grid, 0.1); target_density = [
+            1e19, 1e19])
+        below(term) = Equation(:cold_electron_temperature, TimeDerivative(),
+            SecondaryHeatingTerm(k5; cut = :knockon, knockon_term = term, spectrum = :opal))
+        with_knockon(heat, terms...) = [Equation(:f, TimeDerivative(), fp(5.0), terms...),
+            Equation(:ion_densities, TimeDerivative(), k5), heat,
+            closure...]
+        @test_throws ArgumentError SecondaryHeatingTerm(k5; cut = :knockon)
+        @test_throws ArgumentError SecondaryHeatingTerm(k5; knockon_term = knock)
+        @test Runes2P._check_plasma_pairings(with_knockon(below(knock), knock)) === nothing
+        @test_throws "not in the system" Runes2P._check_plasma_pairings(system(below(knock)))
+        @test_throws "not in the system" Runes2P._check_plasma_pairings(with_knockon(below(knock), on_values))
+        @test_throws "the primary g" Runes2P._check_plasma_pairings(with_knockon(below(of_g), of_g))
+        # a knock-on term on an unknown of free electrons alone puts no secondary of the
+        # ionization into f, so the cut would lose their energy
+        for name in (:cold_electron_density, :runaway_density)
+            on_free = KnockOnTerm(:f, KnockOnOperator(grid, grid, 0.1); target_density = name)
+            @test_throws "free electrons only" Runes2P._check_plasma_pairings(with_knockon(
+                below(on_free), on_free))
+        end
+        # of two knock-on terms of f, the cut takes the one on the bound electrons
+        knock2 = KnockOnTerm(:f, KnockOnOperator(grid, grid, 0.2); target_density = :total_electron_density)
+        @test Runes2P._check_plasma_pairings(with_knockon(below(knock), knock, on_values)) ===
+              nothing
+        @test Runes2P._check_plasma_pairings(with_knockon(below(knock2), knock, knock2)) ===
+              nothing
+        @test_throws "next to one that is" Runes2P._check_plasma_pairings(with_knockon(
+            below(on_values), knock,
+            on_values))
+        # cut = :none next to a knock-on term of f on the bound electrons counts twice. On a
+        # target density given as values the system cannot tell.
+        @test_throws "counted twice" Runes2P._check_plasma_pairings(with_knockon(heating, knock))
+        @test Runes2P._check_plasma_pairings(with_knockon(heating, on_values)) === nothing
+        @test Runes2P._check_plasma_pairings(with_knockon(heating, of_g)) === nothing
+        # with DREAM's Bethe friction the cut at the knock-on cutoff pairs as well, and the
+        # cut at the hot threshold counts part of the energy above the cutoff twice
+        bethe(heat) = [
+            Equation(:f, TimeDerivative(),
+                FokkerPlanckTerm(:f, operator(); plasma = from_unknowns, settings = CollisionSettings()),
+                knock),
+            Equation(:ion_densities, TimeDerivative(), k5), heat, closure...]
+        @test Runes2P._check_plasma_pairings(bethe(below(knock))) === nothing
+        @test_throws "part of their energy would count twice" Runes2P._check_plasma_pairings(bethe(threshold))
+        @test_throws "counted twice" Runes2P._check_plasma_pairings(bethe(heating))
+        # the settings record holds the knock-on term with this cut alone
+        record = Runes2P.describe(below(knock).terms[1], Runes2P.DescriptionContext())
+        @test record["cut"] == "knockon"
+        @test record["knockon_term"]["type"] == "KnockOnTerm" &&
+              record["knockon_term"]["primary"] == "f"
+        @test !haskey(Runes2P.describe(heating.terms[1], Runes2P.DescriptionContext()), "knockon_term")
+    end
+
+    @testset "the cut at the knock-on cutoff" begin
+        # the energy per ionization below a cut of the spectrum of Opal et al.,
+        # S(x) = 1/(1 + (x/w)²): its moment up to the cut over its count up to (E − I)/2,
+        # by quadrature
+        for (w, E, I, cut) in ((24.2, 1000.0, 15.8, 50.0), (10.0, 1.3e6, 15.76, 1e3),
+            (8.3, 60.0, 13.6, 10.0), (15.8, 5.0e4, 24.6, 3e4))
+            top = (E - I) / 2
+            spectrum(x) = 1 / (1 + (x / w)^2)
+            moment = quadgk(x -> x * spectrum(x), 0, min(top, cut); rtol = 1e-12)[1]
+            @test secondary_energy_below(w, E, I, cut) ≈
+                  moment / quadgk(spectrum, 0, top; rtol = 1e-12)[1] rtol = 1e-10
+            # the conditional mean below the cut times the share of the secondaries there
+            share = atan(min(top, cut) / w) / atan(top / w)
+            @test secondary_energy_below(w, E, I, cut) ≈
+                  mean_secondary_energy(w, E, I, cut) * share rtol = 1e-12
+        end
+        # the limits: nothing at a zero cut or below the threshold, every secondary from the top
+        @test secondary_energy_below(10.0, 1000.0, 15.76, 0.0) == 0
+        @test secondary_energy_below(10.0, 10.0, 15.76, 1e3) == 0
+        # a tiny cut, where ln(1 + (cut/w)²) without log1p is zero
+        @test secondary_energy_below(10.0, 1000.0, 15.76, 1e-8) ≈
+              5.0 * (1e-9)^2 / atan((1000.0 - 15.76) / 20) rtol = 1e-14
+        for cut in ((1000.0 - 15.76) / 2, 1e4, Inf)
+            @test secondary_energy_below(10.0, 1000.0, 15.76, cut) ≈
+                  mean_secondary_energy(10.0, 1000.0, 15.76, Inf) rtol = 1e-14
+        end
+        # the spectrum of Kim and Rudd, eq. (52) at Q = 1 without the common factor, in
+        # w = W/B: its moment up to the cut over its count up to (t − 1)/2, by quadrature
+        shape(w, t) = -1 / (t + 1) * (1 / (w + 1) + 1 / (t - w)) +
+                      (1 / (w + 1)^2 + 1 / (t - w)^2) +
+                      log(t) * (1 / (w + 1)^3 + 1 / (t - w)^3)
+        for (E, B, cut) in ((1000.0, 15.76, 100.0), (1e5, 27.63, 250.0),
+            (5e3, 918.0, 1e3), (60.0, 13.6, 5.0), (1.3e6, 13.6, 1e3), (2e3, 422.0, Inf))
+            t = E / B
+            top = (t - 1) / 2
+            moment = quadgk(w -> w * shape(w, t), 0, min(top, cut / B); rtol = 1e-12)[1]
+            count = quadgk(w -> shape(w, t), 0, top; rtol = 1e-12)[1]
+            @test beb_secondary_energy_below(E, B, cut) ≈ B * moment / count rtol = 1e-9
+        end
+        @test beb_secondary_energy_below(1000.0, 15.76, 0.0) == 0
+        @test beb_secondary_energy_below(10.0, 15.76, 1e3) == 0
+        for cut in ((1000.0 - 15.76) / 2, 1e4, Inf)
+            @test beb_secondary_energy_below(1000.0, 15.76, cut) ≈
+                  beb_mean_secondary_energy(1000.0, 15.76, Inf) rtol = 1e-14
+        end
+        # small cuts and the band near the threshold, where the closed forms lose digits
+        # (2.7e-3 relative at cut/B = 1e-7) and the integrals take their Taylor series, against
+        # a quadrature in BigFloat. On both sides of the switch at w = 0.03 the two forms agree
+        # with it to 1e-12 relative (largest measured: 5.2e-13 at the switch).
+        setprecision(BigFloat, 256) do
+            exact(E, B, cut) = begin
+                t = big(E) / big(B)
+                top = (big(E) - big(B)) / (2 * big(B))
+                upper = min(top, big(cut) / big(B))
+                moment = quadgk(w -> w * shape(w, t), big(0), upper; rtol = big(1e-25))[1]
+                big(B) * moment /
+                quadgk(w -> shape(w, t), big(0), top; rtol = big(1e-25))[1]
+            end
+            for (E, B) in ((1000.0, 15.76), (1.3e6, 13.6)), ratio in (1e-9, 1e-7, 1e-5)
+
+                @test beb_secondary_energy_below(E, B, ratio * B) ≈ exact(E, B, ratio * B) rtol = 1e-12
+            end
+            for top in (1e-7, 1e-4, 0.029, 0.031), cut in (top * 15.76 / 2, Inf)
+
+                E = 15.76 * (1 + 2 * top)
+                @test beb_secondary_energy_below(E, 15.76, cut) ≈ exact(E, 15.76, cut) rtol = 1e-12
+            end
+        end
+        # the shares that the docstring of SecondaryHeatingTerm states: the secondaries above
+        # 1 keV of a primary of 1.3 MeV on the neutral atom carry 41.8 % (Ar) and 41.1 % (D) of
+        # the energy of every secondary with the default spectrum, 58.4 % and 57.5 % with that
+        # of Opal et al.
+        for (name, width, beb, opal) in (("Ar", 10.0, 0.418, 0.584), (
+            "D", 8.3, 0.411, 0.575))
+            I = ionization_energy(name, 0)
+            beb_share = 1 -
+                        beb_secondary_energy_below(1.3e6, I, 1e3) /
+                        beb_mean_secondary_energy(1.3e6, I, Inf)
+            opal_share = 1 -
+                         secondary_energy_below(width, 1.3e6, I, 1e3) /
+                         mean_secondary_energy(width, 1.3e6, I, Inf)
+            @test round(beb_share; digits = 3) == beb
+            @test round(opal_share; digits = 3) == opal
+        end
+        @test SECONDARY_SPECTRUM_WIDTHS["Ar"] == 10.0 &&
+              SECONDARY_SPECTRUM_WIDTHS["D"] == 8.3
+
+        # the heating with the cut against the heating of every secondary less the energy
+        # above the cutoff: f in one cell at 93.0 keV and neutral argon alone, so that the
+        # ratio is that of the moments of the spectrum, for two cutoffs of the operator and for
+        # the cutoffs that an update sets
+        grid = cylindrical_grid(
+            MomentumGrid(uniform_p_faces(50, 0.0, 1.0), uniform_xi_faces(2)),
+            RadialGrid(uniform_r_faces(1, 0.5)))
+        argon = IonComposition(["Ar" => 18])
+        layout = UnknownLayout(grid.radial_grid,
+            [ion_densities_unknown(argon),
+                RadialUnknown(:cold_electron_temperature; scale = 10.0),
+                KineticUnknown(:f, grid; scale = 1e10)])
+        u = zeros(length(layout))
+        radial_view(u, layout, 1, 1)[1] = 1e18
+        unknown_values(u, layout, 2) .= 10.0
+        cell = 32
+        kinetic_view(u, layout, 3, 1)[cell, :] .= 1e10
+        kinetic = KineticIonizationTerm(argon, :f, grid;
+            region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor = 5)))
+        operator = KnockOnOperator(grid, grid, 0.1)
+        knock = KnockOnTerm(:f, operator; target_density = [1e19])
+        heat(term) = only(unknown_values(
+            Runes2P.rhs!(zeros(length(u)), term, u, layout, 2, 0.0), layout, 2))
+        kinetic_energy(p) = (sqrt(1 + p^2) - 1) * Constants.ELECTRON_REST_ENERGY
+        E = kinetic_energy(momentum_grid(grid).p_centers[cell])
+        I0 = ionization_energy("Ar", 0)
+        t = E / I0
+        # the share of the energy of every secondary that those below the cut carry
+        share_below(spectrum, cut) = begin
+            above, total = if spectrum === :opal
+                top = (E - I0) / 2
+                S = x -> 1 / (1 + (x / 10.0)^2)
+                (quadgk(x -> x * S(x), cut, top; rtol = 1e-12)[1],
+                    quadgk(x -> x * S(x), 0, top; rtol = 1e-12)[1])
+            else
+                top = (t - 1) / 2
+                (quadgk(w -> w * shape(w, t), cut / I0, top; rtol = 1e-12)[1],
+                    quadgk(w -> w * shape(w, t), 0, top; rtol = 1e-12)[1])
+            end
+            @test 0 < above < total
+            1 - above / total
+        end
+        for spectrum in (:opal, :beb)
+            every = SecondaryHeatingTerm(kinetic; spectrum)
+            below = SecondaryHeatingTerm(kinetic; spectrum, cut = :knockon, knockon_term = knock)
+            heats = Float64[]
+            for p_cutoff in (0.1, 0.2)
+                set_cutoff!(operator, p_cutoff)
+                @test heat(below) ≈
+                      heat(every) * share_below(spectrum, kinetic_energy(p_cutoff)) rtol = 1e-9
+                push!(heats, heat(below))
+            end
+            # the term reads the cutoff at its evaluation: a higher cutoff keeps more energy
+            @test heats[2] > heats[1]
+            # a cutoff update that follows a cooling plasma (that of the checkpoint case)
+            # moves the cutoff, and the heating follows it
+            update = KnockOnCutoffUpdate(operator, time -> _checkpoint_plasma(time; nr = 1))
+            cutoffs = Float64[]
+            for time in (0.0, 8e-4)
+                Runes2P.apply_update!(update, u, layout, time)
+                push!(cutoffs, only(operator.p_cutoff))
+                @test heat(below) ≈
+                      heat(every) * share_below(spectrum, kinetic_energy(cutoffs[end])) rtol = 1e-9
+            end
+            @test cutoffs[1] != cutoffs[2]
+            set_cutoff!(operator, 0.1)
+        end
+
+        # the Jacobian of the term with the cut against central differences, with the
+        # threshold of the region following the temperature. The cutoff adds no column.
+        layout, kinetic, u = _ionization_case()
+        n = length(u)
+        knock = KnockOnTerm(:f, KnockOnOperator(kinetic.grid, kinetic.grid, [0.03, 0.05]);
+            target_density = [1e19, 1e19])
+        row = 3
+        for spectrum in (:opal, :beb)
+            heating = SecondaryHeatingTerm(kinetic; spectrum, cut = :knockon, knockon_term = knock)
+            every = SecondaryHeatingTerm(kinetic; spectrum)
+            Td = ForwardDiff.Dual{Nothing, Float64, 1}(20.0, ForwardDiff.Partials((1.0,)))
+            np, components = size(kinetic.rates[1])
+            @test (@inferred Runes2P._secondary_weights(heating, 1, Td)) isa
+                  Matrix{typeof(Td)}
+            @test (@inferred Runes2P._secondary_heating(
+                heating, 1, ones(np), ones(components), Td)) isa typeof(Td)
+            @test (@inferred Runes2P._secondary_weights(heating, 1, 20.0)) isa
+                  Matrix{Float64}
+            entries = Runes2P.sparsity!(Tuple{Int, Int}[], heating, layout, row)
+            @test Set(entries) ==
+                  Set(Runes2P.sparsity!(Tuple{Int, Int}[], every, layout, row))
+            term_rhs(x) = Runes2P.rhs!(zeros(n), heating, x, layout, row, 0.0)
+            Q = unknown_values(term_rhs(u), layout, row)
+            Q_every = unknown_values(Runes2P.rhs!(zeros(n), every, u, layout, row, 0.0), layout, row)
+            # at the second radius, at 10 eV, f is too small above the cutoff to matter
+            @test 0 < Q[1] < Q_every[1] && 0 < Q[2] <= Q_every[2]
+            J = sparse(first.(entries), last.(entries), zeros(length(entries)), n, n)
+            Runes2P.add_jacobian!(J, heating, u, layout, row, 0.0)
+            size_of_rhs = maximum(abs, term_rhs(u))
+            scales = unknown_scales(layout)
+            for ir in 1:2,
+                column in [collect(unknown_range(layout, 1, ir));
+                           unknown_range(layout, 3, ir);
+                           unknown_range(layout, 4, ir)[[30, 75, 156]]]
+
+                h = column in unknown_range(layout, 3, ir) ? 1e-6 * u[column] :
+                    1e-3 * max(abs(u[column]), 1e-3 * scales[column])
+                up, down = copy(u), copy(u)
+                up[column] += h
+                down[column] -= h
+                difference = (term_rhs(up) - term_rhs(down)) / 2h
+                @test maximum(abs, Vector(J[:, column]) - difference) <=
+                      1e-5 * maximum(abs, difference) + 1e-13 * size_of_rhs / h
+            end
+        end
     end
 end

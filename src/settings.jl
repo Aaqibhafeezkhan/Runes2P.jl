@@ -19,8 +19,16 @@ Since 0.0.5 a file stores units ([`write_output`](@ref)):
   `unit`, and the entry of each unknown in the group `layout` holds it as `unit`.
 - The dataset `time` carries the attribute `unit`, which is `"s"`.
 - The datasets of the grid faces in the group `layout` carry the attribute `unit`.
+
+Since 0.0.6 the settings record of a run may hold three more entries:
+
+- The record of [`KineticEnergyChangeTerm`](@ref), with its source and its region.
+- The key `knockon_term` in the record of a [`SecondaryHeatingTerm`](@ref) with
+  `cut = :knockon`, the record of its knock-on term.
+- The record of [`InterfaceCollisionWorkTerm`](@ref), with its coefficient and its
+  interface.
 """
-const OUTPUT_FORMAT_VERSION = v"0.0.5"
+const OUTPUT_FORMAT_VERSION = v"0.0.6"
 
 "The format version as written to files, `\"major.minor.patch\"`."
 output_format_version() = string(OUTPUT_FORMAT_VERSION)
@@ -902,8 +910,8 @@ function _describe_radial_level(level, in_time::Bool, faces, context)
 end
 
 function settings_fields(::Type{<:SecondaryHeatingTerm})
-    (described = (:kinetic_ionization, :temperature, :cut, :spectrum, :widths),
-        derived = (:energies,))
+    described = (:kinetic_ionization, :temperature, :cut, :spectrum, :widths, :knockon_term)
+    return (; described, derived = (:energies,))
 end
 
 function describe(term::SecondaryHeatingTerm, context::DescriptionContext)
@@ -917,6 +925,9 @@ function describe(term::SecondaryHeatingTerm, context::DescriptionContext)
         record["widths"] = SettingsRecord(name => width for (name, width) in zip(term.kinetic_ionization.composition.names, term.widths))
     end
     #! format: on
+    if term.cut === :knockon
+        record["knockon_term"] = describe(term.knockon_term, context)
+    end
     return record
 end
 
@@ -1056,7 +1067,7 @@ end
 
 function settings_fields(::Type{<:KineticEnergyLossTerm})
     (described = (:kinetic, :source, :part, :coefficient, :envelopes),
-        derived = (:lagged_plasma,))
+        derived = (:lagged_plasma, :row_buffer))
 end
 
 function describe(term::KineticEnergyLossTerm, context::DescriptionContext)
@@ -1066,6 +1077,21 @@ function describe(term::KineticEnergyLossTerm, context::DescriptionContext)
     record["coefficient"] = term.coefficient
     record["source"] = describe(term.source, context)
     return _describe_region!(record, term.envelopes, context)
+end
+
+function settings_fields(::Type{<:KineticEnergyChangeTerm})
+    (described = (:kinetic, :source, :coefficient, :region), derived = (:energies,))
+end
+
+function describe(term::KineticEnergyChangeTerm, context::DescriptionContext)
+    record = _term_record(term)
+    record["kinetic"] = String(term.kinetic)
+    record["coefficient"] = term.coefficient
+    record["source"] = describe(term.source, context)
+    if term.region !== nothing
+        record["region"] = describe(term.region, context)
+    end
+    return record
 end
 
 function settings_fields(::Type{<:FrictionEnergyTransferTerm})
@@ -1082,7 +1108,13 @@ function describe(term::FrictionEnergyTransferTerm, context::DescriptionContext)
     return _describe_plasma_source!(record, term.source, context)
 end
 
-function describe(term::InterfaceFluxTerm, context::DescriptionContext)
+function settings_fields(::Type{<:InterfaceCollisionWorkTerm})
+    (described = (:interface, :coefficient),
+        derived = (:plasma_key, :collision_settings, :operator_rebuilds, :rebuilds,
+            :advection, :diffusion))
+end
+
+function describe(term::InterfaceRowTerm, context::DescriptionContext)
     record = _term_record(term)
     record["coefficient"] = term.coefficient
     record["interface"] = describe(term.interface, context)

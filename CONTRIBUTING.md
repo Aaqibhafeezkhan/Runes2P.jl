@@ -189,7 +189,7 @@ The formatter sets the layout only, so the reviews check these rules, helped by 
 - Where a default of Runes2P differs from DREAM, the behaviour of DREAM stays available as an option.
   The comparison tests run with that option.
   A new departure gets such an option where it can.
-  The departures, with the options that exist, are listed on the docs page [Comparison with DREAM](docs/src/dream-comparison.md#departures-from-dream).
+  The departures, with the options that exist, are listed on the docs page [Departures from DREAM](docs/src/dream-departures.md).
 
 ## Reference data
 

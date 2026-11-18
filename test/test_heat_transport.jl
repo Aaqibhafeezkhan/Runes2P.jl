@@ -1,8 +1,9 @@
 # Heat transport of the cold electrons: the decay of the lowest Bessel mode
 # of a uniform diffusivity in a cylinder, the energy balance with the edge flux, the
 # Rechester-Rosenbluth heat flux against the energy moment of the kinetic Rechester-
-# Rosenbluth operator on Maxwellians, the Jacobian, and the switch times of a level that
-# changes in time.
+# Rosenbluth operator on Maxwellians, the same against the energy term of the kinetic
+# transport on a temperature profile and down a density gradient, the Jacobian, and the
+# switch times of a level that changes in time.
 
 # J₀ by its series, enough for 0 ≤ x ≤ 3
 _bessel_j0(x) = sum((-1)^k * (x / 2)^(2k) / factorial(big(k))^2 for k in 0:30) |> Float64
@@ -101,6 +102,93 @@ const BESSEL_J0_FIRST_ZERO = 2.404825557695773
             @test fluid[1] ≈ kinetic[1] rtol = tolerance
             @test fluid[3] ≈ kinetic[3] rtol = tolerance
         end
+    end
+
+    @testset "the energy term of kinetic transport against the Rechester-Rosenbluth heat transport" begin
+        # The reason why a row of the total energy refuses the pair: on a Maxwellian bulk of
+        # uniform density at a temperature profile, the energy that KineticEnergyChangeTerm of
+        # the kinetic Rechester-Rosenbluth transport moves is the heat transport of
+        # HeatTransportTerm at the same level, so a row with both moves it twice. Measured:
+        # the ratio of the two is 1.0000 to 0.9944 at the six inner radii and 0.868 at the
+        # seventh, near the edge
+        n, delta, R0, a, nr = 1e19, 2e-3, 1.7, 0.5, 8
+        rad = RadialGrid(uniform_r_faces(nr, a))
+        T = [20 + 380 * (1 - (r / a)^2) for r in rad.r_centers]
+        theta = maximum(T) / Constants.ELECTRON_REST_ENERGY
+        grid = cylindrical_grid(
+            MomentumGrid(uniform_p_faces(400, 0.0, 12 * sqrt(2theta)), uniform_xi_faces(8)), rad)
+        op = AdvectionDiffusion(grid; cross_diffusion = false)
+        add_rechester_rosenbluth_diffusion!(op, delta; major_radius = R0)
+        np, nxi, _ = size(grid)
+        layout = UnknownLayout(rad,
+            [KineticUnknown(:f, grid; scale = n),
+                RadialUnknown(:cold_electron_temperature; scale = 100.0),
+                RadialUnknown(:cold_electron_density; scale = n),
+                RadialUnknown(:total_electron_energy; scale = 1e3)])
+        u = zeros(length(layout))
+        f = kinetic_array(u, layout, 1)
+        for ir in 1:nr, (i, p) in enumerate(momentum_grid(grid).p_centers)
+
+            f[i, :, ir] .= exp(-p^2 / (1 + sqrt(1 + p^2)) /
+                               (T[ir] / Constants.ELECTRON_REST_ENERGY))
+        end
+        f .*= reshape(n ./ density(grid, f), 1, 1, :)
+        unknown_values(u, layout, 2) .= T
+        unknown_values(u, layout, 3) .= n
+        rows = [first(Runes2P.unknown_range(layout, 4, ir)) for ir in 1:nr]
+        kinetic = Runes2P.rhs!(
+            zeros(length(u)), KineticEnergyChangeTerm(FokkerPlanckTerm(:f, op)), u, layout, 4,
+            0.0)[rows]
+        fluid, _ = heat_rhs(
+            HeatTransportTerm(; delta_b_over_b = delta, major_radius = R0),
+            heat_layout(nr; a), T, fill(n, nr))
+        ratio = kinetic ./ fluid
+        @test all(r -> isapprox(r, 1; atol = 1e-2), ratio[1:(nr - 2)])
+
+        # Under a density gradient at a uniform temperature of 100 eV the heat transport of
+        # the temperature is zero, while the energy term of the kinetic transport carries an
+        # energy of 2 times the temperature per transported electron. That is the analytic
+        # ratio of the energy flux to the particle flux for a flux proportional to v over a
+        # Maxwellian. The term is negative at the inner radii, where the density is high, and
+        # positive at the outermost one. A radial diffusion independent of p carries 1.5 times
+        # the temperature. Measured on n = 1e19 (3 − 2 r²/a²) m⁻³ at 8 radii:
+        # - Rechester-Rosenbluth at δB/B = 2e-3: 2.0002 per electron, −7.329e5 W/m³ at radii
+        #   1 to 7 and +2.394e6 W/m³ at radius 8.
+        # - D = 1 m²/s: 1.5004 per electron, −7.692e3 W/m³ at radii 1 to 7 and +2.513e4 W/m³
+        #   at radius 8.
+        flat = fill(100.0, nr)
+        profile = [n * (1 + 2 * (1 - (r / a)^2)) for r in rad.r_centers]
+        for ir in 1:nr, (i, p) in enumerate(momentum_grid(grid).p_centers)
+
+            f[i, :, ir] .= exp(-p^2 / (1 + sqrt(1 + p^2)) /
+                               (flat[ir] / Constants.ELECTRON_REST_ENERGY))
+        end
+        f .*= reshape(profile ./ density(grid, f), 1, 1, :)
+        unknown_values(u, layout, 2) .= flat
+        unknown_values(u, layout, 3) .= profile
+        function moved_energy(transport)
+            local power = Runes2P.rhs!(zeros(length(u)),
+                KineticEnergyChangeTerm(FokkerPlanckTerm(:f, transport)), u, layout, 4, 0.0)[rows]
+            local df = zeros(size(f))
+            Runes2P.apply!(df, transport, f)
+            return power, power ./ (e .* flat .* density(grid, df))
+        end
+        rr_power, rr_per_electron = moved_energy(op)
+        constant = AdvectionDiffusion(grid; cross_diffusion = false)
+        constant.diffusion_r_r .= 1.0
+        constant_power, constant_per_electron = moved_energy(constant)
+        uniform_t, _ = heat_rhs(
+            HeatTransportTerm(; delta_b_over_b = delta, major_radius = R0),
+            heat_layout(nr; a), flat, profile)
+        @info "kinetic transport down a density gradient at 100 eV: Rechester-Rosenbluth $(rr_per_electron) T per electron, $(rr_power) W/m³; constant diffusion $(constant_per_electron) T per electron, $(constant_power) W/m³; heat transport of T $(uniform_t) W/m³"
+        @test all(r -> isapprox(r, 2; rtol = 1e-2), rr_per_electron)
+        @test all(r -> isapprox(r, 1.5; rtol = 1e-2), constant_per_electron)
+        for power in (rr_power, constant_power)
+            @test all(<(0), power[1:(nr - 1)]) && power[nr] > 0
+        end
+        @test all(isapprox(-7.329e5; rtol = 1e-2), rr_power[1:(nr - 1)])
+        @test rr_power[nr] ≈ 2.394e6 rtol = 1e-2
+        @test all(iszero, uniform_t)
     end
 
     @testset "Jacobian" begin

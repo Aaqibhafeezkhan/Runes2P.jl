@@ -531,7 +531,10 @@ The term is `:explicit` (evaluated at the previous time level), so the density m
 reads adds nothing to the Jacobian and the sparsity stays local. This is a device for
 comparisons with the Dreicer rates, not the self-consistent particle source: DREAM's
 `ParticleSourceTerm` fixes the magnitude from the cold-electron density through
-quasi-neutrality ([`ParticleSourceTerm`](@ref)).
+quasi-neutrality ([`ParticleSourceTerm`](@ref)). The system refuses the term in the equation
+of a distribution whose energy is in the total energy of the electrons
+([`total_energy_equation`](@ref)), since no term carries the energy of the electrons that it
+adds or removes.
 """
 struct MaxwellianSourceTerm{T, D} <: EquationTerm
     kinetic::Symbol

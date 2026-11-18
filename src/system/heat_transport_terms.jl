@@ -34,10 +34,22 @@ takes the density and the temperature interpolated linearly between the two cell
   `∂n_cold/∂r = 0` because the cold electrons are not transported
   (`doc/notes/heat-transport.tex:236-245`). `delta_b_over_b` is a profile, or
   `delta_b_over_b_at` a function of the time [s] such as the [`PiecewiseConstant`](@ref)
-  transport history of a [`RechesterRosenbluthUpdate`](@ref). The same object in both keeps
-  the kinetic and the heat transport on one level. The major radius `R₀` [m] and the safety
-  factor `q` are inputs, as for the kinetic operator. The default `q = 1` is DREAM's, which
-  fixes it (`HeatTransportRechesterRosenbluth.cpp:98-100`, marked as a TODO there).
+  transport history of a [`RechesterRosenbluthUpdate`](@ref). In a row of the cold thermal
+  energy, which the radial transport of a distribution does not enter, the same object in
+  both keeps the kinetic and the heat transport on one level. The major radius `R₀` [m] and
+  the safety factor `q` are inputs, as for the kinetic operator. The default `q = 1` is
+  DREAM's, which fixes it (`HeatTransportRechesterRosenbluth.cpp:98-100`, marked as a TODO
+  there).
+
+In a row of the total energy ([`total_energy_equation`](@ref)) that holds the energy term of
+the radial transport of a distribution ([`KineticEnergyChangeTerm`](@ref)), the system
+refuses the Rechester-Rosenbluth model, whatever its level: that term already moves the heat
+of the bulk with its electrons. A prescribed diffusivity is allowed there, as a heat
+transport of the user's own on top of the kinetic transport. The energy term of the
+kinetic transport is no heat transport of the temperature: at a uniform temperature it
+carries heat down a density gradient, and under the Rechester-Rosenbluth diffusion it drives
+the cold electrons towards a uniform ``n T^{3/2}``, not a uniform ``T`` (see the docs page
+*Energy and current balance*).
 
 A [`PiecewiseConstant`](@ref) level takes, in the step that ends at a switch time, the value
 before the switch ([`level_over_step`](@ref)).

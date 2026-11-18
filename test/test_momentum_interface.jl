@@ -442,8 +442,9 @@ end
         # an implicit hot-tail term whose plasma reads the temperature, the density and the
         # charge states, with the field as an unknown (DREAM's disruption case): the columns
         # of the face cells of both grids and of the radial rows of the flux against central
-        # differences of the residual. With lagged = :ions the charge states are those of the
-        # start of the step, and the rows have no ion columns.
+        # differences of the residual, the radial rows with the work of the collisions on the
+        # electrons that cross (InterfaceCollisionWorkTerm). With lagged = :ions the charge
+        # states are those of the start of the step, and the rows have no ion columns.
         lower_grid = cylindrical_grid(
             MomentumGrid(uniform_p_faces(24, 0.0, 0.05), uniform_xi_faces(3)), rad)
         upper_grid = runaway_grid(lower_grid, uniform_p_faces(6, 0.05, 0.2)[2:end])
@@ -462,7 +463,7 @@ end
                 KineticUnknown(:runaway_distribution, upper_grid; scale = 1e19),
                 RadialUnknown(:runaway_density; scale = 1e10),
                 RadialUnknown(:lost_energy),
-                RadialUnknown(:electric_field; scale = 10.0)])
+                RadialUnknown(:electric_field; scale = 10.0), RadialUnknown(:collision_work)])
         lower_term = FokkerPlanckTerm(:hot_tail_distribution,
             AdvectionDiffusion(lower_grid; scheme, p_upper_boundary = :interface);
             plasma = PlasmaFromUnknowns(prescribed; ions = :ion_densities),
@@ -480,7 +481,9 @@ end
         @test (:ion_densities in dependencies(interface)) == (lagged == ())
         density = InterfaceParticleFluxTerm(interface)
         energy = InterfaceEnergyFluxTerm(interface)
+        work = InterfaceCollisionWorkTerm(interface)
         @test Runes2P.has_plasma_columns(density) && Runes2P.has_plasma_columns(energy)
+        @test Runes2P.has_plasma_columns(work)
         hold(name, value) = Equation(name, Algebraic(), PrescribedValueTerm(value),
             LinearTerm(name; coefficient = -1))
         u = zeros(length(layout))
@@ -507,7 +510,8 @@ end
                     FokkerPlanckTerm(:runaway_distribution, upper_op), interface),
                 Equation(:runaway_density, TimeDerivative(), density),
                 Equation(:lost_energy, TimeDerivative(), energy),
-                hold(:electric_field, [20.0, 30.0])];
+                hold(:electric_field, [20.0, 30.0]),
+                Equation(:collision_work, TimeDerivative(), work)];
             initial_state = u)
         # the system prepares the lagged ions of the step
         lagged == :ions && Runes2P.prepare_step!(lower_term, u, layout, 4, 0.0)
@@ -520,7 +524,10 @@ end
                      for j in 1:3],
             upper = [Runes2P._kinetic_index(layout, 5, ir, 1, J) for ir in 1:2
                      for J in 1:20],
-            radial = [first(unknown_range(layout, id, ir)) for id in (6, 7) for ir in 1:2])
+            # each radial row a group of its own: their values differ by orders of magnitude
+            particles = [first(unknown_range(layout, 6, ir)) for ir in 1:2],
+            energy = [first(unknown_range(layout, 7, ir)) for ir in 1:2],
+            work = [first(unknown_range(layout, 9, ir)) for ir in 1:2])
         ion_columns = [column for ir in 1:2 for column in unknown_range(layout, 1, ir)]
         if lagged == :ions
             for rows in row_groups

@@ -231,17 +231,69 @@ energy of the hot region itself. DREAM's fully kinetic mode has none of them
 
 Every other change of the energy of the hot region is charged to the cold electrons, since
 `W_cold = W_tot − W_hot`. The row must therefore list each term of the equation of
-`kinetic` that moves energy out of the electrons: [`KineticEnergyLossTerm`](@ref) with
-`part = :sinks` for the bremsstrahlung, the synchrotron loss and the friction on bound
-electrons, `MomentumBoundaryFluxTerm(...; weight = :energy)` for an outflow at `p_max`, and
-[`InterfaceEnergyFluxTerm`](@ref) for the runaway grid. The system refuses a row that misses
-one of them, and it refuses radial transport of `kinetic` and knock-on secondaries on
-its grid, which have no such term: their energy would come out of the cold electrons of
-the radius where it is moved. The sinks take no flux through `p_max`, whose energy is the
-boundary term's alone. The sinks term is required by the settings of the collisions
-(synchrotron, bremsstrahlung, partial or no screening on), not by its value: at `B = 0` a
-synchrotron loss of zero still needs the term, so that the row stays closed when the field
-of the plasma changes.
+`kinetic` that moves energy out of the electrons or into them: [`KineticEnergyLossTerm`](@ref)
+with `part = :sinks` for the bremsstrahlung, the synchrotron loss and the friction on bound
+electrons, `MomentumBoundaryFluxTerm(...; weight = :energy)` for an outflow at `p_max` of
+each Fokker-Planck term with collisions or with the field as an unknown,
+[`InterfaceEnergyFluxTerm`](@ref) and [`InterfaceCollisionWorkTerm`](@ref) of the same
+interface for the runaway grid, and [`KineticEnergyChangeTerm`](@ref)
+of each [`RosenbluthPutvinskiSourceTerm`](@ref) for the energy of the knock-ons of the fluid
+runaways above the grid, over the whole grid. Each [`FokkerPlanckTerm`](@ref) of `kinetic`
+whose operator holds nonzero radial coefficients needs a `KineticEnergyChangeTerm` of that
+term without a region, for the change of the energy of all of `kinetic` by the transport at
+each radius. The run requires it before its first step for a
+[`RechesterRosenbluthUpdate`](@ref) that sets the transport. The system refuses a row that
+misses one of these terms. It refuses two energy terms of one source. It refuses a
+[`HeatTransportTerm`](@ref) with the Rechester-Rosenbluth diffusivity next to the energy
+term of a radial transport, which already moves the heat of the bulk. It refuses a
+`KineticEnergyChangeTerm` whose source is not in the equation of a distribution in the total
+energy, since the energy that it counts is outside the total. It refuses an
+`InterfaceCollisionWorkTerm` of an interface whose lower distribution, that of the grid
+below the face, is not in the total energy, since the electrons that cross there are outside
+the total. A second `InterfaceCollisionWorkTerm` of one interface, which would count the work
+twice, is refused in a row of any kind.
+The system refuses the transfer of `kinetic` to the cold electrons
+([`KineticEnergyLossTerm`](@ref) with `part = :free_electrons`,
+[`FrictionEnergyTransferTerm`](@ref)), which stays inside the total. The system refuses the
+sinks term and the energy flux through `p_max` of a distribution outside the total, which
+loses that energy itself. When the system is built, it refuses a
+[`SecondaryHeatingTerm`](@ref) whose kinetic ionization takes another region than the energy
+moment, since the heating would then not match the ionizations that the sinks charge. The
+system also refuses the terms of the equation of
+`kinetic` for which the system has no energy term, since the cold electrons
+would pay or gain their energy at the radius where the electrons are moved, created or
+removed:
+
+- Knock-on secondaries on its grid ([`KnockOnTerm`](@ref)) are refused.
+- A [`FokkerPlanckTerm`](@ref) without collisions, with no plasma and no coefficient
+  source, whose operator holds coefficients in momentum is refused: no term of the row
+  carries the energy that they move. The coefficients of a unit field, those of the field
+  term at 1 V/m that a term with the field unknown multiplies with `E`
+  ([`set_unit_field_coefficients!`](@ref)), are not among them.
+- A Fokker-Planck term without collisions that carries the field unknown is refused in a
+  distribution with an interface to a runaway grid, whatever its own `p_upper_boundary`:
+  put the field on the Fokker-Planck term with collisions at the interface.
+- A nonzero prescribed flux through `p_min` of a Fokker-Planck term with collisions is
+  refused. A zero flux passes.
+- A prescribed loss rate ([`LossRateTerm`](@ref)) and a Maxwellian source
+  ([`MaxwellianSourceTerm`](@ref)) are refused.
+- A [`LinearTerm`](@ref) with a nonzero coefficient in the time derivative of `kinetic`,
+  which moves electrons into `kinetic` from a kinetic unknown or out of it, is refused.
+
+The checks read the coefficients of the operators as they are, and a run repeats them
+before its first step, except the region of the heating by secondaries.
+
+A [`ParticleSourceTerm`](@ref) is accepted. With the constraint
+`0 = n(f) − n_cold − n_hot` for its magnitude, it moves electrons between the cold
+population and `kinetic`, so the cold electrons rightly pay the energy that its electrons
+bring into the hot region. A Maxwellian source adds or removes electrons from outside the
+system, so no population of the system should pay or gain their energy.
+
+The sinks and the transfer to the free electrons ([`KineticEnergyLossTerm`](@ref)) take no
+flux through `p_max`, whose energy is the boundary term's alone. The sinks term is required
+by the settings of the collisions (synchrotron, bremsstrahlung, partial or no screening on),
+not by its value: at `B = 0` a synchrotron loss of zero still needs the term, so that the
+row stays closed when the field of the plasma changes.
 
 `total_energy` takes its initial value from the row, after the energy of the cold electrons.
 """

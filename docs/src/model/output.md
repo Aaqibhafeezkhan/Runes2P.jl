@@ -52,10 +52,12 @@ Output and checkpoint files share one root:
 | `checkpoint` | group | the stepper and the counters (checkpoint files only) |
 
 The version counts up with every change of the format.
+The docstring of [`OUTPUT_FORMAT_VERSION`](@ref) lists what the formats 0.0.5 and 0.0.6 added.
+The format 0.0.6 adds records of the settings alone, so a file of the format 0.0.5 reads as one of 0.0.6 does.
 [`read_output`](@ref) and [`read_state`](@ref) refuse a file whose `format_version` is older than 0.0.1 or newer than [`OUTPUT_FORMAT_VERSION`](@ref).
 A segment without a saved state has no `time`, no `unknowns` and no datasets under `update_states`.
 
-A file of the format 0.0.5 stores units in these places:
+A file of the format 0.0.5 or later stores units in these places:
 
 - Each entry of `unknowns` carries the unit of its unknown as the string attribute `unit` (below).
 - In the group `layout`, the entry of each unknown holds its unit as the dataset `unit` (below).

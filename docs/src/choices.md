@@ -147,7 +147,7 @@ With `:linear` the mean pitch of a beam narrower than the last pitch cell can ex
 In the disruption case with a runaway grid the beams stay far from that regime.
 In scenario 4 the largest mean pitch of `f_re` is 0.9908 with `:linear` and 0.9880 with `:cell_center`.
 Its narrowest beam ``f \propto e^{\kappa\xi}`` has ``\kappa`` of at most about 540, and the mean pitch exceeds 1 on the grid of 15 pitch cells of that comparison from ``\kappa`` of about 1700.
-DREAM's rule, ``f`` constant over a pitch cell, is `pitch_rule = :cell_center` ([Defaults that differ](dream-comparison.md#Defaults-that-differ)).
+DREAM's rule, ``f`` constant over a pitch cell, is `pitch_rule = :cell_center` ([Defaults that differ](dream-departures.md#Defaults-that-differ)).
 
 ## Knock-on cutoff
 
@@ -164,6 +164,45 @@ In DREAM the cutoff (`pCutAvalanche`) is fixed within a run and changes only bet
 The cutoff is a face of the knock-on grid, kept while the target lies between its neighbouring faces ([`choose_cutoff_face`](@ref)).
 The lower bound keeps the cutoff above the thermal momentum, so that the momentum and energy that the knock-on source creates without a matching loss stay small.
 DREAM's documentation gives an upper bound for `pCutAvalanche`, the critical momentum, and no lower bound.
+
+## Total energy of the electrons
+
+| Choice | Value |
+|---|---|
+| who pays the energy of the knock-ons that [`RosenbluthPutvinskiSourceTerm`](@ref) creates, under [`total_energy_equation`](@ref) | no population: [`KineticEnergyChangeTerm`](@ref) creates it in the system |
+| who pays the work of the electron-electron collisions on the electrons that cross the interface to a runaway grid, under [`total_energy_equation`](@ref) | the cold electrons: [`InterfaceCollisionWorkTerm`](@ref) with `coefficient = -1` |
+| upwind side of the momentum face values of the parts of [`KineticEnergyLossTerm`](@ref) under a scheme with a side | the side of the whole advection of the Fokker-Planck term, field included, for every part |
+| the energy of radial transport of the hot-tail distribution that the row counts, under [`total_energy_equation`](@ref) | that of the whole grid: [`KineticEnergyChangeTerm`](@ref) without a region |
+
+The primaries of the source are the fluid runaways above the grid, which have no energy unknown.
+The rejected alternative charges the energy of the knock-ons to the cold electrons, which a row of the total energy without the term would do.
+The term takes no region, since every knock-on is in the total energy.
+DREAM's source also creates the knock-ons without taking their energy from a population, and DREAM has no total energy of the electrons ([Energy and current balance](model/energy-current.md#What-the-system-enforces)).
+
+The work of the collisions at the interface is the energy step between the two cells at the face times the part of the flux that the electron-electron collisions drive.
+No operator holds it, since neither grid takes a flux through the face in its energy moments.
+The cold electrons pay it because they are the targets of these collisions, which give them the energy that the electrons lose inside each grid.
+The rejected alternative leaves the work to no population, as a row without the term would, and the energy of the two grids is then not conserved across the face ([Energy and current balance](model/energy-current.md#The-energy-step-at-the-interface)).
+
+The parts of the energy loss take the side of the whole advection under `:upwind`, `:quick`, `:upwind_second_order` and the flux limiters, so that they sum to the momentum flux of the Fokker-Planck term face by face.
+The rejected alternative takes each operator of a part on the side of its own advection.
+The parts then miss the flux at every face where the advection of an operator and the whole advection have opposite signs.
+That happens where the field beats the friction, and at ``p = 0`` under a four-point scheme with `p_zero_boundary = :outflow`, where the field alone sets the side.
+In a test at 2 V/m their sum differs there from the flux of the whole by up to 0.44 of the largest face flux of the whole (`test/test_energy_transfer.jl`).
+The shared side makes each part jump where a face changes its side, and an implicit step across that change may then need a smaller step ([Energy and current balance](model/energy-current.md#Energy-transfer-between-the-distributions)).
+
+The energy term of radial transport takes the whole grid, for two reasons.
+The transport then conserves the total energy exactly at any thresholds of the hot region.
+With a closed edge, the volume integral of the term stays below 1e-13 of that of the absolute values of its cells (`test/test_energy_transfer.jl`).
+The thermal energy of the electrons below the threshold, the bulk, then moves in radius with these electrons, into the cold electrons where they arrive ([Energy and current balance](model/energy-current.md#Radial-transport-of-the-kinetic-electrons)).
+
+The rejected alternative takes the hot region.
+The threshold of the hot region follows the temperature, so under a temperature profile it differs between the radii.
+An electron that the transport carries across it then leaves or joins the total energy, and no population pays its energy.
+`test/test_energy_transfer.jl` shows that the moment over the hot region does not integrate to zero there.
+
+The choice has a drawback: where the density has a gradient, the term carries heat at a uniform temperature.
+Under the Rechester-Rosenbluth diffusion it drives the cold electrons towards a uniform ``n T^{3/2}``, not a uniform ``T`` ([Energy and current balance](model/energy-current.md#Radial-transport-of-the-kinetic-electrons)).
 
 ## Linear solvers
 
@@ -217,7 +256,7 @@ DREAM has no finite behaviour to reproduce there, so no option gives DREAM's.
 The round-off bound counts each term of a residual row at its own size, one rounding error per term.
 A row whose terms cancel to many digits cannot fall below it, whatever the iterate.
 With `c = 1` the bound lies about 2.5 times above the largest residual measured at the floor, in the quench of the disruption case at DREAM's resolution.
-DREAM converges on the update alone and only warns about the residual ([Comparison with DREAM](dream-comparison.md)), so it has no residual test to waive.
+DREAM converges on the update alone and only warns about the residual ([Departures from DREAM](dream-departures.md#Behaviour-without-an-option-for-DREAM's)), so it has no residual test to waive.
 
 A positivity-preserving limiter keeps the converged discrete solution non-negative, and the extra iteration converges it further where an accepted iterate still has negative entries ([Positivity](model/positivity.md#Convergence-of-the-limiter)).
 The schemes of [`POLISHED_SCHEMES`](@ref) are those whose converged solution stayed non-negative in the tests.

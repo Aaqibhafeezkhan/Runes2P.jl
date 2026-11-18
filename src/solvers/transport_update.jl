@@ -25,7 +25,10 @@ holds the radial neighbours before the system is built. Build it with
 its stencil leaves out the corners of the 3×3 block in p and ξ. A
 [`PiecewiseConstant`](@ref) level needs its switch times among the time points of the run.
 DREAM interpolates the table of its `dBB` linearly in time and takes the value at the end of
-a step.
+a step. On a distribution whose energy is in the total energy of the electrons
+([`total_energy_equation`](@ref)) the run requires the energy term of the transport,
+[`KineticEnergyChangeTerm`](@ref) of the Fokker-Planck term of `operator`, in the row of the
+total energy before its first step.
 
 A level without [`forced_time_points`](@ref), any function other than a
 [`PiecewiseConstant`](@ref), is taken as continuous in time: its change at every step
@@ -99,6 +102,21 @@ function check_update(update::RechesterRosenbluthUpdate, system)
                                 "Fokker-Planck term of $(equation.unknown) with a plasma source, whose rebuild " *
                                 "clears it. Give the " *
                                 "radial transport an operator and a FokkerPlanckTerm of its own."))
+        end
+    end
+    # The transport of a distribution of the total energy of a row moves the energy of its
+    # electrons, which the row takes from the energy term of the transport. The system requires
+    # that term when it is built for transport that is already set, but this operator receives
+    # its coefficients in the run, so the check is made here.
+    for entry in _total_energy_rows(system.equations), equation in system.equations
+
+        d = equation.unknown
+        d in entry.distributions || continue
+        for term in equation.terms
+            if term isa FokkerPlanckTerm && term.operator === update.operator
+                _check_transport_energy(
+                    term, entry.row.terms, entry.row.unknown, entry.total, d)
+            end
         end
     end
     return nothing
