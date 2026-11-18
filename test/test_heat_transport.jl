@@ -2,8 +2,8 @@
 # of a uniform diffusivity in a cylinder, the energy balance with the edge flux, the
 # Rechester-Rosenbluth heat flux against the energy moment of the kinetic Rechester-
 # Rosenbluth operator on Maxwellians, the same against the energy term of the kinetic
-# transport on a temperature profile, the Jacobian, and the switch times of a level that
-# changes in time.
+# transport on a temperature profile and down a density gradient, the Jacobian, and the
+# switch times of a level that changes in time.
 
 # J₀ by its series, enough for 0 ≤ x ≤ 3
 _bessel_j0(x) = sum((-1)^k * (x / 2)^(2k) / factorial(big(k))^2 for k in 0:30) |> Float64
@@ -144,6 +144,34 @@ const BESSEL_J0_FIRST_ZERO = 2.404825557695773
             heat_layout(nr; a), T, fill(n, nr))
         ratio = kinetic ./ fluid
         @test all(r -> isapprox(r, 1; atol = 1e-2), ratio[1:(nr - 2)])
+
+        # Under a density gradient at a uniform temperature of 100 eV the heat transport of
+        # the temperature is zero, while the energy term of the kinetic transport carries
+        # 2 T per electron that the transport moves at each radius. The row of the total
+        # energy therefore drives the cold electrons towards a uniform n T^(3/2), not a
+        # uniform T. Measured: 2.0 at every radius
+        flat = fill(100.0, nr)
+        profile = [n * (1 + 2 * (1 - (r / a)^2)) for r in rad.r_centers]
+        for ir in 1:nr, (i, p) in enumerate(momentum_grid(grid).p_centers)
+
+            f[i, :, ir] .= exp(-p^2 / (1 + sqrt(1 + p^2)) /
+                               (flat[ir] / Constants.ELECTRON_REST_ENERGY))
+        end
+        f .*= reshape(profile ./ density(grid, f), 1, 1, :)
+        unknown_values(u, layout, 2) .= flat
+        unknown_values(u, layout, 3) .= profile
+        moved = Runes2P.rhs!(
+            zeros(length(u)), KineticEnergyChangeTerm(FokkerPlanckTerm(:f, op)), u, layout, 4,
+            0.0)[rows]
+        df = zeros(size(f))
+        Runes2P.apply!(df, op, f)
+        per_electron = moved ./ (e .* flat .* density(grid, df))
+        uniform_t, _ = heat_rhs(
+            HeatTransportTerm(; delta_b_over_b = delta, major_radius = R0),
+            heat_layout(nr; a), flat, profile)
+        @info "kinetic transport down a density gradient at 100 eV: energy per electron moved $(per_electron) T, heat transport of T $(uniform_t) W/m³"
+        @test all(r -> isapprox(r, 2; rtol = 1e-2), per_electron)
+        @test all(iszero, uniform_t)
     end
 
     @testset "Jacobian" begin

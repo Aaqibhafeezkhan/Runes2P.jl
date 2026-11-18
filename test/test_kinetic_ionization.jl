@@ -987,6 +987,40 @@ end
             closure...]
         @test_throws "SecondaryHeatingTerm(kinetic_ionization)" Runes2P._check_plasma_pairings(booked())
         @test Runes2P._check_plasma_pairings(booked(heating)) === nothing
+        # under a total energy the sinks charge f for the ionizations over the hot region, so
+        # the heating by secondaries takes an ionization over that region. Another region
+        # heats the cold electrons for ionizations that no term charges: refused, before the
+        # split asks for the heating
+        hot = region(5)
+        total_energy = [
+            thermal_energy_equation(), total_energy_equation(:f, grid; region = hot)]
+        function under_total(source, ionization, heat...)
+            row = Equation(
+                :cold_electron_temperature, TimeDerivative(:total_electron_energy),
+                KineticEnergyLossTerm(source; part = :sinks, region = hot),
+                MomentumBoundaryFluxTerm(:f, source; weight = :energy, coefficient = -1), heat...)
+            return Runes2P._check_plasma_pairings([Equation(:f, TimeDerivative(), source),
+                Equation(:ion_densities, TimeDerivative(), ionization), row, total_energy...,
+                closure...])
+        end
+        whole = KineticIonizationTerm(composition, :f, grid)
+        whole_split = fp(0.0)
+        for heat in ((), (SecondaryHeatingTerm(whole; spectrum = :opal),))
+            @test_throws "another region than the energy moment" under_total(
+                whole_split, whole, heat...)
+        end
+        @test under_total(fp(5.0), k5, SecondaryHeatingTerm(k5; spectrum = :opal)) ===
+              nothing
+        # the same under DREAM's Bethe friction, which asks for no heating, and with a fixed
+        # limit, which the comparison of thermal thresholds does not see
+        bethe = FokkerPlanckTerm(:f, operator(); plasma = from_unknowns, settings = CollisionSettings())
+        fixed = KineticIonizationTerm(composition, :f, grid; region = MomentumRegion(0.1))
+        for ionization in (whole, fixed)
+            @test_throws "another region than the energy moment" under_total(
+                bethe, ionization, SecondaryHeatingTerm(ionization))
+            @test under_total(bethe, ionization) === nothing
+        end
+        @test under_total(bethe, k5, SecondaryHeatingTerm(k5)) === nothing
         @test_throws "cut = :none" Runes2P._check_plasma_pairings(system(threshold))
         @test_throws "different widths" Runes2P._check_plasma_pairings(system(other))
         # DREAM's Bethe friction pairs with any kinetic ionization
