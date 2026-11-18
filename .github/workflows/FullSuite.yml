@@ -8,8 +8,8 @@
 # A pull request need not be up to date with dev, so its run may not have seen what was merged
 # after it. The run of the push that merges it tests the tree that dev then holds. That run always
 # runs the suite, also after a merge that changes no code, since the push may have cancelled the
-# run of the commit before. A run cancelled by a newer push reports that and passes, since the
-# newer run tests the same commits.
+# run of the commit before. A cancelled run of a push passes only when dev has moved past its
+# commit, since the run of the newer push then tests that commit too.
 #
 # The weekly run catches changes from outside the repository (new versions of packages, a new
 # runner image). The runs on dev renew its depot cache, which the runs of pull requests restore.
@@ -186,9 +186,9 @@ jobs:
   # and a skipped job would report its check under the text of the expression, never under the
   # name "Full suite" that the rulesets require. It passes without tests on a pull request
   # that changes no code and on a draft. A draft's check has another name, so that it never
-  # reads as the check of the ready pull request on the same commit. A run of a push that a
-  # newer push cancelled passes too, and says so. In every other run, a cancelled one or one whose
-  # job "Code changes" failed among them, it passes only when every group passed.
+  # reads as the check of the ready pull request on the same commit. A cancelled run of a push
+  # passes too when dev has moved past its commit, and says so. In every other run, a cancelled
+  # one or one whose job "Code changes" failed among them, it passes only when every group passed.
   summary:
     name: ${{ github.event.pull_request.draft && 'Full suite (draft)' || 'Full suite' }}
     needs: [changes, setup, groups]
@@ -222,24 +222,34 @@ jobs:
               print(f"| {r['label']} | {r['passed']} | {r['failed']} | {r['errored']} | {r['broken']} | {r['elapsed_seconds'] / 60:.1f} |")
           EOF
       # the one decision of the check, in every run: it passes on a draft, on a pull request
-      # that changes no code, on a push whose run a newer push cancelled, or when every group
+      # that changes no code, on a cancelled push run when dev has moved on, or when every group
       # passed, and fails in every other case
       - name: Decide the result of the suite
         if: always()
         env:
           DRAFT: ${{ github.event.pull_request.draft == true }}
           EVENT: ${{ github.event_name }}
+          COMMIT: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
           CHANGES_RESULT: ${{ needs.changes.result }}
           CHANGES_CODE: ${{ needs.changes.outputs.code }}
           SETUP_RESULT: ${{ needs.setup.result }}
           GROUPS_RESULT: ${{ needs.groups.result }}
         run: |
+          cancelled=false
+          if [ "$CHANGES_RESULT" = "cancelled" ] || [ "$SETUP_RESULT" = "cancelled" ] || [ "$GROUPS_RESULT" = "cancelled" ]; then
+            cancelled=true
+          fi
+          dev_head=""
+          if [ "$EVENT" = "push" ] && [ "$cancelled" = "true" ]; then
+            dev_head=$(git ls-remote "https://github.com/$REPOSITORY" refs/heads/dev | cut -f1) || dev_head=""
+          fi
           if [ "$DRAFT" = "true" ]; then
             echo "a draft: the suite did not run"
           elif [ "$CHANGES_RESULT" = "success" ] && [ "$CHANGES_CODE" = "false" ]; then
             echo "no file changes code: the suite did not run"
-          elif [ "$EVENT" = "push" ] && { [ "$CHANGES_RESULT" = "cancelled" ] || [ "$SETUP_RESULT" = "cancelled" ] || [ "$GROUPS_RESULT" = "cancelled" ]; }; then
-            echo "a newer push to dev cancelled this run, and its run tests this commit too" | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [ -n "$dev_head" ] && [ "$dev_head" != "$COMMIT" ]; then
+            echo "this run was cancelled and dev has moved on: the run of the newer push tests this commit too" | tee -a "$GITHUB_STEP_SUMMARY"
           elif [ "$GROUPS_RESULT" = "success" ]; then
             echo "every group of the full suite passed"
           else
