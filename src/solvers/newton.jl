@@ -404,9 +404,7 @@ function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver = Newto
     # a looser linear solve is a valid inexact Newton iteration (the residual test still
     # holds it), so a warning and not an error: it only loses both waivers of the residual test
     if linear_tolerance(cache) > solver.floor_linear_tolerance
-        @warn "the linear solver's tolerance $(linear_tolerance(cache)) exceeds the floor_linear_tolerance " *
-              "$(solver.floor_linear_tolerance) of NewtonSolver: neither the waiver of the residual floor nor " *
-              "the linear acceptance applies, and a stiff step can end with :max_iterations"
+        _warn_loose_linear_tolerance(linear_tolerance(cache), solver.floor_linear_tolerance)
     end
     exact_jacobian = system.stored_jacobian_exact || newton_operator_exact(cache)
     kinetic_rows = Int[]
@@ -425,6 +423,36 @@ function NewtonWorkspace(system::EquationSystem{T}, solver::NewtonSolver = Newto
         matrix, diagonal_positions, limited, limit_value, limit_tolerance, limit_reference,
         group_tolerance, group_ranges, kinetic_rows, polish, fill(false, length(polish)),
         cache, Float64[], Float64[], Float64[], Ref(NaN), Ref(NaN), Ref(0))
+end
+
+# The warnings of the Newton iteration are functions of their own that take neither the
+# workspace nor the system: a logging macro in a method specialized on the type of a
+# workspace makes that method slow to compile, once for each type of system. The try block
+# around the Jacobian is a function of its own for the same reason.
+@noinline function _warn_loose_linear_tolerance(tolerance, floor)
+    @warn "the linear solver's tolerance $tolerance exceeds the floor_linear_tolerance $floor of " *
+          "NewtonSolver: neither the waiver of the residual floor nor the linear acceptance " *
+          "applies, and a stiff step can end with :max_iterations"
+end
+@noinline function _warn_polish_stopped(unknown, t)
+    @warn "the extra Newton iteration for negative entries of $unknown left them in " *
+          "$POLISH_MISSES polished solves in a row, the last ending at t = $t s: its schemes in " *
+          "p and ξ do not keep the converged solution non-negative in this run, and " *
+          "polish_negatives = :auto stops polishing $unknown"
+end
+
+# the stored Jacobian into J, false where a term is evaluated outside its physical domain
+# (a DomainError)
+function _checked_jacobian!(J, system, u, t)
+    try
+        jacobian!(J, system, u, t)
+    catch err
+        if !(err isa DomainError)
+            rethrow()
+        end
+        return false
+    end
+    return true
 end
 
 # residual with the errors of evaluation outside the physical domain turned into a status
@@ -648,10 +676,7 @@ function _finish_polish!(ws::NewtonWorkspace, solver::NewtonSolver, u, t)
         group.misses[] += 1
         if solver.polish_negatives === :auto && group.misses[] >= POLISH_MISSES
             group.enabled[] = false
-            @warn "the extra Newton iteration for negative entries of $(group.unknown) left them " *
-                  "in $POLISH_MISSES polished solves in a row, the last ending at t = $t s: its " *
-                  "schemes in p and ξ do not keep the converged solution non-negative in this run, " *
-                  "and polish_negatives = :auto stops polishing $(group.unknown)"
+            _warn_polish_stopped(group.unknown, t)
         end
     end
     return nothing
@@ -697,11 +722,14 @@ function newton_solve!(
     factorization_seconds = 0.0
     solve_seconds = 0.0
     polished = false
+    # the closure captures the two vectors of norms and not the workspace: a closure that
+    # captures the workspace makes this method slow to compile, once for each type of system
+    residual_norms, update_norms = ws.residual_norms, ws.update_norms
     #! format: off
     result(status, iterations, initial; residual_floor=false, linear_step=false) =
-        NewtonResult(status, iterations, initial, isempty(ws.residual_norms) ? initial : last(ws.residual_norms),
-                     isempty(ws.update_norms) ? NaN : last(ws.update_norms),
-                     _convergence_order(ws.update_norms), smallest_step, krylov, updates, residual_floor,
+        NewtonResult(status, iterations, initial, isempty(residual_norms) ? initial : last(residual_norms),
+                     isempty(update_norms) ? NaN : last(update_norms),
+                     _convergence_order(update_norms), smallest_step, krylov, updates, residual_floor,
                      linear_step, polished, jacobian_seconds, residual_seconds, factorization_seconds,
                      solve_seconds)
     #! format: on
@@ -721,12 +749,7 @@ function newton_solve!(
         if !same_matrix
             invalidate_jacobian!(ws)
             started = time_ns()
-            try
-                jacobian!(ws.jacobian, system, u, t)
-            catch err
-                if !(err isa DomainError)
-                    rethrow()
-                end
+            if !_checked_jacobian!(ws.jacobian, system, u, t)
                 return result(:domain_error, iteration - 1, initial)
             end
             jacobian_seconds += (time_ns() - started) / 1e9
