@@ -17,51 +17,38 @@ The rules below cover the branches, the checks of a pull request, its review, it
 - Open a pull request as a draft while it is in progress.
   The lint (below), the code style check, the format check, the component tests and the docs build run on every push to a pull request.
   The full suite runs once a pull request into `dev` or `main` is marked ready, and again on every push after that.
-  A merge into `dev` or `main` runs the lint, the code style check, the format check and the component tests again, on `dev` with the deployment of the docs in place of the docs build.
-- The full suite runs on every push to `dev`, whatever the push changes, and once a week.
+- The full suite also runs on every push to `dev`, whatever the push changes, and once a week.
   A newer push to `dev` cancels the run of the older one, since the newer run tests that commit too.
-  The check of the cancelled run passes and says so, unless a job failed first, and a run cancelled at the tip of `dev` fails.
-- A pull request that changes no code skips the component tests and the full suite.
-  The skipped check of the component tests counts as passed.
-  The check of the full suite passes without tests.
-- No code means markdown files, files under `docs/src/`, and Julia files outside `test/` whose code stays the same without docstrings and comments.
-  A page of the docs that a test reads counts as code.
-  `scripts/code_changes.jl` decides.
-  Its header lists the exceptions.
+- A pull request that changes no code skips the job of the component tests, whose check counts as passed.
+  It runs no full suite either, and the check Full suite passes without tests.
+  No code means markdown files, files under `docs/src/`, and Julia files outside `test/` whose code stays the same without docstrings and comments.
+  `scripts/code_changes.jl` decides, and its header lists the exceptions, such as a page of the docs that a test reads.
 - Six checks are required for a merge into `dev` or `main`: Markdown lint, Code style check, Format check, Component tests, Documentation build and Full suite.
-  A step into an integration branch (below) requires these checks except the Full suite.
 - A pull request into `dev` need not be up to date with `dev`, since the full suite runs again after the merge.
 - A change of the base of a pull request starts no checks.
-  The maintainer closes and reopens a stacked pull request once its base is `dev`, which starts them.
-- A pull request into `dev` needs the approval of its latest push by the maintainer.
-  A later push dismisses it.
-  Coding agents never approve a pull request, and merge one only into an integration branch (below).
-- GitHub deletes the branch of a merged pull request.
-- `dev` takes merge commits or squash merges, no rebase merges.
-  `main` takes merge commits only.
+  The maintainer then closes and reopens the pull request, which starts them.
+- A pull request into `dev` needs the approval of its latest push by the maintainer, and a later push dismisses it.
+- After a failed check, the author comments once the fixes are in, saying what failed and what fixed it.
+- Coding agents never approve a pull request, and merge one only into an integration branch (below).
 - A pull request merges with a merge commit by default, which keeps its signed commits and suits stacked pull requests.
-- A small fix that needed several commits, with no pull request stacked on it, may suggest a squash merge, with a proposed squash message.
-  Its subject has at most 72 characters, including the ` (#n)` that GitHub appends.
-  The body of the message has at most 6 lines.
-  GitHub pre-fills a `Co-authored-by` line for each co-author of the squashed commits.
-  These lines stay below the proposed message.
-- A pull request aims at about 500 changed lines in `src/` and `ext/`.
-  Tests, reference data and documentation do not count.
+  `main` takes merge commits only.
+  `dev` also takes squash merges, but no rebase merges.
+  The author of a small fix of several commits, with no pull request stacked on it, may suggest a squash merge in the description of the pull request.
+  GitHub deletes the branch of a merged pull request.
+- A pull request aims at about 500 changed lines in `src/` and `ext/`, not counting tests, reference data and documentation.
   Above that size, the description of the pull request says why the change cannot be split.
   The usual split is a series of pull requests into `dev` that each pass the full suite on their own, or the steps of an integration branch.
   An example of such a series is the data layout, then the operator, then the solver wiring with its tests.
 - A larger change may collect its steps on an integration branch `feat/<topic>` off `dev`.
   The steps are branches of the other types (`fix/…`, `perf/…`, `test/…`, `docs/…`, `chore/…`), with pull requests into the integration branch.
-- A step of an integration branch runs the checks of `.github/workflows/CI.yml`.
-  When it changes code, as `scripts/code_changes.jl` decides, its author also runs `test/test_regression_values.jl` at `-O2` and the test files of the code it changes.
-  The step merges with a merge commit once these pass.
-  The full suite runs on the integration branch by hand every few steps, and on its pull request into `dev`, which the maintainer reviews and merges.
+- A step of an integration branch runs the checks of `.github/workflows/CI.yml`, and its merge requires the six checks above except the check Full suite.
+  When it changes code, its author also runs `test/test_regression_values.jl` at `-O2` and the test files of the code it changes.
+  The step merges with a merge commit once these checks and the runs of its author pass.
+  The full suite runs on the integration branch by hand every few steps, and on its pull request into `dev`.
 - A pull request with a change that users see adds an entry under "Unreleased" in [`CHANGELOG.md`](CHANGELOG.md), with a link to the pull request.
   Such changes are those of the public API (a rename, a removed export, a changed keyword or order of arguments), new features, and changed numerical results.
   Refactors, tests, CI and documentation get no entry.
   At the first release, "Unreleased" becomes the section of that version.
-- A pull request whose checks pass needs no comment about them, since GitHub shows them.
-  After a failed check, the author comments once the fixes are in, saying what failed and what fixed it.
 
 ## Running the tests
 
@@ -174,9 +161,7 @@ The formatter sets the layout only, so the reviews check these rules, helped by 
   A nested one, or a `map` or `foreach` whose function takes more than one line, is written as a loop.
 - Functions are not composed with `∘` as an operator in code.
   Calls are not chained with `|>`.
-- `python3 scripts/check_code_style.py <file> ...` finds the simplest breaks of these rules.
-  It reports an assignment or a call ending in `!` after `&&` or `||`, and a `throw` or `error` after them outside the checks at the start of a function.
-  It also reports a nested or two-line `a ? b : c`, a `;` between two statements, a chain of `|>` and `∘` as an operator.
+- `python3 scripts/check_code_style.py <file> ...` finds the simplest breaks of these rules, and its docstring lists what it reports.
   CI runs it on the lines a pull request adds, and on every line of `src/` and `ext/` after a push to `dev` or `main`.
   The reviews check the rest.
 
