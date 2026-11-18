@@ -4,16 +4,15 @@
 CurrentModule = Runes2P
 ```
 
-This page lists where Runes2P departs from DREAM, with the options that give DREAM's behaviour where they exist.
+This page lists the defaults that differ from DREAM's, with the options that give DREAM's behaviour, and the behaviour without an option for DREAM's.
+The last three sections give the details of the extrapolated flux at the highest momentum, the approximate Jacobians and the line search.
 The page [Comparison with DREAM](dream-comparison.md) gives the features of DREAM and their state in Runes2P, and the version of DREAM that the file and line citations below refer to.
-
-The sections below list the defaults that differ from DREAM's and the behaviour without an option for DREAM's.
-The last three give the details of the extrapolated flux at the highest momentum, the approximate Jacobians and the line search.
 
 ## Defaults that differ
 
 Each row names the default of Runes2P and the option that gives DREAM's behaviour.
 The reasons of the defaults that are choices of this package are on [Choices of this package](choices.md).
+A cell that ends with "(note)" has a note under its table, which gives the detail.
 
 | Topic | Runes2P default | DREAM | Option for DREAM's behaviour |
 |---|---|---|---|
