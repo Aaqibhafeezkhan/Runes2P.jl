@@ -59,8 +59,8 @@ files = ["test_prescribed_fokker_planck.jl", "test_newton_krylov.jl"]
 [[group]]
 name = "quick-7"
 tier = "quick"
-# 7.6 minutes
-files = ["test_energy_budget.jl", "test_progress_log.jl"]
+# 17.8 minutes
+files = ["test_energy_budget.jl"]
 
 [[group]]
 name = "quick-8"
@@ -107,8 +107,8 @@ files = ["test_plasma_columns.jl"]
 [[group]]
 name = "quick-15"
 tier = "quick"
-# 3.9 minutes
-files = ["test_momentum_interface.jl"]
+# 4.2 minutes
+files = ["test_momentum_interface.jl", "test_progress_log.jl"]
 
 [[group]]
 name = "full-1"

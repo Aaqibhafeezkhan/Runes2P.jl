@@ -177,6 +177,9 @@ Until the first release, every change is listed under "Unreleased", with the sub
   Before, every change restarted the step controller with a doubling.
   A level given as a function counts as continuous; a level that jumps is given as a `PiecewiseConstant`.
 - `NewtonWorkspace` warns when the `relative_tolerance` of `GMRES` is above the `floor_linear_tolerance` of `NewtonSolver`, where neither waiver of the Newton convergence test applies ([#205](https://github.com/osrep/Runes2P.jl/pull/205)).
+- The first run of each type of `EquationSystem` compiles about three times as fast at `-O2` for a system of two grids ([#321](https://github.com/osrep/Runes2P.jl/pull/321)).
+  The Newton iteration keeps its warnings and its try block out of the methods specialized on the workspace, and its closure no longer captures the workspace.
+  The results, the messages and the statuses do not change.
 
 ### Removed
 
