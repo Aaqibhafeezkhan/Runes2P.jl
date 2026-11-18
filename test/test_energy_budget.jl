@@ -247,6 +247,35 @@ import ForwardDiff
         scattered = AdvectionDiffusion(grid; scheme = :central)
         scattered.diffusion_xi_xi .= 1e3
         @test check((term, FokkerPlanckTerm(:f, scattered)), sinks, outflow) === nothing
+        # each counted coefficient alone, and the helpers that write into advection_p, are
+        # refused in a term without collisions; the pitch coefficients alone are not
+        function hand_term(set!; p_min = 0.0, kwargs...)
+            hand_grid = p_min == 0 ? grid :
+                        cylindrical_grid(
+                MomentumGrid(uniform_p_faces(60, p_min, 0.4), uniform_xi_faces(2)),
+                RadialGrid(uniform_r_faces(2, 0.5)))
+            op = AdvectionDiffusion(hand_grid; scheme = :central, kwargs...)
+            set!(op)
+            return FokkerPlanckTerm(:f, op)
+        end
+        fielded = PlasmaState(;
+            cold_electron_temperature = [T0, T0], ions = [IonSpecies("D", 1, 1, [n, n])],
+            electric_field = fill(1.0, 2), magnetic_field = fill(2.5, 2))
+        refused = [hand_term(op -> op.diffusion_p_p .= 1e3),
+            hand_term(op -> op.diffusion_p_xi .= 1e3),
+            hand_term(op -> op.p_flux_at_lower_boundary .= 1e20; p_min = 0.05,
+                p_lower_boundary = :prescribed),
+            hand_term(op -> op.advection_p_times_p2_at_zero .= -1.0),
+            hand_term(op -> add_electric_field!(op, fielded)),
+            hand_term(op -> add_synchrotron!(op, fielded))]
+        for hand in refused
+            @test_throws "coefficients in momentum" check((hand,))
+        end
+        accepted = [hand_term(op -> nothing; p_min = 0.05, p_lower_boundary = :prescribed),
+            hand_term(op -> op.advection_xi .= 1e3), hand_term(op -> op.diffusion_xi_p .= 1e3)]
+        for hand in accepted
+            @test check((hand,)) === nothing
+        end
         @test_throws "add KineticEnergyChangeTerm(term)" check((term, moving), sinks, outflow)
         @test_throws "more than once" check(
             (term, moving), sinks, outflow, transport_energy, transport_energy)
@@ -664,6 +693,47 @@ import ForwardDiff
         @test abs(sum(volumes .* transported)) < 1e-13 * sum(volumes .* abs.(transported))
         @test abs(sum(volumes .* (change .- losses))) <
               1e-12 * sum(volumes .* abs.(transported))
+    end
+
+    @testset "the field as an unknown in a term without collisions" begin
+        # The coefficients of a unit field are not counted among the coefficients in momentum:
+        # their work is the product of the field and the hot current, which the row holds
+        T0, n = 100.0, 1e19
+        grid = cylindrical_grid(
+            MomentumGrid(uniform_p_faces(30, 0.0, 0.4), uniform_xi_faces(2)),
+            RadialGrid(uniform_r_faces(2, 0.5)))
+        m = momentum_grid(grid)
+        region = MomentumRegion(0.1)
+        layout = UnknownLayout(grid.radial_grid,
+            [KineticUnknown(:f, grid; scale = 1e19),
+                RadialUnknown(:electric_field; scale = 1.0),
+                RadialUnknown(:hot_electron_current_density; scale = 1e5),
+                RadialUnknown(:cold_electron_temperature; scale = 100.0),
+                RadialUnknown(:cold_electron_density; scale = 1e19),
+                RadialUnknown(:cold_thermal_energy; scale = THERMAL_ENERGY_FACTOR * 1e21),
+                RadialUnknown(:total_electron_energy; scale = THERMAL_ENERGY_FACTOR * 1e21)])
+        field_term = FokkerPlanckTerm(:f, AdvectionDiffusion(grid; scheme = :central);
+            electric_field = :electric_field)
+        equations = [Equation(:f, TimeDerivative(), field_term),
+            Equation(:electric_field, Algebraic(), PrescribedValueTerm([1.0, 1.0]),
+                minus(:electric_field)),
+            Equation(:hot_electron_current_density, Algebraic(),
+                CurrentMomentTerm(:f, grid; region), minus(:hot_electron_current_density)),
+            Equation(:cold_electron_temperature, TimeDerivative(:total_electron_energy),
+                ProductTerm(:electric_field, :hot_electron_current_density)),
+            density_row([n, n]), thermal_energy_equation(), total_energy_equation(:f, grid; region)]
+        theta = T0 / Constants.ELECTRON_REST_ENERGY
+        u0 = zeros(length(layout))
+        for ir in 1:2
+            kinetic_view(u0, layout, 1, ir) .= [n * exp(-p^2 / 2theta)
+                                                for p in m.p_centers, _ in 1:2]
+        end
+        unknown_values(u0, layout, 2) .= 1.0
+        unknown_values(u0, layout, 4) .= T0
+        unknown_values(u0, layout, 5) .= n
+        system = EquationSystem(layout, equations; time_scale = 1e-7, initial_state = u0)
+        solution = integrate(system, u0, [0.0, 1e-8]; stepper = FixedSteps())
+        @test all(isfinite, solution.states)
     end
 
     @testset "radial transport set after the build under the total energy" begin

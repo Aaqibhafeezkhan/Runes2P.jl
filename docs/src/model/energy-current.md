@@ -107,8 +107,10 @@ The docstring of [`total_energy_equation`](@ref) gives the conditions.
 - A [`FokkerPlanckTerm`](@ref) of `f` without collisions, with no plasma and no coefficient source, is refused when its operator holds coefficients in momentum that change the energy of `f`.
   These are the advection and diffusion in ``p``, the cross diffusion of the flux in ``p``, and a flux through ``p_\mathrm{min}`` or ``p = 0``.
   No term of the row carries that energy, since the sinks and the outflow at ``p_\mathrm{max}`` belong to the terms with collisions.
-  Pitch coefficients move no energy, and the coefficients of a unit field are the work ``E j_\mathrm{hot}``, so both stay allowed.
   A run checks the coefficients again before its first step.
+- Pitch coefficients move no energy and stay allowed in such a term.
+  The coefficients of a unit field are allowed too, and their work is the term ``E j_\mathrm{hot}``, which the row must hold.
+  The system does not check that the row holds it.
 - A [`KnockOnTerm`](@ref) on the grid is refused, since no term carries the energy of the secondaries.
 - A [`RosenbluthPutvinskiSourceTerm`](@ref) creates knock-ons whose energy no other term carries.
   The row needs one [`KineticEnergyChangeTerm`](@ref) of that very source, without a region (below).
