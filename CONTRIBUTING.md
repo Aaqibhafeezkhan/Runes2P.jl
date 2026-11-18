@@ -18,7 +18,9 @@ The rules below cover the branches, the checks of a pull request, its review, it
   The lint (below), the code style check, the format check, the component tests and the docs build run on every push to a pull request.
   The full suite runs once a pull request into `dev` or `main` is marked ready, and again on every push after that.
   A merge into `dev` or `main` runs the lint, the code style check, the format check and the component tests again, on `dev` with the deployment of the docs in place of the docs build.
-  The full suite runs on `dev` once a week.
+- The full suite runs on every push to `dev`, whatever the push changes, and once a week.
+  A newer push to `dev` cancels the run of the older one, since the newer run tests that commit too.
+  The check of the cancelled run passes and says so, unless a job failed first, and a run cancelled at the tip of `dev` fails.
 - A pull request that changes no code skips the component tests and the full suite.
   The skipped check of the component tests counts as passed.
   The check of the full suite passes without tests.
@@ -28,7 +30,9 @@ The rules below cover the branches, the checks of a pull request, its review, it
   Its header lists the exceptions.
 - Six checks are required for a merge into `dev` or `main`: Markdown lint, Code style check, Format check, Component tests, Documentation build and Full suite.
   A step into an integration branch (below) requires these checks except the Full suite.
-- A pull request into `dev` must be up to date with `dev`.
+- A pull request into `dev` need not be up to date with `dev`, since the full suite runs again after the merge.
+- A change of the base of a pull request starts no checks.
+  The maintainer closes and reopens a stacked pull request once its base is `dev`, which starts them.
 - A pull request into `dev` needs the approval of its latest push by the maintainer.
   A later push dismisses it.
   Coding agents never approve a pull request, and merge one only into an integration branch (below).
