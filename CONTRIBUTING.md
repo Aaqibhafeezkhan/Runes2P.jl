@@ -19,18 +19,21 @@ The rules below cover the branches, the checks of a pull request, its review, it
   The full suite runs once a pull request into `dev` or `main` is marked ready, and again on every push after that.
 - The full suite also runs on every push to `dev`, whatever the push changes, and once a week.
   A newer push to `dev` cancels the run of the older one, since the newer run tests that commit too.
-- A pull request that changes no code skips the component tests and the full suite, and both checks pass without tests.
+- A pull request that changes no code skips the job of the component tests, whose check counts as passed.
+  It runs no full suite either, and the check Full suite passes without tests.
   No code means markdown files, files under `docs/src/`, and Julia files outside `test/` whose code stays the same without docstrings and comments.
   `scripts/code_changes.jl` decides, and its header lists the exceptions, such as a page of the docs that a test reads.
 - Six checks are required for a merge into `dev` or `main`: Markdown lint, Code style check, Format check, Component tests, Documentation build and Full suite.
 - A pull request into `dev` need not be up to date with `dev`, since the full suite runs again after the merge.
 - A change of the base of a pull request starts no checks.
+  The maintainer then closes and reopens the pull request, which starts them.
 - A pull request into `dev` needs the approval of its latest push by the maintainer, and a later push dismisses it.
+- After a failed check, the author comments once the fixes are in, saying what failed and what fixed it.
 - Coding agents never approve a pull request, and merge one only into an integration branch (below).
 - A pull request merges with a merge commit by default, which keeps its signed commits and suits stacked pull requests.
   `main` takes merge commits only.
   `dev` also takes squash merges, but no rebase merges.
-  A small fix of several commits with no pull request stacked on it may suggest a squash merge.
+  The author of a small fix of several commits, with no pull request stacked on it, may suggest a squash merge in the description of the pull request.
   GitHub deletes the branch of a merged pull request.
 - A pull request aims at about 500 changed lines in `src/` and `ext/`, not counting tests, reference data and documentation.
   Above that size, the description of the pull request says why the change cannot be split.
@@ -38,9 +41,9 @@ The rules below cover the branches, the checks of a pull request, its review, it
   An example of such a series is the data layout, then the operator, then the solver wiring with its tests.
 - A larger change may collect its steps on an integration branch `feat/<topic>` off `dev`.
   The steps are branches of the other types (`fix/…`, `perf/…`, `test/…`, `docs/…`, `chore/…`), with pull requests into the integration branch.
-- A step of an integration branch runs the checks of `.github/workflows/CI.yml`, and its merge requires the six checks above except the Full suite.
+- A step of an integration branch runs the checks of `.github/workflows/CI.yml`, and its merge requires the six checks above except Full suite.
   When it changes code, its author also runs `test/test_regression_values.jl` at `-O2` and the test files of the code it changes.
-  The step merges with a merge commit once these pass.
+  The step merges with a merge commit once these checks and the runs of its author pass.
   The full suite runs on the integration branch by hand every few steps, and on its pull request into `dev`.
 - A pull request with a change that users see adds an entry under "Unreleased" in [`CHANGELOG.md`](CHANGELOG.md), with a link to the pull request.
   Such changes are those of the public API (a rename, a removed export, a changed keyword or order of arguments), new features, and changed numerical results.
