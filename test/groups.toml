@@ -59,7 +59,7 @@ files = ["test_prescribed_fokker_planck.jl", "test_newton_krylov.jl"]
 [[group]]
 name = "quick-7"
 tier = "quick"
-# 17.8 minutes
+# 21.7 minutes
 files = ["test_energy_budget.jl"]
 
 [[group]]

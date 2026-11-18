@@ -42,7 +42,8 @@ The test set "the energy budgets of two grids across the interface" of `test/tes
 The work is 71 W/m³ and 146 W/m³ at the two radii there, and with it the sum closes to 6.0e-16 of the largest channel.
 
 DREAM's equation of ``T_\mathrm{cold}`` (`src/Settings/Equations/T_cold.cpp`, DREAM v26.5) has every channel of the table but [`SecondaryHeatingTerm`](@ref) and [`InterfaceCollisionWorkTerm`](@ref).
-For the transfer from the runaway grid DREAM takes the form of [`FrictionEnergyTransferTerm`](@ref), and [`free_electron_energy_transfer_term`](@ref) is this package's form of that channel (below).
+For the transfer from a distribution, of the hot-tail grid or of the runaway grid, DREAM takes the form of [`FrictionEnergyTransferTerm`](@ref).
+[`free_electron_energy_transfer_term`](@ref) is this package's form of the same channel (below).
 With `radiation = :dream` and `bremsstrahlung_corrections = :dream`, [`RadiatedPowerTerm`](@ref) takes DREAM's radiation.
 DREAM adds the collisional transfer from a runaway grid in every mode, and from a hot-tail grid in every mode but one:
 

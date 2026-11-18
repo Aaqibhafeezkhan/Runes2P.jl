@@ -86,7 +86,9 @@ The momentum schemes without a side, `:central` and `:exponential_fitting`, with
 schemes in ξ and r, give the term the moment of the two operators applied to `f`. The
 central face value does not depend on the side, so the parts sum to the flux under it as
 well. The face value of exponential fitting follows the coefficients of each operator, so
-the parts do not sum to the flux there, with or without a limiter in ξ or r. Where the
+with a field the parts do not sum to the flux there, with or without a limiter in ξ or r.
+Without a field the first operator of the sinks holds the coefficients of the source, and
+the two parts sum to its flux. Where the
 diffusion of an operator is not positive, as in the superthermal collisions, which have no
 energy diffusion, exponential fitting takes the upwind side of the advection of that
 operator alone.
