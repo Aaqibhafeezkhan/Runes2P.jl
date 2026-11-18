@@ -427,12 +427,13 @@ end
 
 # The warnings of the Newton iteration are functions of their own that take neither the
 # workspace nor the system: a logging macro in a method specialized on the type of a
-# workspace makes that method slow to compile, once for each type of system. The try block
-# around the Jacobian is a function of its own for the same reason.
-@noinline function _warn_loose_linear_tolerance(tolerance, floor)
-    @warn "the linear solver's tolerance $tolerance exceeds the floor_linear_tolerance $floor of " *
-          "NewtonSolver: neither the waiver of the residual floor nor the linear acceptance " *
-          "applies, and a stiff step can end with :max_iterations"
+# workspace makes that method slow to compile, once for each type of system. They are
+# @noinline, so that each warning is compiled once, outside the methods specialized on the
+# workspace.
+@noinline function _warn_loose_linear_tolerance(tolerance, floor_tolerance)
+    @warn "the linear solver's tolerance $tolerance exceeds the floor_linear_tolerance " *
+          "$floor_tolerance of NewtonSolver: neither the waiver of the residual floor nor the " *
+          "linear acceptance applies, and a stiff step can end with :max_iterations"
 end
 @noinline function _warn_polish_stopped(unknown, t)
     @warn "the extra Newton iteration for negative entries of $unknown left them in " *
@@ -441,9 +442,12 @@ end
           "polish_negatives = :auto stops polishing $unknown"
 end
 
-# the stored Jacobian into J, false where a term is evaluated outside its physical domain
-# (a DomainError)
-function _checked_jacobian!(J, system, u, t)
+# The stored Jacobian into J, false where a term is evaluated outside its physical domain
+# (a DomainError). The try block is a function of its own, so that newton_solve!, which is
+# specialized on the type of the workspace, holds none: a try block among the many locals of
+# that method makes it slower to compile. The function takes the system and compiles once
+# for each type of system, and @noinline keeps its try block out of newton_solve!.
+@noinline function _checked_jacobian!(J, system, u, t)
     try
         jacobian!(J, system, u, t)
     catch err

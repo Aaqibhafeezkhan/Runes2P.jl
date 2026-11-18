@@ -38,7 +38,56 @@ function Runes2P.sparsity!(entries, term::FloorSinkTerm, layout, row)
     return entries
 end
 
+# A growth k x + 0.1 x² whose block of the Jacobian, which the term assembles itself, is
+# refused above `bound` with a DomainError, while its right-hand side is defined everywhere:
+# the error comes from the Jacobian alone.
+struct JacobianBoundTerm <: EquationTerm
+    unknown::Symbol
+    rate::Float64
+    bound::Float64
+end
+Runes2P.dependencies(term::JacobianBoundTerm) = [term.unknown]
+Runes2P.jacobian_assembly(::JacobianBoundTerm) = :direct
+function Runes2P.rhs!(out, term::JacobianBoundTerm, u, layout, row, t)
+    id = unknown_id(layout, term.unknown)
+    for ir in 1:radial_cell_count(layout),
+        (a, b) in zip(unknown_range(layout, row, ir), unknown_range(layout, id, ir))
+
+        out[a] += term.rate * u[b] + 0.1 * u[b]^2
+    end
+    return out
+end
+function Runes2P.add_jacobian!(J, term::JacobianBoundTerm, u, layout, row, t)
+    id = unknown_id(layout, term.unknown)
+    for ir in 1:radial_cell_count(layout),
+        (a, b) in zip(unknown_range(layout, row, ir), unknown_range(layout, id, ir))
+
+        u[b] > term.bound && throw(DomainError(u[b], "above the bound of the Jacobian"))
+        Runes2P._add_entry!(J, a, b, term.rate + 0.2 * u[b])
+    end
+    return J
+end
+function Runes2P.sparsity!(entries, term::JacobianBoundTerm, layout, row)
+    id = unknown_id(layout, term.unknown)
+    for ir in 1:radial_cell_count(layout)
+        append!(entries, zip(unknown_range(layout, row, ir), unknown_range(layout, id, ir)))
+    end
+    return entries
+end
+
 @testset "Newton and backward-Euler time stepping" begin
+    @testset "a Jacobian refused outside its domain" begin
+        # the first Jacobian, at x = 1, is defined, and the first update takes x above the
+        # bound 1.5, where the second Jacobian throws: the status of the step, after one
+        # iteration
+        system = single_unknown_system(TimeDerivative(), JacobianBoundTerm(:x, 0.5, 1.5))
+        u = [1.0]
+        result = newton_solve!(u, [1.0], NewtonWorkspace(system), 1.0, 1.0)
+        @test result.status === :domain_error
+        @test result.iterations == 1
+        @test u[1] > 1.5
+    end
+
     @testset "nonlinear step: quadratic convergence, lower limit" begin
         k, dt, u0 = 10.0, 1.0, [1.0]
         # the full Newton step from u0 lands at u0 - 5/3 < 0, where √ is undefined
