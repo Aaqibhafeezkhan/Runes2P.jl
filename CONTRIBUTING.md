@@ -41,7 +41,7 @@ The rules below cover the branches, the checks of a pull request, its review, it
   An example of such a series is the data layout, then the operator, then the solver wiring with its tests.
 - A larger change may collect its steps on an integration branch `feat/<topic>` off `dev`.
   The steps are branches of the other types (`fix/…`, `perf/…`, `test/…`, `docs/…`, `chore/…`), with pull requests into the integration branch.
-- A step of an integration branch runs the checks of `.github/workflows/CI.yml`, and its merge requires the six checks above except Full suite.
+- A step of an integration branch runs the checks of `.github/workflows/CI.yml`, and its merge requires the six checks above except the check Full suite.
   When it changes code, its author also runs `test/test_regression_values.jl` at `-O2` and the test files of the code it changes.
   The step merges with a merge commit once these checks and the runs of its author pass.
   The full suite runs on the integration branch by hand every few steps, and on its pull request into `dev`.
