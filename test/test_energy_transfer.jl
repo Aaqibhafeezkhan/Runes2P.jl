@@ -17,6 +17,9 @@
 # systems that step and the allocations. The work of the collisions on the electrons that
 # cross the interface (InterfaceCollisionWorkTerm): its parts of the flux, its Jacobian, its
 # checks and the rebuilds of the coefficients that it keeps.
+# The energy of radial transport (KineticEnergyChangeTerm of a Fokker-Planck term): its
+# moment against that of the applied operator, its volume integral, its Jacobian, its
+# allocations and its source.
 using ForwardDiff: ForwardDiff
 using Random: Xoshiro
 using SparseArrays: findnz, sparse
@@ -1621,6 +1624,235 @@ using SparseArrays: findnz, sparse
                 Runes2P.add_jacobian!, JL, fitted, state, layout, 2, 0.0)
             @test residual <= operators + 4096 skip = !OPTIMIZED
             @test jacobian <= fitted_jacobian skip = !OPTIMIZED
+        end
+    end
+
+    @testset "the energy of radial transport" begin
+        # KineticEnergyChangeTerm of a Fokker-Planck term of radial transport: the energy moment
+        # of the radial part of its operator, against the moment of the operator applied to f
+        # by apply!, for the radial schemes, diffusion and advection with and without a
+        # dependence on the momentum, uniform and nonuniform radii, one pitch grid and pitch
+        # grids that differ between radii. Its volume integral is minus the energy flux out
+        # through the edge. The moment over a hot region whose threshold differs between radii
+        # also holds the energy that the transport carries across the threshold, which the
+        # moment over the whole grid does not lose. The Jacobian against ForwardDiff.
+        rng = Xoshiro(17)
+        momentum = MomentumGrid(uniform_p_faces(12, 0.0, 0.6), uniform_xi_faces(4))
+        uniform_radii = uniform_r_faces(5, 0.8)
+        nonuniform_radii = [0.0, 0.05, 0.2, 0.3, 0.55, 0.8]
+        one_pitch(r_faces) = cylindrical_grid(momentum, RadialGrid(r_faces))
+        pitch_faces = [uniform_xi_faces(4), biuniform_theta_xi_faces(4, 2, 0.9),
+            uniform_xi_faces(4), biuniform_theta_xi_faces(4, 2, 0.7), uniform_xi_faces(4)]
+        per_radius(r_faces) = cylindrical_grid(
+            [MomentumGrid(momentum.p_faces, xi) for xi in pitch_faces], RadialGrid(r_faces))
+        energies = [energy_of(p) for p in momentum.p_centers]
+        # the transport alone, with random coefficients that depend on p (or a profile in r
+        # alone) and the edge `r_boundary`
+        function transport_operator(grid, r_scheme, parts, p_dependent, r_boundary)
+            op = AdvectionDiffusion(grid; scheme = :central, r_scheme, r_boundary,
+                cross_diffusion = false)
+            shape = size(op.diffusion_r_r)
+            profile(k) = 0.5 + 0.1 * k
+            if :diffusion in parts
+                op.diffusion_r_r .= p_dependent ? rand(rng, shape...) :
+                                    [profile(k)
+                                     for _ in 1:shape[1], _ in 1:shape[2], k in 1:shape[3]]
+            end
+            if :advection in parts
+                op.advection_r .= p_dependent ? randn(rng, shape...) :
+                                  [-profile(k)
+                                   for _ in 1:shape[1], _ in 1:shape[2], k in 1:shape[3]]
+            end
+            return op
+        end
+        function transport_case(grid, op)
+            layout = UnknownLayout(grid.radial_grid,
+                [KineticUnknown(:f, grid; scale = 1e16),
+                    RadialUnknown(:cold_electron_temperature; scale = 100.0),
+                    RadialUnknown(:total_electron_energy; scale = 1e3)])
+            u = zeros(length(layout))
+            kinetic_array(u, layout, 1) .= 1e16 .* (1 .+ rand(rng, size(grid)...))
+            unknown_values(u, layout, 2) .= 100.0 .*
+                                            (1 .+ 0.5 .* rand(rng, radial_cell_count(grid)))
+            source = FokkerPlanckTerm(:f, op)
+            term = KineticEnergyChangeTerm(source)
+            Runes2P.validate(term, layout, 3)
+            return (; layout, u, source, term)
+        end
+        radial_rows(layout, k) = [first(Runes2P.unknown_range(layout, k, ir))
+                                  for ir in 1:radial_cell_count(layout)]
+        row_values(term, layout, u) = Runes2P.rhs!(
+            zeros(eltype(u), length(u)), term, u, layout, 3, 0.0)[radial_rows(layout, 3)]
+        # the energy moment of apply! of the transport alone over the envelopes, and the sum
+        # of the absolute values of its cells, which sets the scale of the round-off
+        function applied_moment(grid, op, f, envelopes)
+            df = apply!(zeros(size(f)), op, f)
+            moments, scales = zeros(radial_cell_count(grid)), zeros(radial_cell_count(grid))
+            for ir in 1:radial_cell_count(grid)
+                m = momentum_grid(grid, ir)
+                V = phase_space_jacobian(grid, ir)
+                for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
+
+                    cell = envelopes[ir][i] * energies[i] * df[i, j, ir] * V[i, j] *
+                           m.p_widths[i] * m.xi_widths[j] /
+                           grid.radial_grid.spatial_jacobian[ir]
+                    moments[ir] += cell
+                    scales[ir] += abs(cell)
+                end
+            end
+            return moments, scales
+        end
+        volume(grid) = grid.radial_grid.spatial_jacobian .* grid.radial_grid.r_widths
+        no_envelope(grid) = [ones(12) for _ in 1:radial_cell_count(grid)]
+
+        cases = [(r_scheme, parts, p_dependent, radii, pitch)
+                 for r_scheme in (:central, :upwind, :exponential_fitting, :tcdf, :quick),
+                     parts in ((:diffusion,), (:advection,), (:diffusion, :advection)),
+                     p_dependent in (true, false), radii in (:uniform, :nonuniform),
+                     pitch in (:one, :per_radius)
+                 if !(pitch === :per_radius && Runes2P.is_four_point_scheme(r_scheme))]
+        @testset "the moment of the operator ($r_scheme, $parts, p-dependent $p_dependent, $radii radii, $pitch pitch grid)" for (
+                r_scheme, parts, p_dependent, radii, pitch) in cases
+            r_faces = radii === :uniform ? uniform_radii : nonuniform_radii
+            grid = pitch === :one ? one_pitch(r_faces) : per_radius(r_faces)
+            for r_boundary in (:zero_flux, :absorbing, :absorbing_dream)
+                op = transport_operator(grid, r_scheme, parts, p_dependent, r_boundary)
+                (; layout, u, term) = transport_case(grid, op)
+                f = kinetic_array(u, layout, 1)
+                values = row_values(term, layout, u)
+                moments, scales = applied_moment(grid, op, f, no_envelope(grid))
+                # Measured on 32 cases with coefficients that depend on p: at most 3.4e-16, and
+                # 5.4e-16 of the integral of |P| for the integral below
+                @test maximum(abs.(values .- moments) ./ scales) < 1e-13
+                # the energy only moves between the radii: the integral is the energy flux
+                # through the edge, zero for a closed edge. The flux through the edge is
+                # linear in the cell values of the last radius, so the particle flux of ε f is
+                # the energy flux.
+                edge = radial_particle_flux(op, energies .* f, radial_cell_count(grid) + 1)
+                integral = sum(volume(grid) .* values)
+                bound = 1e-13 * sum(volume(grid) .* scales)
+                if r_boundary === :zero_flux
+                    @test edge == 0
+                    @test abs(integral) < bound
+                else
+                    @test edge >= 0
+                    @test abs(integral + edge) < bound
+                end
+            end
+        end
+
+        @testset "thresholds that differ between the radii ($kind)" for kind in (:fixed, :thermal)
+            # The moment over the whole grid integrates to zero for a closed edge whatever the
+            # thresholds. The moment over a hot region whose threshold differs between radii,
+            # the rejected alternative, holds the energy that the transport carries across the
+            # threshold at the inner faces, Σ_k Σ_ij (w_{i,k} − w_{i,k−1}) ε_i Δp_i Δξ_j Φ_{ij,k}:
+            # fixed limits per radius, or thermal thresholds of a temperature profile. Measured
+            # over 50 random states of each kind: the whole grid at most 1.1e-16 of the integral
+            # of the absolute values of its cells, the hot region 8.9e-6 to 1.1e-2 (fixed) and
+            # 2.3e-7 to 4.3e-5 (thermal) of that integral of the whole grid
+            grid = one_pitch(uniform_radii)
+            op = transport_operator(
+                grid, :central, (:diffusion, :advection), true, :zero_flux)
+            (; layout, u, term) = transport_case(grid, op)
+            f = kinetic_array(u, layout, 1)
+            envelopes = if kind === :fixed
+                region = MomentumRegion([0.1, 0.25, 0.15, 0.3, 0.2])
+                [momentum_envelope(region, grid, ir) for ir in 1:5]
+            else
+                region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor = 3))
+                temperatures = [400.0, 300.0, 200.0, 120.0, 60.0]
+                [momentum_envelope!(zeros(12), region, momentum,
+                     3 * sqrt(2 * T / Constants.ELECTRON_REST_ENERGY))
+                 for T in temperatures]
+            end
+            values = row_values(term, layout, u)
+            whole, whole_scales = applied_moment(grid, op, f, no_envelope(grid))
+            @test abs(sum(volume(grid) .* values)) <
+                  1e-13 * sum(volume(grid) .* whole_scales)
+            hot, scales = applied_moment(grid, op, f, envelopes)
+            mode = Runes2P._radial_flux_mode(op)
+            crossing = 0.0
+            for k in 2:5, j in 1:4, i in 1:12
+                flux = Runes2P._r_flux(op, f, i, j, k, k, nothing, mode)
+                crossing += (envelopes[k][i] - envelopes[k - 1][i]) * energies[i] *
+                            momentum.p_widths[i] * momentum.xi_widths[j] * flux
+            end
+            @test abs(sum(volume(grid) .* hot) - crossing) <
+                  1e-13 * sum(volume(grid) .* scales)
+            @test abs(crossing) > 1e-6 * sum(volume(grid) .* scales)
+        end
+
+        jacobian_cases = [(r_scheme, pitch, r_faces, r_boundary)
+                          for (r_scheme, pitch) in (
+                                  (:central, :one), (:tcdf, :one), (:quick, :one),
+                                  (:upwind, :per_radius), (:exponential_fitting, :one)),
+                              r_faces in (uniform_r_faces(2, 0.8), uniform_r_faces(3, 0.8),
+                                  nonuniform_radii),
+                              r_boundary in (:zero_flux, :absorbing, :absorbing_dream)
+                          if pitch === :one || length(r_faces) == 6]
+        @testset "the Jacobian ($r_scheme, $pitch pitch grid, $(length(r_faces) - 1) radii, $r_boundary)" for (
+                r_scheme, pitch, r_faces, r_boundary) in jacobian_cases
+            grid = pitch === :one ? one_pitch(r_faces) : per_radius(r_faces)
+            op = transport_operator(
+                grid, r_scheme, (:diffusion, :advection), true, r_boundary)
+            (; layout, u, term) = transport_case(grid, op)
+            entries = Runes2P.sparsity!(Tuple{Int, Int}[], term, layout, 3)
+            J = sparse(first.(entries), last.(entries),
+                zeros(length(entries)), length(u), length(u))
+            Runes2P.add_jacobian!(J, term, u, layout, 3, 0.0)
+            rows = radial_rows(layout, 3)
+            reference = ForwardDiff.jacobian(x -> row_values(term, layout, x), u)
+            @test count(!iszero, reference) > 50
+            # every nonzero derivative is in the pattern, and the entries match it
+            pattern = sparse(first.(entries), last.(entries),
+                trues(length(entries)), length(u), length(u))
+            @test all(pattern[rows, :][findall(!iszero, reference)])
+            # Measured over these 39 cases: at most 3.2e-16 of the largest entry
+            @test maximum(abs.(Matrix(J[rows, :]) .- reference)) <=
+                  1e-12 * maximum(abs, reference)
+            @test Runes2P.dependencies(term) == [:f]
+            @test Runes2P.is_linear(term) == (r_scheme !== :tcdf)
+        end
+
+        @testset "allocations" begin
+            # the residual and the columns of f of the Jacobian allocate nothing, nor does the
+            # sum of one radius
+            grid = one_pitch(uniform_radii)
+            op = transport_operator(grid, :tcdf, (:diffusion, :advection), true, :absorbing)
+            (; layout, u, term) = transport_case(grid, op)
+            out = zeros(length(u))
+            f = kinetic_array(u, layout, 1)
+            mode = Runes2P._radial_flux_mode(op)
+            @test call_allocation(Runes2P._transport_energy, op, f, 2, mode) == 0 skip = !OPTIMIZED
+            @test call_allocation(Runes2P.rhs!, out, term, u, layout, 3, 0.0) == 0 skip = !OPTIMIZED
+            entries = Runes2P.sparsity!(Tuple{Int, Int}[], term, layout, 3)
+            J = sparse(first.(entries), last.(entries),
+                zeros(length(entries)), length(u), length(u))
+            @test call_allocation(Runes2P.add_jacobian!, J, term, u, layout, 3, 0.0) == 0 skip = !OPTIMIZED
+        end
+
+        @testset "the source" begin
+            grid = one_pitch(uniform_radii)
+            # a term whose operator declares no radial transport, or a term with a plasma source,
+            # which clears the declaration of its operator
+            @test_throws "declares none" KineticEnergyChangeTerm(FokkerPlanckTerm(
+                :f, AdvectionDiffusion(grid; radial_transport = false)))
+            collisions = FokkerPlanckTerm(:f, AdvectionDiffusion(grid);
+                plasma = PlasmaState(; cold_electron_temperature = fill(T0, 5),
+                    ions = [IonSpecies("D", 1, 1, fill(n, 5))], electric_field = zeros(5),
+                    magnetic_field = zeros(5)))
+            @test_throws "declares none" KineticEnergyChangeTerm(collisions)
+            @test_throws "or a FokkerPlanckTerm" KineticEnergyChangeTerm(LossRateTerm(:f, fill(1e3, 5)))
+            # a region, fixed or thermal: the moment is over the whole grid
+            op = transport_operator(grid, :central, (:diffusion,), false, :absorbing)
+            source = FokkerPlanckTerm(:f, op)
+            @test_throws "takes no region" KineticEnergyChangeTerm(source; region = MomentumRegion(0.2))
+            @test_throws "takes no region" KineticEnergyChangeTerm(
+                source; region = MomentumRegion(ThermalMomentum(:cold_electron_temperature)))
+            # the record names the source and no region
+            record = Runes2P.describe(KineticEnergyChangeTerm(source), DescriptionContext())
+            @test record["kinetic"] == "f" && record["coefficient"] == 1.0
+            @test haskey(record, "source") && !haskey(record, "region")
         end
     end
 end

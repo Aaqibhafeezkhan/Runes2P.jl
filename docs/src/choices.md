@@ -159,6 +159,7 @@ DREAM's documentation gives an upper bound for `pCutAvalanche`, the critical mom
 | who pays the energy of the knock-ons that [`RosenbluthPutvinskiSourceTerm`](@ref) creates, under [`total_energy_equation`](@ref) | no population: [`KineticEnergyChangeTerm`](@ref) creates it in the system |
 | who pays the work of the electron-electron collisions on the electrons that cross the interface to a runaway grid, under [`total_energy_equation`](@ref) | the cold electrons: [`InterfaceCollisionWorkTerm`](@ref) with `coefficient = -1` |
 | upwind side of the momentum face values of the parts of [`KineticEnergyLossTerm`](@ref) under a scheme with a side | the side of the whole advection of the Fokker-Planck term, field included, for every part |
+| the energy of radial transport of the hot-tail distribution that the row counts, under [`total_energy_equation`](@ref) | that of the whole grid: [`KineticEnergyChangeTerm`](@ref) without a region |
 
 The primaries of the source are the fluid runaways above the grid, which have no energy unknown.
 The rejected alternative charges the energy of the knock-ons to the cold electrons, which a row of the total energy without the term would do.
@@ -176,6 +177,16 @@ The parts then miss the flux at every face where the advection of an operator an
 That happens where the field beats the friction, and at ``p = 0`` under a four-point scheme with `p_zero_boundary = :outflow`, where the field alone sets the side.
 In a test at 2 V/m their sum differs there from the flux of the whole by up to 0.44 of the largest face flux of the whole (`test/test_energy_transfer.jl`).
 The shared side makes each part jump where a face changes its side, and an implicit step across that change may then need a smaller step ([Energy and current balance](model/energy-current.md#Energy-transfer-between-the-distributions)).
+
+The energy term of radial transport takes the whole grid, for two reasons.
+The transport then conserves the total energy exactly at any thresholds of the hot region.
+With a closed edge, the volume integral of the term stays below 1e-13 of that of the absolute values of its cells (`test/test_energy_transfer.jl`).
+The thermal energy of the electrons below the threshold, the bulk, then moves in radius with these electrons, into the cold electrons where they arrive ([Energy and current balance](model/energy-current.md#Radial-transport-of-the-kinetic-electrons)).
+
+The rejected alternative takes the hot region.
+The threshold of the hot region follows the temperature, so under a temperature profile it differs between the radii.
+An electron that the transport carries across it then leaves or joins the total energy, and no population pays its energy.
+`test/test_energy_transfer.jl` shows that the moment over the hot region does not integrate to zero there.
 
 ## Linear solvers
 

@@ -1525,6 +1525,21 @@ _region_of(envelopes) = envelopes === nothing ? nothing : envelopes.region
 function _moves_in_radius(term::FokkerPlanckTerm)
     any(!iszero, term.operator.diffusion_r_r) || any(!iszero, term.operator.advection_r)
 end
+# Whether the operator of a term holds coefficients that change the energy of f: those of the
+# flux in p (advection, diffusion and the p-ξ cross diffusion of that flux) and the fluxes
+# through p_min and p = 0 that its boundaries take. The energy of a cell depends on p alone, so
+# the pitch fluxes, the ξ-p cross term among them, move no energy. The coefficients of a unit
+# field (`unit_field_advection_p`) are left out: the work of the field is E j_hot in the row.
+function _moves_in_energy(term::FokkerPlanckTerm)
+    op = term.operator
+    any(!iszero, op.advection_p) && return true
+    any(!iszero, op.diffusion_p_p) && return true
+    any(!iszero, op.diffusion_p_xi) && return true
+    if op.p_lower_boundary === :prescribed && any(!iszero, op.p_flux_at_lower_boundary)
+        return true
+    end
+    return op.p_zero_boundary === :outflow && any(!iszero, op.advection_p_times_p2_at_zero)
+end
 
 # The energy of the knock-ons that the Rosenbluth-Putvinski source `source` of the distribution
 # `d` creates, in the terms `listed` of the row of `temperature` that holds the time derivative
@@ -1561,12 +1576,97 @@ function _check_knockon_energy(source, listed, temperature, total, d)
     return nothing
 end
 
+# the EnergyMomentTerm of the distribution `d` in the algebraic equations `closures` of W_tot
+function _energy_moment(closures, d)
+    for e in closures, t in e.terms
+
+        if t isa EnergyMomentTerm && t.kinetic === d
+            return t
+        end
+    end
+    return nothing
+end
+
+# whether the terms `listed` hold a KineticEnergyChangeTerm of the term `source`
+function _has_energy_change(listed, source)
+    any(t -> t isa KineticEnergyChangeTerm && t.source === source, listed)
+end
+
+# The energy that the radial transport of the Fokker-Planck term `term` of the distribution
+# `d` moves, in the terms `listed` of the row of `temperature` that holds the time derivative
+# of `total`: one KineticEnergyChangeTerm of this very term, with a positive coefficient and
+# without a region, so that the row holds the change of the energy of all of f that the
+# transport makes. The term takes the whole grid, a choice of this package: with a closed
+# edge it conserves the total energy whatever the threshold of each radius, and the energy
+# that the transport moves with the electrons below the threshold goes to the cold electrons.
+# The alternative that it rejects takes the hot region of the energy moment, which loses or
+# gains the energy of the electrons that the transport carries across a threshold that
+# differs between radii.
+function _check_transport_energy(term, listed, temperature, total, d)
+    changes = [t for t in listed if t isa KineticEnergyChangeTerm && t.source === term]
+    if isempty(changes)
+        throw(ArgumentError("the row of $temperature holds the time derivative of the total energy $total, and " *
+                            "$d moves in radius, which changes the energy of its electrons without a term of " *
+                            "the row: add KineticEnergyChangeTerm(term) of this FokkerPlanckTerm to the row"))
+    end
+    if length(changes) > 1
+        throw(ArgumentError("the row of $temperature holds the time derivative of the total energy $total, and " *
+                            "it holds $(length(changes)) energy terms of the radial transport of $d by one " *
+                            "Fokker-Planck term, which count its energy more than once: keep one"))
+    end
+    change = only(changes)
+    if !(change.coefficient > 0)
+        throw(ArgumentError("the row of $temperature holds the time derivative of the total energy $total, and " *
+                            "the energy term of the radial transport of $d has the coefficient " *
+                            "$(change.coefficient), which does not add the energy that the transport moves to " *
+                            "the total: give it a positive coefficient"))
+    end
+    if change.region !== nothing
+        throw(ArgumentError("the row of $temperature holds the time derivative of the total energy $total, and " *
+                            "the energy term of the radial transport of $d takes a region, but the transport " *
+                            "moves every electron of $d: give it no region"))
+    end
+    return nothing
+end
+
+# The row `row` of the total energy `total` refuses the energy term of a radial transport of
+# f next to a HeatTransportTerm with the Rechester-Rosenbluth diffusivity, whatever its level.
+# The energy term over the whole grid already moves the thermal energy of the bulk with its
+# electrons, and that diffusivity is the energy moment of the same kinetic diffusion on a
+# Maxwellian (HeatTransportTerm), so the heat of the bulk would move twice. On a Maxwellian
+# bulk of uniform density at a temperature profile on 8 radii the two agree to 1 % at the
+# six inner radii (test/test_heat_transport.jl). A prescribed diffusivity is a heat transport
+# of the user's on top of the kinetic transport and stays allowed.
+function _check_bulk_heat_transport(row, total)
+    transported = [t.kinetic
+                   for t in row.terms
+                   if t isa KineticEnergyChangeTerm && t.source isa FokkerPlanckTerm]
+    isempty(transported) && return nothing
+    for heat in row.terms
+        heat isa HeatTransportTerm && heat.model === :rechester_rosenbluth || continue
+        throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, the " *
+                            "energy term of the radial transport of $(first(transported)) and a HeatTransportTerm " *
+                            "with the Rechester-Rosenbluth diffusivity, the energy moment of the same kinetic " *
+                            "diffusion on a Maxwellian: the heat of the bulk would move twice in radius. Take the " *
+                            "heat transport of the bulk from the transport of $(first(transported)) alone, or give " *
+                            "the HeatTransportTerm a prescribed diffusivity (diffusion or diffusion_at)"))
+    end
+    return nothing
+end
+
 # Each KineticEnergyChangeTerm in the row `row` of the total energy `total` has a source that
-# is a term in the equation of one of the `distributions` in W_hot. The knock-ons of another
-# source are outside W_tot, and the row would give their energy to the cold electrons.
+# is a term in the equation of one of the `distributions` in W_hot. Another source gives its
+# energy to electrons outside W_tot, and the row would give that energy to the cold electrons.
 function _check_energy_change_sources(row, total, distributions, equations)
     for change in row.terms
         change isa KineticEnergyChangeTerm || continue
+        # a row of the energy of the cold electrons alone holds no distribution
+        if isempty(distributions)
+            throw(ArgumentError("the row of $(row.unknown) holds the time derivative of $total, an energy of the " *
+                                "cold electrons alone without a distribution, and its KineticEnergyChangeTerm counts " *
+                                "the energy that its source gives $(change.kinetic): the cold electrons would " *
+                                "receive it. Remove the term, or take the total energy of total_energy_equation"))
+        end
         in_total = false
         for equation in equations
             equation.unknown in distributions || continue
@@ -1577,8 +1677,9 @@ function _check_energy_change_sources(row, total, distributions, equations)
         if !in_total
             throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, and " *
                                 "its KineticEnergyChangeTerm takes a source of $(change.kinetic), whose distribution " *
-                                "is not in the total energy: the row would give the energy of knock-ons outside " *
-                                "$total to the cold electrons. Remove the term, or put $(change.kinetic) into $total"))
+                                "is not in the total energy: the row would give the cold electrons the energy that " *
+                                "the source gives electrons outside $total. Remove the term, or put " *
+                                "$(change.kinetic) into $total"))
         end
     end
     return nothing
@@ -1683,30 +1784,25 @@ end
 # W_hot the row lists the sinks of its collisions, the energy that crosses p_max (the flux of
 # the boundary, or the interface to the runaway grid with the work of the electron-electron
 # collisions on the electrons that cross it), the energy of the knock-ons of each
-# Rosenbluth-Putvinski source over the whole grid, and refuses the channels that no row term
-# carries: radial transport of f, knock-on secondaries on its grid, a prescribed loss rate, a
-# Maxwellian source, and a LinearTerm with a nonzero coefficient, which moves electrons into
-# f from a kinetic unknown or out of it. The row refuses an energy term of a source outside
-# the equations of the distributions of W_hot, whose knock-ons are not in W_tot, and a work
-# term of an interface whose lower distribution is not in W_hot. The checks
-# read the coefficients of the operators as they are, so a run repeats them before its first
-# step (_check_run).
+# Rosenbluth-Putvinski source over the whole grid, the energy that each Fokker-Planck term
+# with radial transport moves over the whole grid, and refuses the channels that no row
+# term carries: knock-on secondaries on its grid, a prescribed loss rate, a Maxwellian
+# source, and a LinearTerm with a nonzero coefficient, which moves electrons into f from a
+# kinetic unknown or out of it. The row refuses an energy term of a source outside the
+# equations of the distributions of W_hot, whose energy is not in W_tot, and a work term of
+# an interface whose lower distribution is not in W_hot. The checks read the coefficients of
+# the operators as they are, so a run repeats them before its first step (_check_run), and a
+# RechesterRosenbluthUpdate checks the transport that it sets in the run (check_update).
 function _check_total_energy_rows(equations)
     for (; row, total, closures, distributions) in _total_energy_rows(equations)
         listed = row.terms
         _check_energy_change_sources(row, total, distributions, equations)
         _check_collision_work_interfaces(row, total, distributions)
+        _check_bulk_heat_transport(row, total)
         for d in distributions, equation in equations
 
             equation.unknown === d || continue
-            moment = nothing
-            for e in closures, t in e.terms
-
-                if t isa EnergyMomentTerm && t.kinetic === d
-                    moment = t
-                    break
-                end
-            end
+            moment = _energy_moment(closures, d)
             for term in equation.terms
                 if term isa FokkerPlanckTerm && _has_collisions(term)
                     # the sinks term of this Fokker-Planck term, charged as a loss, over the
@@ -1773,11 +1869,22 @@ function _check_total_energy_rows(equations)
                                             "coefficient = -1) of this term"))
                     end
                 end
-                if term isa FokkerPlanckTerm && _moves_in_radius(term)
-                    throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *
-                                        "and $d moves in radius, but the system has no energy term for radial " *
-                                        "transport: the cold electrons would gain or pay the energy that the transport " *
-                                        "moves between the radii. Radial transport of $d is refused under the total energy"))
+                if term isa FokkerPlanckTerm &&
+                   (_moves_in_radius(term) || _has_energy_change(listed, term))
+                    _check_transport_energy(term, listed, row.unknown, total, d)
+                end
+                # a Fokker-Planck term without collisions (no plasma and no coefficient
+                # source) has no sinks term or boundary term of the row, so its momentum
+                # coefficients would move energy of f without a channel
+                if term isa FokkerPlanckTerm && !_has_collisions(term) &&
+                   _moves_in_energy(term)
+                    throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy " *
+                                        "$total, and the FokkerPlanckTerm of $d without collisions (no plasma and no " *
+                                        "coefficient source) holds coefficients in momentum (advection_p, " *
+                                        "diffusion_p_p, diffusion_p_xi, or a flux through p_min or p = 0) that change " *
+                                        "the energy of $d, which no term of the row carries: the cold electrons would " *
+                                        "pay or gain it. Keep radial and pitch coefficients alone in that operator, or " *
+                                        "give the momentum part a plasma as collisions"))
                 end
                 if term isa KnockOnTerm
                     throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, " *

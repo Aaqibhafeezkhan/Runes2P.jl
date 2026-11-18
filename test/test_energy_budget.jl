@@ -4,9 +4,10 @@
 # transfer from a slowing-down tail to the cold electrons against the friction power of
 # superthermal electrons, the temperature of a cold plasma under a hot tail a hundred times
 # its energy, the chain that determines the temperature, the checks of the row with the
-# losses that take no flux through p_max, the refusal of radial transport set after the
-# build, by an update or by hand, the energy of the knock-ons of fluid runaways, and DREAM's
-# fluid heating by runaways.
+# losses that take no flux through p_max, the energy of radial transport in the total energy
+# with its budget at each radius, and the energy of the knock-ons of fluid runaways. Radial
+# transport set after the build, by an update or by hand, needs the energy term as well.
+# Last, DREAM's fluid heating by runaways.
 import ForwardDiff
 
 @testset "energy budget" begin
@@ -227,11 +228,111 @@ import ForwardDiff
         g_system = [g_equations; g_row; energy]
         outside_message = "reads the interface of g, whose distribution is not in the total energy"
         @test_throws outside_message Runes2P._check_plasma_pairings(g_system)
-        # radial transport and knock-on secondaries on the grid of f have no row term: the
-        # system refuses them
+        # radial transport moves the energy of the electrons of f: the row takes one energy term
+        # of this very Fokker-Planck term, with a positive coefficient and no region
         transport = AdvectionDiffusion(grid; scheme = :central, r_boundary = :absorbing)
         add_rechester_rosenbluth_diffusion!(transport, 1e-3; major_radius = 6.2)
-        @test_throws "Radial transport" check((term, FokkerPlanckTerm(:f, transport)), sinks, outflow)
+        moving = FokkerPlanckTerm(:f, transport)
+        transport_energy = KineticEnergyChangeTerm(moving)
+        @test check((term, moving), sinks, outflow, transport_energy) === nothing
+        # a Fokker-Planck term without collisions whose operator holds coefficients in
+        # momentum changes the energy of f without a channel of the row: refused. Pitch
+        # coefficients move no energy and stay allowed
+        stirred = AdvectionDiffusion(grid; scheme = :central, r_boundary = :absorbing)
+        add_rechester_rosenbluth_diffusion!(stirred, 1e-3; major_radius = 6.2)
+        stirred.advection_p .= -50.0
+        stirred_term = FokkerPlanckTerm(:f, stirred)
+        @test_throws "coefficients in momentum" check(
+            (term, stirred_term), sinks, outflow, KineticEnergyChangeTerm(stirred_term))
+        scattered = AdvectionDiffusion(grid; scheme = :central)
+        scattered.diffusion_xi_xi .= 1e3
+        @test check((term, FokkerPlanckTerm(:f, scattered)), sinks, outflow) === nothing
+        # each counted coefficient alone, and the helpers that write into advection_p, are
+        # refused in a term without collisions; the pitch coefficients alone are not
+        function hand_term(set!; p_min = 0.0, kwargs...)
+            hand_grid = p_min == 0 ? grid :
+                        cylindrical_grid(
+                MomentumGrid(uniform_p_faces(60, p_min, 0.4), uniform_xi_faces(2)),
+                RadialGrid(uniform_r_faces(2, 0.5)))
+            op = AdvectionDiffusion(hand_grid; scheme = :central, kwargs...)
+            set!(op)
+            return FokkerPlanckTerm(:f, op)
+        end
+        fielded = PlasmaState(;
+            cold_electron_temperature = [T0, T0], ions = [IonSpecies("D", 1, 1, [n, n])],
+            electric_field = fill(1.0, 2), magnetic_field = fill(2.5, 2))
+        refused = [hand_term(op -> op.diffusion_p_p .= 1e3),
+            hand_term(op -> op.diffusion_p_xi .= 1e3),
+            hand_term(op -> op.p_flux_at_lower_boundary .= 1e20; p_min = 0.05,
+                p_lower_boundary = :prescribed),
+            hand_term(op -> op.advection_p_times_p2_at_zero .= -1.0),
+            hand_term(op -> add_electric_field!(op, fielded)),
+            hand_term(op -> add_synchrotron!(op, fielded))]
+        for hand in refused
+            @test_throws "coefficients in momentum" check((hand,))
+        end
+        accepted = [hand_term(op -> nothing; p_min = 0.05, p_lower_boundary = :prescribed),
+            hand_term(op -> op.advection_xi .= 1e3), hand_term(op -> op.diffusion_xi_p .= 1e3)]
+        for hand in accepted
+            @test check((hand,)) === nothing
+        end
+        @test_throws "add KineticEnergyChangeTerm(term)" check((term, moving), sinks, outflow)
+        @test_throws "more than once" check(
+            (term, moving), sinks, outflow, transport_energy, transport_energy)
+        for coefficient in (0, -1)
+            @test_throws "give it a positive coefficient" check(
+                (term, moving), sinks, outflow,
+                KineticEnergyChangeTerm(moving; coefficient))
+        end
+        # a region: refused when the term is built, and by the row for a term built otherwise
+        @test_throws "takes no region" KineticEnergyChangeTerm(moving; region)
+        with_region = KineticEnergyChangeTerm(:f, moving, 1.0, region, nothing)
+        @test_throws "give it no region" check((term, moving), sinks, outflow, with_region)
+        # the energy term of a copy of the transport term: the identity check refuses it
+        @test_throws "not a term of the system" check((term, moving), sinks, outflow,
+            KineticEnergyChangeTerm(FokkerPlanckTerm(:f, transport)))
+        # a transport term that holds no coefficients yet needs no energy term, and takes one
+        idle = FokkerPlanckTerm(:f, AdvectionDiffusion(grid; scheme = :central))
+        @test check((term, idle), sinks, outflow) === nothing
+        @test check((term, idle), sinks, outflow, KineticEnergyChangeTerm(idle)) ===
+              nothing
+        @test_throws "more than once" check((term, idle), sinks, outflow,
+            KineticEnergyChangeTerm(idle), KineticEnergyChangeTerm(idle))
+        # the energy term of the transport of a distribution outside W_tot
+        g_moving = FokkerPlanckTerm(:g, transport)
+        g_transport = [Equation(:f, TimeDerivative(), term, moving),
+            Equation(:g, TimeDerivative(), g_moving)]
+        g_energy = KineticEnergyChangeTerm(g_moving)
+        g_row = row(sinks, outflow, transport_energy, g_energy)
+        @test_throws "whose distribution is not in the total energy" Runes2P._check_plasma_pairings([g_transport;
+                                                                                                     g_row;
+                                                                                                     energy])
+        f_row = row(sinks, outflow, transport_energy)
+        @test Runes2P._check_plasma_pairings([g_transport; f_row; energy]) === nothing
+        # a row of the energy of the cold electrons alone holds no distribution, so the energy
+        # term of the transport would give the cold electrons the energy of f
+        cold_row = Equation(
+            :cold_electron_temperature, TimeDerivative(:cold_thermal_energy),
+            transport_energy)
+        @test_throws "an energy of the cold electrons alone without a distribution" Runes2P._check_plasma_pairings([
+            Equation(:f, TimeDerivative(), term, moving), cold_row, thermal_energy_equation()])
+        # the Rechester-Rosenbluth heat transport next to the energy term of radial transport
+        # moves the heat of the bulk twice, whatever its level: refused. A prescribed
+        # diffusivity is allowed, and so is the Rechester-Rosenbluth heat transport without
+        # the energy term, in a row of the total energy or of the cold thermal energy alone
+        rr_heat = HeatTransportTerm(; delta_b_over_b = 1e-3, major_radius = 6.2)
+        prescribed_heat = HeatTransportTerm(; diffusion = 1.0)
+        @test_throws "the heat of the bulk would move twice" check(
+            (term, moving), sinks, outflow, transport_energy, rr_heat)
+        @test check((term, moving), sinks, outflow, transport_energy, prescribed_heat) ===
+              nothing
+        @test check((term,), sinks, outflow, rr_heat) === nothing
+        cold_heat_row = Equation(
+            :cold_electron_temperature, TimeDerivative(:cold_thermal_energy),
+            rr_heat)
+        @test Runes2P._check_plasma_pairings([
+            Equation(:f, TimeDerivative(), term, moving), cold_heat_row,
+            thermal_energy_equation()]) === nothing
         # the knock-ons of the fluid runaways above the grid bring their energy into W_tot: the
         # row takes one energy term of this very source, with a positive coefficient and no
         # region
@@ -334,12 +435,313 @@ import ForwardDiff
             layout, 2, 1)]) != 0
     end
 
+    @testset "the energy of radial transport in the total energy" begin
+        # A hot bump on a 100 eV bulk at three radii of a nonuniform grid, collisions with the
+        # free electrons alone (no sinks), the outflow at p_max, and radial transport with a
+        # closed edge: Rechester-Rosenbluth diffusion and an inward advection. The row of the
+        # total energy holds the energy term of the transport, so at each radius W_tot changes
+        # by the step times the transport moment P of the end of the step, computed here from
+        # apply! of the transport operator over the whole grid, less the outflow. P integrates
+        # to zero over the volume, and so does the change of W_tot apart from the outflow.
+        # Without the term, a coefficient of 1e-30 that the
+        # check accepts, the row misses P at each radius, and the cold electrons pay it.
+        T0, n = 100.0, 1e19
+        grid = cylindrical_grid(
+            MomentumGrid(uniform_p_faces(40, 0.0, 0.6), uniform_xi_faces(2)),
+            RadialGrid([0.0, 0.15, 0.3, 0.5]))
+        m = momentum_grid(grid)
+        base = PlasmaState(;
+            cold_electron_temperature = fill(T0, 3), ions = [IonSpecies("D", 1, 1, fill(n, 3))],
+            electric_field = zeros(3), magnetic_field = zeros(3))
+        region = MomentumRegion(0.1)
+        settings = CollisionSettings(mode = :full, screening = :complete, bremsstrahlung = :neglect)
+        fp() = FokkerPlanckTerm(:f,
+            AdvectionDiffusion(grid; scheme = :exponential_fitting, p_upper_boundary = :f_zero);
+            plasma = PlasmaFromUnknowns(base), settings, synchrotron = false)
+        function transport_operator(; filled = true, r_boundary = :zero_flux, r_scheme = :central)
+            op = AdvectionDiffusion(grid; scheme = :central, r_scheme, r_boundary,
+                cross_diffusion = false)
+            if filled
+                add_rechester_rosenbluth_diffusion!(op, 2e-3; major_radius = 6.2)
+                op.advection_r .= -2e3
+            end
+            return op
+        end
+        layout = UnknownLayout(grid.radial_grid,
+            [KineticUnknown(:f, grid; scale = 1e19),
+                RadialUnknown(:cold_electron_temperature; scale = 100.0),
+                RadialUnknown(:cold_electron_density; scale = 1e19),
+                RadialUnknown(:cold_thermal_energy; scale = THERMAL_ENERGY_FACTOR * 1e21),
+                RadialUnknown(:total_electron_energy; scale = THERMAL_ENERGY_FACTOR * 1e21)])
+        function equations_of(collisions, transport, moment_region, row_terms...)
+            [Equation(:f, TimeDerivative(), collisions, transport),
+                Equation(
+                    :cold_electron_temperature, TimeDerivative(:total_electron_energy),
+                    MomentumBoundaryFluxTerm(:f, collisions; weight = :energy, coefficient = -1),
+                    row_terms...),
+                density_row(fill(n, 3)), thermal_energy_equation(),
+                total_energy_equation(:f, grid; region = moment_region)]
+        end
+        theta = T0 / Constants.ELECTRON_REST_ENERGY
+        u0 = zeros(length(layout))
+        for ir in 1:3
+            kinetic_view(u0, layout, 1, ir) .= [n * exp(-p^2 / 2theta) +
+                                                1e17 * (4 - ir) *
+                                                exp(-((p - 0.3) / 0.05)^2)
+                                                for p in m.p_centers, _ in 1:2]
+        end
+        unknown_values(u0, layout, 2) .= T0
+        unknown_values(u0, layout, 3) .= n
+        volumes = grid.radial_grid.spatial_jacobian .* grid.radial_grid.r_widths
+        # the envelope of the hot region at radius ir: a fixed limit, or the threshold of the
+        # temperature of the state u
+        function envelope_at(moment_region, u, ir)
+            moment_region.limit isa ThermalMomentum ||
+                return momentum_envelope(moment_region, grid, ir)
+            T = unknown_values(u, layout, 2)[ir]
+            p0 = moment_region.limit.factor * sqrt(2T / Constants.ELECTRON_REST_ENERGY)
+            return momentum_envelope!(zeros(40), moment_region, m, p0)
+        end
+        # the moment of the transport from apply!, per radius [W/m³], over the whole grid
+        # (`nothing`) or over the hot region of `moment_region`
+        function transport_moment(op, u, moment_region)
+            df = apply!(zeros(size(grid)), op, kinetic_array(u, layout, 1))
+            moments = zeros(3)
+            for ir in 1:3, j in 1:2, i in 1:40
+                envelope = moment_region === nothing ? ones(40) :
+                           envelope_at(moment_region, u, ir)
+                moments[ir] += envelope[i] * Runes2P._kinetic_energy(m.p_centers[i]) *
+                               df[i, j, ir] * phase_space_jacobian(grid, ir)[i, j] *
+                               m.p_widths[i] * m.xi_widths[j] /
+                               grid.radial_grid.spatial_jacobian[ir]
+            end
+            return moments
+        end
+        values_of(u, k) = unknown_values(u, layout, k)
+        dt = 1e-7
+        function run(coefficient; updates = (), moment_region = region,
+                temperatures = fill(T0, 3), heat = (), r_boundary = :zero_flux,
+                r_scheme = :central)
+            collisions = fp()
+            op = transport_operator(; filled = isempty(updates), r_boundary, r_scheme)
+            transport = FokkerPlanckTerm(:f, op)
+            equations = equations_of(collisions, transport, moment_region,
+                KineticEnergyChangeTerm(transport; coefficient), heat...)
+            initial = copy(u0)
+            unknown_values(initial, layout, 2) .= temperatures
+            system = EquationSystem(layout, equations; time_scale = 1e-7, initial_state = initial)
+            update_list = [RechesterRosenbluthUpdate(op, t -> 2e-3; major_radius = 6.2)
+                           for _ in updates]
+            if !isempty(updates)
+                op.advection_r .= -2e3
+            end
+            solution = integrate(
+                system, initial, [0.0, dt]; stepper = FixedSteps(), updates = Tuple(update_list))
+            start, finish = solution.states[:, 1], solution.states[:, 2]
+            rows = [first(Runes2P.unknown_range(layout, 2, ir)) for ir in 1:3]
+            outflow = Runes2P.rhs!(
+                zeros(length(finish)), equations[2].terms[1], finish, layout, 2, 0.0)[rows]
+            return (; op,
+                start, finish, outflow, moment = transport_moment(op, finish, nothing),
+                hot = transport_moment(op, finish, moment_region))
+        end
+        with = run(1.0)
+        # the transport moves energy at each radius, and its moment integrates to zero.
+        # Measured: the largest |P| is 9.4e6 W/m³, so a step moves 0.26 % of W_tot at the
+        # inner radius
+        scale = maximum(abs, with.moment)
+        @test scale > 1e-3 * maximum(values_of(with.start, 5)) / dt
+        @test abs(sum(volumes .* with.moment)) < 1e-13 * sum(volumes .* abs.(with.moment))
+        # each radius: the change of W_tot is that of the transport and the outflow. Measured:
+        # at most 2.0e-14 of the largest |P|, and |∫P| of 1.5e-16 of ∫|P|
+        change = (values_of(with.finish, 5) .- values_of(with.start, 5)) ./ dt
+        @test maximum(abs.(change .- (with.moment .+ with.outflow))) < 1e-12 * scale
+        @test abs(sum(volumes .* (change .- with.outflow))) <
+              1e-12 * sum(volumes .* abs.(with.moment))
+        # without the term the row misses the transport at each radius, which the cold
+        # electrons pay: W_cold changes by minus the step times the moment, against the run
+        # with it. Measured: 9.9e-7 relative, from the collisions at the two temperatures
+        without = run(1e-30)
+        missed = (values_of(without.finish, 5) .- values_of(without.start, 5)) ./ dt
+        @test maximum(abs.(missed .- without.outflow)) < 1e-12 * scale
+        paid = (values_of(without.finish, 4) .- values_of(with.finish, 4)) ./ dt
+        @test paid ≈ -with.moment rtol = 1e-5
+        # the coefficients set in the run by an update: the same budget
+        updated = run(1.0; updates = (:rechester_rosenbluth,))
+        change = (values_of(updated.finish, 5) .- values_of(updated.start, 5)) ./ dt
+        @test maximum(abs.(updated.moment .- with.moment)) < 1e-6 * scale
+        @test maximum(abs.(change .- (updated.moment .+ updated.outflow))) < 1e-12 * scale
+        # a threshold that follows a temperature that differs between the radii: the row holds
+        # the transport over the whole grid, so the budget closes at each radius and in the
+        # volume as with one threshold. The moment over the hot region alone, the rejected
+        # alternative, no longer integrates to zero, since the transport carries electrons
+        # across the threshold. Measured: the budget per radius to 1.9e-14 of the largest |P|,
+        # |∫P| of 7.5e-17 of ∫|P|, and the hot region 3.0e-6 of ∫|P|
+        thermal = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor = 3))
+        profiled = run(1.0; moment_region = thermal, temperatures = [100.0, 70.0, 40.0])
+        change = (values_of(profiled.finish, 5) .- values_of(profiled.start, 5)) ./ dt
+        thermal_scale = maximum(abs, profiled.moment)
+        thermal_volume_scale = sum(volumes .* abs.(profiled.moment))
+        @test maximum(abs.(change .- (profiled.moment .+ profiled.outflow))) <
+              1e-12 * thermal_scale
+        @test abs(sum(volumes .* profiled.moment)) < 1e-13 * thermal_volume_scale
+        @test abs(sum(volumes .* (change .- profiled.outflow))) <
+              1e-12 * thermal_volume_scale
+        @test abs(sum(volumes .* profiled.hot)) > 1e-7 * thermal_volume_scale
+        # an absorbing edge and a four-point radial scheme: the same budget at each radius.
+        # The volume integral of P is minus the energy flux out through the edge, the
+        # particle flux of ε f there. Measured: at each radius 1.6e-14 (absorbing) and
+        # 2.7e-14 (TCDF) of the largest |P|, in the volume 1.7e-16 and 7.4e-17 of ∫|P|
+        energies = [Runes2P._kinetic_energy(p) for p in m.p_centers]
+        for (r_boundary, r_scheme) in ((:absorbing, :central), (:zero_flux, :tcdf))
+            case = run(1.0; r_boundary, r_scheme)
+            change = (values_of(case.finish, 5) .- values_of(case.start, 5)) ./ dt
+            case_scale = maximum(abs, case.moment)
+            @test maximum(abs.(change .- (case.moment .+ case.outflow))) <
+                  1e-12 * case_scale
+            edge = radial_particle_flux(
+                case.op, energies .* kinetic_array(case.finish, layout, 1), 4)
+            if r_boundary === :absorbing
+                @test edge > 0
+            end
+            @test abs(sum(volumes .* case.moment) + edge) <
+                  1e-13 * sum(volumes .* abs.(case.moment))
+        end
+        # the Rechester-Rosenbluth heat transport next to the term is refused when the system
+        # is built; a prescribed diffusivity steps, and the heat transport moves energy
+        # between the radii alone
+        rr_heat = HeatTransportTerm(; delta_b_over_b = 2e-3, major_radius = 6.2)
+        @test_throws "the heat of the bulk would move twice" run(1.0; heat = (rr_heat,))
+        heated = run(1.0; heat = (HeatTransportTerm(; diffusion = 1.0),),
+            temperatures = [100.0, 70.0, 40.0])
+        change = (values_of(heated.finish, 5) .- values_of(heated.start, 5)) ./ dt
+        @test all(isfinite, heated.finish)
+        @test abs(sum(volumes .* (change .- heated.outflow))) <
+              1e-12 * sum(volumes .* abs.(heated.moment))
+    end
+
+    @testset "radial transport next to the sinks under an upwind side that a field turns" begin
+        # Partial screening gives the collisions of f sinks, which the row takes over the hot
+        # region under :upwind in p, where every part of the loss takes the side of the whole
+        # advection. A field of 2 V/m beats the friction above a few thermal momenta, so the
+        # whole advection changes its sign along p. Radial transport of f on three radii with
+        # a closed edge, with its energy term. At each radius W_tot changes by the sinks, the
+        # outflow at p_max and the transport, and in the volume by the sinks and the outflow
+        # alone. Measured: 18 of the 117 inner faces of the pitch cell ξ > 0 with friction and
+        # 99 with the field ahead, the budget at each radius to 9.9e-15 of the largest channel,
+        # |∫P| of 6.3e-17 of ∫|P|, and the volume change less the losses 2.2e-14 of ∫|P|
+        T0, n, E = 100.0, 1e19, 2.0
+        grid = cylindrical_grid(
+            MomentumGrid(uniform_p_faces(40, 0.0, 0.6), uniform_xi_faces(2)),
+            RadialGrid([0.0, 0.15, 0.3, 0.5]))
+        m = momentum_grid(grid)
+        base = PlasmaState(;
+            cold_electron_temperature = fill(T0, 3), ions = [
+                IonSpecies("Ar", 18, 2, fill(1e18, 3)),
+                IonSpecies("D", 1, 1, fill(n, 3))],
+            electric_field = fill(E, 3), magnetic_field = fill(2.5, 3))
+        region = MomentumRegion(ThermalMomentum(:cold_electron_temperature; factor = 3))
+        collisions = FokkerPlanckTerm(:f,
+            AdvectionDiffusion(grid; scheme = :upwind, p_upper_boundary = :f_zero);
+            plasma = PlasmaFromUnknowns(base),
+            settings = CollisionSettings(mode = :full, screening = :partial))
+        transport_op = AdvectionDiffusion(grid; scheme = :central, cross_diffusion = false)
+        add_rechester_rosenbluth_diffusion!(transport_op, 2e-3; major_radius = 6.2)
+        transport = FokkerPlanckTerm(:f, transport_op)
+        sinks = KineticEnergyLossTerm(collisions; part = :sinks, region)
+        outflow = MomentumBoundaryFluxTerm(:f, collisions; weight = :energy, coefficient = -1)
+        energy = KineticEnergyChangeTerm(transport)
+        layout = UnknownLayout(grid.radial_grid,
+            [KineticUnknown(:f, grid; scale = 1e19),
+                RadialUnknown(:cold_electron_temperature; scale = 100.0),
+                RadialUnknown(:cold_electron_density; scale = 1e19),
+                RadialUnknown(:cold_thermal_energy; scale = THERMAL_ENERGY_FACTOR * 1e21),
+                RadialUnknown(:total_electron_energy; scale = THERMAL_ENERGY_FACTOR * 1e21)])
+        equations = [Equation(:f, TimeDerivative(), collisions, transport),
+            Equation(:cold_electron_temperature, TimeDerivative(:total_electron_energy),
+                sinks, outflow, energy),
+            density_row(fill(n, 3)), thermal_energy_equation(),
+            total_energy_equation(:f, grid; region)]
+        theta = T0 / Constants.ELECTRON_REST_ENERGY
+        u0 = zeros(length(layout))
+        for ir in 1:3
+            kinetic_view(u0, layout, 1, ir) .= [n * exp(-p^2 / 2theta) +
+                                                1e17 * (4 - ir) *
+                                                exp(-((p - 0.3) / 0.05)^2)
+                                                for p in m.p_centers, _ in 1:2]
+        end
+        unknown_values(u0, layout, 2) .= [100.0, 70.0, 40.0]
+        unknown_values(u0, layout, 3) .= n
+        system = EquationSystem(layout, equations; time_scale = 1e-7, initial_state = u0)
+        dt = 1e-7
+        solution = integrate(system, u0, [0.0, dt]; stepper = FixedSteps())
+        start, finish = solution.states[:, 1], solution.states[:, 2]
+        # the whole advection takes both signs along p in each pitch cell of each radius
+        advection = Runes2P._operator_at(collisions, finish, layout, dt).advection_p
+        @test any(<(0), advection[2:40, 2, :]) && any(>(0), advection[2:40, 2, :])
+        rows = [first(Runes2P.unknown_range(layout, 2, ir)) for ir in 1:3]
+        channel(term) = Runes2P.rhs!(zeros(length(finish)), term, finish, layout, 2, dt)[rows]
+        losses = channel(sinks) .+ channel(outflow)
+        transported = channel(energy)
+        change = (unknown_values(finish, layout, 5) .- unknown_values(start, layout, 5)) ./
+                 dt
+        volumes = grid.radial_grid.spatial_jacobian .* grid.radial_grid.r_widths
+        scale = maximum(abs, transported)
+        @test maximum(abs, losses) > 0 && scale > 0
+        @test maximum(abs.(change .- (losses .+ transported))) <
+              1e-12 * max(scale, maximum(abs, losses))
+        @test abs(sum(volumes .* transported)) < 1e-13 * sum(volumes .* abs.(transported))
+        @test abs(sum(volumes .* (change .- losses))) <
+              1e-12 * sum(volumes .* abs.(transported))
+    end
+
+    @testset "the field as an unknown in a term without collisions" begin
+        # The coefficients of a unit field are not counted among the coefficients in momentum:
+        # their work is the product of the field and the hot current, which the row holds
+        T0, n = 100.0, 1e19
+        grid = cylindrical_grid(
+            MomentumGrid(uniform_p_faces(30, 0.0, 0.4), uniform_xi_faces(2)),
+            RadialGrid(uniform_r_faces(2, 0.5)))
+        m = momentum_grid(grid)
+        region = MomentumRegion(0.1)
+        layout = UnknownLayout(grid.radial_grid,
+            [KineticUnknown(:f, grid; scale = 1e19),
+                RadialUnknown(:electric_field; scale = 1.0),
+                RadialUnknown(:hot_electron_current_density; scale = 1e5),
+                RadialUnknown(:cold_electron_temperature; scale = 100.0),
+                RadialUnknown(:cold_electron_density; scale = 1e19),
+                RadialUnknown(:cold_thermal_energy; scale = THERMAL_ENERGY_FACTOR * 1e21),
+                RadialUnknown(:total_electron_energy; scale = THERMAL_ENERGY_FACTOR * 1e21)])
+        field_term = FokkerPlanckTerm(:f, AdvectionDiffusion(grid; scheme = :central);
+            electric_field = :electric_field)
+        equations = [Equation(:f, TimeDerivative(), field_term),
+            Equation(:electric_field, Algebraic(), PrescribedValueTerm([1.0, 1.0]),
+                minus(:electric_field)),
+            Equation(:hot_electron_current_density, Algebraic(),
+                CurrentMomentTerm(:f, grid; region), minus(:hot_electron_current_density)),
+            Equation(:cold_electron_temperature, TimeDerivative(:total_electron_energy),
+                ProductTerm(:electric_field, :hot_electron_current_density)),
+            density_row([n, n]), thermal_energy_equation(), total_energy_equation(:f, grid; region)]
+        theta = T0 / Constants.ELECTRON_REST_ENERGY
+        u0 = zeros(length(layout))
+        for ir in 1:2
+            kinetic_view(u0, layout, 1, ir) .= [n * exp(-p^2 / 2theta)
+                                                for p in m.p_centers, _ in 1:2]
+        end
+        unknown_values(u0, layout, 2) .= 1.0
+        unknown_values(u0, layout, 4) .= T0
+        unknown_values(u0, layout, 5) .= n
+        system = EquationSystem(layout, equations; time_scale = 1e-7, initial_state = u0)
+        solution = integrate(system, u0, [0.0, 1e-8]; stepper = FixedSteps())
+        @test all(isfinite, solution.states)
+    end
+
     @testset "radial transport set after the build under the total energy" begin
         # An operator of radial transport built by hand declares radial transport and holds no
-        # coefficients when the system is built, so the system accepts it. A
-        # RechesterRosenbluthUpdate sets its coefficients in the run, and the run refuses it
-        # while the distribution is in the total energy, as the system refuses transport set
-        # before it is built. Coefficients set by hand after the build are refused by the run.
+        # coefficients when the system is built, so the system accepts it without the energy
+        # term of the transport. A RechesterRosenbluthUpdate sets its coefficients in the run,
+        # and the run then requires the term, as the system does for transport set before it
+        # is built. Coefficients set by hand after the build need it as well.
         T0, n = 100.0, 1e19
         grid = cylindrical_grid(
             MomentumGrid(uniform_p_faces(20, 0.0, 0.4), uniform_xi_faces(2)),
@@ -361,10 +763,11 @@ import ForwardDiff
                 RadialUnknown(:cold_electron_density; scale = 1e19),
                 RadialUnknown(:cold_thermal_energy; scale = THERMAL_ENERGY_FACTOR * 1e21),
                 RadialUnknown(:total_electron_energy; scale = THERMAL_ENERGY_FACTOR * 1e21)])
-        equations = [Equation(:f, TimeDerivative(), fp, FokkerPlanckTerm(:f, transport)),
+        moving = FokkerPlanckTerm(:f, transport)
+        equations(row_terms...) = [Equation(:f, TimeDerivative(), fp, moving),
             Equation(:cold_electron_temperature, TimeDerivative(:total_electron_energy),
                 PrescribedValueTerm([0.0, 0.0]), KineticEnergyLossTerm(fp; part = :sinks, region),
-                MomentumBoundaryFluxTerm(:f, fp; weight = :energy, coefficient = -1)),
+                MomentumBoundaryFluxTerm(:f, fp; weight = :energy, coefficient = -1), row_terms...),
             density_row([n, n]), thermal_energy_equation(), total_energy_equation(:f, grid; region)]
         theta = T0 / Constants.ELECTRON_REST_ENERGY
         u0 = zeros(length(layout))
@@ -376,20 +779,38 @@ import ForwardDiff
         unknown_values(u0, layout, 2) .= T0
         unknown_values(u0, layout, 3) .= n
         # accepted when built: the operator moves nothing yet
-        system = EquationSystem(layout, equations; time_scale = 1e-7, initial_state = u0)
+        system = EquationSystem(layout, equations(); time_scale = 1e-7, initial_state = u0)
         @test system isa EquationSystem
-        @test_throws "sets the radial transport of f" integrate(
+        @test_throws "add KineticEnergyChangeTerm(term)" integrate(
             system, u0, [0.0, 1e-8]; stepper = FixedSteps(), updates = (update,))
+        # with the energy term of the transport the run takes the update; a second term is
+        # refused when the system is built
+        with_term = EquationSystem(
+            layout, equations(KineticEnergyChangeTerm(moving));
+            time_scale = 1e-7, initial_state = u0)
+        solution = integrate(
+            with_term, u0, [0.0, 1e-8]; stepper = FixedSteps(), updates = (update,))
+        @test all(isfinite, solution.states)
+        @test any(!iszero, transport.diffusion_r_r)
+        # coefficients in momentum set by hand after the build: the run refuses them
+        transport.advection_p .= -50.0
+        @test_throws "coefficients in momentum" integrate(
+            with_term, u0, [0.0, 1e-8]; stepper = FixedSteps(), updates = (update,))
+        fill!(transport.advection_p, 0.0)
+        fill!(transport.diffusion_r_r, 0.0)
+        twice = equations(KineticEnergyChangeTerm(moving), KineticEnergyChangeTerm(moving))
+        @test_throws "more than once" EquationSystem(
+            layout, twice; time_scale = 1e-7, initial_state = u0)
         # the same coefficients set by hand on the built system: the run refuses them before
         # its first step, also when it resumes, and the system refuses them when it is built
         add_rechester_rosenbluth_diffusion!(transport, 1e-3; major_radius = 6.2)
-        @test_throws "Radial transport of f is refused" integrate(
+        @test_throws "add KineticEnergyChangeTerm(term)" integrate(
             system, u0, [0.0, 1e-8]; stepper = FixedSteps())
-        @test_throws "Radial transport of f is refused" integrate(
+        @test_throws "add KineticEnergyChangeTerm(term)" integrate(
             system, u0, [0.0, 1e-8]; stepper = FixedSteps(),
             resume = joinpath(mktempdir(), "missing.h5"))
-        @test_throws "Radial transport of f is refused" EquationSystem(
-            layout, equations; time_scale = 1e-7, initial_state = u0)
+        @test_throws "add KineticEnergyChangeTerm(term)" EquationSystem(
+            layout, equations(); time_scale = 1e-7, initial_state = u0)
     end
 
     @testset "a cold plasma under a hot tail" begin

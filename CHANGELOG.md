@@ -8,13 +8,16 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Added
 
+- `KineticEnergyChangeTerm(source::FokkerPlanckTerm; coefficient = 1)` takes a `FokkerPlanckTerm` with radial transport as `source` ([#306](https://github.com/osrep/Runes2P.jl/pull/306)).
+  It is then the energy moment of the radial transport of that term over the whole grid, and it takes no region.
+  The output format keeps its version: the record of the term has the form that 0.0.6 introduced.
 - `InterfaceCollisionWorkTerm(interface; coefficient = -1)` is the work of the electron-electron collisions on the electrons that cross a `MomentumInterfaceTerm`, for the row of the temperature ([#297](https://github.com/osrep/Runes2P.jl/pull/297)).
   It is the electron-electron part of the flux through the face, taken at the same face value of f as the flux itself, times an energy step.
   The step is the energy of the first cell of the runaway grid less that of the last cell of the hot-tail grid.
   The settings record of a run holds the record of the term, in the format 0.0.6.
 - `KineticEnergyChangeTerm(source; region, coefficient)` is the power that a source term gives its distribution, for the row of the temperature, with a `RosenbluthPutvinskiSourceTerm` as `source` ([#296](https://github.com/osrep/Runes2P.jl/pull/296)).
   It is the energy moment of the knock-ons of the fluid runaways above the grid, `n_re n_tot` times a sum over the cells that the source fills.
-  A region takes a fixed limit, and a limit that follows the temperature or time is refused.
+  With this source a region takes a fixed limit, and a limit that follows the temperature or time is refused.
   The settings record of a run holds the record of the term, and `OUTPUT_FORMAT_VERSION` is 0.0.6 for it and for the key `knockon_term` of a `SecondaryHeatingTerm` with `cut = :knockon`.
   A file of the format 0.0.5 reads as before.
 - `KineticEnergyLossTerm` takes a Fokker-Planck term with a flux limiter in a scheme, such as `:tcdf`, so a total-energy row accepts the sinks of a hot-tail grid under a limiter ([#298](https://github.com/osrep/Runes2P.jl/pull/298)).
@@ -76,6 +79,16 @@ Until the first release, every change is listed under "Unreleased", with the sub
   In every row the system refuses a second `InterfaceCollisionWorkTerm` of one interface, which would count the work twice.
   In the row of a total energy it also refuses the term of an interface whose lower distribution, that of the hot-tail grid below the face, is not in the total energy.
   A row of the cold thermal energy alone takes the term without the conditions of the total energy.
+- Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` and a run accept radial transport of a distribution whose energy is in the total, which they refused until now ([#306](https://github.com/osrep/Runes2P.jl/pull/306)).
+  The row of the temperature then needs one `KineticEnergyChangeTerm` of each `FokkerPlanckTerm` of that distribution whose operator holds nonzero radial coefficients, without a region.
+  A run accepts a `RechesterRosenbluthUpdate` on such a distribution when the row holds the term of the Fokker-Planck term of its operator.
+- In the row of the total energy, an `EquationSystem` refuses a `HeatTransportTerm` with the Rechester-Rosenbluth diffusivity next to the energy term of a radial transport ([#306](https://github.com/osrep/Runes2P.jl/pull/306)).
+  That term already moves the heat of the bulk with its electrons, and the diffusivity is the energy moment of the same kinetic diffusion.
+  A prescribed diffusivity stays allowed.
+- In the row of the total energy, an `EquationSystem` and a run refuse a `FokkerPlanckTerm` without collisions whose operator holds coefficients in momentum ([#306](https://github.com/osrep/Runes2P.jl/pull/306)).
+  Such a term has no plasma and no coefficient source, and its coefficients in momentum change the energy of the distribution.
+  No term of the row carries that energy, so the cold electrons paid or gained it until now.
+  Radial and pitch coefficients, and the coefficients of a unit field, stay allowed.
 - Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` accepts a `RosenbluthPutvinskiSourceTerm` in the equation of a distribution whose energy is in the total, which it refused until now ([#296](https://github.com/osrep/Runes2P.jl/pull/296)).
   The row of the temperature then needs one `KineticEnergyChangeTerm` of that very source, with a positive coefficient and without a region, since every knock-on is in the total energy.
   The term creates the energy of the knock-ons in the system, and no population pays it.

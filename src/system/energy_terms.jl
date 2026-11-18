@@ -237,9 +237,16 @@ electrons, `MomentumBoundaryFluxTerm(...; weight = :energy)` for an outflow at `
 [`InterfaceEnergyFluxTerm`](@ref) and [`InterfaceCollisionWorkTerm`](@ref) of the same
 interface for the runaway grid, and [`KineticEnergyChangeTerm`](@ref)
 of each [`RosenbluthPutvinskiSourceTerm`](@ref) for the energy of the knock-ons of the fluid
-runaways above the grid, over the whole grid. The system refuses a row that misses one of
-them, and a `KineticEnergyChangeTerm` whose source is not in the equation of a distribution
-in the total energy, since its knock-ons are outside the total. It refuses an
+runaways above the grid, over the whole grid. Each [`FokkerPlanckTerm`](@ref) of `kinetic`
+whose operator holds nonzero radial coefficients needs a `KineticEnergyChangeTerm` of that
+term without a region, for the change of the energy of all of `kinetic` by the transport at
+each radius. The run requires it before its first step for a
+[`RechesterRosenbluthUpdate`](@ref) that sets the transport. The system refuses a row that
+misses one of these terms. It refuses two energy terms of one source. It refuses a
+[`HeatTransportTerm`](@ref) with the Rechester-Rosenbluth diffusivity next to the energy
+term of a radial transport, which already moves the heat of the bulk. It refuses a
+`KineticEnergyChangeTerm` whose source is not in the equation of a distribution in the total
+energy, since the energy that it counts is outside the total. It refuses an
 `InterfaceCollisionWorkTerm` of an interface whose lower distribution, that of the grid
 below the face, is not in the total energy, since the electrons that cross there are outside
 the total. A second `InterfaceCollisionWorkTerm` of one interface, which would count the work
@@ -248,9 +255,10 @@ twice, is refused in a row of any kind. It also refuses the terms of the equatio
 would pay or gain their energy at the radius where the electrons are moved, created or
 removed:
 
-- Radial transport of `kinetic` is refused. The run refuses a
-  [`RechesterRosenbluthUpdate`](@ref) that sets it, before its first step.
 - Knock-on secondaries on its grid ([`KnockOnTerm`](@ref)) are refused.
+- A [`FokkerPlanckTerm`](@ref) without collisions, with no plasma and no coefficient
+  source, whose operator holds coefficients in momentum is refused: no term of the row
+  carries the energy that they move.
 - A prescribed loss rate ([`LossRateTerm`](@ref)) and a Maxwellian source
   ([`MaxwellianSourceTerm`](@ref)) are refused.
 - A [`LinearTerm`](@ref) with a nonzero coefficient in the time derivative of `kinetic`,
