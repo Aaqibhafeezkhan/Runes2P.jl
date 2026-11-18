@@ -71,8 +71,8 @@ Until the first release, every change is listed under "Unreleased", with the sub
   Radial and pitch coefficients, and the coefficients of a unit field, stay allowed.
 - `KineticEnergyLossTerm` takes both operators on the upwind side of the whole advection of its Fokker-Planck term under `:upwind` and the four-point schemes ([#298](https://github.com/osrep/Runes2P.jl/pull/298), [#307](https://github.com/osrep/Runes2P.jl/pull/307)).
   It accepts a flux limiter, such as `:tcdf`, which it refused until now, and its Jacobian then holds the derivative of the limiter.
-  Under `:upwind`, `:quick` and `:upwind_second_order` each operator took its own side until now, and the parts of the term did not sum to the momentum flux where the field beats the friction.
-  The term lists a field unknown of its Fokker-Planck term among its dependencies without a column of the Jacobian, and its settings record can then have `linear` false.
+  Under `:upwind`, `:quick` and `:upwind_second_order` each operator took its own side until now, so the field part, the free-electron part and the sinks did not sum to the momentum flux where the field beats the friction.
+  It lists a field unknown of its Fokker-Planck term among its dependencies, without a Jacobian column, so its settings record holds it under `dependencies` and can have `linear` false.
   `:central` and `:exponential_fitting` in momentum, with linear schemes in ξ and r, keep the moment of the applied operators.
 - With the change above, the heating of the cold electrons by `f_re` in the test case `runaway_heating_example` at `compat = :runes2p` rises ([#307](https://github.com/osrep/Runes2P.jl/pull/307)).
   The case takes `:upwind`, nearly all of `f_re` sits in the first momentum cell, and the field beats the friction at the face above it.
@@ -88,12 +88,12 @@ Until the first release, every change is listed under "Unreleased", with the sub
   The row of the temperature then needs one `KineticEnergyChangeTerm` of that very source, with a positive coefficient and without a region, since every knock-on is in the total energy.
   The term creates the energy of the knock-ons in the system, and no population pays it.
   The row refuses a `KineticEnergyChangeTerm` whose source is not in the equation of a distribution in the total energy.
+- Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` refuses a `LossRateTerm`, a `MaxwellianSourceTerm` or a `LinearTerm` with a nonzero coefficient in the equation of a distribution whose energy is in the total ([#295](https://github.com/osrep/Runes2P.jl/pull/295)).
+  Until now the cold electrons gained or paid the energy of the electrons that these terms remove or add, since no term of the row of the temperature carries it.
 - Next to a `KnockOnTerm` of the primaries of a kinetic ionization on `:total_electron_density`, a `SecondaryHeatingTerm` of that ionization must take `cut = :knockon` with that knock-on term ([#294](https://github.com/osrep/Runes2P.jl/pull/294)).
   `EquationSystem` refuses `cut = :none` and `cut = :threshold` there, which count the energy above the knock-on cutoff twice.
   With `cut = :knockon` it requires `knockon_term` in the system with the kinetic unknown of the ionization as its primary, and it refuses one on `:cold_electron_density` or `:runaway_density`, which count free electrons only.
   `bound_friction = :ionization_split` accepts the heating with `cut = :knockon` as well as with `cut = :none`.
-- Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` refuses a `LossRateTerm`, a `MaxwellianSourceTerm` or a `LinearTerm` with a nonzero coefficient in the equation of a distribution whose energy is in the total ([#295](https://github.com/osrep/Runes2P.jl/pull/295)).
-  Until now the cold electrons gained or paid the energy of the electrons that these terms remove or add, since no term of the row of the temperature carries it.
 - A `KineticEnergyLossTerm` whose source lags the whole plasma (`lagged = :all`) throws an `ArgumentError` naming `prepare_step!` when it is evaluated on its own before any preparation ([#264](https://github.com/osrep/Runes2P.jl/pull/264)).
   Until now it read the plasma of the state.
   An `EquationSystem` prepares such a term at its initial state when it is built, unless the term was prepared before.
@@ -196,7 +196,7 @@ Until the first release, every change is listed under "Unreleased", with the sub
   Its runaway grid takes `:constant_flux`, DREAM's default, which continues the flux of the last interior face through `p_max`, and that flux points into the grid.
   In the window of that case that is compared with DREAM, a heating of about 1e4 W/m³ rises by up to 2.2e-5 of its former value.
   In the state after the third step of the quench, where `f_re` started from zero, a heating of about 1e-4 W/m³ rises by up to 1.7 % of its former value.
-  The flux through `p_max` does not change the heating in `runaway_heating_example`, the case `heating` of the runaway grid, since its `f_re` vanishes at `p_max`.
+  This fix leaves the heating in `runaway_heating_example`, the case `heating` of the runaway grid, unchanged, since its `f_re` vanishes at `p_max`.
 - `braams_karney_conductivity` takes the last column of its table where Θ = T/mₑc² exceeds it by at most 1e-8 relative (`BRAAMS_KARNEY_TEMPERATURE_MARGIN`) ([#304](https://github.com/osrep/Runes2P.jl/pull/304)).
   As DREAM does, the function forms Θ from `ELECTRON_MASS`, `SPEED_OF_LIGHT` and `ELEMENTARY_CHARGE`, and this Θ exceeds `T / ELECTRON_REST_ENERGY` by 6.8e-9 of it.
   Before, T = 100 × `ELECTRON_REST_ENERGY`, the temperature of the last column, threw a `DomainError`.
