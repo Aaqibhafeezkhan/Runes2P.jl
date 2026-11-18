@@ -16,7 +16,7 @@ using QuadGK: quadgk
 The defaults of `mode`, `screening`, `coulomb_logarithm`, `screened_diffusion` and `bound_friction` are
 those of DREAM's `CollisionHandler`. The defaults of `ion_size_table`, `screening_window`, `bremsstrahlung`,
 `bremsstrahlung_diffusion` and `bremsstrahlung_constant` depart from DREAM (see the docs page
-*Comparison with DREAM*).
+*Departures from DREAM*).
 The remaining options have no counterpart in DREAM.
 
 - `mode`: `:full` (relativistic Maxwellian targets, adds energy diffusion),
