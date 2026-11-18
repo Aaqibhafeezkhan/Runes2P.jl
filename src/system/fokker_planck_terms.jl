@@ -82,7 +82,7 @@ the operator's own, so every mode converges to the same solution:
 For a scheme linear in `f` the frozen limiter is the exact Jacobian, and another linear
 scheme's is still a different matrix (upwind's for a central residual, the approximation
 that rescues some DREAM runs at high momentum resolution with central interpolation; see
-the docs page *Comparison with DREAM*).
+the docs page *Departures from DREAM*).
 With an approximate block the term declares [`jacobian_kind`](@ref)`(term) === :approximate`: the Newton iteration on the
 stored matrix is a quasi-Newton one that converges linearly, or, with
 [`GMRES`](@ref)`(operator=:exact)`, the stored block only preconditions the exact Newton

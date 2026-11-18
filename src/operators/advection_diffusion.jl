@@ -80,7 +80,7 @@ Boundary conditions:
   constant", `Φ = 𝒱'Γᵖ`) rather than its code, which besides the `Aᵖ` index above also
   shares one `𝒱'` between the two terms (needs at least 3 momentum cells). DREAM
   comparisons keep `:extrapolated_flux`, so they stay exact to round-off; this boundary
-  follows the stated definition instead (see the docs page *Comparison with DREAM*).
+  follows the stated definition instead (see the docs page *Departures from DREAM*).
   Or `:interface`, the counterpart of the lower boundary: the face is shared with the
   grid of a kinetic unknown above, and the [`MomentumInterfaceTerm`](@ref) carries the flux.
   The ghost cells of the four-point schemes beyond an interface hold zero, as beyond any

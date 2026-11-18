@@ -31,7 +31,7 @@ Runs 0 to 2 are the initialization.
 ## Parts of the comparison
 
 The builder of the case is `build` of `test/example_disruption.jl`.
-Its keyword `compat = :dream` takes DREAM's settings of the case where the codes differ, and `compat = :runes2p` takes Runes2P's defaults ([Defaults that differ](dream-comparison.md#Defaults-that-differ)).
+Its keyword `compat = :dream` takes DREAM's settings of the case where the codes differ, and `compat = :runes2p` takes Runes2P's defaults ([Defaults that differ](dream-departures.md#Defaults-that-differ)).
 The synchrotron loss is off at both values.
 
 | Part | DREAM runs | Runes2P starts from or builds | Test |

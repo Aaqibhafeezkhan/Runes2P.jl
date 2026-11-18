@@ -19,7 +19,7 @@ The second holds the details of the hot paths and the linear solvers, with the m
   A sum taken in another order changes the last digits, and a check of single terms does not see an entry that several terms share.
 - A numerical choice is recorded with its reason, and with its cost where it trades accuracy for cost ([Choices of this package](choices.md)).
   A departure from DREAM is judged by its accuracy for its cost.
-  DREAM's behaviour stays an option where it can ([Comparison with DREAM](dream-comparison.md#Departures-from-DREAM)).
+  DREAM's behaviour stays an option where it can ([Departures from DREAM](dream-departures.md)).
 - A change that makes a run significantly slower gives its reason in the pull request and is optimized there as far as it can be.
   Where that is too large for the pull request, an issue takes the rest, with suggestions for the improvement.
 
