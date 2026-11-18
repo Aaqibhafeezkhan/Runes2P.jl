@@ -35,12 +35,13 @@ permissions:
 
 # A newer commit of a pull request, or a newer push to dev, cancels the older run. A weekly or
 # manual run finishes, and the pushes have a group of their own so that they do not cancel it. A
+# re-run of a push waits and cancels nothing, since it may be older than the run at the tip. A
 # run of a draft skips the suite and has a group of its own: GitHub can create the run of a push
 # made while the pull request was a draft only after the run of ready_for_review, and in one
 # group that late run would cancel the suite of the ready pull request.
 concurrency:
   group: ${{ format('{0}-{1}{2}{3}', github.workflow, github.ref, github.event.pull_request.draft && '-draft' || '', github.event_name == 'push' && '-push' || '') }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.run_attempt == '1') }}
 
 env:
   RUNES2P_JACOBIAN_CHUNK_SIZE: "8"
@@ -231,6 +232,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           COMMIT: ${{ github.sha }}
           REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
           CHANGES_RESULT: ${{ needs.changes.result }}
           CHANGES_CODE: ${{ needs.changes.outputs.code }}
           SETUP_RESULT: ${{ needs.setup.result }}
@@ -240,16 +242,20 @@ jobs:
           if [ "$CHANGES_RESULT" = "cancelled" ] || [ "$SETUP_RESULT" = "cancelled" ] || [ "$GROUPS_RESULT" = "cancelled" ]; then
             cancelled=true
           fi
-          dev_head=""
+          # a cancel between two jobs leaves the groups skipped, with no job reported as cancelled
+          if [ "$GROUPS_RESULT" = "skipped" ] && [ "$CHANGES_RESULT" != "failure" ] && [ "$SETUP_RESULT" != "failure" ]; then
+            cancelled=true
+          fi
+          dev_moved=""
           if [ "$EVENT" = "push" ] && [ "$cancelled" = "true" ]; then
-            dev_head=$(git ls-remote "https://github.com/$REPOSITORY" refs/heads/dev | cut -f1) || dev_head=""
+            dev_moved=$(gh api "repos/$REPOSITORY/compare/$COMMIT...dev" --jq .status) || dev_moved=""
           fi
           if [ "$DRAFT" = "true" ]; then
             echo "a draft: the suite did not run"
           elif [ "$CHANGES_RESULT" = "success" ] && [ "$CHANGES_CODE" = "false" ]; then
             echo "no file changes code: the suite did not run"
-          elif [ -n "$dev_head" ] && [ "$dev_head" != "$COMMIT" ]; then
-            echo "this run was cancelled and dev has moved on: the run of the newer push tests this commit too" | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [ "$dev_moved" = "ahead" ]; then
+            echo "this run was cancelled and dev has moved past this commit, so the run of a newer push covers it" | tee -a "$GITHUB_STEP_SUMMARY"
           elif [ "$GROUPS_RESULT" = "success" ]; then
             echo "every group of the full suite passed"
           else
