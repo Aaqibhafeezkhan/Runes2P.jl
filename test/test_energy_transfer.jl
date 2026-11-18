@@ -1721,8 +1721,8 @@ using SparseArrays: findnz, sparse
                 f = kinetic_array(u, layout, 1)
                 values = row_values(term, layout, u)
                 moments, scales = applied_moment(grid, op, f, no_envelope(grid))
-                # Measured on 32 cases with coefficients that depend on p: at most 3.4e-16, and
-                # 5.4e-16 of the integral of |P| for the integral below
+                # Measured on the 48 cases with coefficients that depend on p, each at the three
+                # edges: at most 5.1e-16, and 4.7e-16 of the integral of |P| for the integral below
                 @test maximum(abs.(values .- moments) ./ scales) < 1e-13
                 # the energy only moves between the radii: the integral is the energy flux
                 # through the edge, zero for a closed edge. The flux through the edge is
