@@ -221,7 +221,7 @@ import ForwardDiff
             FrictionEnergyTransferTerm(:runaway, upper, plasma)) === nothing
         # a term without collisions that carries the field unknown next to the interface: its
         # field moves electrons through its own p_max, which needs the boundary term. With
-        # its top at the interface it reads the interface of another term of f: refused
+        # its top at the interface it is refused: the field belongs to the term of the interface
         field_out = FokkerPlanckTerm(:f, AdvectionDiffusion(grid; scheme = :central);
             electric_field = :electric_field)
         field_in = FokkerPlanckTerm(:f,
@@ -244,7 +244,7 @@ import ForwardDiff
         @test beside(field_out, crossing, InterfaceEnergyFluxTerm(interface), work,
             MomentumBoundaryFluxTerm(:f, field_out; weight = :energy, coefficient = -1)) ===
               nothing
-        @test_throws "reads the interface of another term" beside(
+        @test_throws "give the field unknown (electric_field)" beside(
             field_in, crossing, InterfaceEnergyFluxTerm(interface), work)
         # the work at the interface of a distribution outside W_tot: the electrons that cross
         # there are not in W_tot, so the row refuses the term

@@ -75,6 +75,7 @@ Until the first release, every change is listed under "Unreleased", with the sub
 - In the row of the total energy, an `EquationSystem` and a run refuse more channels of a distribution whose energy is in the total ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
   A `FokkerPlanckTerm` without collisions that carries the field as an unknown needs the `MomentumBoundaryFluxTerm` of the energy at `p_max`, as a term with collisions does.
   Until now the cold electrons gained the energy of the electrons that its field moves out through `p_max`.
+  Such a term with `p_upper_boundary = :interface` is refused, and the field goes to the term with collisions at the interface.
   A prescribed flux through `p_min` of a `FokkerPlanckTerm` with collisions is refused.
 - In the row of the total energy, an `EquationSystem` refuses more terms for a distribution whose energy is in the total ([#NNN](https://github.com/osrep/Runes2P.jl/pull/NNN)).
   It refuses `KineticEnergyLossTerm` with `part = :free_electrons` and `FrictionEnergyTransferTerm` of such a distribution, which counted its transfer to the cold electrons twice.

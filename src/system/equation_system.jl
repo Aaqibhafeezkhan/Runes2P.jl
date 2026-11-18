@@ -1897,6 +1897,13 @@ function _check_total_energy_rows(equations)
                         end
                     end
                     boundary = term.operator.p_upper_boundary
+                    if boundary === :interface && !_has_collisions(term)
+                        throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy " *
+                                            "$total, and the FokkerPlanckTerm of $d without collisions that carries the " *
+                                            "field takes p_upper_boundary = :interface, whose interface terms belong to " *
+                                            "the collisions: give the field unknown (electric_field) to the " *
+                                            "FokkerPlanckTerm with collisions at the interface"))
+                    end
                     if boundary === :interface
                         crossings = [t
                                      for t in listed
@@ -1948,8 +1955,9 @@ function _check_total_energy_rows(equations)
                     _check_transport_energy(term, listed, row.unknown, total, d)
                 end
                 # a Fokker-Planck term without collisions (no plasma and no coefficient
-                # source) has no sinks term or boundary term of the row, so its momentum
-                # coefficients would move energy of f without a channel
+                # source) has no sinks term of the row, and its boundary term carries the flux
+                # of the field alone, so its momentum coefficients would move energy of f
+                # without a channel
                 if term isa FokkerPlanckTerm && !_has_collisions(term) &&
                    _moves_in_energy(term)
                     throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy " *

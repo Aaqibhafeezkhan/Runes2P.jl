@@ -34,9 +34,7 @@ The channels of this row:
 [`IonEnergyExchangeTerm`](@ref) with `side = :ions` is the same exchange in the row of the ion energies, so the two sides are antisymmetric.
 [`RunawayFluidEnergyTransferTerm`](@ref) is DREAM's heating by runaways without a runaway grid, the power ``e c\, E_c\, n_\mathrm{re}``: runaways at the speed of light against the friction of the critical field ``E_c``, with the Coulomb logarithm at ``p = 20\, m_e c``.
 With a runaway grid, [`free_electron_energy_transfer_term`](@ref) takes its place: the energy moment of the electron-electron collisions of that grid.
-With a hot-tail grid and a runaway grid that share a momentum interface, [`InterfaceCollisionWorkTerm`](@ref) belongs next to [`free_electron_energy_transfer_term`](@ref) of each grid.
-Neither moment holds the work of these collisions on the electrons that cross the interface, and the term adds it.
-`test/test_energy_budget.jl` closes the energy of the two grids with the three terms.
+At a momentum interface, [`InterfaceCollisionWorkTerm`](@ref) adds the electron-electron work on the electrons that cross it, which the moments of [`free_electron_energy_transfer_term`](@ref) of both grids leave out (`test/test_energy_budget.jl`).
 
 The channels other than [`SecondaryHeatingTerm`](@ref) and [`InterfaceCollisionWorkTerm`](@ref) are those of DREAM's equation of ``T_\mathrm{cold}`` (`src/Settings/Equations/T_cold.cpp`, DREAM v26.5).
 With `radiation = :dream` and `bremsstrahlung_corrections = :dream`, [`RadiatedPowerTerm`](@ref) takes DREAM's radiation.
@@ -117,6 +115,7 @@ The docstring of [`total_energy_equation`](@ref) gives the conditions.
   The coefficients of a unit field are allowed too, and their work is the term ``E j_\mathrm{hot}``, which the row must hold.
   The system does not check that the row holds it.
   The field also moves electrons through ``p_\mathrm{max}``, so such a term needs the energy flux of its boundary, as above.
+  With `p_upper_boundary = :interface` such a term is refused, since the interface terms belong to the Fokker-Planck term with collisions, which then takes the field.
 - A prescribed flux through ``p_\mathrm{min}`` (`p_lower_boundary = :prescribed`) of a Fokker-Planck term with collisions is refused, since no term of the row carries the energy of the electrons that it brings.
 - A [`KnockOnTerm`](@ref) on the grid is refused, since no term carries the energy of the secondaries.
 - A [`RosenbluthPutvinskiSourceTerm`](@ref) creates knock-ons whose energy no other term carries.

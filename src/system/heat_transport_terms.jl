@@ -45,7 +45,9 @@ In a row of the total energy ([`total_energy_equation`](@ref)) that holds the en
 the radial transport of a distribution ([`KineticEnergyChangeTerm`](@ref)), the system
 refuses the Rechester-Rosenbluth model, whatever its level: that term already moves the heat
 of the bulk with its electrons. A prescribed diffusivity is allowed there, as a heat
-transport of the user's own on top of the kinetic transport.
+transport of the user's own on top of the kinetic transport. The kinetic transport alone
+drives the cold electrons towards a uniform `n T^{3/2}` under a density gradient, not a
+uniform `T` (see the docs page *Energy and current balance*).
 
 A [`PiecewiseConstant`](@ref) level takes, in the step that ends at a switch time, the value
 before the switch ([`level_over_step`](@ref)).

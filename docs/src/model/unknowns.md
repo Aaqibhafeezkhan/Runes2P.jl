@@ -337,8 +337,6 @@ For each distribution in ``W_\mathrm{hot}`` the system therefore requires in tha
 The terms of the sinks, of ``p_\mathrm{max}`` and of the work at the interface take a negative coefficient, and the terms of the knock-ons and of the radial transport a positive one.
 The system checks only the sign of these coefficients, and a coefficient of 1 or −1 closes the budget.
 
-The system checks a list of term types, and it does not check a term of a type that is not on the list ([Energy and current balance](energy-current.md#What-the-system-enforces)).
-
 It refuses a [`FokkerPlanckTerm`](@ref) without collisions, with no plasma and no coefficient source, whose operator holds coefficients in momentum.
 These change the energy of that distribution, and no term of the row carries that energy.
 The coefficients of a unit field are not among them.

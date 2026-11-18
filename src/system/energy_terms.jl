@@ -271,8 +271,7 @@ removed:
 - A [`LinearTerm`](@ref) with a nonzero coefficient in the time derivative of `kinetic`,
   which moves electrons into `kinetic` from a kinetic unknown or out of it, is refused.
 
-The checks go by term type, and the system does not check a term of a type that they do not
-name. They read the coefficients of the operators as they are, and a run repeats them
+The checks read the coefficients of the operators as they are, and a run repeats them
 before its first step.
 
 A [`ParticleSourceTerm`](@ref) is accepted. With the constraint
