@@ -1020,10 +1020,19 @@ end
         bethe = FokkerPlanckTerm(:f, operator(); plasma = from_unknowns, settings = CollisionSettings())
         fixed = KineticIonizationTerm(composition, :f, grid; region = MomentumRegion(0.1))
         for ionization in (whole, fixed)
-            @test_throws "another region than the energy moment" under_total(
+            @test_throws "Give the KineticIonizationTerm the region of the energy moment" under_total(
                 bethe, ionization, SecondaryHeatingTerm(ionization))
             @test under_total(bethe, ionization) === nothing
         end
+        # the remedy of the split only under the split
+        @test_throws "Under bound_friction = :ionization_split" under_total(
+            whole_split, whole, SecondaryHeatingTerm(whole; spectrum = :opal))
+        bethe_message = try
+            under_total(bethe, whole, SecondaryHeatingTerm(whole))
+        catch error
+            sprint(showerror, error)
+        end
+        @test !occursin("ionization_split", bethe_message)
         @test under_total(bethe, k5, SecondaryHeatingTerm(k5)) === nothing
         @test_throws "cut = :none" Runes2P._check_plasma_pairings(system(threshold))
         @test_throws "different widths" Runes2P._check_plasma_pairings(system(other))

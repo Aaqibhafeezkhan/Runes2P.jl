@@ -769,10 +769,10 @@ import ForwardDiff
         # The coefficients of a unit field are not counted among the coefficients in
         # momentum: their work is the product of the field and the hot current, which the
         # row holds. The field also moves electrons out through p_max, here at 50 V/m under
-        # :upwind with a pedestal of 1e16 m⁻³ up to p_max, so the row needs the boundary
-        # term of the field term as well. With it, W_cold changes by the gap between E j_hot
-        # and the work of the discrete field term alone. Measured: 2.7e-4 of the boundary
-        # term
+        # :upwind with a constant 1e16 added to every cell of f up to p_max, so the row
+        # needs the boundary term of the field term as well. With it, W_cold changes by the
+        # gap between E j_hot and the work of the discrete field term alone. Measured:
+        # |dW_cold/dt| is 2.7e-4 of the energy flux through p_max
         T0, n, E = 100.0, 1e19, 50.0
         grid = cylindrical_grid(
             MomentumGrid(uniform_p_faces(30, 0.0, 0.4), uniform_xi_faces(2)),

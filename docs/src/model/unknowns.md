@@ -307,7 +307,10 @@ A mismatch gives a result that is wrong without an error, so [`EquationSystem`](
 | the same | a target density that counts the bound electrons, not `:cold_electron_density` or `:runaway_density` | the energy of the secondaries above the cutoff is lost |
 | [`SecondaryHeatingTerm`](@ref) and a [`KnockOnTerm`](@ref) of the same primary on `:total_electron_density` | `cut = :knockon`, with that knock-on term as `knockon_term` | the energy of the secondaries above the cutoff is counted twice |
 | a sinks term and an energy moment over a thermal region | the region | the sinks of the bulk are charged as well |
-| [`SecondaryHeatingTerm`](@ref) in a row of the total energy, and the energy moment of its distribution | one region for its ionization and the moment, also without a region or with a fixed limit, which the first row does not compare | the cold electrons gain the energy of ionizations that no term charges |
+| [`SecondaryHeatingTerm`](@ref) in a row of the total energy, and the energy moment of its distribution | the region of its ionization and of the moment | the heating does not match the ionizations that the sinks charge |
+
+The last row differs from the first row of the table, which compares only regions over a thermal threshold of one temperature.
+It also compares an ionization without a region or with a fixed limit.
 
 ### Ions
 
@@ -341,7 +344,10 @@ The system checks only the sign of these coefficients, and a coefficient of 1 or
 The system refuses a [`FokkerPlanckTerm`](@ref) without collisions, with no plasma and no coefficient source, whose operator holds coefficients in momentum.
 These change the energy of that distribution, and no term of the row carries that energy.
 The coefficients of a unit field are not among them: these are the coefficients of the field term at 1 V/m, which a term that carries the field unknown multiplies with ``E`` ([`set_unit_field_coefficients!`](@ref)).
-Such a term is refused in a distribution with an interface to the runaway grid, whatever its own `p_upper_boundary`: put the field on the Fokker-Planck term with collisions at the interface.
+
+A Fokker-Planck term without collisions that carries the field unknown is refused in a distribution with an interface to the runaway grid, whatever its own `p_upper_boundary`.
+The electrons that its field moves would not cross the interface.
+Put the field on the Fokker-Planck term with collisions at the interface instead.
 The system refuses a nonzero prescribed flux through ``p_\mathrm{min}`` of a Fokker-Planck term with collisions, whose energy no term of the row carries, and accepts a zero one.
 
 The system refuses [`KnockOnTerm`](@ref), [`LossRateTerm`](@ref), [`MaxwellianSourceTerm`](@ref) and a [`LinearTerm`](@ref) with a nonzero coefficient in the equation of that distribution, since no term of the row carries their energy.
@@ -363,5 +369,6 @@ The energy balance itself is on the page [Energy and current balance](energy-cur
 
 ### Rows of the cold thermal energy
 
-The row of the cold thermal energy alone, `TimeDerivative(:cold_thermal_energy)`, holds no distribution.
-The system refuses every [`KineticEnergyChangeTerm`](@ref) there, and a second [`InterfaceCollisionWorkTerm`](@ref) of one interface as in every row.
+The row of the cold thermal energy alone, `TimeDerivative(:cold_thermal_energy)`, holds the time derivative of an unknown that holds the energy of no distribution.
+The system refuses every [`KineticEnergyChangeTerm`](@ref) there, since the energy that the term counts belongs to a distribution and the cold electrons would receive it.
+It refuses a second [`InterfaceCollisionWorkTerm`](@ref) of one interface, as in every row.

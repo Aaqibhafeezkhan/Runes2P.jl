@@ -1194,7 +1194,7 @@ function _check_plasma_pairings(equations)
                 # the region comes first: the heating that the message below asks for is
                 # refused under a total energy whose moment takes another region
                 for entry in _total_energy_rows(equations)
-                    _check_ionization_region(entry, k)
+                    _check_ionization_region(entry, k, true)
                 end
                 throw(ArgumentError("the Fokker-Planck term of $(owner.unknown) takes bound_friction = " *
                                     ":ionization_split and its sinks leave the electrons (KineticEnergyLossTerm with " *
@@ -1734,24 +1734,29 @@ end
 
 # The heating by the secondaries of the kinetic ionization `ionization` in the row of the
 # total energy `entry` (a named tuple of _total_energy_row): where its distribution is in
-# W_hot, its region is that of the energy moment. Over another region it also heats the cold
-# electrons with the secondaries of ionizations by electrons outside W_hot, whose friction
-# no term of the row charges.
-function _check_ionization_region(entry, ionization)
+# W_hot, its region is that of the energy moment. Over a wider region the heating gives the
+# cold electrons the secondaries of ionizations that the sinks term does not charge, and over
+# a narrower one it leaves out secondaries that the sinks term charges. `split` is true under
+# bound_friction = :ionization_split, whose ionization takes a ThermalMomentum threshold.
+function _check_ionization_region(entry, ionization, split)
     (; row, total, closures, distributions) = entry
     d = ionization.kinetic
     d in distributions || return nothing
     moment = _energy_moment(closures, d)
     _same_region(_region_of(ionization.envelopes), _region_of(moment.envelopes)) &&
         return nothing
+    remedy = if split
+        "Under bound_friction = :ionization_split the threshold of the ionization is a " *
+        "ThermalMomentum: give the energy moment a ThermalMomentum region (region of " *
+        "total_energy_equation), the ionization the same region, and CollisionSettings the " *
+        "ionization_threshold of its factor"
+    else
+        "Give the KineticIonizationTerm the region of the energy moment"
+    end
     throw(ArgumentError("the row of $(row.unknown) holds the time derivative of the total energy $total, and the " *
-                        "kinetic ionization of $d takes another region than the energy moment of $d. Its heating " *
-                        "by secondaries (SecondaryHeatingTerm) would give the cold electrons the energy of " *
-                        "ionizations by electrons outside W_hot, which no term of the row charges. Give the " *
-                        "KineticIonizationTerm the region of the energy moment. Under bound_friction = " *
-                        ":ionization_split the threshold of the ionization is a ThermalMomentum: give the energy " *
-                        "moment a ThermalMomentum region (region of total_energy_equation), the ionization the " *
-                        "same region, and CollisionSettings the ionization_threshold of its factor"))
+                        "kinetic ionization of $d takes another region than the energy moment of $d, wider or " *
+                        "narrower. Its heating by secondaries (SecondaryHeatingTerm) would then not match the " *
+                        "ionizations that the sinks term of the row charges. " * remedy))
 end
 
 # Each SecondaryHeatingTerm in a row of the total energy takes a kinetic ionization over the
@@ -1759,9 +1764,13 @@ end
 function _check_heating_regions(equations)
     for entry in _total_energy_rows(equations), term in entry.row.terms
 
-        if term isa SecondaryHeatingTerm
-            _check_ionization_region(entry, term.kinetic_ionization)
-        end
+        term isa SecondaryHeatingTerm || continue
+        d = term.kinetic_ionization.kinetic
+        split = any(
+            t -> t isa FokkerPlanckTerm && t.unknown === d &&
+                 t.settings.bound_friction === :ionization_split,
+            Iterators.flatten(equation.terms for equation in equations))
+        _check_ionization_region(entry, term.kinetic_ionization, split)
     end
     return nothing
 end
@@ -1862,7 +1871,8 @@ end
 # The row of a total energy holds the time derivative of W_tot = W_cold + W_hot, with W_hot
 # the energy moments of the distributions in the closure of W_tot, so every change of W_hot
 # that no term of the row lists is charged to the cold electrons. The checks go by term
-# type, and a term of a type that they do not name is not checked. For each distribution of
+# type and by boundary condition, and a term of a type that they do not name passes without
+# a check, its change of W_hot going to the cold electrons. For each distribution of
 # W_hot the row lists the sinks of its collisions, the energy that crosses p_max for each
 # Fokker-Planck term with collisions or with the field unknown (the flux of the boundary, or
 # the interface to the runaway grid with the work of the electron-electron collisions on the
