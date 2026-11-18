@@ -313,4 +313,4 @@ A [`ProgressLog`](@ref) reports the run while it goes: a header, entries at mile
   They are compared over the stretch before DREAM's step update reads the tolerances of the wrong unknowns.
   The errors of a second DREAM run, with the check of the runaway unknowns off, are compared over the same stretch.
 
-The departures of the step control and of the Newton iteration from DREAM are on the page [Comparison with DREAM](../dream-comparison.md).
+The departures of the step control and of the Newton iteration from DREAM are on the page [Departures from DREAM](../dream-departures.md).

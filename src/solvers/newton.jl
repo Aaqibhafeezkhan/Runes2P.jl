@@ -119,8 +119,8 @@ Settings of the Newton iteration of a backward-Euler step.
 - `line_search = true` adds backtracking on `½‖F‖²` of the scaled residual (Armijo condition
   with `sufficient_decrease`, at most `max_backtracks` reductions), starting from the step
   length the lower limits allow. Off by default; DREAM's nonlinear solver
-  (`src/Solver/SolverNonLinear.cpp`) has no line search (see the docs page *Comparison
-  with DREAM*).
+  (`src/Solver/SolverNonLinear.cpp`) has no line search (see the docs page *Departures
+  from DREAM*).
 
 The linear systems are solved in scaled form: rows weighted as the residual above,
 columns multiplied by the unknowns' scales. The default `linear_solver = SparseLU()`

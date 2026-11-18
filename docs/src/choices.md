@@ -147,7 +147,7 @@ With `:linear` the mean pitch of a beam narrower than the last pitch cell can ex
 In the disruption case with a runaway grid the beams stay far from that regime.
 In scenario 4 the largest mean pitch of `f_re` is 0.9908 with `:linear` and 0.9880 with `:cell_center`.
 Its narrowest beam ``f \propto e^{\kappa\xi}`` has ``\kappa`` of at most about 540, and the mean pitch exceeds 1 on the grid of 15 pitch cells of that comparison from ``\kappa`` of about 1700.
-DREAM's rule, ``f`` constant over a pitch cell, is `pitch_rule = :cell_center` ([Defaults that differ](dream-comparison.md#Defaults-that-differ)).
+DREAM's rule, ``f`` constant over a pitch cell, is `pitch_rule = :cell_center` ([Defaults that differ](dream-departures.md#Defaults-that-differ)).
 
 ## Knock-on cutoff
 
@@ -253,7 +253,7 @@ DREAM has no finite behaviour to reproduce there, so no option gives DREAM's.
 The round-off bound counts each term of a residual row at its own size, one rounding error per term.
 A row whose terms cancel to many digits cannot fall below it, whatever the iterate.
 With `c = 1` the bound lies about 2.5 times above the largest residual measured at the floor, in the quench of the disruption case at DREAM's resolution.
-DREAM converges on the update alone and only warns about the residual ([Comparison with DREAM](dream-comparison.md)), so it has no residual test to waive.
+DREAM converges on the update alone and only warns about the residual ([Departures from DREAM](dream-departures.md#Behaviour-without-an-option-for-DREAM's)), so it has no residual test to waive.
 
 A positivity-preserving limiter keeps the converged discrete solution non-negative, and the extra iteration converges it further where an accepted iterate still has negative entries ([Positivity](model/positivity.md#Convergence-of-the-limiter)).
 The schemes of [`POLISHED_SCHEMES`](@ref) are those whose converged solution stayed non-negative in the tests.

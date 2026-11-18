@@ -252,7 +252,7 @@ The default scheme, exponential fitting, is a choice of this package.
 Its properties and the other schemes are on the page [Positivity and flux limiters](model/positivity.md).
 
 DREAM's default is `AD_INTERP_CENTRED` (DREAM's `py/DREAM/Settings/Equations/DistributionFunction.py`).
-`scheme=central` matches it ([Defaults that differ](dream-comparison.md#Defaults-that-differ)).
+`scheme=central` matches it ([Defaults that differ](dream-departures.md#Defaults-that-differ)).
 DREAM's other choices include the flux limiters ([Comparison with DREAM](dream-comparison.md#Kinetic-options)).
 
 The stored Jacobian, or stored matrix, is the Jacobian of the implicit terms that have a stored Jacobian, which the solver assembles ([The step](model/time-stepping.md#The-step)).
@@ -271,7 +271,7 @@ The stored Jacobian, or stored matrix, is the Jacobian of the implicit terms tha
 | `extrapolated_flux_consistent` | `BC_DPHI_CONST` as DREAM defines it |
 | `outflow` | — |
 
-`extrapolated_flux_consistent` extrapolates the flux with the ``\mathcal{V}'`` and the flux of each face, as DREAM's definition of `BC_DPHI_CONST` states ([Comparison with DREAM](dream-comparison.md#Extrapolated-flux-at-the-highest-momentum)).
+`extrapolated_flux_consistent` extrapolates the flux with the ``\mathcal{V}'`` and the flux of each face, as DREAM's definition of `BC_DPHI_CONST` states ([Departures from DREAM](dream-departures.md#Extrapolated-flux-at-the-highest-momentum)).
 `outflow` lets only the advection leave the grid, and [`AdvectionDiffusion`](@ref) names no DREAM condition for it.
 
 ### Notes on the solver
