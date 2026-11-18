@@ -204,3 +204,7 @@ Until the first release, every change is listed under "Unreleased", with the sub
   In the window of that case that is compared with DREAM, a heating of about 1e4 W/m³ rises by up to 2.2e-5 of its former value.
   In the state after the third step of the quench, where `f_re` started from zero, a heating of about 1e-4 W/m³ rises by up to 1.7 % of its former value.
   The case `heating` of the runaway grid does not change, since its `f_re` vanishes at `p_max`.
+- `braams_karney_conductivity` takes the last column of its table where Θ = T/mₑc² exceeds it by at most 1e-8 relative (`BRAAMS_KARNEY_TEMPERATURE_MARGIN`) ([#304](https://github.com/osrep/Runes2P.jl/pull/304)).
+  As DREAM does, the function forms Θ from `ELECTRON_MASS`, `SPEED_OF_LIGHT` and `ELEMENTARY_CHARGE`, and this Θ exceeds `T / ELECTRON_REST_ENERGY` by 6.8e-9 of it.
+  Before, T = 100 × `ELECTRON_REST_ENERGY`, the temperature of the last column, threw a `DomainError`.
+  At or below the last column the conductivity does not change, and the comparisons with DREAM stay bit for bit.
