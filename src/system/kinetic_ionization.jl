@@ -158,65 +158,91 @@ function rhs!(out, term::KineticIonizationTerm, u, layout, row, t)
 end
 
 function add_jacobian!(J, term::KineticIonizationTerm, u, layout, row, t)
+    # the envelopes are shared by the radii: brought up to date here, read in the loop
+    _refresh_envelopes!(term.envelopes, term.grid, u, layout, t)
+    nr = radial_cell_count(layout)
+    if _threads_over_radii(nr)
+        Threads.@threads for ir in 1:nr
+            _add_ionization_jacobian_radius!(J, term, u, layout, row, ir)
+        end
+        return J
+    end
+    for ir in 1:nr
+        _add_ionization_jacobian_radius!(J, term, u, layout, row, ir)
+    end
+    return J
+end
+
+_refresh_envelopes!(::Nothing, grid, u, layout, t) = nothing
+function _refresh_envelopes!(envelopes::RegionEnvelopes, grid, u, layout, t)
+    _refresh!(envelopes, grid, u, layout, t)
+    return nothing
+end
+
+# the envelope of a radius after `_refresh_envelopes!`
+_refreshed_envelope(::Nothing, ir) = nothing
+_refreshed_envelope(envelopes::RegionEnvelopes, ir) = envelopes.values[ir]
+
+# the block of radius `ir`, whose rows are its own, so the radii write disjoint stored values
+function _add_ionization_jacobian_radius!(J, term::KineticIonizationTerm, u, layout, row, ir)
     c = term.composition
     values = nonzeros(J)
     kinetic = unknown_id(layout, term.kinetic)
     temperature = _region_unknowns(term.envelopes)
-    for ir in 1:radial_cell_count(layout)
-        m = momentum_grid(term.grid, ir)
-        rows = unknown_range(layout, row, ir)
-        n = radial_view(u, layout, row, ir)
-        K = kinetic_ionization_rates(term, u, layout, t, ir)
-        envelope = _envelope_at(term.envelopes, term.grid, ir, u, layout, t)
-        rates, w = term.rates[ir], term.weights[ir]
-        # the derivative of the rates in the temperature, through the threshold of the region
-        dK = if isempty(temperature)
-            nothing
-        else
-            D = ForwardDiff.Dual{PlasmaColumnTag, Float64, 1}
-            T = unknown_values(u, layout, unknown_id(layout, only(temperature)))[ir]
-            dual_temperature = D(T, ForwardDiff.Partials((1.0,)))
-            p0 = term.envelopes.region.limit.factor *
-                 sqrt(2 * dual_temperature /
-                      Constants.ELECTRON_REST_ENERGY)
-            dual_envelope = momentum_envelope!(zeros(D, momentum_cell_count(m)), term.envelopes.region, m, p0)
-            g = _pitch_moment(term, kinetic_view(u, layout, kinetic, ir), ir)
-            envelope_derivative(i) = ForwardDiff.partials(dual_envelope[i], 1)
-            [_rate_moment(envelope_derivative, rates, g, k, axes(rates, 1))
-             for k in axes(rates, 2)]
-        end
-        T_column = if isempty(temperature)
-            0
-        else
-            first(unknown_range(layout, unknown_id(layout, only(temperature)), ir))
-        end
-        # the flow K_k n_k from state k to k + 1, in the columns of the ion densities
+    m = momentum_grid(term.grid, ir)
+    rows = unknown_range(layout, row, ir)
+    n = radial_view(u, layout, row, ir)
+    envelope = _refreshed_envelope(term.envelopes, ir)
+    rates, w = term.rates[ir], term.weights[ir]
+    g = _pitch_moment(term, kinetic_view(u, layout, kinetic, ir), ir)
+    cell_envelope(i) = _envelope_value(envelope, i)
+    K = [_rate_moment(cell_envelope, rates, g, k, axes(rates, 1)) for k in axes(rates, 2)]
+    # the derivative of the rates in the temperature, through the threshold of the region
+    dK = if isempty(temperature)
+        nothing
+    else
+        D = ForwardDiff.Dual{PlasmaColumnTag, Float64, 1}
+        T = unknown_values(u, layout, unknown_id(layout, only(temperature)))[ir]
+        dual_temperature = D(T, ForwardDiff.Partials((1.0,)))
+        p0 = term.envelopes.region.limit.factor *
+             sqrt(2 * dual_temperature /
+                  Constants.ELECTRON_REST_ENERGY)
+        dual_envelope = momentum_envelope!(zeros(D, momentum_cell_count(m)), term.envelopes.region, m, p0)
+        envelope_derivative(i) = ForwardDiff.partials(dual_envelope[i], 1)
+        [_rate_moment(envelope_derivative, rates, g, k, axes(rates, 1))
+         for k in axes(rates, 2)]
+    end
+    T_column = if isempty(temperature)
+        0
+    else
+        first(unknown_range(layout, unknown_id(layout, only(temperature)), ir))
+    end
+    # the flow K_k n_k from state k to k + 1, in the columns of the ion densities
+    for s in 1:length(c), k in species_components(c, s)[1:(end - 1)]
+
+        _add_entry!(J, rows[k], rows[k], -K[k])
+        _add_entry!(J, rows[k + 1], rows[k], K[k])
+    end
+    # in the column of each cell: the rows of the ion densities at the radius are a run of
+    # its stored values, found by one search; the flows add in ascending order, so the
+    # entry of state k + 1, which flows k and k + 1 share, takes flow k first
+    for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
+
+        column = _kinetic_index(layout, kinetic, ir, i, j)
+        # the entry of row r is at offset + r
+        offset = _run_start(J, rows, column) - first(rows)
         for s in 1:length(c), k in species_components(c, s)[1:(end - 1)]
 
-            _add_entry!(J, rows[k], rows[k], -K[k])
-            _add_entry!(J, rows[k + 1], rows[k], K[k])
+            value = n[k] * _envelope_value(envelope, i) * rates[i, k] * w[i, j]
+            values[offset + rows[k]] -= value
+            values[offset + rows[k + 1]] += value
         end
-        # in the column of each cell: the rows of the ion densities at the radius are a run of
-        # its stored values, found by one search; the flows add in ascending order, so the
-        # entry of state k + 1, which flows k and k + 1 share, takes flow k first
-        for j in 1:pitch_cell_count(m), i in 1:momentum_cell_count(m)
+    end
+    if dK !== nothing
+        for s in 1:length(c), k in species_components(c, s)[1:(end - 1)]
 
-            column = _kinetic_index(layout, kinetic, ir, i, j)
-            # the entry of row r is at offset + r
-            offset = _run_start(J, rows, column) - first(rows)
-            for s in 1:length(c), k in species_components(c, s)[1:(end - 1)]
-
-                value = n[k] * _envelope_value(envelope, i) * rates[i, k] * w[i, j]
-                values[offset + rows[k]] -= value
-                values[offset + rows[k + 1]] += value
-            end
-        end
-        if dK !== nothing
-            for s in 1:length(c), k in species_components(c, s)[1:(end - 1)]
-
-                _add_entry!(J, rows[k], T_column, -n[k] * dK[k])
-                _add_entry!(J, rows[k + 1], T_column, n[k] * dK[k])
-            end
+            _add_entry!(J, rows[k], T_column, -n[k] * dK[k])
+            _add_entry!(J, rows[k + 1], T_column, n[k] * dK[k])
         end
     end
     return J
