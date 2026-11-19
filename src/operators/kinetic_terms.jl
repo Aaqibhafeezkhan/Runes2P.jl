@@ -395,7 +395,7 @@ function _add_coefficients_threaded!(op::AdvectionDiffusion, plasma::PlasmaState
         collisions::CollisionModel, synchrotron::Bool, field_in_coefficients::Bool, nr)
     np, nxi, _ = size(op.grid)
     energy_diffusion = collisions.settings.mode === :full
-    Threads.@threads for ir in 1:nr
+    _each_radius_threaded(nr) do ir
         if field_in_coefficients
             _add_electric_field_radius!(op, plasma, ir, np, nxi)
         end

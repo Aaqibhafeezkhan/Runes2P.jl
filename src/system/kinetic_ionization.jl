@@ -162,12 +162,16 @@ function add_jacobian!(J, term::KineticIonizationTerm, u, layout, row, t)
     _refresh_envelopes!(term.envelopes, term.grid, u, layout, t)
     nr = radial_cell_count(layout)
     if _threads_over_radii(nr)
-        Threads.@threads for ir in 1:nr
-            _add_ionization_jacobian_radius!(J, term, u, layout, row, ir)
-        end
-        return J
+        return _add_ionization_jacobian_threaded!(J, term, u, layout, row, nr)
     end
     for ir in 1:nr
+        _add_ionization_jacobian_radius!(J, term, u, layout, row, ir)
+    end
+    return J
+end
+
+function _add_ionization_jacobian_threaded!(J, term, u, layout, row, nr)
+    _each_radius_threaded(nr) do ir
         _add_ionization_jacobian_radius!(J, term, u, layout, row, ir)
     end
     return J

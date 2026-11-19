@@ -4,6 +4,24 @@
 # the number of threads.
 _threads_over_radii(nr) = Threads.nthreads() > 1 && nr > 1
 
+# `body(ir)` for the radii 1 to `nr` on the threads of Julia. An error in a radius reaches the
+# caller as itself, as from a plain loop, since callers act on its type: the tasks are awaited
+# in the order of the radii, so with several failures it is that of the lowest failed chunk.
+function _each_radius_threaded(body::F, nr) where {F}
+    try
+        Threads.@threads for ir in 1:nr
+            body(ir)
+        end
+    catch err
+        throw(_task_error(err))
+    end
+    return nothing
+end
+
+_task_error(err) = err
+_task_error(err::CompositeException) = _task_error(first(err.exceptions))
+_task_error(err::TaskFailedException) = _task_error(err.task.exception)
+
 """
     AdvectionDiffusion{T,C}
 
@@ -869,7 +887,7 @@ end
 # the loop over the radii of `apply!` on the threads of Julia, behind a function barrier
 function _apply_radii_threaded!(df, op, f, nr, scale, limiter_state, electric_field)
     radial_mode = _radial_flux_mode(op)
-    Threads.@threads for ir in 1:nr
+    _each_radius_threaded(nr) do ir
         @inbounds apply_radius!(
             df, op, f, ir, scale, limiter_state, electric_field, radial_mode)
     end

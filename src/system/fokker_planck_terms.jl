@@ -351,12 +351,17 @@ function _add_kinetic_plasma_columns!(J, term::FokkerPlanckTerm,
         df::Array{<:ForwardDiff.Dual{<:Any, <:Any, N}, 3}, with_ions, layout, row) where {N}
     nr = size(df, 3)
     if _threads_over_radii(nr)
-        Threads.@threads for ir in 1:nr
-            _add_kinetic_plasma_columns_radius!(J, term, df, with_ions, layout, row, ir)
-        end
-        return J
+        return _add_kinetic_plasma_columns_threaded!(
+            J, term, df, with_ions, layout, row, nr)
     end
     for ir in 1:nr
+        _add_kinetic_plasma_columns_radius!(J, term, df, with_ions, layout, row, ir)
+    end
+    return J
+end
+
+function _add_kinetic_plasma_columns_threaded!(J, term, df, with_ions, layout, row, nr)
+    _each_radius_threaded(nr) do ir
         _add_kinetic_plasma_columns_radius!(J, term, df, with_ions, layout, row, ir)
     end
     return J
