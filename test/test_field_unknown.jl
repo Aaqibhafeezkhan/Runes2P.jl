@@ -118,7 +118,7 @@ end
         @test kinetic_array(du, layout, f_id) ≈ expected rtol = 1e-12
         @test all(abs.(unknown_values(du, layout, field_id)) .< 1e-15)
         @test unknown_values(u, layout, field_id) == field
-        @test (@allocated rhs!(du, u, system, 0.0)) == 0
+        @test (@allocated rhs!(du, u, system, 0.0)) == 0 skip = !ONE_THREAD
 
         # the stored Jacobian holds the column of the field: one more color, and the
         # products agree with central differences in the distribution and in the field

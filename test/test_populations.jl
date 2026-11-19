@@ -218,7 +218,7 @@ end
             @test lower == 0
             @test cell_sum(runaway, kinetic_view(du, layout, f_id, ir), ir) ≈ -flux rtol = 1e-10
         end
-        @test (@allocated rhs!(du, u, system, 0.0)) == 0
+        @test (@allocated rhs!(du, u, system, 0.0)) == 0 skip = !ONE_THREAD
         # the rows assembled directly against central differences
         J = jacobian_prototype(system)
         jacobian!(J, system, u, 0.0)

@@ -30,7 +30,10 @@
             @test read(joinpath(directories[1], name)) ==
                   read(joinpath(directories[4], name))
         end
-        # the second system recovers from the DomainError by a smaller step at both counts
+        # the steps of the first system converge, and the second recovers from the DomainError
+        # by a smaller step
+        @test read(joinpath(directories[4], "ionization_status.txt"), String) ==
+              "converged,converged"
         @test startswith(read(joinpath(directories[4], "domain_error_status.txt"), String),
             "domain_error")
     end

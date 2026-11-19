@@ -13,7 +13,7 @@ The test suite: its layout, its tiers and groups, how to run it, and the rules f
 | `example_disruption.jl` | the system of DREAM's disruption case |
 | `test_*.jl` | the test files |
 | `*_helpers.jl` | a file that one test file includes, not a test file of its own |
-| `threads_over_radii_child.jl` | the script that `test_threads_over_radii.jl` runs in subprocesses at several Julia threads, not a test file of its own |
+| `threads_over_radii_child.jl` | the script that `test_threads_over_radii.jl` runs at several Julia threads |
 | `Artifacts.toml` | the reference data of the comparison tests, one lazy artifact per set: DREAM's output written by the cases of `reference/dream/cases/`, and GSL's values of `reference/gsl/` |
 | `Project.toml`, `Manifest.toml` | the test environment |
 
