@@ -658,7 +658,7 @@ distribution(layout, grid, u) = reshape(u[1:(end - 1)], size(grid))
             change = total_particles(edge_grid, reshape(dv[1:(end - 1)], size(edge_grid)))
             @test change + dv[end] / 2.5 ≈ 0 atol = 1e-12 * total_particles(
                 edge_grid, abs.(reshape(dv[1:(end - 1)], size(edge_grid))))
-            @test (@allocated jacobian!(K, budget, v, 0.0)) == 0
+            @test (@allocated jacobian!(K, budget, v, 0.0)) == 0 skip = !ONE_THREAD
         end
     end
 end

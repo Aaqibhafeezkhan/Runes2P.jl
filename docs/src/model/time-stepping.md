@@ -150,6 +150,25 @@ The preconditioners are factorizations of the stored matrix in blocks ([`BlockPr
 `preconditioner_refresh` sets when the factors are renewed: in every Newton iteration, in the first iteration of every step, or on demand when the step changes or the Krylov count grows.
 A solve that fails with older factors is repeated once with fresh ones.
 
+## Threads
+
+A run uses three kinds of threads, and each kind is set on its own:
+
+| Threads | Set by | Used by |
+|---|---|---|
+| Julia | `julia --threads=N` or `JULIA_NUM_THREADS` | the loops over the radii of the kinetic terms (below) |
+| BLAS | `OPENBLAS_NUM_THREADS` or `BLAS.set_num_threads` | the dense kernels inside UMFPACK |
+| PARDISO | `threads` of [`MKLPardiso`](@ref) | the factorization and the solve of [`MKLPardiso`](@ref) |
+
+With several Julia threads, a [`FokkerPlanckTerm`](@ref) applies its operator, rebuilds its coefficients and inserts its plasma columns with one task per share of the radii.
+A [`KineticIonizationTerm`](@ref) assembles its Jacobian block the same way.
+The terms still run one after the other, and each entry of the residual and of the Jacobian takes its additions in the order of one thread, so the results equal those of one thread bit for bit.
+The rest of a step runs on one thread: the colored differentiation around the terms, the other terms, and the linear solver apart from its own threads.
+
+The Julia threads and the threads of PARDISO take turns, so both can be set to the number of cores.
+The loops cannot use more Julia threads than there are radii.
+The measured gain is on the page [Performance and accuracy](../performance.md#Threads-over-radii).
+
 ## Time steppers
 
 The stepper sets the length of every step.

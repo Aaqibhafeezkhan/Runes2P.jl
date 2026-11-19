@@ -22,8 +22,10 @@ end
 
 statuses(solution) = join(string.(solution.statistics.status), ",")
 
-hold(name, value) = Equation(name, Algebraic(), PrescribedValueTerm(value),
-    LinearTerm(name; coefficient = -1))
+function hold(name, value)
+    Equation(name, Algebraic(), PrescribedValueTerm(value),
+        LinearTerm(name; coefficient = -1))
+end
 
 function ionization_case()
     composition = IonComposition(["D" => 1, "Ar" => 18])
@@ -84,14 +86,17 @@ function Runes2P.rhs!(out, term::KneeSink, u, layout, row, t)
     for ir in 1:radial_cell_count(layout)
         value = u[unknown_range(layout, id, ir)[2]]
         out[unknown_range(layout, row, ir)[2]] -= term.rate *
-                                                  clamp((value - term.bottom) / (term.top - term.bottom), 0, 1)
+                                                  clamp(
+            (value - term.bottom) /
+            (term.top - term.bottom), 0, 1)
     end
     return out
 end
 function Runes2P.sparsity!(entries, term::KneeSink, layout, row)
     id = unknown_id(layout, term.unknown)
     for ir in 1:radial_cell_count(layout)
-        push!(entries, (unknown_range(layout, row, ir)[2], unknown_range(layout, id, ir)[2]))
+        push!(entries, (
+            unknown_range(layout, row, ir)[2], unknown_range(layout, id, ir)[2]))
     end
     return entries
 end

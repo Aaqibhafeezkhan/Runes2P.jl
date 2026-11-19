@@ -20,13 +20,15 @@
         end
         # each child ran with the threads it was given
         for threads in (1, 4)
-            @test read(joinpath(directories[threads], "threads.txt"), String) == string(threads)
+            @test read(joinpath(directories[threads], "threads.txt"), String) ==
+                  string(threads)
         end
         names = filter(!=("threads.txt"), readdir(directories[1]))
         @test names == filter(!=("threads.txt"), readdir(directories[4]))
         @test length(names) == 8
         for name in names
-            @test read(joinpath(directories[1], name)) == read(joinpath(directories[4], name))
+            @test read(joinpath(directories[1], name)) ==
+                  read(joinpath(directories[4], name))
         end
         # the second system recovers from the DomainError by a smaller step at both counts
         @test startswith(read(joinpath(directories[4], "domain_error_status.txt"), String),

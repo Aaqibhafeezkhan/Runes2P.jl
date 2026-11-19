@@ -50,7 +50,9 @@ The second holds the details of the hot paths and the linear solvers, with the m
   A residual or a Jacobian evaluated a second time at one state allocates little, and tests bound it at `-O2`.
 - A cache is keyed on every input that its values read, such as the plasma values per radius of a [`PlasmaKey`](@ref).
   Its test changes an input alone and counts one rebuild, and none at an unchanged state.
-- The caches and buffers of the terms assume that one task assembles the system, as the package does.
+- One task assembles the terms, one term after the other.
+  A loop that runs on threads splits the radii of one term, and each radius writes only its own entries.
+  The caches it reads are filled before the loop, so the caches and buffers of the terms need no copy per task.
 
 ## The disruption case
 
