@@ -885,9 +885,15 @@ end
 # `apply!` with its radii on the threads of Julia, for a caller that applies the operator
 # alone at that moment, such as a Fokker-Planck term. With one thread it is `apply!`. The
 # radii write disjoint slabs of `df`, so the result is that of `apply!` bit for bit.
-@inline function _apply_on_threads!(
+function _apply_on_threads!(
         df::AbstractArray{<:Any, 3}, op::AdvectionDiffusion, f::AbstractArray{<:Any, 3};
         scale = true, limiter_state = nothing, electric_field = nothing)
+    electric_field === nothing || length(electric_field) == radial_cell_count(op.grid) ||
+        throw(DimensionMismatch("the electric field needs one value per radius"))
+    size(f) == size(df) == size(op.grid) ||
+        throw(DimensionMismatch("f and df must match grid"))
+    limiter_state === nothing || size(limiter_state) == size(f) ||
+        throw(DimensionMismatch("limiter_state must match the grid"))
     nr = radial_cell_count(op.grid)
     if !_threads_over_radii(nr)
         return apply!(df, op, f; scale, limiter_state, electric_field)
@@ -895,15 +901,8 @@ end
     return _apply_radii_threaded!(df, op, f, nr, scale, limiter_state, electric_field)
 end
 
-# the loop over the radii of `apply!` on the threads of Julia, behind a function barrier,
-# with the checks of `apply!`
+# the loop over the radii of `apply!` on the threads of Julia, behind a function barrier
 function _apply_radii_threaded!(df, op, f, nr, scale, limiter_state, electric_field)
-    electric_field === nothing || length(electric_field) == nr ||
-        throw(DimensionMismatch("the electric field needs one value per radius"))
-    size(f) == size(df) == size(op.grid) ||
-        throw(DimensionMismatch("f and df must match grid"))
-    limiter_state === nothing || size(limiter_state) == size(f) ||
-        throw(DimensionMismatch("limiter_state must match the grid"))
     radial_mode = _radial_flux_mode(op)
     _each_radius_threaded(nr) do ir
         @inbounds apply_radius!(
