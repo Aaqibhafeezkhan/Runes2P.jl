@@ -47,10 +47,10 @@ The second holds the details of the hot paths and the linear solvers, with the m
 - An inner loop has concrete types.
   A loop over values whose type is known only at run time allocates per entry, so it sits behind a function barrier.
 - A buffer is kept between calls, not allocated per call.
-  A residual or a Jacobian evaluated a second time at one state allocates little, and tests bound it at `-O2`.
+  A residual or a Jacobian evaluated a second time at one state allocates little, and tests bound it at `-O2` with one Julia thread.
 - A cache is keyed on every input that its values read, such as the plasma values per radius of a [`PlasmaKey`](@ref).
   Its test changes an input alone and counts one rebuild, and none at an unchanged state.
-- One task assembles the terms, one term after the other.
+- The terms are assembled one after the other, never two at once.
   A loop that runs on threads splits the radii of one term, and each radius writes only its own entries.
   The caches it reads are filled before the loop, so the caches and buffers of the terms need no copy per task.
 
@@ -199,32 +199,34 @@ Each figure is the median of five factorizations and five solves.
 
 ## Threads over radii
 
-With several Julia threads, the kinetic terms split the loops over their radii into tasks ([Threads](model/time-stepping.md#Threads)).
-The table gives the window of the disruption case without radial transport, in milliseconds per Newton iteration, at the number of Julia threads in the first column.
-Each run has one garbage-collector thread and one BLAS thread, and is bound to one logical CPU per core.
-The rows of [`SparseLU`](@ref) are the means of two runs, which differ by at most 2.0 ms.
-The rows of [`MKLPardiso`](@ref) at 8 threads are the medians of four runs, since one run took 6 ms longer in the Jacobian than the other three.
+This section gives the gain of several Julia threads on the disruption case, whose kinetic terms then split the loops over their radii into tasks ([Threads](model/time-stepping.md#Threads)).
+The table gives the window without radial transport, in milliseconds per Newton iteration, at the number of Julia threads in the first column.
+Each run has one garbage-collector thread and one BLAS thread, and `taskset` binds it to one logical CPU per physical core.
+The runs are a sitting of their own, so the rows at one thread differ from the table [A Newton iteration](#A-Newton-iteration) by up to 2 ms.
 The last column is the iteration at one Julia thread with the same solver divided by the iteration of the row.
 
 | Julia threads | Linear solver | Jacobian | Residual | Factorization | Solve | Iteration | Speedup |
 |---|---|---|---|---|---|---|---|
-| 1 | [`SparseLU`](@ref) | 33.8 | 6.8 | 108.5 | 5.4 | 159.3 | 1 |
+| 1 | [`SparseLU`](@ref) | 33.8 | 6.8 | 108.5 | 5.4 | 159.3 | 1.00 |
 | 2 | [`SparseLU`](@ref) | 27.6 | 5.9 | 108.9 | 5.4 | 153.1 | 1.04 |
 | 4 | [`SparseLU`](@ref) | 18.8 | 4.4 | 108.7 | 5.4 | 142.3 | 1.12 |
 | 8 | [`SparseLU`](@ref) | 15.1 | 3.3 | 109.0 | 5.4 | 137.7 | 1.16 |
-| 1 | [`MKLPardiso`](@ref) at 8 threads | 34.8 | 6.7 | 20.6 | 2.6 | 70.0 | 1 |
+| 1 | [`MKLPardiso`](@ref) at 8 threads | 34.8 | 6.7 | 20.6 | 2.6 | 70.0 | 1.00 |
 | 8 | [`MKLPardiso`](@ref) at 8 threads | 15.0 | 4.2 | 20.1 | 2.5 | 46.6 | 1.50 |
 
+- A row of [`SparseLU`](@ref) is the mean of two runs, whose iterations differ by at most 2.0 ms.
+  A row of [`MKLPardiso`](@ref) is the median of four runs in each column, since one run at 8 Julia threads took 6 ms longer in the Jacobian than the other three.
+- About 5 ms of an iteration are outside the four timers, as in the table [A Newton iteration](#A-Newton-iteration).
 - With [`SparseLU`](@ref) the states of all runs are equal bit for bit, at every number of threads.
   [`MKLPardiso`](@ref) at 8 threads does not repeat its own states bit for bit from one run to the next.
-- At 8 threads the Jacobian takes 0.45 of its time at one thread, and the residual 0.49.
-  The factorization does not change, so with [`SparseLU`](@ref) it is 79 % of the iteration at 8 threads.
+- With [`SparseLU`](@ref) at 8 threads, the Jacobian takes 0.45 of its time at one thread, and the residual 0.49.
+  The factorization does not change, so it is 79 % of the iteration at 8 threads.
 - From 4 threads to 8 the gain is small, also within the loops that run on threads.
-  At 8 threads each task holds two of the 15 radii, which would allow 7.5 times.
+  At 8 threads seven tasks hold two of the 15 radii and one holds one, so these loops could be at most 7.5 times faster than at one thread.
   The cause of the smaller gain is not measured.
 - With [`MKLPardiso`](@ref) at 8 threads and 8 Julia threads, the iteration takes 0.32 of DREAM's at 8 PARDISO threads (147.0 ms, [above](#A-Newton-iteration)).
-- The garbage collector takes 3.8 % to 4.5 % of the window with [`SparseLU`](@ref) at every number of threads.
-  It collects the 851 MB allocated per iteration, most of them by UMFPACK.
+- With [`SparseLU`](@ref) the run allocates 851 MB per iteration at every number of threads, most of them in UMFPACK, and the garbage collector takes 3.8 % to 4.5 % of the window.
+  With [`MKLPardiso`](@ref) the run allocates 5 MB per iteration.
 
 ## Radial transport of the distributions
 
@@ -269,7 +271,7 @@ The transport changes the counts of the system and the cost of a factorization:
 
 - The comparison tests with DREAM and the regression values hold the results.
 - `test_disruption_runaway_dream.jl` bounds the bytes of a second call of `jacobian!` on the window, of the plasma columns of each term and of the kept blocks.
-  The bounds hold at `-O2` and are skipped below it.
+  The bounds hold at `-O2` with one Julia thread, and are skipped below `-O2` and with more threads.
 - The blocks of the terms that keep buffers, weights or positions are compared bit for bit with blocks built afresh, at a state and at a changed state.
 - Tests of single systems bound their colors ([`jacobian_colors`](@ref)), and tests of operators the stored nonzeros of their matrices.
   No test holds the colors or the stored nonzeros of the disruption case, so a change there is checked by hand.

@@ -13,6 +13,7 @@ The test suite: its layout, its tiers and groups, how to run it, and the rules f
 | `example_disruption.jl` | the system of DREAM's disruption case |
 | `test_*.jl` | the test files |
 | `*_helpers.jl` | a file that one test file includes, not a test file of its own |
+| `threads_over_radii_child.jl` | the script that `test_threads_over_radii.jl` runs in subprocesses at several Julia threads, not a test file of its own |
 | `Artifacts.toml` | the reference data of the comparison tests, one lazy artifact per set: DREAM's output written by the cases of `reference/dream/cases/`, and GSL's values of `reference/gsl/` |
 | `Project.toml`, `Manifest.toml` | the test environment |
 
@@ -90,6 +91,7 @@ The component tests and a run of a few files are faster at `-O0`.
 Two kinds of assertion hold for optimised code alone:
 
 - Below `-O2` an assertion on allocations is skipped and reported as broken (`skip = !OPTIMIZED` in the test files).
+- With more than one Julia thread the assertions on the allocations of a residual or a Jacobian are skipped too (`ONE_THREAD` of `helpers.jl`), since the loops over the radii allocate their tasks.
 - Below `-O2` the stored values of `test_regression_values.jl` are compared to 1e-12 in place of bit for bit, since the sums run in another order.
 
 At `-O2` the pure-Julia entries of `test_regression_values.jl` are compared bit for bit, or to the tolerance of `RUNES2P_REGRESSION_RTOL` where it is set.

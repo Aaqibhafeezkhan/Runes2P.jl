@@ -1,4 +1,4 @@
-# Threads over radii: the residual, the stored Jacobian and the steps of two systems on 5
+# Threads over radii: the right-hand side, the stored Jacobian and the steps of two systems on 5
 # radii at 4 Julia threads equal those at one thread bit for bit, a step that recovers from a
 # DomainError of a trial state included. CI starts Julia with one thread, so each thread count
 # runs in a subprocess (threads_over_radii_child.jl), which writes its results as raw bytes.

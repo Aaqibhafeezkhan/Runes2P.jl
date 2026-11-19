@@ -152,22 +152,29 @@ A solve that fails with older factors is repeated once with fresh ones.
 
 ## Threads
 
-A run uses three kinds of threads, and each kind is set on its own:
+A run uses four kinds of threads, and each kind is set on its own:
 
 | Threads | Set by | Used by |
 |---|---|---|
-| Julia | `julia --threads=N` or `JULIA_NUM_THREADS` | the loops over the radii of the kinetic terms (below) |
+| Julia | `julia --threads=N` or `JULIA_NUM_THREADS` | the loops over the radii of [`FokkerPlanckTerm`](@ref) and [`KineticIonizationTerm`](@ref) (below) |
+| garbage collector | `julia --gcthreads=N` | the collection of the memory that the run frees |
 | BLAS | `OPENBLAS_NUM_THREADS` or `BLAS.set_num_threads` | the dense kernels inside UMFPACK |
 | PARDISO | `threads` of [`MKLPardiso`](@ref) | the factorization and the solve of [`MKLPardiso`](@ref) |
 
-With several Julia threads, a [`FokkerPlanckTerm`](@ref) applies its operator, rebuilds its coefficients and inserts its plasma columns with one task per share of the radii.
+With several Julia threads, a [`FokkerPlanckTerm`](@ref) applies its operator, rebuilds its coefficients and inserts its plasma columns ([Plasma columns of the Jacobian](unknowns.md#Plasma-columns-of-the-Jacobian)) in tasks.
+Each task takes one contiguous share of the radii, by the default schedule of `Threads.@threads`.
 A [`KineticIonizationTerm`](@ref) assembles its Jacobian block the same way.
-The terms still run one after the other, and each entry of the residual and of the Jacobian takes its additions in the order of one thread, so the results equal those of one thread bit for bit.
-The rest of a step runs on one thread: the colored differentiation around the terms, the other terms, and the linear solver apart from its own threads.
+The other terms, the knock-on term among them, run on one thread.
 
-The Julia threads and the threads of PARDISO take turns, so both can be set to the number of cores.
+The terms still run one after the other.
+Each entry of the residual and of the Jacobian takes its additions in the order of one thread, so with [`SparseLU`](@ref) the results equal those of one thread bit for bit.
+[`MKLPardiso`](@ref) on several threads does not repeat its own results bit for bit from one run to the next.
+The rest of a step runs on one thread: the colored differentiation of the Jacobian ([`jacobian_colors`](@ref)), the other terms, and the linear solver apart from its own threads.
+More BLAS threads do not help UMFPACK on the disruption case ([The linear solvers](../performance.md#The-linear-solvers)).
+
+The Julia threads and the threads of PARDISO take turns, so both can be set to the number of physical cores.
 The loops cannot use more Julia threads than there are radii.
-The measured gain is on the page [Performance and accuracy](../performance.md#Threads-over-radii).
+On the disruption case with 15 radii, 8 Julia threads make an iteration 1.16 times faster with [`SparseLU`](@ref) and 1.50 times with [`MKLPardiso`](@ref) at 8 threads ([Performance and accuracy](../performance.md#Threads-over-radii)).
 
 ## Time steppers
 

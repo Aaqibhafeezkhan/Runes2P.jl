@@ -360,6 +360,7 @@ function _add_kinetic_plasma_columns!(J, term::FokkerPlanckTerm,
     return J
 end
 
+# the radii of `_add_kinetic_plasma_columns!` on the threads of Julia, behind a function barrier
 function _add_kinetic_plasma_columns_threaded!(J, term, df, with_ions, layout, row, nr)
     _each_radius_threaded(nr) do ir
         _add_kinetic_plasma_columns_radius!(J, term, df, with_ions, layout, row, ir)
@@ -618,7 +619,7 @@ end
 
 # (J_exact - J_stored) v in one dual pass: the operator's directional derivative along v
 # minus the stored operator's (the frozen limiter's, or the other scheme's); allocation
-# free with the term's buffers
+# free with the term's buffers and one Julia thread
 function jacobian_correction_product!(out, term::FokkerPlanckTerm, u, v, layout, row, t)
     _scheme_jacobian_kind(term) === :approximate || return out
     refresh_coefficients!(term, u, layout, t)

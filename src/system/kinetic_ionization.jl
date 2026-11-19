@@ -175,6 +175,7 @@ function add_jacobian!(J, term::KineticIonizationTerm, u, layout, row, t)
     return J
 end
 
+# the radii of `add_jacobian!` on the threads of Julia, behind a function barrier
 function _add_ionization_jacobian_threaded!(J, term, u, layout, row, nr)
     _each_radius_threaded(nr) do ir
         _add_ionization_jacobian_radius!(J, term, u, layout, row, ir)
