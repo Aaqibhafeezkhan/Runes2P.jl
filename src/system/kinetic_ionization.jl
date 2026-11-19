@@ -184,7 +184,8 @@ _refreshed_envelope(::Nothing, ir) = nothing
 _refreshed_envelope(envelopes::RegionEnvelopes, ir) = envelopes.values[ir]
 
 # the block of radius `ir`, whose rows are its own, so the radii write disjoint stored values
-function _add_ionization_jacobian_radius!(J, term::KineticIonizationTerm, u, layout, row, ir)
+function _add_ionization_jacobian_radius!(
+        J, term::KineticIonizationTerm, u, layout, row, ir)
     c = term.composition
     values = nonzeros(J)
     kinetic = unknown_id(layout, term.kinetic)

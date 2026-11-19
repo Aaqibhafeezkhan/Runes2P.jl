@@ -19,7 +19,8 @@ function add_electric_field!(op::AdvectionDiffusion, plasma::PlasmaState)
 end
 
 # the electric field at radius `ir`
-function _add_electric_field_radius!(op::AdvectionDiffusion, plasma::PlasmaState, ir, np, nxi)
+function _add_electric_field_radius!(
+        op::AdvectionDiffusion, plasma::PlasmaState, ir, np, nxi)
     m = momentum_grid(op.grid, ir)
     a = Constants.ELEMENTARY_CHARGE * plasma.electric_field[ir] /
         (Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT)
@@ -154,7 +155,8 @@ function _add_slowing_down_and_energy_diffusion!(
     np, nxi, nr = size(g)
     energy_diffusion = collisions.settings.mode === :full
     for ir in 1:nr
-        _add_slowing_down_and_energy_diffusion_radius!(op, collisions, ir, np, nxi, energy_diffusion)
+        _add_slowing_down_and_energy_diffusion_radius!(
+            op, collisions, ir, np, nxi, energy_diffusion)
     end
     return op
 end
@@ -418,7 +420,8 @@ function _add_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::Plasma
         faces = [momentum_grid(op.grid, ir).p_faces for ir in 1:radial_cell_count(op.grid)])
     nr = radial_cell_count(op.grid)
     if _threads_over_radii(nr)
-        _add_coefficients_threaded!(op, plasma, collisions, synchrotron, field_in_coefficients, nr)
+        _add_coefficients_threaded!(
+            op, plasma, collisions, synchrotron, field_in_coefficients, nr)
     else
         if field_in_coefficients
             add_electric_field!(op, plasma)

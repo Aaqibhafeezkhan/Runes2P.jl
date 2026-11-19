@@ -855,12 +855,11 @@ function apply!(
         throw(DimensionMismatch("f and df must match grid"))
     limiter_state === nothing || size(limiter_state) == size(f) ||
         throw(DimensionMismatch("limiter_state must match the grid"))
-    radial_mode = _radial_flux_mode(op)
     nr = radial_cell_count(op.grid)
     if _threads_over_radii(nr)
-        _apply_radii_threaded!(df, op, f, nr, scale, limiter_state, electric_field, radial_mode)
-        return df
+        return _apply_radii_threaded!(df, op, f, nr, scale, limiter_state, electric_field)
     end
+    radial_mode = _radial_flux_mode(op)
     @inbounds for ir in 1:nr
         apply_radius!(df, op, f, ir, scale, limiter_state, electric_field, radial_mode)
     end
@@ -868,10 +867,11 @@ function apply!(
 end
 
 # the loop over the radii of `apply!` on the threads of Julia, behind a function barrier
-function _apply_radii_threaded!(
-        df, op, f, nr, scale, limiter_state, electric_field, radial_mode)
+function _apply_radii_threaded!(df, op, f, nr, scale, limiter_state, electric_field)
+    radial_mode = _radial_flux_mode(op)
     Threads.@threads for ir in 1:nr
-        @inbounds apply_radius!(df, op, f, ir, scale, limiter_state, electric_field, radial_mode)
+        @inbounds apply_radius!(
+            df, op, f, ir, scale, limiter_state, electric_field, radial_mode)
     end
     return df
 end
