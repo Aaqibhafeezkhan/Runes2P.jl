@@ -338,7 +338,7 @@ function add_plasma_columns!(J, term::FokkerPlanckTerm, u, layout, row, t)
     f = kinetic_array(u, layout, id)
     df = term.dual_columns[]::Array{D, 3}
     fill!(df, zero(D))
-    apply!(df, op, f; electric_field = _field_values(term.electric_field, u, layout))
+    _apply_on_threads!(df, op, f; electric_field = _field_values(term.electric_field, u, layout))
     return _add_kinetic_plasma_columns!(J, term, df, with_ions, layout, row)
 end
 
@@ -575,21 +575,22 @@ end
 # the operator on `f` into `df`, with the stored block's derivative for a dual state
 function _fokker_planck!(df, term::FokkerPlanckTerm, f, field = nothing)
     if _scheme_jacobian_kind(term) === :exact || !(eltype(f) <: ForwardDiff.Dual)
-        apply!(df, term.operator, f; electric_field = field)
+        _apply_on_threads!(df, term.operator, f; electric_field = field)
     elseif term.jacobian === :frozen_limiter
         # a dual state (Jacobian assembly): the limiter weights at the values, applied as
         # constants; the value part is the full residual, since the weights at f are f's own
         term.values .= _value.(f)
-        apply!(df, term.operator, f; limiter_state = term.values, electric_field = field)
+        _apply_on_threads!(
+            df, term.operator, f; limiter_state = term.values, electric_field = field)
     else
         # the derivative of the other scheme, with the value part corrected to the
         # operator's own residual (constant sources cancel in the difference)
-        apply!(df, term.stored_operator, f; electric_field = field)
+        _apply_on_threads!(df, term.stored_operator, f; electric_field = field)
         term.values .= _value.(f)
         plain = _plain_field!(term, field)
         fill!(term.correction, zero(eltype(term.correction)))
-        apply!(term.correction, term.operator, term.values; electric_field = plain)
-        apply!(term.correction, term.stored_operator,
+        _apply_on_threads!(term.correction, term.operator, term.values; electric_field = plain)
+        _apply_on_threads!(term.correction, term.stored_operator,
             term.values; scale = -1, electric_field = plain)
         df .+= term.correction
     end
@@ -639,13 +640,14 @@ function jacobian_correction_product!(out, term::FokkerPlanckTerm, u, v, layout,
         field = term.dual_field
     end
     fill!(output, zero(D))
-    apply!(output, term.operator, input; electric_field = field)
+    _apply_on_threads!(output, term.operator, input; electric_field = field)
     if term.jacobian === :frozen_limiter
         term.values .= f
-        apply!(output, term.operator, input; scale = -1,
+        _apply_on_threads!(output, term.operator, input; scale = -1,
             limiter_state = term.values, electric_field = field)
     else
-        apply!(output, term.stored_operator, input; scale = -1, electric_field = field)
+        _apply_on_threads!(
+            output, term.stored_operator, input; scale = -1, electric_field = field)
     end
     out_view = kinetic_array(out, layout, row)
     @inbounds for k in CartesianIndices(output)

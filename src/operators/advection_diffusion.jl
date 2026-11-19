@@ -20,7 +20,9 @@ end
 
 _task_error(err) = err
 _task_error(err::CompositeException) = _task_error(first(err.exceptions))
-_task_error(err::TaskFailedException) = _task_error(err.task.exception)
+function _task_error(err::TaskFailedException)
+    _task_error(last(current_exceptions(err.task)).exception)
+end
 
 """
     AdvectionDiffusion{T,C}
@@ -873,15 +875,30 @@ function apply!(
         throw(DimensionMismatch("f and df must match grid"))
     limiter_state === nothing || size(limiter_state) == size(f) ||
         throw(DimensionMismatch("limiter_state must match the grid"))
-    nr = radial_cell_count(op.grid)
-    if _threads_over_radii(nr)
-        return _apply_radii_threaded!(df, op, f, nr, scale, limiter_state, electric_field)
-    end
     radial_mode = _radial_flux_mode(op)
-    @inbounds for ir in 1:nr
+    @inbounds for ir in 1:radial_cell_count(op.grid)
         apply_radius!(df, op, f, ir, scale, limiter_state, electric_field, radial_mode)
     end
     return df
+end
+
+# `apply!` with its radii on the threads of Julia, for a caller that applies the operator
+# alone at that moment, such as a Fokker-Planck term. With one thread it is `apply!`. The
+# radii write disjoint slabs of `df`, so the result is that of `apply!` bit for bit.
+function _apply_on_threads!(
+        df::AbstractArray{<:Any, 3}, op::AdvectionDiffusion, f::AbstractArray{<:Any, 3};
+        scale = true, limiter_state = nothing, electric_field = nothing)
+    electric_field === nothing || length(electric_field) == radial_cell_count(op.grid) ||
+        throw(DimensionMismatch("the electric field needs one value per radius"))
+    size(f) == size(df) == size(op.grid) ||
+        throw(DimensionMismatch("f and df must match grid"))
+    limiter_state === nothing || size(limiter_state) == size(f) ||
+        throw(DimensionMismatch("limiter_state must match the grid"))
+    nr = radial_cell_count(op.grid)
+    if !_threads_over_radii(nr)
+        return apply!(df, op, f; scale, limiter_state, electric_field)
+    end
+    return _apply_radii_threaded!(df, op, f, nr, scale, limiter_state, electric_field)
 end
 
 # the loop over the radii of `apply!` on the threads of Julia, behind a function barrier

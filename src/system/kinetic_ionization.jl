@@ -130,9 +130,14 @@ the state `u` at the time `t` [s] with `v σ` above the threshold of the region,
 component of the ion densities.
 """
 function kinetic_ionization_rates(term::KineticIonizationTerm, u, layout, t, ir)
+    envelope = _moment_envelope(term.envelopes, term.grid, ir, u, layout, t)
+    return _ionization_rates(term, u, layout, ir, envelope)
+end
+
+# the rates of `kinetic_ionization_rates` with the envelope of the radius given
+function _ionization_rates(term::KineticIonizationTerm, u, layout, ir, envelope)
     f = kinetic_view(u, layout, unknown_id(layout, term.kinetic), ir)
     g = _pitch_moment(term, f, ir)
-    envelope = _moment_envelope(term.envelopes, term.grid, ir, u, layout, t)
     rates = term.rates[ir]
     cell_envelope(i) = _envelope_value(envelope, i)
     return [_rate_moment(cell_envelope, rates, g, c, axes(rates, 1))
@@ -199,9 +204,7 @@ function _add_ionization_jacobian_radius!(
     n = radial_view(u, layout, row, ir)
     envelope = _refreshed_envelope(term.envelopes, ir)
     rates, w = term.rates[ir], term.weights[ir]
-    g = _pitch_moment(term, kinetic_view(u, layout, kinetic, ir), ir)
-    cell_envelope(i) = _envelope_value(envelope, i)
-    K = [_rate_moment(cell_envelope, rates, g, k, axes(rates, 1)) for k in axes(rates, 2)]
+    K = _ionization_rates(term, u, layout, ir, envelope)
     # the derivative of the rates in the temperature, through the threshold of the region
     dK = if isempty(temperature)
         nothing
@@ -213,6 +216,7 @@ function _add_ionization_jacobian_radius!(
              sqrt(2 * dual_temperature /
                   Constants.ELECTRON_REST_ENERGY)
         dual_envelope = momentum_envelope!(zeros(D, momentum_cell_count(m)), term.envelopes.region, m, p0)
+        g = _pitch_moment(term, kinetic_view(u, layout, kinetic, ir), ir)
         envelope_derivative(i) = ForwardDiff.partials(dual_envelope[i], 1)
         [_rate_moment(envelope_derivative, rates, g, k, axes(rates, 1))
          for k in axes(rates, 2)]
