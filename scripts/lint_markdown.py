@@ -52,10 +52,12 @@ rule cell.
 The files of .github/ are skipped, since they keep one paragraph per line, and so is
 THIRD_PARTY_NOTICES.md, whose attributions and citations keep the wording of their sources.
 A sentence ends at a period, a question mark or an exclamation mark before a capital or an issue
-reference such as #12 or osrep/Runes2P.jl#12.
-A digit after the mark does not end it, since it follows lowercase abbreviations such as "eq." in citations.
+reference such as #n or owner/repo#n, in every rule.
+A digit after the mark does not end it, since it follows lowercase abbreviations such as "eq." in
+citations.
 A period after an abbreviation of the list below that does not follow a letter does not end a sentence.
-A heading is a line of one to six `#` and a space, so a line that starts with #12 is text.
+A heading is a line of one to six `#` followed by a space or the end of the line, so a line that
+starts with #n is text.
 
 With --github the text is that of a pull request, an issue or a comment, where GitHub renders a
 newline as a line break.
@@ -99,10 +101,11 @@ ABBREVIATIONS = ("e.g.", "i.e.", "cf.", "vs.", "al.", "approx.", "Fig.", "Figs."
 # an abbreviation as a whole word: not after a letter, so that "approval." keeps its period
 ABBREVIATION_PATTERN = re.compile(r"(?<![A-Za-z])(" + "|".join(re.escape(a[:-1]) for a in ABBREVIATIONS) + r")\.")
 LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+\.)\s+(?:\[[ xX]\]\s+)?")
-# a sentence ends before a capital or an issue reference (#12, owner/repo#12); not before a digit,
-# which follows lowercase abbreviations such as "eq." and "p." in citations
-SENTENCE_END = re.compile(r"[.!?][\"'”’)\]*_]*\s+(?=[\"'“‘(\[*_]*(?:[A-ZÀ-Ý§]|(?:[\w.-]+/[\w.-]+)?#\d))")
-# a heading: one to six `#` and a space or the end of the line, so that a line starting with #12 is text
+# what starts a sentence: a capital or an issue reference (#n, owner/repo#n); not a digit, which
+# follows lowercase abbreviations such as "eq." and "p." in citations
+SENTENCE_START = r"(?:[A-ZÀ-Ý§]|(?:[\w.-]+/[\w.-]+)?#\d)"
+SENTENCE_END = re.compile(r"[.!?][\"'”’)\]*_]*\s+(?=[\"'“‘(\[*_]*" + SENTENCE_START + ")")
+# a heading: one to six `#` and a space or the end of the line, so that a line starting with #n is text
 HEADING = re.compile(r"^#{1,6}(\s|$)")
 ENDS_SENTENCE = re.compile(r"[.!?:][\"'”’)\]*_]*$")
 # the units whose numbers count as values, each as written in the text
@@ -395,7 +398,7 @@ def check(lines, wanted, github=False):
                     report(number, "error", "sentences", "several sentences on one line")
                 if len(text) > LENGTH:
                     report(number, "error", "length", f"{len(text)} characters, the limit is {LENGTH}")
-            if re.search(r"\([^()]*[.!?]\s+[A-ZÀ-Ý][^()]*\)", text):
+            if re.search(r"\([^()]*[.!?]\s+" + SENTENCE_START + r"[^()]*\)", text):
                 report(number, "error", "parenthesis", "a second sentence inside parentheses")
             parts = sentences(" ".join(prose(lines[n - 1]) for n in piece))
             count += len(parts)
