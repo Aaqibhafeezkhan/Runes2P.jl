@@ -197,6 +197,35 @@ Each figure is the median of five factorizations and five solves.
 - Ten refinement steps of PARDISO take 80 to 90 ms per solve on that matrix, more than the factorization.
 - The figures of the tables of iterations are per Newton iteration of a run, so they differ from these.
 
+## Threads over radii
+
+With several Julia threads, the kinetic terms split the loops over their radii into tasks ([Threads](model/time-stepping.md#Threads)).
+The table gives the window of the disruption case without radial transport, in milliseconds per Newton iteration, at the number of Julia threads in the first column.
+Each run has one garbage-collector thread and one BLAS thread, and is bound to one logical CPU per core.
+The rows of [`SparseLU`](@ref) are the means of two runs, which differ by at most 2.0 ms.
+The rows of [`MKLPardiso`](@ref) at 8 threads are the medians of four runs, since one run took 6 ms longer in the Jacobian than the other three.
+The last column is the iteration at one Julia thread with the same solver divided by the iteration of the row.
+
+| Julia threads | Linear solver | Jacobian | Residual | Factorization | Solve | Iteration | Speedup |
+|---|---|---|---|---|---|---|---|
+| 1 | [`SparseLU`](@ref) | 33.8 | 6.8 | 108.5 | 5.4 | 159.3 | 1 |
+| 2 | [`SparseLU`](@ref) | 27.6 | 5.9 | 108.9 | 5.4 | 153.1 | 1.04 |
+| 4 | [`SparseLU`](@ref) | 18.8 | 4.4 | 108.7 | 5.4 | 142.3 | 1.12 |
+| 8 | [`SparseLU`](@ref) | 15.1 | 3.3 | 109.0 | 5.4 | 137.7 | 1.16 |
+| 1 | [`MKLPardiso`](@ref) at 8 threads | 34.8 | 6.7 | 20.6 | 2.6 | 70.0 | 1 |
+| 8 | [`MKLPardiso`](@ref) at 8 threads | 15.0 | 4.2 | 20.1 | 2.5 | 46.6 | 1.50 |
+
+- With [`SparseLU`](@ref) the states of all runs are equal bit for bit, at every number of threads.
+  [`MKLPardiso`](@ref) at 8 threads does not repeat its own states bit for bit from one run to the next.
+- At 8 threads the Jacobian takes 0.45 of its time at one thread, and the residual 0.49.
+  The factorization does not change, so with [`SparseLU`](@ref) it is 79 % of the iteration at 8 threads.
+- From 4 threads to 8 the gain is small, also within the loops that run on threads.
+  At 8 threads each task holds two of the 15 radii, which would allow 7.5 times.
+  The cause of the smaller gain is not measured.
+- With [`MKLPardiso`](@ref) at 8 threads and 8 Julia threads, the iteration takes 0.32 of DREAM's at 8 PARDISO threads (147.0 ms, [above](#A-Newton-iteration)).
+- The garbage collector takes 3.8 % to 4.5 % of the window with [`SparseLU`](@ref) at every number of threads.
+  It collects the 851 MB allocated per iteration, most of them by UMFPACK.
+
 ## Radial transport of the distributions
 
 Radial transport couples the cells of neighbouring radii, and the fill of the factorization grows with it.
