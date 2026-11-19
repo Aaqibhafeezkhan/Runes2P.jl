@@ -51,7 +51,11 @@ definitions of reference links and horizontal rules are skipped, and so are tabl
 rule cell.
 The files of .github/ are skipped, since they keep one paragraph per line, and so is
 THIRD_PARTY_NOTICES.md, whose attributions and citations keep the wording of their sources.
+A sentence ends at a period, a question mark or an exclamation mark before a capital or an issue
+reference such as #12 or osrep/Runes2P.jl#12.
+A digit after the mark does not end it, since it follows lowercase abbreviations such as "eq." in citations.
 A period after an abbreviation of the list below that does not follow a letter does not end a sentence.
+A heading is a line of one to six `#` and a space, so a line that starts with #12 is text.
 
 With --github the text is that of a pull request, an issue or a comment, where GitHub renders a
 newline as a line break.
@@ -95,7 +99,11 @@ ABBREVIATIONS = ("e.g.", "i.e.", "cf.", "vs.", "al.", "approx.", "Fig.", "Figs."
 # an abbreviation as a whole word: not after a letter, so that "approval." keeps its period
 ABBREVIATION_PATTERN = re.compile(r"(?<![A-Za-z])(" + "|".join(re.escape(a[:-1]) for a in ABBREVIATIONS) + r")\.")
 LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+\.)\s+(?:\[[ xX]\]\s+)?")
-SENTENCE_END = re.compile(r"[.!?][\"'”’)\]*_]*\s+(?=[\"'“‘(\[*_]*[A-ZÀ-Ý§])")
+# a sentence ends before a capital or an issue reference (#12, owner/repo#12); not before a digit,
+# which follows lowercase abbreviations such as "eq." and "p." in citations
+SENTENCE_END = re.compile(r"[.!?][\"'”’)\]*_]*\s+(?=[\"'“‘(\[*_]*(?:[A-ZÀ-Ý§]|(?:[\w.-]+/[\w.-]+)?#\d))")
+# a heading: one to six `#` and a space or the end of the line, so that a line starting with #12 is text
+HEADING = re.compile(r"^#{1,6}(\s|$)")
 ENDS_SENTENCE = re.compile(r"[.!?:][\"'”’)\]*_]*$")
 # the units whose numbers count as values, each as written in the text
 UNITS = ("eV", "keV", "MeV", "GeV", "K", "s", "ms", "µs", "μs", "ns", "min", "h", "m", "cm", "mm", "m⁻³", "m^-3",
@@ -234,7 +242,8 @@ def blocks(lines):
             found.append(("row", [number]))
             previous = "row"
             continue
-        if not stripped or stripped.startswith(("#", ">")) or re.match(r"^(-{3,}|\*{3,}|_{3,})$", stripped):
+        if not stripped or HEADING.match(stripped) or stripped.startswith(">") \
+                or re.match(r"^(-{3,}|\*{3,}|_{3,})$", stripped):
             previous = None
             continue
         if LIST_ITEM.match(line):
@@ -329,7 +338,8 @@ def page_start(lines):
         index += 1
     if index == len(lines):
         return None
-    if LIST_ITEM.match(lines[index]) or lines[index].strip().startswith(("#", "|", ">", "`" * 3, "~" * 3)):
+    if LIST_ITEM.match(lines[index]) or HEADING.match(lines[index].strip()) \
+            or lines[index].strip().startswith(("|", ">", "`" * 3, "~" * 3)):
         return index + 1
     return None
 

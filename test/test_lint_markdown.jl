@@ -95,6 +95,21 @@ end
                 @test result.code == 1
             end
 
+            @testset "sentences that start with an issue reference" begin
+                text = "The step is done. #12 is merged.\n" *
+                       "The step is done. osrep/Runes2P.jl#12 is merged.\n" *
+                       "The values are those of eq. 2.28 of the paper.\n" *
+                       "#12 is merged, and " * repeat("long ", 37) * "ends.\n"
+                result = lint_text(directory, "references.md", text)
+                # - lines 1 and 2: a sentence that starts with a reference ends the one before
+                # - line 3: a digit after a period does not, since it follows abbreviations
+                #   such as "eq." in citations
+                # - line 4: a line that starts with #12 is text, not a heading, and its sentence
+                #   of 209 characters is too long
+                @test result.findings == [(1, "sentences"), (2, "sentences"), (4, "length")]
+                @test result.code == 1
+            end
+
             @testset "warnings in prose" begin
                 text = """
                 The scheme is central; the boundary is fixed.
@@ -273,6 +288,10 @@ end
                 # a comment below the title renders nothing
                 result = lint_text(directory, "comment-first.md",
                     "# Title\n\n<!-- a note -->\n\nThe page holds this.\n")
+                @test isempty(result.warnings)
+                # a line that starts with #12 is text, not a heading
+                result = lint_text(directory, "reference-first.md",
+                    "# Title\n\n#12 holds the rows, and the page holds this.\n")
                 @test isempty(result.warnings)
                 result = lint_text(directory, "long-comment-first.md",
                     "# Title\n\n<!--\na note\n-->\n\n- A list comes first.\n")
