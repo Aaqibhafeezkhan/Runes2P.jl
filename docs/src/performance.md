@@ -48,7 +48,7 @@ The second holds the details of the hot paths and the linear solvers, with the m
   A loop over values whose type is known only at run time allocates per entry, so it sits behind a function barrier.
 - A buffer is kept between calls, not allocated per call.
   A residual or a Jacobian evaluated a second time at one state allocates little, and tests bound it at `-O2`.
-  With more than one Julia thread the threaded loops allocate their tasks, so the tests that expect no allocation there run with one thread.
+  With more than one Julia thread the threaded loops allocate their tasks, so the tests that expect no allocation there are skipped above one thread.
 - A cache is keyed on every input that its values read, such as the plasma values per radius of a [`PlasmaKey`](@ref).
   Its test changes an input alone and counts one rebuild, and none at an unchanged state.
 - The terms are assembled one after the other, never two at once.

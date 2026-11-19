@@ -1,6 +1,7 @@
 # Threads over radii: the right-hand side, the stored Jacobian and the steps of two systems on 5
 # radii at 4 Julia threads equal those at one thread bit for bit, a step that recovers from a
-# DomainError of a trial state included. CI starts Julia with one thread, so each thread count
+# DomainError of a trial state included, and so do the threaded operator and coefficients on 6
+# radii with radial transport, a limiter and the field. CI starts Julia with one thread, so each thread count
 # runs in a subprocess (threads_over_radii_child.jl), which writes its results as raw bytes.
 
 @testset "threads over radii" begin
@@ -25,7 +26,7 @@
         end
         names = filter(!=("threads.txt"), readdir(directories[1]))
         @test names == filter(!=("threads.txt"), readdir(directories[4]))
-        @test length(names) == 8
+        @test length(names) == 9
         for name in names
             @test read(joinpath(directories[1], name)) ==
                   read(joinpath(directories[4], name))
@@ -34,7 +35,7 @@
         # by a smaller step
         @test read(joinpath(directories[4], "ionization_status.txt"), String) ==
               "converged,converged"
-        @test startswith(read(joinpath(directories[4], "domain_error_status.txt"), String),
-            "domain_error")
+        status = read(joinpath(directories[4], "domain_error_status.txt"), String)
+        @test startswith(status, "domain_error") && endswith(status, "converged")
     end
 end

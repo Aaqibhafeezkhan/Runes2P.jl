@@ -331,21 +331,33 @@ function set_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaS
         throw(DimensionMismatch("plasma and grid radii differ"))
     zero_coefficients!(op)
     return _add_fokker_planck_coefficients!(
-        op, plasma, settings, synchrotron, field_in_coefficients)
+        op, plasma, settings, synchrotron, field_in_coefficients, false)
+end
+
+# `set_fokker_planck_coefficients!` with the radii on the threads of Julia, for a Fokker-Planck
+# term that rebuilds its own operator; the coefficients are the same bit for bit
+function _set_fokker_planck_coefficients_on_threads!(op::AdvectionDiffusion,
+        plasma::PlasmaState, settings::CollisionSettings, synchrotron::Bool,
+        field_in_coefficients::Bool)
+    radial_cell_count(plasma) == radial_cell_count(op.grid) ||
+        throw(DimensionMismatch("plasma and grid radii differ"))
+    zero_coefficients!(op)
+    return _add_fokker_planck_coefficients!(
+        op, plasma, settings, synchrotron, field_in_coefficients, true)
 end
 
 # The rebuild of `set_fokker_planck_coefficients!` for an operator whose coefficient arrays
 # no other function writes, such as the operator of dual coefficients of a Fokker-Planck
 # term: it zeroes only the arrays that its terms write and those of the rebuild before it
 # (`_zero_rebuilt_coefficients!`), which gives the same coefficients as
-# `set_fokker_planck_coefficients!`.
+# `set_fokker_planck_coefficients!`. Its radii run on the threads of Julia.
 function _rebuild_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaState,
         settings::CollisionSettings, synchrotron::Bool, field_in_coefficients::Bool)
     radial_cell_count(plasma) == radial_cell_count(op.grid) ||
         throw(DimensionMismatch("plasma and grid radii differ"))
     _zero_rebuilt_coefficients!(op, settings, synchrotron, field_in_coefficients)
     return _add_fokker_planck_coefficients!(
-        op, plasma, settings, synchrotron, field_in_coefficients)
+        op, plasma, settings, synchrotron, field_in_coefficients, true)
 end
 
 # Whether the terms of `set_fokker_planck_coefficients!` write `advection_xi` (the
@@ -413,13 +425,14 @@ end
 
 # the terms of `set_fokker_planck_coefficients!` into zeroed arrays, and the record of the
 # coefficients; the slowing down and the energy diffusion in one sweep, which evaluates ν_s
-# once per face
+# once per face; with `threads` the radii run on the threads of Julia
 function _add_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaState,
-        settings::CollisionSettings, synchrotron::Bool, field_in_coefficients::Bool)
+        settings::CollisionSettings, synchrotron::Bool, field_in_coefficients::Bool,
+        threads::Bool)
     collisions = CollisionModel(plasma, settings;
         faces = [momentum_grid(op.grid, ir).p_faces for ir in 1:radial_cell_count(op.grid)])
     nr = radial_cell_count(op.grid)
-    if _threads_over_radii(nr)
+    if threads && _threads_over_radii(nr)
         _add_coefficients_threaded!(
             op, plasma, collisions, synchrotron, field_in_coefficients, nr)
     else

@@ -92,7 +92,7 @@ Two kinds of assertion hold for optimised code alone:
 
 - Below `-O2` an assertion on allocations is skipped and reported as broken (`skip = !OPTIMIZED` in the test files).
 - With more than one Julia thread some assertions are skipped too (`ONE_THREAD` of `helpers.jl`), since the threaded loops allocate their tasks.
-  They are those that a residual or a Jacobian with such a loop allocates nothing, and the bound of the plasma columns.
+  They are the assertions that a residual or a Jacobian with such a loop allocates nothing, and the bound of the plasma columns.
 - Below `-O2` the stored values of `test_regression_values.jl` are compared to 1e-12 in place of bit for bit, since the sums run in another order.
 
 At `-O2` the pure-Julia entries of `test_regression_values.jl` are compared bit for bit, or to the tolerance of `RUNES2P_REGRESSION_RTOL` where it is set.

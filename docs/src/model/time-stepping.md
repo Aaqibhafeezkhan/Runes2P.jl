@@ -168,7 +168,7 @@ The other terms, the knock-on term among them, run on one thread.
 
 The terms still run one after the other.
 Each entry of the residual and of the Jacobian takes its additions in the order of one thread, so with [`SparseLU`](@ref) the results equal those of one thread bit for bit.
-[`MKLPardiso`](@ref) at 8 threads did not repeat its own results bit for bit from one run to the next on the disruption case.
+[`MKLPardiso`](@ref) at 8 threads did not repeat its own results bit for bit from one run to the next on the disruption case ([Threads over radii](../performance.md#Threads-over-radii)).
 The rest of a step runs on one thread: the work of the colored differentiation of the Jacobian around the passes of the terms ([`jacobian_colors`](@ref)), the other terms, and the linear solver apart from its own threads.
 More BLAS threads do not help UMFPACK on the disruption case ([The linear solvers](../performance.md#The-linear-solvers)).
 

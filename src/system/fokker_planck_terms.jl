@@ -240,9 +240,8 @@ function _rebuild_coefficients!(term::FokkerPlanckTerm, u, layout, t)
         ion_state = _ion_state(term, u))
     plasma === nothing && return term.operator
     try
-        set_fokker_planck_coefficients!(
-            term.operator, plasma, term.settings; synchrotron = term.synchrotron,
-            field_in_coefficients = field)
+        _set_fokker_planck_coefficients_on_threads!(
+            term.operator, plasma, term.settings, term.synchrotron, field)
         _check_declared_coefficients(term.operator, _operator_owner(term))
     catch
         reset_key!(term.plasma_key)

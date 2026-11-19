@@ -7,10 +7,14 @@
 # the Jacobian of the kinetic ionization with an envelope that follows the temperature. The
 # second system takes a full Newton step that makes the free-electron density negative, so a
 # trial state throws a DomainError inside a threaded loop and the solver recovers by a smaller
-# step.
+# step. The operator and the coefficients are also written on their own, for the paths that the
+# systems do not take: radial transport, a limiter, the field as an argument, a scale, a state in
+# dual numbers, and the coefficients of a plasma with the field and the synchrotron loss.
 
 using Runes2P
 using Runes2P: population_equations
+using ForwardDiff: Dual, Partials
+using Random: Xoshiro
 
 const OUT = only(ARGS)
 const RADII = 5
@@ -136,7 +140,57 @@ function domain_error_case()
     return EquationSystem(layout, equations; time_scale = dt, initial_state = u), u, dt
 end
 
+# the threaded entries of the operator and of the coefficients on 6 radii, with coefficients
+# drawn from a fixed seed
+function operator_paths()
+    radii = 6
+    rng = Xoshiro(7)
+    grid = cylindrical_grid(
+        MomentumGrid(uniform_p_faces(16, 0.0, 1.0), uniform_xi_faces(5)),
+        RadialGrid(uniform_r_faces(radii, 0.5)))
+    f = rand(rng, size(grid)...) .+ 0.1
+    state = rand(rng, size(grid)...) .+ 0.1
+    field = randn(rng, radii)
+    dual_f = [Dual{Nothing}(x, Partials((randn(rng), randn(rng)))) for x in f]
+    results = Float64[]
+    for scheme in (:upwind, :smart)
+        op = AdvectionDiffusion(grid; scheme)
+        for A in (op.advection_p, op.diffusion_p_p, op.diffusion_p_xi, op.advection_xi,
+            op.diffusion_xi_xi, op.diffusion_xi_p, op.advection_r, op.diffusion_r_r,
+            op.unit_field_advection_p, op.unit_field_advection_xi)
+            A .= randn(rng, size(A))
+        end
+        for A in (op.diffusion_p_p, op.diffusion_xi_xi, op.diffusion_r_r)
+            A .= abs.(A)
+        end
+        df = zeros(size(grid))
+        Runes2P._apply_on_threads!(df, op, f;
+            scale = -1, limiter_state = state, electric_field = field)
+        append!(results, vec(df))
+        dual_df = zeros(eltype(dual_f), size(grid))
+        Runes2P._apply_on_threads!(dual_df, op, dual_f; limiter_state = state)
+        for x in dual_df
+            push!(results, x.value, x.partials...)
+        end
+    end
+    plasma = PlasmaState(;
+        cold_electron_temperature = collect(range(5.0, 500.0; length = radii)),
+        cold_electron_density = fill(1e19, radii),
+        ions = [
+            IonSpecies("D", 1, 1, fill(1e19, radii)), IonSpecies("Ar", 18, 2, fill(1e17, radii))],
+        electric_field = collect(range(1.0, 20.0; length = radii)), magnetic_field = fill(5.0, radii))
+    op = AdvectionDiffusion(grid)
+    Runes2P._set_fokker_planck_coefficients_on_threads!(
+        op, plasma, CollisionSettings(; mode = :full, screening = :partial), true, true)
+    for A in (op.advection_p, op.diffusion_p_p, op.advection_xi, op.diffusion_xi_xi,
+        op.advection_p_times_p2_at_zero)
+        append!(results, vec(A))
+    end
+    return results
+end
+
 write(joinpath(OUT, "threads.txt"), string(Threads.nthreads()))
+save("operator_paths.bin", operator_paths())
 
 system, u = ionization_case()
 du = zeros(length(u))
