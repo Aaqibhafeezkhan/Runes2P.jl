@@ -885,7 +885,7 @@ end
 # `apply!` with its radii on the threads of Julia, for a caller that applies the operator
 # alone at that moment, such as a Fokker-Planck term. With one thread it is `apply!`. The
 # radii write disjoint slabs of `df`, so the result is that of `apply!` bit for bit.
-function _apply_on_threads!(
+@inline function _apply_on_threads!(
         df::AbstractArray{<:Any, 3}, op::AdvectionDiffusion, f::AbstractArray{<:Any, 3};
         scale = true, limiter_state = nothing, electric_field = nothing)
     nr = radial_cell_count(op.grid)
