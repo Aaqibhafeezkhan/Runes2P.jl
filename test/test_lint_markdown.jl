@@ -2,12 +2,13 @@
 # of the section "Markdown" of CONTRIBUTING.md: a period after an abbreviation of its list
 # does not end a sentence, and a word such as "approval.", which ends like "al.", keeps its
 # period. A sentence that starts with an issue reference ends the one before, and a line
-# that starts with #n is text, not a heading. The warnings of the section "Writing": each rule on a sample that breaks it and on
-# near misses that must stay quiet (code, math, citations, conditions, equation numbers, the
-# alternatives of a table cell). Each near miss of the rule values is a sentence that would
-# warn without its exemption. The mode for the text of GitHub, the exit codes, the lines that
-# a branch adds and the annotations of GitHub Actions. The expected lines are worked out by
-# applying the rules of the script's docstring by hand to each line.
+# that starts with #n is text, not a heading. The warnings of the section "Writing": each
+# rule on a sample that breaks it and on near misses that must stay quiet (code, math,
+# citations, conditions, equation numbers, the alternatives of a table cell). Each near miss
+# of the rule values is a sentence that would warn without its exemption. The mode for the
+# text of GitHub, the exit codes, the lines that a branch adds and the annotations of GitHub
+# Actions. The expected lines are worked out by applying the rules of the script's docstring
+# by hand to each line.
 using Test
 
 const LINT = joinpath(dirname(@__DIR__), "scripts", "lint_markdown.py")
@@ -101,7 +102,8 @@ end
                        "The step is done. osrep/Runes2P.jl#12 is merged.\n" *
                        "The values are those of eq. 2.28 of the paper.\n" *
                        "#12 is merged, and " * repeat("long ", 37) * "ends.\n" *
-                       "The step is done (it is merged. #12 has it).\n"
+                       "The step is done (it is merged. #12 has it).\n" *
+                       "The palette uses red. #1f77b4 is its first color.\n"
                 result = lint_text(directory, "references.md", text)
                 # - lines 1 and 2: a sentence that starts with a reference ends the one before
                 # - line 3: a digit after a period does not, since it follows abbreviations
@@ -109,6 +111,7 @@ end
                 # - line 4: a line that starts with #12 is text, not a heading, and the line
                 #   of 209 characters is too long
                 # - line 5: the reference starts a second sentence, also inside the parentheses
+                # - line 6: a color such as #1f77b4 is no issue reference
                 expected = [(1, "sentences"), (2, "sentences"), (4, "length"),
                     (5, "sentences"), (5, "parenthesis")]
                 @test result.findings == expected

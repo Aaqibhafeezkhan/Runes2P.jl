@@ -52,9 +52,10 @@ rule cell.
 The files of .github/ are skipped, since they keep one paragraph per line, and so is
 THIRD_PARTY_NOTICES.md, whose attributions and citations keep the wording of their sources.
 A sentence ends at a period, a question mark or an exclamation mark before a capital or an issue
-reference such as #n or owner/repo#n, in every rule.
-A digit after the mark does not end it, since it follows lowercase abbreviations such as "eq." in
-citations.
+reference such as #n or owner/repo#n.
+The rule parenthesis looks for the same start of a second sentence.
+A digit after the mark does not end a sentence, since in citations a digit often follows a lowercase
+abbreviation such as "eq.".
 A period after an abbreviation of the list below that does not follow a letter does not end a sentence.
 A heading is a line of one to six `#` followed by a space or the end of the line, so a line that
 starts with #n is text.
@@ -101,9 +102,10 @@ ABBREVIATIONS = ("e.g.", "i.e.", "cf.", "vs.", "al.", "approx.", "Fig.", "Figs."
 # an abbreviation as a whole word: not after a letter, so that "approval." keeps its period
 ABBREVIATION_PATTERN = re.compile(r"(?<![A-Za-z])(" + "|".join(re.escape(a[:-1]) for a in ABBREVIATIONS) + r")\.")
 LIST_ITEM = re.compile(r"^\s*(?:[-*+]|\d+\.)\s+(?:\[[ xX]\]\s+)?")
-# what starts a sentence: a capital or an issue reference (#n, owner/repo#n); not a digit, which
-# follows lowercase abbreviations such as "eq." and "p." in citations
-SENTENCE_START = r"(?:[A-ZÀ-Ý§]|(?:[\w.-]+/[\w.-]+)?#\d)"
+# what starts a sentence: a capital or an issue reference (#n, owner/repo#n, a whole number, so that
+# a color such as #1f77b4 is none); not a digit, which follows lowercase abbreviations such as "eq."
+# and "p." in citations
+SENTENCE_START = r"(?:[A-ZÀ-Ý§]|(?:[\w.-]+/[\w.-]+)?#\d+\b)"
 SENTENCE_END = re.compile(r"[.!?][\"'”’)\]*_]*\s+(?=[\"'“‘(\[*_]*" + SENTENCE_START + ")")
 # a heading: one to six `#` and a space or the end of the line, so that a line starting with #n is text
 HEADING = re.compile(r"^#{1,6}(\s|$)")
