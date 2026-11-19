@@ -8,7 +8,8 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Added
 
-- With several Julia threads (`julia --threads=N`), a `FokkerPlanckTerm` applies its operator, rebuilds its coefficients and inserts its plasma columns with one task per share of the radii, and a `KineticIonizationTerm` assembles its Jacobian the same way ([#331](https://github.com/osrep/Runes2P.jl/pull/331)).
+- With several Julia threads (`julia --threads=N`), the loops over the radii of the kinetic terms run as tasks ([#331](https://github.com/osrep/Runes2P.jl/pull/331)).
+  A `FokkerPlanckTerm` applies its operator, rebuilds its coefficients and inserts its plasma columns this way, and a `KineticIonizationTerm` assembles its Jacobian.
   The results equal those of one thread bit for bit.
   The residual, `rhs!` and `jacobian!` then allocate the tasks of these loops, so they are allocation free with one Julia thread only.
 - `OUTPUT_FORMAT_VERSION` is 0.0.6 for the records of `KineticEnergyChangeTerm` and `InterfaceCollisionWorkTerm` in the settings record of a run ([#294](https://github.com/osrep/Runes2P.jl/pull/294), [#296](https://github.com/osrep/Runes2P.jl/pull/296), [#297](https://github.com/osrep/Runes2P.jl/pull/297), [#306](https://github.com/osrep/Runes2P.jl/pull/306)).
