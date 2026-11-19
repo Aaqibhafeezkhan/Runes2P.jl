@@ -152,12 +152,12 @@ A solve that fails with older factors is repeated once with fresh ones.
 
 ## Threads
 
-A run uses four kinds of threads, and each kind is set on its own:
+A run uses four kinds of threads:
 
 | Threads | Set by | Used by |
 |---|---|---|
 | Julia | `julia --threads=N` or `JULIA_NUM_THREADS` | the loops over the radii of [`FokkerPlanckTerm`](@ref) and [`KineticIonizationTerm`](@ref) (below) |
-| garbage collector | `julia --gcthreads=N` | the collection of the memory that the run frees |
+| garbage collector | `julia --gcthreads=N`, by default as many as the Julia threads | the collection of the memory that the run frees |
 | BLAS | `OPENBLAS_NUM_THREADS` or `BLAS.set_num_threads` | the dense kernels inside UMFPACK |
 | PARDISO | `threads` of [`MKLPardiso`](@ref) | the factorization and the solve of [`MKLPardiso`](@ref) |
 
@@ -168,11 +168,11 @@ The other terms, the knock-on term among them, run on one thread.
 
 The terms still run one after the other.
 Each entry of the residual and of the Jacobian takes its additions in the order of one thread, so with [`SparseLU`](@ref) the results equal those of one thread bit for bit.
-[`MKLPardiso`](@ref) on several threads does not repeat its own results bit for bit from one run to the next.
-The rest of a step runs on one thread: the colored differentiation of the Jacobian ([`jacobian_colors`](@ref)), the other terms, and the linear solver apart from its own threads.
+[`MKLPardiso`](@ref) at 8 threads did not repeat its own results bit for bit from one run to the next on the disruption case.
+The rest of a step runs on one thread: the work of the colored differentiation of the Jacobian around the passes of the terms ([`jacobian_colors`](@ref)), the other terms, and the linear solver apart from its own threads.
 More BLAS threads do not help UMFPACK on the disruption case ([The linear solvers](../performance.md#The-linear-solvers)).
 
-The Julia threads and the threads of PARDISO take turns, so both can be set to the number of physical cores.
+The threaded loops and the solver run one after the other, so both kinds of threads can be set to the number of physical cores, as in the measurements with 8 of each on 8 cores.
 The loops cannot use more Julia threads than there are radii.
 On the disruption case with 15 radii, 8 Julia threads make an iteration 1.16 times faster with [`SparseLU`](@ref) and 1.50 times with [`MKLPardiso`](@ref) at 8 threads ([Performance and accuracy](../performance.md#Threads-over-radii)).
 
