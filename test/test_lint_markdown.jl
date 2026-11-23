@@ -1,12 +1,14 @@
 # The markdown lint of `scripts/lint_markdown.py` on small files written here. The findings
 # of the section "Markdown" of CONTRIBUTING.md: a period after an abbreviation of its list
 # does not end a sentence, and a word such as "approval.", which ends like "al.", keeps its
-# period. The warnings of the section "Writing": each rule on a sample that breaks it and on
-# near misses that must stay quiet (code, math, citations, conditions, equation numbers, the
-# alternatives of a table cell). Each near miss of the rule values is a sentence that would
-# warn without its exemption. The mode for the text of GitHub, the exit codes, the lines that
-# a branch adds and the annotations of GitHub Actions. The expected lines are worked out by
-# applying the rules of the script's docstring by hand to each line.
+# period. A sentence that starts with an issue reference ends the one before, and a line
+# that starts with #n is text, not a heading. The warnings of the section "Writing": each
+# rule on a sample that breaks it and on near misses that must stay quiet (code, math,
+# citations, conditions, equation numbers, the alternatives of a table cell). Each near miss
+# of the rule values is a sentence that would warn without its exemption. The mode for the
+# text of GitHub, the exit codes, the lines that a branch adds and the annotations of GitHub
+# Actions. The expected lines are worked out by applying the rules of the script's docstring
+# by hand to each line.
 using Test
 
 const LINT = joinpath(dirname(@__DIR__), "scripts", "lint_markdown.py")
@@ -93,6 +95,39 @@ end
                 # the eight lines are one paragraph of more than six sentences
                 @test result.warnings == [(1, "paragraph")]
                 @test result.code == 1
+            end
+
+            @testset "sentences that start with an issue reference" begin
+                text = "The step is done. #12 is merged.\n" *
+                       "The step is done. osrep/Runes2P.jl#12 is merged.\n" *
+                       "The values are those of eq. 2.28 of the paper.\n" *
+                       "#12 is merged, and " * repeat("long ", 37) * "ends.\n" *
+                       "The step is done (it is merged. #12 has it).\n" *
+                       "The palette uses red. #1f77b4 is its first color.\n"
+                result = lint_text(directory, "references.md", text)
+                # - lines 1 and 2: a sentence that starts with a reference ends the one before
+                # - line 3: a digit after a period does not, since it follows abbreviations
+                #   such as "eq." in citations
+                # - line 4: a line that starts with #12 is text, not a heading, and the line
+                #   of 209 characters is too long
+                # - line 5: the reference starts a second sentence, also inside the parentheses
+                # - line 6: a color such as #1f77b4 is no issue reference
+                expected = [(1, "sentences"), (2, "sentences"), (4, "length"),
+                    (5, "sentences"), (5, "parenthesis")]
+                @test result.findings == expected
+                @test result.code == 1
+                mktempdir() do outside
+                    # for GitHub: two sentences of 107 and 104 characters, which the old rule
+                    # read as one of 212
+                    path = joinpath(outside, "comment.md")
+                    write(path,
+                        "The step is done, and " * repeat("long ", 16) *
+                        "ends. #12 is merged, and " *
+                        repeat("long ", 16) * "ends.\n")
+                    result = lint(directory, "--github", path)
+                    @test isempty(result.findings)
+                    @test result.code == 0
+                end
             end
 
             @testset "warnings in prose" begin
@@ -273,6 +308,10 @@ end
                 # a comment below the title renders nothing
                 result = lint_text(directory, "comment-first.md",
                     "# Title\n\n<!-- a note -->\n\nThe page holds this.\n")
+                @test isempty(result.warnings)
+                # a line that starts with #12 is text, not a heading
+                result = lint_text(directory, "reference-first.md",
+                    "# Title\n\n#12 holds the rows, and the page holds this.\n")
                 @test isempty(result.warnings)
                 result = lint_text(directory, "long-comment-first.md",
                     "# Title\n\n<!--\na note\n-->\n\n- A list comes first.\n")
