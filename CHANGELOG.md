@@ -8,6 +8,9 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Added
 
+- With several Julia threads (`julia --threads=N`), the loops over the radii of the kinetic terms run as tasks ([#331](https://github.com/osrep/Runes2P.jl/pull/331)).
+  A `FokkerPlanckTerm` applies its operator, rebuilds its coefficients and inserts its plasma columns this way, and a `KineticIonizationTerm` assembles its Jacobian.
+  The results equal those of one thread bit for bit.
 - `OUTPUT_FORMAT_VERSION` is 0.0.6 for the records of `KineticEnergyChangeTerm` and `InterfaceCollisionWorkTerm` in the settings record of a run ([#294](https://github.com/osrep/Runes2P.jl/pull/294), [#296](https://github.com/osrep/Runes2P.jl/pull/296), [#297](https://github.com/osrep/Runes2P.jl/pull/297), [#306](https://github.com/osrep/Runes2P.jl/pull/306)).
   The record of a `SecondaryHeatingTerm` with `cut = :knockon` holds its knock-on term under the new key `knockon_term`.
   A file of the format 0.0.5 reads as before.
@@ -57,6 +60,8 @@ Until the first release, every change is listed under "Unreleased", with the sub
 
 ### Changed
 
+- With more than one Julia thread, a `FokkerPlanckTerm` allocates the tasks of its loops over the radii in `residual!`, `rhs!` and `jacobian!` ([#331](https://github.com/osrep/Runes2P.jl/pull/331)).
+  A system whose terms allocate nothing with one thread then allocates these tasks.
 - Under the total energy of the electrons (`total_energy_equation`), an `EquationSystem` accepts radial transport of a distribution whose energy is in the total, which it refused until now ([#295](https://github.com/osrep/Runes2P.jl/pull/295), [#306](https://github.com/osrep/Runes2P.jl/pull/306)).
   The row of the temperature then needs one `KineticEnergyChangeTerm` of each `FokkerPlanckTerm` of that distribution whose operator holds nonzero radial coefficients, with a positive coefficient and without a region.
   A second such term of one Fokker-Planck term is refused.

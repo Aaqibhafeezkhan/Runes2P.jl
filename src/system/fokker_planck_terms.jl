@@ -240,9 +240,8 @@ function _rebuild_coefficients!(term::FokkerPlanckTerm, u, layout, t)
         ion_state = _ion_state(term, u))
     plasma === nothing && return term.operator
     try
-        set_fokker_planck_coefficients!(
-            term.operator, plasma, term.settings; synchrotron = term.synchrotron,
-            field_in_coefficients = field)
+        _set_fokker_planck_coefficients_on_threads!(
+            term.operator, plasma, term.settings, term.synchrotron, field)
         _check_declared_coefficients(term.operator, _operator_owner(term))
     catch
         reset_key!(term.plasma_key)
@@ -338,7 +337,7 @@ function add_plasma_columns!(J, term::FokkerPlanckTerm, u, layout, row, t)
     f = kinetic_array(u, layout, id)
     df = term.dual_columns[]::Array{D, 3}
     fill!(df, zero(D))
-    apply!(df, op, f; electric_field = _field_values(term.electric_field, u, layout))
+    _apply_on_threads!(df, op, f; electric_field = _field_values(term.electric_field, u, layout))
     return _add_kinetic_plasma_columns!(J, term, df, with_ions, layout, row)
 end
 
@@ -349,27 +348,48 @@ end
 # start of the run, and each cell adds at its offset in the run
 function _add_kinetic_plasma_columns!(J, term::FokkerPlanckTerm,
         df::Array{<:ForwardDiff.Dual{<:Any, <:Any, N}, 3}, with_ions, layout, row) where {N}
-    np, nxi, nr = size(df)
-    values = nonzeros(J)
+    nr = size(df, 3)
+    if _threads_over_radii(nr)
+        return _add_kinetic_plasma_columns_threaded!(
+            J, term, df, with_ions, layout, row, nr)
+    end
     for ir in 1:nr
-        columns = plasma_columns(term.plasma, layout, ir; with_ions)::Vector{Int}
-        if length(columns) != N
-            throw(DimensionMismatch("$(length(columns)) plasma columns for $N partials"))
-        end
-        rows = unknown_range(layout, row, ir)
-        # the cells of the row unknown match those of `df`, so the offsets stay inside the
-        # run, which the `@inbounds` below relies on
-        if layout.shapes[row, ir] != (np, nxi)
-            throw(DimensionMismatch("the cells of the row unknown at radius $ir differ from those of the term"))
-        end
-        starts = ntuple(k -> _run_start(J, rows, columns[k]), Val(N))
-        for j in 1:nxi, i in 1:np
+        _add_kinetic_plasma_columns_radius!(J, term, df, with_ions, layout, row, ir)
+    end
+    return J
+end
 
-            offset = _kinetic_index(layout, row, ir, i, j) - first(rows)
-            partials = ForwardDiff.partials(df[i, j, ir])
-            @inbounds for k in 1:N
-                values[starts[k] + offset] += partials[k]
-            end
+# the radii of `_add_kinetic_plasma_columns!` on the threads of Julia, behind a function barrier
+function _add_kinetic_plasma_columns_threaded!(J, term, df, with_ions, layout, row, nr)
+    _each_radius_threaded(nr) do ir
+        _add_kinetic_plasma_columns_radius!(J, term, df, with_ions, layout, row, ir)
+    end
+    return J
+end
+
+# the plasma columns of radius `ir`: its rows and columns are its own, so the radii write
+# disjoint stored values
+function _add_kinetic_plasma_columns_radius!(J, term::FokkerPlanckTerm,
+        df::Array{<:ForwardDiff.Dual{<:Any, <:Any, N}, 3}, with_ions, layout, row, ir) where {N}
+    np, nxi, _ = size(df)
+    values = nonzeros(J)
+    columns = plasma_columns(term.plasma, layout, ir; with_ions)::Vector{Int}
+    if length(columns) != N
+        throw(DimensionMismatch("$(length(columns)) plasma columns for $N partials"))
+    end
+    rows = unknown_range(layout, row, ir)
+    # the cells of the row unknown match those of `df`, so the offsets stay inside the
+    # run, which the `@inbounds` below relies on
+    if layout.shapes[row, ir] != (np, nxi)
+        throw(DimensionMismatch("the cells of the row unknown at radius $ir differ from those of the term"))
+    end
+    starts = ntuple(k -> _run_start(J, rows, columns[k]), Val(N))
+    for j in 1:nxi, i in 1:np
+
+        offset = _kinetic_index(layout, row, ir, i, j) - first(rows)
+        partials = ForwardDiff.partials(df[i, j, ir])
+        @inbounds for k in 1:N
+            values[starts[k] + offset] += partials[k]
         end
     end
     return J
@@ -555,21 +575,22 @@ end
 # the operator on `f` into `df`, with the stored block's derivative for a dual state
 function _fokker_planck!(df, term::FokkerPlanckTerm, f, field = nothing)
     if _scheme_jacobian_kind(term) === :exact || !(eltype(f) <: ForwardDiff.Dual)
-        apply!(df, term.operator, f; electric_field = field)
+        _apply_on_threads!(df, term.operator, f; electric_field = field)
     elseif term.jacobian === :frozen_limiter
         # a dual state (Jacobian assembly): the limiter weights at the values, applied as
         # constants; the value part is the full residual, since the weights at f are f's own
         term.values .= _value.(f)
-        apply!(df, term.operator, f; limiter_state = term.values, electric_field = field)
+        _apply_on_threads!(
+            df, term.operator, f; limiter_state = term.values, electric_field = field)
     else
         # the derivative of the other scheme, with the value part corrected to the
         # operator's own residual (constant sources cancel in the difference)
-        apply!(df, term.stored_operator, f; electric_field = field)
+        _apply_on_threads!(df, term.stored_operator, f; electric_field = field)
         term.values .= _value.(f)
         plain = _plain_field!(term, field)
         fill!(term.correction, zero(eltype(term.correction)))
-        apply!(term.correction, term.operator, term.values; electric_field = plain)
-        apply!(term.correction, term.stored_operator,
+        _apply_on_threads!(term.correction, term.operator, term.values; electric_field = plain)
+        _apply_on_threads!(term.correction, term.stored_operator,
             term.values; scale = -1, electric_field = plain)
         df .+= term.correction
     end
@@ -597,7 +618,7 @@ end
 
 # (J_exact - J_stored) v in one dual pass: the operator's directional derivative along v
 # minus the stored operator's (the frozen limiter's, or the other scheme's); allocation
-# free with the term's buffers
+# free with the term's buffers and one Julia thread
 function jacobian_correction_product!(out, term::FokkerPlanckTerm, u, v, layout, row, t)
     _scheme_jacobian_kind(term) === :approximate || return out
     refresh_coefficients!(term, u, layout, t)
@@ -619,13 +640,14 @@ function jacobian_correction_product!(out, term::FokkerPlanckTerm, u, v, layout,
         field = term.dual_field
     end
     fill!(output, zero(D))
-    apply!(output, term.operator, input; electric_field = field)
+    _apply_on_threads!(output, term.operator, input; electric_field = field)
     if term.jacobian === :frozen_limiter
         term.values .= f
-        apply!(output, term.operator, input; scale = -1,
+        _apply_on_threads!(output, term.operator, input; scale = -1,
             limiter_state = term.values, electric_field = field)
     else
-        apply!(output, term.stored_operator, input; scale = -1, electric_field = field)
+        _apply_on_threads!(
+            output, term.stored_operator, input; scale = -1, electric_field = field)
     end
     out_view = kinetic_array(out, layout, row)
     @inbounds for k in CartesianIndices(output)

@@ -156,7 +156,7 @@ end
             allocated = @allocated Runes2P.add_plasma_columns!(
                 J, b.term, u0, case.layout, b.row, times[1])
             @info "the disruption case with a runaway grid against DREAM: plasma columns of the $(nameof(typeof(b.term))) of $(case.layout.unknowns[b.row].name) $allocated B"
-            @test allocated < PLASMA_COLUMNS_ALLOCATION skip = !OPTIMIZED
+            @test allocated < PLASMA_COLUMNS_ALLOCATION skip = !(OPTIMIZED && ONE_THREAD)
         end
         # the terms with a local Jacobian keep its buffers, and the friction term its weights:
         # their kept blocks at the state and at another state are the same bit for bit as

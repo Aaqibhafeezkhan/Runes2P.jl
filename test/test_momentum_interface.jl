@@ -241,7 +241,7 @@ end
         other = rand(rng, length(layout))
         jacobian!(J, system, other, 0.0)
         @test J * u ≈ du rtol = 1e-12
-        @test (@allocated rhs!(du, u, system, 0.0)) == 0
+        @test (@allocated rhs!(du, u, system, 0.0)) == 0 skip = !ONE_THREAD
     end
 
     @testset "four-point and limiter schemes below the interface ($scheme, $mapping)" for scheme in (:quick, :tcdf),

@@ -432,7 +432,9 @@ the step of length `dt` [s], with explicit terms at `u_old` and the terms prepar
 `u_old` ([`prepare_step!`](@ref)). The reference is the start state for backward Euler; the
 two-step BDF2 of [`StepController`](@ref)`(order = 2)` passes its combination of the two
 last states and its effective step. `M` has one entry per row with a time derivative, in the
-column of the unknown whose derivative the row holds. Allocation free.
+column of the unknown whose derivative the row holds. It allocates no more than its terms do,
+and with more than one Julia thread the loops over the radii of a Fokker-Planck term allocate
+their tasks.
 """
 function residual!(F::AbstractVector, u::AbstractVector, u_old::AbstractVector,
         system::EquationSystem, t, dt; reference::AbstractVector = u_old)

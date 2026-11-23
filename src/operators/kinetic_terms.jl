@@ -13,17 +13,24 @@ function add_electric_field!(op::AdvectionDiffusion, plasma::PlasmaState)
     g = op.grid
     np, nxi, nr = size(g)
     for ir in 1:nr
-        m = momentum_grid(g, ir)
-        a = Constants.ELEMENTARY_CHARGE * plasma.electric_field[ir] /
-            (Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT)
-        for j in 1:nxi, k in 1:(np + 1)
+        _add_electric_field_radius!(op, plasma, ir, np, nxi)
+    end
+    return op
+end
 
-            op.advection_p[k, j, ir] += a * m.xi_centers[j]
-        end
-        for k in 1:(nxi + 1), i in 1:np
+# the electric field at radius `ir`
+function _add_electric_field_radius!(
+        op::AdvectionDiffusion, plasma::PlasmaState, ir, np, nxi)
+    m = momentum_grid(op.grid, ir)
+    a = Constants.ELEMENTARY_CHARGE * plasma.electric_field[ir] /
+        (Constants.ELECTRON_MASS * Constants.SPEED_OF_LIGHT)
+    for j in 1:nxi, k in 1:(np + 1)
 
-            op.advection_xi[i, k, ir] += a * (1 - m.xi_faces[k]^2) / m.p_centers[i]
-        end
+        op.advection_p[k, j, ir] += a * m.xi_centers[j]
+    end
+    for k in 1:(nxi + 1), i in 1:np
+
+        op.advection_xi[i, k, ir] += a * (1 - m.xi_faces[k]^2) / m.p_centers[i]
     end
     return op
 end
@@ -95,9 +102,17 @@ function add_pitch_scattering!(op::AdvectionDiffusion, collisions::CollisionMode
     g = op.grid
     np, nxi, nr = size(g)
     nxi == 1 && return op
-    for ir in 1:nr, i in 1:np
+    for ir in 1:nr
+        _add_pitch_scattering_radius!(op, collisions, ir, np, nxi)
+    end
+    return op
+end
 
-        m = momentum_grid(g, ir)
+# the pitch-angle scattering at radius `ir`, for more than one pitch cell
+function _add_pitch_scattering_radius!(
+        op::AdvectionDiffusion, collisions::CollisionModel, ir, np, nxi)
+    m = momentum_grid(op.grid, ir)
+    for i in 1:np
         p = m.p_centers[i]
         entry = _center_entry(collisions, ir, i, p)
         nu = _deflection_frequency(collisions, ir, p, entry)
@@ -140,24 +155,32 @@ function _add_slowing_down_and_energy_diffusion!(
     np, nxi, nr = size(g)
     energy_diffusion = collisions.settings.mode === :full
     for ir in 1:nr
-        m = momentum_grid(g, ir)
-        for k in 1:(np + 1)
-            p = m.p_faces[k]
-            entry = _face_entry(collisions, ir, k, p)
-            nu_s, nu_parallel = _slowing_down_and_parallel_diffusion(collisions, ir, p, entry)
-            A = -p * nu_s
+        _add_slowing_down_and_energy_diffusion_radius!(
+            op, collisions, ir, np, nxi, energy_diffusion)
+    end
+    return op
+end
+
+# the friction and the energy diffusion at radius `ir`
+function _add_slowing_down_and_energy_diffusion_radius!(
+        op::AdvectionDiffusion, collisions::CollisionModel, ir, np, nxi, energy_diffusion)
+    m = momentum_grid(op.grid, ir)
+    for k in 1:(np + 1)
+        p = m.p_faces[k]
+        entry = _face_entry(collisions, ir, k, p)
+        nu_s, nu_parallel = _slowing_down_and_parallel_diffusion(collisions, ir, p, entry)
+        A = -p * nu_s
+        for j in 1:nxi
+            op.advection_p[k, j, ir] += A
+        end
+        if energy_diffusion
             for j in 1:nxi
-                op.advection_p[k, j, ir] += A
-            end
-            if energy_diffusion
-                for j in 1:nxi
-                    op.diffusion_p_p[k, j, ir] += nu_parallel
-                end
+                op.diffusion_p_p[k, j, ir] += nu_parallel
             end
         end
-        if m.p_faces[1] == 0
-            op.advection_p_times_p2_at_zero[:, ir] .-= p3_slowing_down_frequency_at_zero(collisions, ir)
-        end
+    end
+    if m.p_faces[1] == 0
+        op.advection_p_times_p2_at_zero[:, ir] .-= p3_slowing_down_frequency_at_zero(collisions, ir)
     end
     return op
 end
@@ -172,24 +195,30 @@ Synchrotron radiation reaction in a homogeneous field `B` [T] of `plasma`:
 function add_synchrotron!(op::AdvectionDiffusion, plasma::PlasmaState)
     g = op.grid
     np, nxi, nr = size(g)
+    for ir in 1:nr
+        _add_synchrotron_radius!(op, plasma, ir, np, nxi)
+    end
+    return op
+end
+
+# the synchrotron loss at radius `ir`
+function _add_synchrotron_radius!(op::AdvectionDiffusion, plasma::PlasmaState, ir, np, nxi)
     C = Constants.ELEMENTARY_CHARGE^4 /
         (6pi * Constants.VACUUM_PERMITTIVITY * Constants.ELECTRON_MASS^3 *
          Constants.SPEED_OF_LIGHT^3)
-    for ir in 1:nr
-        m = momentum_grid(g, ir)
-        prefactor = C * plasma.magnetic_field[ir]^2
-        for j in 1:nxi, k in 1:(np + 1)
+    m = momentum_grid(op.grid, ir)
+    prefactor = C * plasma.magnetic_field[ir]^2
+    for j in 1:nxi, k in 1:(np + 1)
 
-            p = m.p_faces[k]
-            op.advection_p[k, j, ir] -= prefactor * p * sqrt(1 + p^2) *
-                                        (1 - m.xi_centers[j]^2)
-        end
-        for k in 1:(nxi + 1), i in 1:np
+        p = m.p_faces[k]
+        op.advection_p[k, j, ir] -= prefactor * p * sqrt(1 + p^2) *
+                                    (1 - m.xi_centers[j]^2)
+    end
+    for k in 1:(nxi + 1), i in 1:np
 
-            xi = m.xi_faces[k]
-            op.advection_xi[i, k, ir] += prefactor * (1 - xi^2) * xi /
-                                         sqrt(1 + m.p_centers[i]^2)
-        end
+        xi = m.xi_faces[k]
+        op.advection_xi[i, k, ir] += prefactor * (1 - xi^2) * xi /
+                                     sqrt(1 + m.p_centers[i]^2)
     end
     return op
 end
@@ -302,21 +331,33 @@ function set_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaS
         throw(DimensionMismatch("plasma and grid radii differ"))
     zero_coefficients!(op)
     return _add_fokker_planck_coefficients!(
-        op, plasma, settings, synchrotron, field_in_coefficients)
+        op, plasma, settings, synchrotron, field_in_coefficients, false)
+end
+
+# `set_fokker_planck_coefficients!` with the radii on the threads of Julia, for a Fokker-Planck
+# term that rebuilds its own operator; the coefficients are the same bit for bit
+function _set_fokker_planck_coefficients_on_threads!(op::AdvectionDiffusion,
+        plasma::PlasmaState, settings::CollisionSettings, synchrotron::Bool,
+        field_in_coefficients::Bool)
+    radial_cell_count(plasma) == radial_cell_count(op.grid) ||
+        throw(DimensionMismatch("plasma and grid radii differ"))
+    zero_coefficients!(op)
+    return _add_fokker_planck_coefficients!(
+        op, plasma, settings, synchrotron, field_in_coefficients, true)
 end
 
 # The rebuild of `set_fokker_planck_coefficients!` for an operator whose coefficient arrays
 # no other function writes, such as the operator of dual coefficients of a Fokker-Planck
 # term: it zeroes only the arrays that its terms write and those of the rebuild before it
 # (`_zero_rebuilt_coefficients!`), which gives the same coefficients as
-# `set_fokker_planck_coefficients!`.
+# `set_fokker_planck_coefficients!`. Its radii run on the threads of Julia.
 function _rebuild_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaState,
         settings::CollisionSettings, synchrotron::Bool, field_in_coefficients::Bool)
     radial_cell_count(plasma) == radial_cell_count(op.grid) ||
         throw(DimensionMismatch("plasma and grid radii differ"))
     _zero_rebuilt_coefficients!(op, settings, synchrotron, field_in_coefficients)
     return _add_fokker_planck_coefficients!(
-        op, plasma, settings, synchrotron, field_in_coefficients)
+        op, plasma, settings, synchrotron, field_in_coefficients, true)
 end
 
 # Whether the terms of `set_fokker_planck_coefficients!` write `advection_xi` (the
@@ -360,20 +401,49 @@ function _zero_rebuilt_coefficients!(
     return op
 end
 
+# the terms of `set_fokker_planck_coefficients!` per radius on the threads of Julia; each radius
+# adds them in the order of the serial sweeps, so every entry takes the same sum
+function _add_coefficients_threaded!(op::AdvectionDiffusion, plasma::PlasmaState,
+        collisions::CollisionModel, synchrotron::Bool, field_in_coefficients::Bool, nr)
+    np, nxi, _ = size(op.grid)
+    energy_diffusion = collisions.settings.mode === :full
+    _each_radius_threaded(nr) do ir
+        if field_in_coefficients
+            _add_electric_field_radius!(op, plasma, ir, np, nxi)
+        end
+        _add_slowing_down_and_energy_diffusion_radius!(
+            op, collisions, ir, np, nxi, energy_diffusion)
+        if nxi != 1
+            _add_pitch_scattering_radius!(op, collisions, ir, np, nxi)
+        end
+        if synchrotron
+            _add_synchrotron_radius!(op, plasma, ir, np, nxi)
+        end
+    end
+    return op
+end
+
 # the terms of `set_fokker_planck_coefficients!` into zeroed arrays, and the record of the
 # coefficients; the slowing down and the energy diffusion in one sweep, which evaluates ν_s
-# once per face
+# once per face; with `threads` the radii run on the threads of Julia
 function _add_fokker_planck_coefficients!(op::AdvectionDiffusion, plasma::PlasmaState,
-        settings::CollisionSettings, synchrotron::Bool, field_in_coefficients::Bool)
+        settings::CollisionSettings, synchrotron::Bool, field_in_coefficients::Bool,
+        threads::Bool)
     collisions = CollisionModel(plasma, settings;
         faces = [momentum_grid(op.grid, ir).p_faces for ir in 1:radial_cell_count(op.grid)])
-    if field_in_coefficients
-        add_electric_field!(op, plasma)
-    end
-    _add_slowing_down_and_energy_diffusion!(op, collisions)
-    add_pitch_scattering!(op, collisions)
-    if synchrotron
-        add_synchrotron!(op, plasma)
+    nr = radial_cell_count(op.grid)
+    if threads && _threads_over_radii(nr)
+        _add_coefficients_threaded!(
+            op, plasma, collisions, synchrotron, field_in_coefficients, nr)
+    else
+        if field_in_coefficients
+            add_electric_field!(op, plasma)
+        end
+        _add_slowing_down_and_energy_diffusion!(op, collisions)
+        add_pitch_scattering!(op, collisions)
+        if synchrotron
+            add_synchrotron!(op, plasma)
+        end
     end
     # the key :electric_field is read by the settings record and the checks of the terms, and
     # the keys :settings, :synchrotron and :electric_field by `_zero_rebuilt_coefficients!`

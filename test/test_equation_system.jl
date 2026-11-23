@@ -182,7 +182,7 @@ end
         @test J2 == J
         # jacobian! allocates nothing
         jacobian!(J, system, u, 0.0)
-        @test (@allocated jacobian!(J, system, u, 0.0)) == 0
+        @test (@allocated jacobian!(J, system, u, 0.0)) == 0 skip = !ONE_THREAD
     end
 
     @testset "Jacobian operator: all implicit terms" begin
@@ -324,12 +324,14 @@ end
                  for solver in (NewtonSolver(), NewtonSolver(linear_solver = GMRES()))]
         @test steps[1] ≈ steps[2] rtol = 1e-8
         residual!(Fl, u, u_old, lagged, 0.0, dt)
-        @test (@allocated residual!(Fl, u, u_old, lagged, 0.0, dt)) == 0 skip = !OPTIMIZED
+        @test (@allocated residual!(Fl, u, u_old, lagged, 0.0, dt)) == 0 skip = !(OPTIMIZED &&
+                                                                                  ONE_THREAD)
 
         residual!(F, u, u_old, system, 0.0, dt)
-        @test (@allocated residual!(F, u, u_old, system, 0.0, dt)) == 0 skip = !OPTIMIZED
+        @test (@allocated residual!(F, u, u_old, system, 0.0, dt)) == 0 skip = !(OPTIMIZED &&
+                                                                                 ONE_THREAD)
         rhs!(du, u, system, 0.0)
-        @test (@allocated rhs!(du, u, system, 0.0)) == 0 skip = !OPTIMIZED
+        @test (@allocated rhs!(du, u, system, 0.0)) == 0 skip = !(OPTIMIZED && ONE_THREAD)
     end
 
     @testset "checks on construction" begin
